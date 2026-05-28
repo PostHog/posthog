@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { widgetDateRangeSchema } from './widgetDateRangeOptions'
+
 /** Shared widget config fields inherited by all widget types. */
 export const baseWidgetConfigSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
@@ -55,3 +57,18 @@ const widgetDateRangeObjectSchema = z
 export const widgetDateRangeSchema = widgetDateRangeObjectSchema.optional()
 
 // New widget types: add per-type schemas here — CONTRIBUTING.md
+const limitFieldSchema = z
+    .number({ invalid_type_error: 'Must be an integer between 1 and 25.' })
+    .int('Must be an integer between 1 and 25.')
+    .min(1, 'Must be an integer between 1 and 25.')
+    .max(25, 'Must be an integer between 1 and 25.')
+
+export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
+    limit: limitFieldSchema.default(25),
+    orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
+    orderDirection: z.enum(['ASC', 'DESC']).default('DESC'),
+    status: z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all']).default('active'),
+    dateRange: widgetDateRangeSchema,
+})
+
+export type ErrorTrackingWidgetConfig = z.infer<typeof errorTrackingWidgetConfigSchema>

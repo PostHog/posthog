@@ -2,6 +2,7 @@ import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
 import type { PatchedDashboardApi } from './generated/api.schemas'
+import { parseErrorTrackingWidgetConfigApiError } from './widgets/error_tracking/errorTrackingWidgetConfigValidation'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
 
@@ -17,6 +18,16 @@ export class WidgetConfigValidationError extends Error {
 
 export function isWidgetConfigValidationError(error: unknown): error is WidgetConfigValidationError {
     return error instanceof WidgetConfigValidationError
+}
+
+function parseWidgetConfigApiError(widgetType: string, error: unknown): WidgetFieldErrors | null {
+    switch (widgetType) {
+        case 'error_tracking':
+        case 'error_tracking_list':
+            return parseErrorTrackingWidgetConfigApiError(error)
+        default:
+            return null
+    }
 }
 
 export async function updateDashboardWidgetTile({
@@ -49,20 +60,30 @@ export async function updateDashboardWidgetTile({
         widgetPatch.description = description
     }
 
-    const dashboard = await dashboardsPartialUpdate(String(teamId), dashboardId, {
-        tiles: [
-            {
-                id: tile.id,
-                widget: {
-                    id: tile.widget.id,
-                    ...widgetPatch,
+    try {
+        const dashboard = await dashboardsPartialUpdate(String(teamId), dashboardId, {
+            tiles: [
+                {
+                    id: tile.id,
+                    widget: {
+                        id: tile.widget.id,
+                        ...widgetPatch,
+                    },
                 },
-            },
-        ],
-    } as PatchedDashboardApi)
-    const updatedTile = dashboard.tiles?.find((existingTile) => existingTile.id === tile.id)
-    if (!updatedTile) {
-        throw new Error('Updated tile not found in dashboard response')
+            ],
+        } as PatchedDashboardApi)
+        const updatedTile = dashboard.tiles?.find((existingTile) => existingTile.id === tile.id)
+        if (!updatedTile) {
+            throw new Error('Updated tile not found in dashboard response')
+        }
+        return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
+    } catch (error) {
+        if (config !== undefined) {
+            const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error)
+            if (fieldErrors && Object.keys(fieldErrors).length > 0) {
+                throw new WidgetConfigValidationError(fieldErrors)
+            }
+        }
+        throw error
     }
-    return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
 }

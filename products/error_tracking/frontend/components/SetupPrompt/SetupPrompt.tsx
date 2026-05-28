@@ -1,9 +1,13 @@
 import { useActions, useValues } from 'kea'
+import type { ComponentType } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { WarningHog } from 'lib/components/hedgehogs'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import {
+    ProductIntroduction,
+    type ProductIntroductionProps,
+} from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import androidImage from 'scenes/onboarding/sdks/logos/android.svg'
@@ -19,7 +23,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
-const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
+export const ERROR_TRACKING_FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     {
         name: 'JavaScript',
         image: javascriptImage,
@@ -56,13 +60,23 @@ export const ErrorTrackingSetupPrompt = ({
             <Spinner />
         </div>
     ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
-        <IngestionStatusCheck className={className} />
+        <ErrorTrackingIngestionPrompt className={className} />
     ) : (
         <>{children}</>
     )
 }
 
-const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Element | null => {
+export type ErrorTrackingIngestionPromptProps = {
+    className?: string
+    IntroductionComponent?: ComponentType<ProductIntroductionProps>
+    actionElementClassName?: string
+}
+
+export function ErrorTrackingIngestionPrompt({
+    className,
+    IntroductionComponent = ProductIntroduction,
+    actionElementClassName = 'flex flex-col items-start gap-4',
+}: ErrorTrackingIngestionPromptProps): JSX.Element {
     const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -77,7 +91,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
     }
 
     return (
-        <ProductIntroduction
+        <IntroductionComponent
             productName="Error tracking"
             thingName="issue"
             titleOverride="You haven't captured any exceptions"
@@ -88,7 +102,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
             mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
-                <div className="flex flex-col items-start gap-4">
+                <div className={actionElementClassName}>
                     <p className="text-sm text-secondary m-0">
                         Read our{' '}
                         <Link to="https://posthog.com/docs/error-tracking" onClick={onDocsLinkClick}>
@@ -97,7 +111,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                         , or pick a framework to get started:
                     </p>
                     <div className="flex flex-wrap gap-2">
-                        {FRAMEWORK_LINKS.map(({ name, image, docsLink }) => (
+                        {ERROR_TRACKING_FRAMEWORK_LINKS.map(({ name, image, docsLink }) => (
                             <LemonButton
                                 key={name}
                                 type="secondary"

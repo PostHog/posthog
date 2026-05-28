@@ -8,6 +8,8 @@ import {
     getDashboardWidgetCatalogEntry,
 } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
+import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
+import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
 
 export type DashboardWidgetRegistryLookupContext = {
     tileId?: number
@@ -85,7 +87,13 @@ export type DashboardWidgetEditModalProps = {
  *
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
-export const DASHBOARD_WIDGET_REGISTRY: Record<string, DashboardWidgetDefinition> = {}
+export const DASHBOARD_WIDGET_REGISTRY = {
+    error_tracking_list: {
+        Component: ErrorTrackingWidget,
+        EditModal: EditErrorTrackingWidgetModal,
+        productAccess: 'error_tracking',
+    },
+} satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 
 function isDashboardWidgetRegistryKey(widgetType: string): widgetType is DashboardWidgetCatalogKey {
     return widgetType in DASHBOARD_WIDGET_REGISTRY

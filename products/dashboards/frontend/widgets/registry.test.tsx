@@ -17,6 +17,19 @@ describe('dashboard widget registry', () => {
         resetDashboardWidgetRegistryReportingForTests()
     })
 
+    it('registers error_tracking_list widget', () => {
+        const definition = getDashboardWidgetDefinition('error_tracking_list')
+        expect(definition?.Component).toBeTruthy()
+        expect(definition?.EditModal).toBeTruthy()
+        expect(definition?.productAccess).toBe('error_tracking')
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    it('resolves error_tracking widget type alias', () => {
+        expect(getDashboardWidgetDefinition('error_tracking')).toBe(getDashboardWidgetDefinition('error_tracking_list'))
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
     it('registers every catalog key', () => {
         for (const key of Object.keys(DASHBOARD_WIDGET_CATALOG)) {
             expect(getDashboardWidgetDefinition(key)).not.toBeUndefined()
