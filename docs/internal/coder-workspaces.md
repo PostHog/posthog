@@ -10,6 +10,17 @@ Use this when you want a remote PostHog dev environment instead of running the f
 - You want a persistent remote workspace that is easy to stop and resume
 - You are working from a machine where local Docker setup is inconvenient
 
+## Setting up with a coding agent
+
+If you use a coding agent (Claude Code, Cursor, etc.), the `setting-up-devbox` skill teaches it this whole workflow — ask it to "set up my devbox" and it will check prerequisites, run setup, start a box, and verify access. It leans on two read/run helpers you can also use directly:
+
+```bash
+hogli devbox:doctor              # read-only health check: tailnet access, reachability, auth, ssh config
+hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box and get its exit code
+```
+
+`devbox:doctor` is the first thing to run when a devbox command misbehaves — it names the likely cause (most often the Tailscale ACL grant) instead of failing cryptically.
+
 ## Common scenarios
 
 **Connecting your IDE** —
@@ -101,6 +112,7 @@ Run `hogli devbox` to see all available commands, and `hogli <command> --help` f
 
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
+When in doubt, `hogli devbox:doctor` reports which prerequisite is missing.
 
 ## Managing Coder user secrets
 

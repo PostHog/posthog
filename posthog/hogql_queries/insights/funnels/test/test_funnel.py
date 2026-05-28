@@ -60,6 +60,7 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import fu
 from posthog.models import Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
+from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -3832,6 +3833,39 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["count"], 1)
         self.assertEqual(result[2]["count"], 1)
 
+    def test_hogql_aggregation_by_numeric_property(self):
+        # A Numeric property used as the HogQL aggregation key is coerced to Float64
+        # by the property-types transform; the aggregation-target non-empty filter
+        # must not compare it directly to an empty string.
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="bid_id",
+            defaults={"property_type": "Numeric"},
+        )
+        _create_person(distinct_ids=["user"], team_id=self.team.pk)
+        self._signup_event(distinct_id="user", properties={"bid_id": 5})
+        self._add_to_cart_event(distinct_id="user", properties={"bid_id": 5})
+        self._checkout_event(distinct_id="user", properties={"bid_id": 5})
+
+        results = (
+            self._basic_funnel(
+                query=FunnelsQuery(
+                    funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.bid_id"),
+                    series=[
+                        EventsNode(event="user signed up", name="user signed up"),
+                        EventsNode(event="added to cart", name="added to cart"),
+                        EventsNode(event="checked out", name="checked out"),
+                    ],
+                )
+            )
+            .calculate()
+            .results
+        )
+        self.assertEqual(results[0]["count"], 1)
+        self.assertEqual(results[1]["count"], 1)
+        self.assertEqual(results[2]["count"], 1)
+
     def test_funnel_all_events_with_properties(self):
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
         self._signup_event(distinct_id="user")
@@ -5892,3 +5926,77 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
+
+    @freeze_time("2024-01-02T00:00:00Z")
+    def test_funnel_session_breakdown_groups_results_by_session_property(self):
+        # Three sessions across three users — two from google.com (one converts, one doesn't),
+        # one from bing.com (converts). The funnel groups by session.$entry_referring_domain,
+        # so we expect: google.com → 2 entered / 1 converted, bing.com → 1 entered / 1 converted.
+        session_google_converts = str(uuid7("2024-01-01", 1))
+        session_google_drops = str(uuid7("2024-01-01", 2))
+        session_bing_converts = str(uuid7("2024-01-01", 3))
+
+        _create_person(distinct_ids=["session_user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="session_user_1",
+            properties={"$session_id": session_google_converts, "$referring_domain": "google.com"},
+            timestamp="2024-01-01T10:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="session_user_1",
+            properties={"$session_id": session_google_converts, "$referring_domain": "google.com"},
+            timestamp="2024-01-01T10:01:00Z",
+        )
+
+        _create_person(distinct_ids=["session_user_2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="session_user_2",
+            properties={"$session_id": session_google_drops, "$referring_domain": "google.com"},
+            timestamp="2024-01-01T11:00:00Z",
+        )
+
+        _create_person(distinct_ids=["session_user_3"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="session_user_3",
+            properties={"$session_id": session_bing_converts, "$referring_domain": "bing.com"},
+            timestamp="2024-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="session_user_3",
+            properties={"$session_id": session_bing_converts, "$referring_domain": "bing.com"},
+            timestamp="2024-01-01T12:01:00Z",
+        )
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$autocapture")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            funnelsFilter=FunnelsFilter(
+                funnelWindowInterval=14, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY
+            ),
+            breakdownFilter=BreakdownFilter(
+                breakdown="$entry_referring_domain",
+                breakdown_type=BreakdownType.SESSION,
+            ),
+        )
+        response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+
+        groups_by_breakdown = {tuple(group[0]["breakdown_value"]): group for group in response.results}
+        assert set(groups_by_breakdown.keys()) == {("google.com",), ("bing.com",)}
+
+        google = groups_by_breakdown[("google.com",)]
+        assert google[0]["count"] == 2
+        assert google[1]["count"] == 1
+
+        bing = groups_by_breakdown[("bing.com",)]
+        assert bing[0]["count"] == 1
+        assert bing[1]["count"] == 1

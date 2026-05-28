@@ -13,9 +13,11 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 import numpy as np
+from parameterized import parameterized
 
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
+    NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
     _medoid_index,
     _routing_entropy,
@@ -229,16 +231,16 @@ class TestBuildSnapshot:
 class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
     """End-to-end: posthog_mcp_session in Postgres + mcp_tool_call in ClickHouse."""
 
-    def _seed_session(self, session_id: str, intent: str) -> None:
-        start = datetime.now(tz=UTC) - timedelta(hours=1)
-        MCPSession.objects.create(
-            team=self.team,
-            session_id=session_id,
-            session_start=start,
-            session_end=start + timedelta(minutes=5),
-            duration_seconds=300,
-            intent=intent,
-        )
+    def _seed_session(
+        self,
+        session_id: str,
+        intent: str,
+        *,
+        created_at_offset: timedelta = timedelta(minutes=-55),
+    ) -> None:
+        session = MCPSession.objects.create(team=self.team, session_id=session_id, intent=intent)
+        # created_at is auto_now_add, so override it directly to position the row in the lookback window.
+        MCPSession.objects.filter(pk=session.pk).update(created_at=datetime.now(tz=UTC) + created_at_offset)
 
     def _seed_tool_call(self, session_id: str, tool_name: str, is_error: bool = False) -> None:
         _create_event(
@@ -291,3 +293,48 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         assert records[0].intent_text == "quiet intent with no events"
         assert records[0].tool_counts == {}
         assert records[0].frequency == 1
+
+    def test_lookback_days_excludes_sessions_outside_the_window(self) -> None:
+        # In-window session (intent generated ~55 min ago).
+        self._seed_session("recent", "recent intent")
+        # Out-of-window session (intent generated 10 days ago, beyond the 7-day default).
+        self._seed_session("old", "old intent", created_at_offset=timedelta(days=-10))
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert {r.intent_text for r in records} == {"recent intent"}
+        assert intent_by_session == {"recent": "recent intent"}
+
+    @parameterized.expand(
+        [
+            ("default_7_excludes_old", 7, []),
+            ("override_30_includes_old", 30, ["old intent"]),
+        ]
+    )
+    def test_lookback_days_argument_is_respected(
+        self, _name: str, lookback_days: int, expected_intents: list[str]
+    ) -> None:
+        # Intent generated 10 days ago: excluded at 7 days, included at 30.
+        self._seed_session("old", "old intent", created_at_offset=timedelta(days=-10))
+
+        records, _ = fetch_intent_corpus(self.team, lookback_days=lookback_days)
+
+        assert [r.intent_text for r in records] == expected_intents
+
+    @parameterized.expand(
+        [
+            ("raw", NO_INTENT_RECORDED_FALLBACK),
+            ("padded_whitespace", f"  {NO_INTENT_RECORDED_FALLBACK}  "),
+        ]
+    )
+    def test_summariser_fallback_intent_is_excluded(self, _name: str, placeholder_text: str) -> None:
+        # Session whose intent column holds the summariser's "nothing here"
+        # placeholder — must be excluded so it doesn't form its own cluster.
+        # Whitespace variants must also be excluded after .strip().
+        self._seed_session("placeholder", placeholder_text)
+        self._seed_session("real", "look up feature flag rollout")
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert [r.intent_text for r in records] == ["look up feature flag rollout"]
+        assert intent_by_session == {"real": "look up feature flag rollout"}

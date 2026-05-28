@@ -147,17 +147,21 @@ def get_hedged_app_queries_enabled() -> bool:
 def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    try:
+        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    except Exception:
+        return False
 
 
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
 
-    value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
     try:
+        value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
         return KillSwitchLevel(value)
-    except ValueError:
+    except Exception:
+        # posthog_instancesetting may not exist yet during initial Postgres migrations
         return KillSwitchLevel.OFF
 
 

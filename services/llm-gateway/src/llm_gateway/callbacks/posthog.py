@@ -10,6 +10,7 @@ from posthoganalytics import Posthog
 
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
+from llm_gateway.products.config import get_product_config
 from llm_gateway.request_context import (
     get_auth_user,
     get_posthog_flags,
@@ -52,6 +53,15 @@ _MAX_CAPTURE_SIZE = 15 * 1024 * 1024
 _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
+
+
+def _is_product_billable(product: str) -> bool:
+    """Look up the product's billable flag in the central registry. False for
+    unknown products so we never accidentally bill calls we can't attribute.
+    """
+    config = get_product_config(product)
+    return bool(config and config.billable)
+
 
 # Stable namespace for hashing non-UUID trace identifiers (e.g. Claude Code's
 # JSON-encoded session blobs sent via Anthropic's metadata.user_id) into a
@@ -147,6 +157,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
+            "$ai_billable": _is_product_billable(product),
         }
 
         posthog_properties = get_posthog_properties() or {}
@@ -226,6 +237,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
             "ai_product": product,
+            "$ai_billable": _is_product_billable(product),
         }
 
         posthog_properties = get_posthog_properties() or {}

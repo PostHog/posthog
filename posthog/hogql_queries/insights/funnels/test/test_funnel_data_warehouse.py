@@ -13,10 +13,12 @@ from posthog.test.base import (
 )
 
 from posthog.schema import (
+    ActorsQuery,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
+    FunnelsActorsQuery,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -25,6 +27,7 @@ from posthog.schema import (
 )
 
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
@@ -260,6 +263,75 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             results = response.results
             assert results[0]["count"] == 2
             assert results[1]["count"] == 2
+
+    def _string_aggregation_target_funnels_query(self, table_name: str) -> FunnelsQuery:
+        return FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                EventsNode(event="$pageview"),
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="uuid",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target(self):
+        # A mixed funnel where the warehouse series aggregates by a plain string
+        # column (not cast to UUID) must not fail the UNION ALL with NO_COMMON_TYPE
+        # against the events series' person_id UUID.
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            journeys_for(
+                {"person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}]},
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = self._string_aggregation_target_funnels_query(table_name)
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+
+            results = response.results
+            assert results[0]["count"] == 1
+            assert results[1]["count"] == 1
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target_actors(self):
+        # The actors drill-down INNER-joins person.id (UUID) against the funnel
+        # actor_id, which is a String for a mixed funnel. Exercise it to confirm
+        # the stringified actor id still resolves to a person.
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            journeys_for(
+                {"person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}]},
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = self._string_aggregation_target_funnels_query(table_name)
+            actors_query = ActorsQuery(
+                source=FunnelsActorsQuery(source=funnels_query, funnelStep=2),
+                select=["id", "person"],
+            )
+            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+            actor_ids = [str(row[0]) for row in response.results]
+            assert actor_ids == ["bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539"]
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_non_uuid_id_column(self):

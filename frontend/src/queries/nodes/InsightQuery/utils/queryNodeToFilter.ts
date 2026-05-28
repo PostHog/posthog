@@ -257,6 +257,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedTrendsProps.aggregation_axis_format = queryCopy.trendsFilter?.aggregationAxisFormat
         camelCasedTrendsProps.aggregation_axis_postfix = queryCopy.trendsFilter?.aggregationAxisPostfix
         camelCasedTrendsProps.aggregation_axis_prefix = queryCopy.trendsFilter?.aggregationAxisPrefix
+        camelCasedTrendsProps.x_axis_label = queryCopy.trendsFilter?.xAxisLabel
+        camelCasedTrendsProps.y_axis_label = queryCopy.trendsFilter?.yAxisLabel
         camelCasedTrendsProps.show_labels_on_series = queryCopy.trendsFilter?.showLabelsOnSeries
         camelCasedTrendsProps.show_percent_stack_view = queryCopy.trendsFilter?.showPercentStackView
         camelCasedTrendsProps.show_legend = queryCopy.trendsFilter?.showLegend
@@ -269,6 +271,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.aggregationAxisFormat
         delete queryCopy.trendsFilter?.aggregationAxisPostfix
         delete queryCopy.trendsFilter?.aggregationAxisPrefix
+        delete queryCopy.trendsFilter?.xAxisLabel
+        delete queryCopy.trendsFilter?.yAxisLabel
         delete queryCopy.trendsFilter?.showLabelsOnSeries
         delete queryCopy.trendsFilter?.showPercentStackView
         delete queryCopy.trendsFilter?.showLegend

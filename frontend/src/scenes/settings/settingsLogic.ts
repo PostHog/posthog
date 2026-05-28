@@ -15,8 +15,6 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Realm } from '~/types'
-
 import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
@@ -320,7 +318,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (!doesMatchFlags(setting)) {
                         return false
                     }
-                    if (setting.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                    if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
                         return false
                     }
                     if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
@@ -462,7 +460,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (!doesMatchFlags(x)) {
                         return false
                     }
-                    if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                    if (preflight?.realm && x.hideOn?.includes(preflight.realm)) {
                         return false
                     }
                     if (x.hideWhenNoSection && !effectiveSectionId) {
@@ -535,7 +533,7 @@ export const settingsLogic = kea<settingsLogicType>([
                         if (!doesMatchFlags(setting)) {
                             continue
                         }
-                        if (setting.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                        if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
                             continue
                         }
                         if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {

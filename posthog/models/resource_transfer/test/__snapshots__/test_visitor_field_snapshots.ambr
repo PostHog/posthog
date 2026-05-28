@@ -761,7 +761,6 @@
     'rollback_conditions',
     'rollout_percentage',
     'scheduled_changes_dispatcher',
-    'super_conditions',
     'surveys_internal_response_sampling_flag',
     'surveys_internal_targeting_flag',
     'surveys_linked_flag',

@@ -6,21 +6,36 @@
  * (`selfReadOnlyModeLogic`) registers a getter that reads its current state.
  */
 
-export class ReadOnlyModeError extends Error {
-    // Many call sites in the app catch api errors with the shape
-    // `lemonToast.error(error.detail || 'Failed to ...')`. Without `detail`,
-    // a read-only block would surface as the misleading fallback ("Failed to
-    // launch experiment" etc.) on top of the dedicated read-only toast.
-    // Setting `detail` here keeps that secondary toast at least truthful.
-    detail = 'Read-only mode is on — change blocked. Use Max or the MCP to make this change.'
+import { ApiError } from 'lib/api-error'
 
-    constructor(message = 'You are in read-only mode') {
-        super(message)
+export type ReadOnlyMethod = 'PATCH' | 'PUT' | 'POST' | 'DELETE'
+
+const METHOD_TO_VERB: Record<ReadOnlyMethod, string> = {
+    POST: 'create',
+    PUT: 'edit',
+    PATCH: 'edit',
+    DELETE: 'delete',
+}
+
+function detailFor(method?: ReadOnlyMethod): string {
+    const verb = method ? METHOD_TO_VERB[method] : 'change'
+    return `Read-only mode is on — that ${verb} was blocked. Ask Max or the MCP to make the change for you.`
+}
+
+// Extends ApiError so the existing `e instanceof ApiError → lemonToast.error(e.detail)`
+// pattern surfaces the read-only message naturally, without per-callsite checks.
+// status=403 mirrors the Django response if this ever round-trips from the server.
+export class ReadOnlyModeError extends ApiError {
+    constructor(method?: ReadOnlyMethod) {
+        super('You are in read-only mode', 403, undefined, {
+            detail: detailFor(method),
+            code: 'read_only_blocked',
+        })
         this.name = 'ReadOnlyModeError'
     }
 }
 
-type Notifier = (method: 'PATCH' | 'PUT' | 'POST' | 'DELETE') => void
+type Notifier = (method: ReadOnlyMethod) => void
 type Getter = () => boolean
 
 let getter: Getter | null = null
@@ -44,19 +59,32 @@ export function isReadOnly(): boolean {
     return getter?.() ?? false
 }
 
-// URLs that look like writes but are actually reads. The query endpoint is the
-// obvious one — it serves HogQL / trends / funnels / retention via POST because
-// the payload is too large for a query string. Block-listing these would make
-// the entire app unusable in read-only mode.
+// Writes that should pass through in read-only mode. Three categories:
+//   1. Reads disguised as writes — /query serves HogQL / trends / funnels /
+//      retention via POST because the payload is too large for a query string.
+//      Block-listing it would make the entire app unusable.
+//   2. Passive telemetry that fires automatically on view/mount and should not
+//      raise: /file_system/log_view, /insights/viewed, /insights/timing
+//      (time-to-see-data), and /metalytics (side-panel scene view tracking).
+//   3. PostHog AI (Max) conversations — the read-only toast tells users to
+//      "Use Max or the MCP to make this change", so Max must remain usable.
+//      Matches /conversations except the two ticket sub-features (`views` and
+//      `tickets`). Mount-path-agnostic — works under /environments/ or
+//      /projects/ — so the discriminator is the sub-feature, not the prefix.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
+    /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
+    /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed — passive "recently viewed" telemetry
+    /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
+    /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
+    /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {
     return READ_ONLY_ALLOWED_PATTERNS.some((pattern) => pattern.test(url))
 }
 
-export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', url: string): void {
+export function assertNotReadOnly(method: ReadOnlyMethod, url: string): void {
     if (!isReadOnly()) {
         return
     }
@@ -64,5 +92,5 @@ export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', u
         return
     }
     notifier?.(method)
-    throw new ReadOnlyModeError()
+    throw new ReadOnlyModeError(method)
 }

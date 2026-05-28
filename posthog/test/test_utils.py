@@ -940,7 +940,10 @@ class TestSharingOverrideProtection(TestCase):
             ("password_protected_auth",),
         ]
     )
-    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
     def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
         from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -958,7 +961,10 @@ class TestSharingOverrideProtection(TestCase):
 
         assert result == {"var1": {"value": "safe"}}
 
-    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
     def test_variables_override_allowed_for_normal_auth(self, _mock):
         request = self._make_request(
             None, query_params={"variables_override": json.dumps({"var1": {"value": "custom"}})}

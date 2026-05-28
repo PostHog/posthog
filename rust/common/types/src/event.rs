@@ -56,7 +56,7 @@ pub trait EventWithLibraryInfo {
     fn extract_library_info(&self) -> Option<LibraryInfo>;
 }
 
-#[derive(Default, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
     #[serde(
         alias = "$token",
@@ -119,6 +119,7 @@ pub struct CapturedEventHeaders {
     pub now: Option<String>,
     pub force_disable_person_processing: Option<bool>,
     pub historical_migration: Option<bool>,
+    pub skip_heatmap_processing: Option<bool>,
     pub dlq_reason: Option<String>,
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
@@ -127,6 +128,10 @@ pub struct CapturedEventHeaders {
 impl CapturedEventHeaders {
     pub fn set_force_disable_person_processing(&mut self, value: bool) {
         self.force_disable_person_processing = Some(value);
+    }
+
+    pub fn set_skip_heatmap_processing(&mut self, value: bool) {
+        self.skip_heatmap_processing = Some(value);
     }
 
     pub fn set_dlq_reason(&mut self, value: String) {
@@ -186,7 +191,14 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: historical_migration_str.as_deref(),
             });
 
-        // To prevent adding bloat to the other topic headers, only add add dlq headers when present.
+        // Only add optional headers when present, to avoid bloating every message.
+        if let Some(skip_heatmap_processing) = headers.skip_heatmap_processing {
+            let val = skip_heatmap_processing.to_string();
+            owned = owned.insert(Header {
+                key: "skip_heatmap_processing",
+                value: Some(val.as_str()),
+            });
+        }
         if let Some(ref reason) = headers.dlq_reason {
             owned = owned.insert(Header {
                 key: "dlq_reason",
@@ -234,6 +246,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
                 .and_then(|v| v.parse::<bool>().ok()),
             historical_migration: headers_map
                 .get("historical_migration")
+                .and_then(|v| v.parse::<bool>().ok()),
+            skip_heatmap_processing: headers_map
+                .get("skip_heatmap_processing")
                 .and_then(|v| v.parse::<bool>().ok()),
             dlq_reason: headers_map.get("dlq_reason").cloned(),
             dlq_step: headers_map.get("dlq_step").cloned(),
@@ -294,7 +309,7 @@ impl CapturedEvent {
             } else {
                 None
             },
-            // DLQ headers should only be explicitly set when needed
+            skip_heatmap_processing: None,
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,
