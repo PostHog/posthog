@@ -17,7 +17,9 @@ A PR with visual changes carries a `visual-review` GitHub status check that stay
 snapshot is approved or tolerated in the [VR UI](https://us.posthog.com/project/2/visual_review).
 
 This skill teaches an agent how to answer the questions a human reviewer would actually ask, by chaining
-the read-only VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI.
+the VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI. The read tools
+cover status / scope / history / triage; two write tools (`approve-create`, `tolerate-create`) let the
+agent act once the user confirms.
 
 ## When this skill applies
 
@@ -34,7 +36,7 @@ is faster — direct them there. This skill is for everything around the diff: s
 
 ## Tools
 
-All read-only. None of these require write scopes; approval/toleration still happens in the web UI.
+Read tools (safe to call freely):
 
 | Tool                                               | Purpose                                                                                                            |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -46,6 +48,25 @@ All read-only. None of these require write scopes; approval/toleration still hap
 | `posthog:visual-review-runs-tolerated-hashes-list` | Hashes the team has explicitly accepted as "known flake / acceptable variation".                                   |
 | `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                      |
 | `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                      |
+
+Write tools (require explicit user confirmation — these ship the visual change):
+
+| Tool                                         | Purpose                                                                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `posthog:visual-review-runs-approve-create`  | Approve `changed` / `new` snapshots in a run. Updates the baseline YAML and (by default) pushes a commit to the PR.    |
+| `posthog:visual-review-runs-tolerate-create` | Mark a single changed snapshot as a known tolerated alternate. Does NOT change the baseline — use for benign variants. |
+
+Approval call shape:
+
+- `approve_all: true` — approves every `changed` and `new` snapshot in the run. Convenient when you've verified every diff is intended.
+- `snapshots: [{identifier, new_hash}]` — explicit list. `new_hash` is the `content_hash` of each snapshot's `current_artifact`. Prefer this when only some diffs are intended.
+- `commit_to_github: true` (default) — pushes the baseline-YAML update straight to the PR branch. Set false to record the approval without a commit.
+
+Toleration call shape:
+
+- `snapshot_id` — the UUID of the individual snapshot (from `visual-review-runs-snapshots-list`), not the run id.
+
+If approval fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and approve the newest one. A successful approval often kicks off a fresh CI run, which is normal.
 
 ## Vocabulary cheat sheet
 
@@ -143,8 +164,8 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 
 ## What NOT to do
 
-- Do not approve or tolerate snapshots from this skill — those endpoints are intentionally not exposed as
-  MCP tools yet. Direct the user to the run's `_posthogUrl`.
+- Do not approve or tolerate without explicit user confirmation. The verdict is yours to recommend; the
+  decision to ship belongs to the user. Once they say "approve those" / "tolerate that", call the tool.
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
 - Do not declare a verdict from metadata alone when `result: changed`. Pull the baseline and current PNGs
