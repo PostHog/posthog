@@ -133,10 +133,14 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_sessi
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
-# assignment for OAuthApplications). The OBJECT sets above
+# assignment for OAuthApplications).
+#
+# Naming convention in this module: `*_SCOPE_OBJECTS` (frozenset[APIScopeObject])
+# and `*_SCOPE_ACTIONS` hold scope-OBJECT sets; bare `*_SCOPES` (frozenset[str])
+# hold scope-STRING (`obj:action`) sets. The object sets above
 # (INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS) remain canonical for
-# object-level checks; these `obj:action` STRING sets are the canonical surface
-# used by `OAuthApplication.scopes` and `UNPRIVILEGED_SCOPES` set arithmetic.
+# object-level checks; the string sets below are the surface used by
+# `OAuthApplication.scopes` and `UNPRIVILEGED_SCOPES` set arithmetic.
 
 # Every public `obj:action` scope string. Matches `get_scope_descriptions()`
 # keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
@@ -156,9 +160,11 @@ PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read"})
 
 # String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
 # advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
-# alpha scope never reaches the broad default.
-HIDDEN_SCOPES: frozenset[str] = frozenset(
-    f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
+# alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
+# so a future hidden object whose action set narrows doesn't carry a phantom
+# string into the set.
+OAUTH_HIDDEN_SCOPES: frozenset[str] = (
+    frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
 )
 
 # Everything safe to grant a generic OAuth client. The broad default for an
@@ -166,7 +172,7 @@ HIDDEN_SCOPES: frozenset[str] = frozenset(
 # `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
 # they live in `OIDC_SCOPES` below and are accepted at `/authorize`
 # independently of `application.scopes`.
-UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - HIDDEN_SCOPES
+UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_HIDDEN_SCOPES
 
 
 def get_scope_descriptions() -> dict[str, str]:

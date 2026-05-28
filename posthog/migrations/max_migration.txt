@@ -1,1 +1,1 @@
-1187_oauthaccesstoken_name_oauthapplication_scopes
+1187_oauthaccesstoken_label_oauthapplication_scopes

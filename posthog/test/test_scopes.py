@@ -1,5 +1,5 @@
-import sys
-import subprocess
+import runpy
+from pathlib import Path
 
 from posthog.test.base import BaseTest
 
@@ -7,10 +7,11 @@ from parameterized import parameterized
 
 from posthog.scopes import (
     ALL_SCOPES,
+    API_SCOPE_ACTIONS,
     API_SCOPE_OBJECTS,
-    HIDDEN_SCOPES,
     INTERNAL_API_SCOPE_OBJECTS,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    OAUTH_HIDDEN_SCOPES,
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
@@ -85,15 +86,19 @@ class TestScopeSets(BaseTest):
         self.assertTrue(PRIVILEGED_SCOPES.issubset(ALL_SCOPES))
         self.assertIn("llm_gateway:read", PRIVILEGED_SCOPES)
 
-    def test_hidden_scopes_expands_oauth_hidden_objects_to_strings(self) -> None:
-        # HIDDEN_SCOPES is the `obj:action` STRING form of OAUTH_HIDDEN_SCOPE_OBJECTS,
-        # used by UNPRIVILEGED_SCOPES set arithmetic.
-        expected = frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in ("read", "write"))
-        self.assertEqual(HIDDEN_SCOPES, expected)
+    def test_oauth_hidden_scopes_expands_oauth_hidden_objects_to_strings(self) -> None:
+        # OAUTH_HIDDEN_SCOPES is the `obj:action` STRING form of
+        # OAUTH_HIDDEN_SCOPE_OBJECTS, intersected with ALL_SCOPES so phantom
+        # combinations can't leak in.
+        expected = (
+            frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS)
+            & ALL_SCOPES
+        )
+        self.assertEqual(OAUTH_HIDDEN_SCOPES, expected)
 
     def test_unprivileged_scopes_excludes_privileged_and_hidden(self) -> None:
         self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(PRIVILEGED_SCOPES))
-        self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(HIDDEN_SCOPES))
+        self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(OAUTH_HIDDEN_SCOPES))
 
     def test_unprivileged_scopes_subset_of_all_scopes(self) -> None:
         self.assertTrue(UNPRIVILEGED_SCOPES.issubset(ALL_SCOPES))
@@ -114,19 +119,21 @@ class TestScopeSets(BaseTest):
         for scope in ("insight:read", "dashboard:write", "query:read"):
             self.assertIn(scope, UNPRIVILEGED_SCOPES)
 
-    def test_scopes_module_importable_without_django(self) -> None:
-        # MCP scope codegen (bin/build-mcp-oauth-scopes.py) imports posthog.scopes
-        # without Django setup. Verify nothing in the new constants pulls Django in.
-        result = subprocess.run(
-            [sys.executable, "-c", "import posthog.scopes; assert posthog.scopes.UNPRIVILEGED_SCOPES"],
-            capture_output=True,
-            text=True,
-            env={"PYTHONPATH": ":".join(sys.path)},
-        )
-        self.assertEqual(result.returncode, 0, f"stdout={result.stdout} stderr={result.stderr}")
+    def test_scopes_module_loadable_via_runpy_like_mcp_codegen(self) -> None:
+        # MCP scope codegen at bin/build-mcp-oauth-scopes.py loads this module via
+        # runpy.run_path (bypassing posthog/__init__.py which pulls in Django).
+        # Mirror that mechanism here so the test actually catches a regression
+        # where someone adds a Django-requiring import to posthog/scopes.py.
+        # `import posthog.scopes` would not catch it — that runs __init__.py too.
+        scopes_path = Path(__file__).resolve().parent.parent / "scopes.py"
+        loaded = runpy.run_path(str(scopes_path))
+        self.assertIn("UNPRIVILEGED_SCOPES", loaded)
+        self.assertTrue(loaded["UNPRIVILEGED_SCOPES"])
+        self.assertIn("llm_gateway:read", loaded["PRIVILEGED_SCOPES"])
 
     def test_all_scope_objects_fit_in_oauthapplication_scopes_charfield(self) -> None:
-        # OAuthApplication.scopes is ArrayField(CharField(max_length=64)). Make sure
-        # every `obj:action` string fits, so admin-set ceilings don't truncate.
+        # OAuthApplication.scopes is ArrayField(CharField(max_length=100)), matching
+        # PersonalAPIKey.scopes. Verify every `obj:action` string fits so admin-set
+        # ceilings don't truncate.
         for scope in ALL_SCOPES:
-            self.assertLessEqual(len(scope), 64, f"{scope} exceeds OAuthApplication.scopes CharField max_length=64")
+            self.assertLessEqual(len(scope), 100, f"{scope} exceeds OAuthApplication.scopes CharField max_length=100")

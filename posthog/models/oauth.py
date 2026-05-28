@@ -96,18 +96,20 @@ class OAuthApplication(AbstractApplication):
         help_text="Branding to use on authentication pages",
     )
 
-    # Server-stored scope ceiling. Tokens issued for this app carry scopes from
-    # this field; an empty list resolves to UNPRIVILEGED_SCOPES at /authorize
-    # time (the broad default). Privileged scopes (llm_gateway:read) only land
-    # here via admin grant — self-serve registration (CIMD, DCR) is filtered.
+    # Server-stored scope ceiling for tokens issued for this app. `default=list`
+    # (no `db_default`) is safe because there are no non-Django writers to
+    # `posthog_oauthapplication` today — Django's migration-time backfill of
+    # existing rows to `[]` is sufficient. CharField max_length matches
+    # PersonalAPIKey.scopes (`max_length=100`) so the same `obj:action`
+    # strings fit identically across both PAT and OAuth surfaces.
     scopes: ArrayField = ArrayField(
-        models.CharField(max_length=64),
+        models.CharField(max_length=100),
         default=list,
         blank=True,
         help_text=(
-            "Scope strings tokens issued for this app may carry. Authoritative "
-            "ceiling. Empty list resolves to the broad default (UNPRIVILEGED_SCOPES) "
-            "at /authorize time. Privileged scopes only land here via admin grant."
+            "Scope ceiling — strings tokens issued for this app may carry. "
+            "Empty list means no per-app cap. Validation at /authorize lands "
+            "in a follow-up; until then this field is settable but inert."
         ),
     )
 
@@ -324,8 +326,9 @@ class OAuthAccessToken(AbstractAccessToken):
 
     # Optional user-facing label set at mint time. Carried across refreshes so
     # it persists for the life of the connection, not just one rotated token.
-    name: models.CharField = models.CharField(
-        max_length=255,
+    # Named `label` to match the existing `PersonalAPIKey.label` convention.
+    label: models.CharField = models.CharField(
+        max_length=40,
         blank=True,
         default="",
         db_default="",
