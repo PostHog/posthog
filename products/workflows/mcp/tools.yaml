@@ -120,9 +120,9 @@ tools:
         title: Create workflow
         description: >
             Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type:
-            event|webhook|manual|batch|schedule|tracking_pixel). Other action types: function/function_email/function_sms/function_push
-            (CDP template), delay (e.g. '30m'), conditional_branch, wait_until_condition. Connect via edges. Defaults to
-            status='draft'; set 'active' to enable.
+            event|webhook|manual|batch|schedule|tracking_pixel). Other action types:
+            function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch,
+            wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
@@ -182,8 +182,8 @@ tools:
         enrich_url: hog-{id}
         title: Update workflow
         description: >
-            Partial update by ID (rename, archive, edit description, etc.). EXCEPTION: transitioning status
-            'draft' → 'active' requires re-sending the full workflow body (actions, edges, exit_condition); a
-            status-only PATCH fails with an empty validation error because publish needs the full graph. Common:
-            status='archived' to disable; edit actions (still needs exactly one trigger).
+            Partial update by ID (rename, archive, edit description, etc.). EXCEPTION: transitioning status 'draft' →
+            'active' requires re-sending the full workflow body (actions, edges, exit_condition); a status-only PATCH
+            fails with an empty validation error because publish needs the full graph. Common: status='archived' to
+            disable; edit actions (still needs exactly one trigger).
         ui_app: workflow
