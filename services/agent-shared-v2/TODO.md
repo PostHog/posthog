@@ -76,14 +76,18 @@ The runner already accepts the override (`AGENT_USE_LLM_GATEWAY=1` →
 `posthogLlmGatewayModel()`), keep that available. Revisit and flip the
 default once the gateway is live.
 
-### B3. Real Docker sandbox host image
+### B3. Real Docker sandbox host image — code done, publishing pending
 
-`sandbox-docker.ts` ships the shell-out skeleton. Missing: the in-container
-node host (`/sandbox/host.js` + `/sandbox/dispatch.js`) that loads compiled
-tools and dispatches invokes. Plus the Dockerfile + a published image.
+Built `services/agent-sandbox-host/`: `host.js` (writes /workdir/host.alive,
+idles), `dispatch.js` (per-invoke handler — loads compiled.js, runs the
+action, writes response.json, enforces timeout, exposes ctx.secrets.ref),
+Dockerfile (node:24-alpine, non-root user), 7 unit tests via node's
+built-in test runner. `sandbox-docker.ts` now waits for the alive marker
+before handing the sandbox out.
 
-Where: new `services/agent-sandbox-host/` package with the host node code;
-Dockerfile in same dir; CI step to publish to ghcr.
+Still TODO: CI step to publish to `ghcr.io/posthog/agent-sandbox-host`.
+Build locally with `docker build -t posthog/agent-sandbox-host:v1 .` until
+that's wired.
 
 ### B4. Modal sandbox real impl
 

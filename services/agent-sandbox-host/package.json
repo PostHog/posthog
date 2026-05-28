@@ -1,0 +1,16 @@
+{
+    "name": "@posthog/agent-sandbox-host",
+    "version": "0.1.0",
+    "private": true,
+    "description": "In-container Node host for the v2 Docker sandbox. Loads compiled tools from /workdir/tools/* and dispatches invokes via /workdir/request.json → /workdir/response.json.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "commonjs",
+    "main": "./src/host.js",
+    "scripts": {
+        "test": "node --test src/dispatch.test.js"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

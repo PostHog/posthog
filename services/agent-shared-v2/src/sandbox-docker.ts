@@ -141,6 +141,18 @@ export class DockerSandboxPool implements SandboxPool {
             throw new Error(`docker run failed: ${stderr.trim()}`)
         }
         const containerId = stdout.trim()
+        // Wait for the in-container host to drop its alive marker before
+        // we hand the sandbox out. Bounded — 5s is plenty for a node:24
+        // process to write a file.
+        const aliveDeadline = Date.now() + 5_000
+        while (Date.now() < aliveDeadline) {
+            try {
+                await fs.access(path.join(workDir, 'host.alive'))
+                break
+            } catch {
+                await new Promise((r) => setTimeout(r, 50))
+            }
+        }
         const sandbox = new DockerSandbox({ sessionId: opts.sessionId, containerId, workDir })
         this.bySession.set(opts.sessionId, sandbox)
         return sandbox
