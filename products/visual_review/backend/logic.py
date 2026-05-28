@@ -1148,7 +1148,11 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     if check_run_response.status_code != 200:
         return False, f"Could not fetch check run details (status {check_run_response.status_code})"
 
-    check_run_data = check_run_response.json()
+    try:
+        check_run_data = check_run_response.json()
+    except Exception:
+        return False, "Failed to parse check run response"
+
     if check_run_data.get("head_sha") != run.commit_sha:
         logger.warning(
             "visual_review.ci_rerun_sha_mismatch",

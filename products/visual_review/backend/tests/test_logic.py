@@ -1639,6 +1639,7 @@ class TestRerunGithubJob:
         success, error = logic._rerun_github_job(run, "72855643533")
 
         assert success is False
+        assert error is not None
         assert "404" in error
 
     def test_triggers_rerun_when_sha_matches(self, repo, mocker):
