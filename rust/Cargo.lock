@@ -2043,14 +2043,26 @@ name = "cohort-event-shuffler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "axum 0.7.9",
  "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-liveness",
+ "common-types",
  "envconfig",
  "lifecycle",
+ "metrics",
  "metrics-exporter-prometheus",
+ "rand 0.8.5",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

@@ -216,6 +216,18 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  cohort-event-shuffler)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime team gate
+    # Replay existing local events instead of only-new (prod defaults to "latest").
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export BIND_PORT=3310 # park in the rust-service band (default 3322 is also free)
+    export DEBUG=1
+    ;;
+
   personhog-router-leader)
     export RUST_LOG=debug
     export RUST_BACKTRACE=1
