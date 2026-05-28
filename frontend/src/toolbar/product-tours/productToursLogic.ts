@@ -191,12 +191,18 @@ export const productToursLogic = kea<productToursLogicType>([
             [] as ProductTour[],
             {
                 loadTours: async () => {
-                    const response = await toolbarFetch('/api/projects/@current/product_tours/')
-                    if (!response.ok) {
-                        return []
+                    try {
+                        const response = await toolbarFetch('/api/projects/@current/product_tours/')
+                        if (!response.ok) {
+                            return []
+                        }
+                        const data = await response.json()
+                        return data.results ?? data
+                    } catch (e: any) {
+                        toolbarLogger.warn('product_tours', 'Failed to load tours')
+                        captureToolbarException(e, 'product_tour_load')
+                        return [] as ProductTour[]
                     }
-                    const data = await response.json()
-                    return data.results ?? data
                 },
             },
         ],
@@ -737,12 +743,18 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         deleteTour: async ({ id }) => {
-            const response = await toolbarFetch(`/api/projects/@current/product_tours/${id}/`, 'DELETE')
-            if (response.ok) {
-                lemonToast.success('Tour deleted')
-                actions.loadTours()
-                actions.selectTour(null)
-            } else {
+            try {
+                const response = await toolbarFetch(`/api/projects/@current/product_tours/${id}/`, 'DELETE')
+                if (response.ok) {
+                    lemonToast.success('Tour deleted')
+                    actions.loadTours()
+                    actions.selectTour(null)
+                } else {
+                    lemonToast.error('Failed to delete tour')
+                }
+            } catch (e: any) {
+                toolbarLogger.error('product_tours', 'Failed to delete tour', { tourId: id })
+                captureToolbarException(e, 'product_tour_delete')
                 lemonToast.error('Failed to delete tour')
             }
         },
