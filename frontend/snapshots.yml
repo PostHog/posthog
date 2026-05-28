@@ -537,21 +537,25 @@ snapshots:
     components-hogcharts-legend--interactive--light:
         hash: v1.k794b7964.82d79f7e0a07c188f597a89fbc0a479e1b9605d007ba6f5fb71087a312fc0764.kFDhmb2BkonZoo3bR5snWR-aN_yY6R2-utLZ5ify3_E
     components-hogcharts-legend--layout-bottom--dark:
-        hash: v1.k794b7964.6f34c5c79807ea26a631024458558c84093ab248138fbb7cba4d24deccda210d.xJ098X5I0o1k6yvWtmYXYJGlgsrbw5TpIN8C-osCojY
+        hash: v1.k794b7964.e0380d81940d37f3f340a3136f4f8d8594c6e9a6f628097f8b2cda3265d55f03.UBGvFKyD6buahJXp9ZamajRe8pCwlNlCdRwJrNBvx_c
     components-hogcharts-legend--layout-bottom--light:
-        hash: v1.k794b7964.ebb34148784fd49f208e59207fcfc3aa1476aeddd0af0cc3987543af514e6f0c.ygBJg6yMPl8-arZKotkxgO5XzM4AkWb_HsYkcTOkqes
+        hash: v1.k794b7964.8f97725453e51428ff9497991208f64c73fb309295eb7e53a1bf0bdc61b6573b.IVE1Embb1O4jo8mh0mCSH4F5D_FEgwIcKl8eAhFHNas
     components-hogcharts-legend--layout-left--dark:
-        hash: v1.k794b7964.e5ffa84c0c4612544185166fd7127e091f743d0a4e80e610021e9898cf68c16c.RWP2gB5lEXOaZJk2wYPvfCzAeDRDCBd59flzROZBj_E
+        hash: v1.k794b7964.75d89188a8dc1300f8134072f67052e812a3a98c67f2e45b7672421e9d9e7e4e.JF2aBZw3Go_PwlNxeprXqSoUNHcKn_zRlDjUj_umrJw
     components-hogcharts-legend--layout-left--light:
-        hash: v1.k794b7964.88db7c4f4fab4b0fee6b0be8b1508c91798270e69c17b507e046fc530dd2fafd.Yn1GAbiBehr5i16TVhPR01gSC2GpOfBnmo5LHnmCWqs
+        hash: v1.k794b7964.734434f8506a82bf4bfd795fe771a4dc4603dec1924b97426f1f723271b038f6.y3GVSkCayKaXlG9j9JKJRyCNbOD_l01nF8NxfRv2J2g
     components-hogcharts-legend--layout-right--dark:
-        hash: v1.k794b7964.501db0b97c4d897a816cf08afba0f837a54be6f3533dd253b8410f34c57528d5.iT0_3sNr9zqZPacv3XSvc7iFxAhpejg9l26-8ek1wCA
+        hash: v1.k794b7964.fad942fd3efcf8f4478e74615a46818e5ff2e0393d7b1ebd86f2d2f99a48584b.5JfPyKB6riVLkavCHA4BvBRYkGH-tsCEKgEp76IRrTg
     components-hogcharts-legend--layout-right--light:
-        hash: v1.k794b7964.81902d1fc7bc428f1455585a08aa7667b409fe0edbf56f269ad38b56e21c53e0.nXCrZLvGoncvjvDYQ0Iq7VmbmorY7jNA6e1qCirbzbQ
+        hash: v1.k794b7964.621179da1b3fb0a2f46af3ed66431ec287d5942ea5e3b832b1f77dfc7b1ccd74.H7UFItAwihph7mpstIAFBY_L1ifnKHLNoVTgfrWywTQ
     components-hogcharts-legend--layout-top--dark:
-        hash: v1.k794b7964.07957a22916e5a09eedba69d385c07646d97d3d9483b3fc8d56ae0fae6eea448.4uZJgPeHOc567hzQaIzohLOCyS3dXMJOKB-boXjbYVA
+        hash: v1.k794b7964.9c6096d910d7028a42eafafbcabb940d600f48494ac4e3b4d4af493786a65600.oKiBtPecHu-BKcMY7RdWZpfLV-3aztODvdNGTmaPK90
     components-hogcharts-legend--layout-top--light:
-        hash: v1.k794b7964.efd2345115e956ad9a0c4267248d90c40aade934d5dd896e10fad79f2afb425d.1JqrR7X4fPy38s0mKd20fHKfgLjrdwSNa05lG5GPcHA
+        hash: v1.k794b7964.9495377c22ab7b943c36924440a67bf311e7fa0f5a59486b7132bff9c92fd419.s9kNN2YJMVz--JssIjOo3sCnpC2ib7bHYQozYcg3sAw
+    components-hogcharts-legend--legend-hidden--dark:
+        hash: v1.k794b7964.ceab375cc7f0c1370d831bbf2a13032083f34e9e13092535117d339e9ea7fffb.4r1GIynFITt0-Q_eNyTBj8ZdveGtJtWmTSNAQcCXMiI
+    components-hogcharts-legend--legend-hidden--light:
+        hash: v1.k794b7964.53ae7d64bdd07ae8ed2f0c4403fea3733f06b78ed1f7ba40bc17dbbf71b0b3c3.Hfsd1a5oo1zsMLiXn8z-wsq2MynuxREukeIdluYETUM
     components-hogcharts-legend--many-items-wraps--dark:
         hash: v1.k794b7964.f6c2b82b8d93c25d9c21b9afc1d914d041138d25836485cf2d76a577d55a37c5.Ut_YYVfVrtgFs0gV16xnW-pxSADhDhx9tsfA_XEPirQ
     components-hogcharts-legend--many-items-wraps--light:
@@ -2084,6 +2088,10 @@ snapshots:
         hash: v1.k794b7964.0c556ee6fdcab5b92dfdc52f88803303ef884a0ab729ef82a4c6da51acb24c3f.QOa-WyWqTtPEFLJkamvn4q5CELTHgIvThx2ldXpfR0I
     insights-trendslifecyclechart--stacked--light:
         hash: v1.k794b7964.a65059fedd22997962f3cca875571b75d337d4d4a35795e27c5154379a877e7c.ANRBq-VSdDBRCpI3opE7Mu4kXK2TL2MG7HwLnrSJHE4
+    insights-trendslifecyclechart--stacked-with-legend--dark:
+        hash: v1.k794b7964.34ee21c93cb09cc3cbd620bf960e4ea4553c38b56eca794f6f8ebe3fb645ba93.4sjTzpM-9CeL36Lb6yIbgNPV6jDX_sxBEU9IaMF8KIc
+    insights-trendslifecyclechart--stacked-with-legend--light:
+        hash: v1.k794b7964.60416255e840786210d0236e71ef9eb3771d0d1d73161355913bccbf72449afe.WVEhZOzCzFz_et6-07xYPEsrsNf64sF5BSPw8hASzYM
     insights-trendslifecyclechart--stacked-with-values-on-series--dark:
         hash: v1.k794b7964.bc4c1f78bb5bc68955a459d215fca4bd5d459ea3992b5eca13ad40ee39ee4366.OX1_Hj6tCAyTwV7c24Xu-mTkSDv6PE_e0CofnkyQETM
     insights-trendslifecyclechart--stacked-with-values-on-series--light:
@@ -2092,6 +2100,10 @@ snapshots:
         hash: v1.k794b7964.a8cf1b1997745830adfb3ff10128cc607e058957c774fff1130fcb6ff404d866.krGwejVU2Th4ixNpXHRtz-e9X3orZ804ySTK-6yGkaI
     insights-trendslifecyclechart--unstacked--light:
         hash: v1.k794b7964.3417b88ceba60b38260452443223e486eac91f477061bc4662f76bb78f7c40e2.WOssmFNdeWS4-WAqpXRvxTO-Bpe_iL-lnRo-R0jHhCg
+    insights-trendslifecyclechart--unstacked-with-legend--dark:
+        hash: v1.k794b7964.c97d90ab0c373436972e47b4f34ecaae07be8497c52bbf06717aae714399d251.-UDtNIEVgoDj4eP2ORpqfdI7mI4QOpETAGTbvsdouJY
+    insights-trendslifecyclechart--unstacked-with-legend--light:
+        hash: v1.k794b7964.4cb9e27ef90ccb219404af7ef3eeab2430fbf687b4b0eaf723d1e33509c70668.rPDT6IL8vTnQdAImKGwbivsRJmeYnIqhcPM-iixJPsk
     insights-trendslifecyclechart--unstacked-with-values-on-series--dark:
         hash: v1.k794b7964.d11ad52519f19f8f938e0419e78f5c98a6097fa501cfea43d2baa3ba8aea3948.F_NC7gkGfnvJ6y7t6_cvfdk-dqMjcfJvhSYyg_Bn5bg
     insights-trendslifecyclechart--unstacked-with-values-on-series--light:
