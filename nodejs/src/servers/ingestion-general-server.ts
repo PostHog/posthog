@@ -17,7 +17,6 @@ import {
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
-import { ingestionConsumerService } from '../ingestion/common/common-ingestion-consumer'
 import {
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
@@ -26,6 +25,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
+import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryScope } from '../ingestion/common/outputs/registry'
 import { newScopeBuilder } from '../ingestion/common/service-registry'
 import {
