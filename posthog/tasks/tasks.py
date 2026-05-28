@@ -1745,6 +1745,7 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit  # Intentionally cross-team: aggregates backlog for a global Prometheus gauge.
 def export_lazy_computation_job_stats() -> None:
     """Export point-in-time backlog gauges for the lazy_computation framework.
 

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -24,7 +24,7 @@ class TestExportLazyComputationJobStats(APIBaseTest):
     head-of-queue age formula — they're the load-bearing signals on the
     queue-health dashboard's backlog panel."""
 
-    def _make_job(self, status: str, created_at=None) -> PreaggregationJob:
+    def _make_job(self, status: str, created_at: datetime | None = None) -> PreaggregationJob:
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="x" * 64,
