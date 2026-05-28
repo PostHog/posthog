@@ -2,6 +2,7 @@ import re
 import json
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -2991,6 +2992,15 @@ class TestSurvey(APIBaseTest):
             "survey_type": "popover",
             "question_types": ["open"],
             "created_at": survey.created_at,
+            "base_language": "en",
+            "has_translations": False,
+            "translation_languages": [],
+            "translation_language_count": 0,
+            "has_question_translations": False,
+            "ai_translation_status": {},
+            "ai_unmodified_language_count": 0,
+            "ai_modified_language_count": 0,
+            "manual_translation_language_count": 0,
         }
 
         mock_report_user_action.assert_called_once_with(
@@ -3044,6 +3054,225 @@ class TestSurvey(APIBaseTest):
             team=self.team,
             request=ANY,
         )
+
+    @patch("products.surveys.backend.api.survey.report_user_action")
+    @freeze_time("2023-05-01 12:00:00")
+    def test_create_survey_calls_report_user_action(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Created Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test question?"}],
+                "base_language": "es",
+                "translations": {"fr": {"name": "Sondage"}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        mock_report_user_action.assert_called_once()
+        args, kwargs = mock_report_user_action.call_args
+        assert args[0] == self.user
+        assert args[1] == "survey created"
+        properties = args[2]
+        assert properties["name"] == "Created Survey"
+        assert properties["survey_type"] == "popover"
+        assert properties["question_types"] == ["open"]
+        assert properties["base_language"] == "es"
+        assert properties["has_translations"] is True
+        assert properties["translation_languages"] == ["fr"]
+        assert properties["translation_language_count"] == 1
+        assert properties["has_question_translations"] is False
+        assert kwargs["team"] == self.team
+
+    @parameterized.expand(
+        [
+            (
+                "no_translations",
+                {"base_language": "en"},
+                {
+                    "base_language": "en",
+                    "has_translations": False,
+                    "translation_languages": [],
+                    "translation_language_count": 0,
+                    "has_question_translations": False,
+                },
+            ),
+            (
+                "survey_level_only",
+                {"base_language": "en", "translations": {"es": {"name": "Encuesta"}, "fr": {"name": "Sondage"}}},
+                {
+                    "base_language": "en",
+                    "has_translations": True,
+                    "translation_languages": ["es", "fr"],
+                    "translation_language_count": 2,
+                    "has_question_translations": False,
+                },
+            ),
+            (
+                "question_level_only",
+                {
+                    "base_language": "en",
+                    "questions": [
+                        {"type": "open", "question": "Test?", "translations": {"es": {"question": "¿Prueba?"}}},
+                    ],
+                },
+                {
+                    "base_language": "en",
+                    "has_translations": True,
+                    "translation_languages": [],
+                    "translation_language_count": 0,
+                    "has_question_translations": True,
+                },
+            ),
+            (
+                "both_levels",
+                {
+                    "base_language": "en",
+                    "translations": {"es": {"name": "Encuesta"}},
+                    "questions": [
+                        {"type": "open", "question": "Test?", "translations": {"es": {"question": "¿Prueba?"}}},
+                    ],
+                },
+                {
+                    "base_language": "en",
+                    "has_translations": True,
+                    "translation_languages": ["es"],
+                    "translation_language_count": 1,
+                    "has_question_translations": True,
+                },
+            ),
+        ]
+    )
+    @patch("products.surveys.backend.api.survey.report_user_action")
+    def test_create_survey_translation_properties(
+        self, _name, survey_overrides, expected_translation_props, mock_report_user_action
+    ):
+        payload = {
+            "name": "Translation Variants",
+            "type": "popover",
+            "questions": [{"type": "open", "question": "Test question?"}],
+            **survey_overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/", data=payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        properties = mock_report_user_action.call_args.args[2]
+        for key, value in expected_translation_props.items():
+            assert properties[key] == value, f"property {key!r}: expected {value!r}, got {properties[key]!r}"
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_persists_ai_snapshot(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Snapshot survey",
+            type="popover",
+            questions=[{"id": "q1", "type": "open", "question": "How are you?"}],
+        )
+        mock_generate_survey_translation.return_value = (
+            {"es": {"name": "Encuesta de snapshot"}},
+            [
+                {
+                    "id": "q1",
+                    "type": "open",
+                    "question": "How are you?",
+                    "translations": {"es": {"question": "¿Cómo estás?"}},
+                }
+            ],
+            ["translations.es.name", "questions.0.translations.es.question"],
+            "trace-snapshot",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "es", "survey": {"name": survey.name, "questions": survey.questions}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        survey.refresh_from_db()
+        assert survey.ai_translations_snapshot == {
+            "es": {
+                "survey": {"name": "Encuesta de snapshot"},
+                "questions": {"q1": {"question": "¿Cómo estás?"}},
+            }
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "ai_unmodified_when_translations_match_snapshot",
+                {"es": {"name": "Encuesta"}},
+                [{"id": "q1", "type": "open", "question": "Hi?", "translations": {"es": {"question": "¿Hola?"}}}],
+                {"es": {"survey": {"name": "Encuesta"}, "questions": {"q1": {"question": "¿Hola?"}}}},
+                {"es": "ai_unmodified"},
+            ),
+            (
+                "ai_modified_when_survey_text_edited",
+                {"es": {"name": "Encuesta editada"}},
+                [{"id": "q1", "type": "open", "question": "Hi?", "translations": {"es": {"question": "¿Hola?"}}}],
+                {"es": {"survey": {"name": "Encuesta"}, "questions": {"q1": {"question": "¿Hola?"}}}},
+                {"es": "ai_modified"},
+            ),
+            (
+                "ai_modified_when_question_text_edited",
+                {"es": {"name": "Encuesta"}},
+                [{"id": "q1", "type": "open", "question": "Hi?", "translations": {"es": {"question": "edited"}}}],
+                {"es": {"survey": {"name": "Encuesta"}, "questions": {"q1": {"question": "¿Hola?"}}}},
+                {"es": "ai_modified"},
+            ),
+            (
+                "manual_only_when_no_snapshot",
+                {"fr": {"name": "Sondage"}},
+                [{"id": "q1", "type": "open", "question": "Hi?"}],
+                None,
+                {"fr": "manual_only"},
+            ),
+            (
+                "mixed_languages",
+                {"es": {"name": "Encuesta"}, "fr": {"name": "Sondage manuel"}},
+                [{"id": "q1", "type": "open", "question": "Hi?"}],
+                {"es": {"survey": {"name": "Encuesta"}, "questions": {}}},
+                {"es": "ai_unmodified", "fr": "manual_only"},
+            ),
+        ]
+    )
+    @patch("products.surveys.backend.api.survey.report_user_action")
+    @freeze_time("2023-05-01 12:00:00")
+    def test_lifecycle_event_classifies_ai_translation_status(
+        self,
+        _name,
+        translations,
+        questions,
+        ai_snapshot,
+        expected_status,
+        mock_report_user_action,
+    ):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Status Survey",
+            type="popover",
+            questions=questions,
+            translations=translations,
+            ai_translations_snapshot=ai_snapshot,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime(2023, 5, 2, tzinfo=UTC)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        properties = mock_report_user_action.call_args.args[2]
+        assert properties["ai_translation_status"] == expected_status
+        expected_counts = Counter(expected_status.values())
+        assert properties["ai_unmodified_language_count"] == expected_counts.get("ai_unmodified", 0)
+        assert properties["ai_modified_language_count"] == expected_counts.get("ai_modified", 0)
+        assert properties["manual_translation_language_count"] == expected_counts.get("manual_only", 0)
 
     @freeze_time("2023-05-01 12:00:00")
     def test_delete_survey_records_activity(self):

@@ -288,6 +288,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
     # Language codes must be canonical BCP-47-ish strings (e.g. "es", "es-MX"). Aliases like "english" or "default" are rejected by the API.
     translations = models.JSONField(blank=True, null=True)
+    # Snapshot of the last AI-generated translation content per language. Used to classify whether the
+    # survey's saved translations are still the AI output verbatim, were edited after generation, or
+    # were authored manually without ever invoking the AI endpoint. Not exposed via the SDK.
+    # Format: { [languageCode]: { "survey": {<field>: <text>, ...}, "questions": {<question_id>: {<field>: <text>, ...}} } }
+    ai_translations_snapshot = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
