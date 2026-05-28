@@ -253,9 +253,7 @@ describe('slackIntegrationLogic — recently subscribed channels', () => {
             for (let i = 0; i < RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 5; i++) {
                 logic.actions.recordSubscribedChannel(`C${i}`)
             }
-        }).toMatchValues({
-            recentlySubscribedChannelIds: expect.arrayContaining([]),
-        })
+        }).toFinishListeners()
         expect(logic.values.recentlySubscribedChannelIds).toHaveLength(RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT)
         expect(logic.values.recentlySubscribedChannelIds[0]).toBe(`C${RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 4}`)
         expect(logic.values.recentlySubscribedChannelIds).not.toContain('C0')
