@@ -11,6 +11,7 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import { createDenyEventsStep } from '../common/steps/deny-events'
 import {
     EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -19,7 +20,6 @@ import {
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyEventRestrictionsStep,
-    createDropExceptionEventsStep,
     createEnrichSurveyPersonPropertiesStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -234,7 +234,7 @@ export function createJoinedIngestionPipeline<
                         .sequentially((b) =>
                             b
                                 .pipe(createParseKafkaMessageStep())
-                                .pipe(createDropExceptionEventsStep())
+                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning']))
                                 .pipe(createResolveTeamStep(teamManager))
                                 .pipe(createValidateHistoricalMigrationStep())
                                 .pipe(createValidateAiEventTokensStep())
