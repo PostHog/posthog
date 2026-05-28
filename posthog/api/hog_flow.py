@@ -75,6 +75,28 @@ class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
+class HogFlowEdgeSerializer(serializers.Serializer):
+    to = serializers.CharField(help_text="Target action id.")
+    type = serializers.ChoiceField(
+        choices=["continue", "branch"],
+        help_text=(
+            "continue: fall-through (sequential or the no-match path of conditional_branch). "
+            "branch: requires 'index' matching config.conditions[index]."
+        ),
+    )
+    index = serializers.IntegerField(
+        required=False,
+        help_text="Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition.",
+    )
+
+    def get_fields(self):
+        # 'from' is a Python keyword so it can't be a class attribute. Inject it here
+        # so DRF / drf-spectacular still see a typed field on the wire.
+        fields = super().get_fields()
+        fields["from"] = serializers.CharField(help_text="Source action id.")
+        return fields
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
@@ -104,7 +126,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}. "
-            "function*: {template_id, inputs}. "
+            "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
+            "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
@@ -390,7 +413,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
         ),
     )
-    edges = serializers.JSONField(
+    edges = serializers.ListField(
+        child=HogFlowEdgeSerializer(),
         required=False,
         help_text=(
             "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through "

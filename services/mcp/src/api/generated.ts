@@ -17876,6 +17876,32 @@ export namespace Schemas {
 
     /**
      * * `continue` - continue
+    * `branch` - branch
+     */
+    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
+
+
+    export const HogFlowEdgeTypeEnum = {
+      Continue: 'continue',
+      Branch: 'branch',
+    } as const;
+
+    export interface HogFlowEdge {
+      /** Target action id. */
+      to: string;
+      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
+
+      * `continue` - continue
+      * `branch` - branch */
+      type: HogFlowEdgeTypeEnum;
+      /** Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition. */
+      index?: number;
+      /** Source action id. */
+      from: string;
+    }
+
+    /**
+     * * `continue` - continue
     * `abort` - abort
     * `complete` - complete
     * `branch` - branch
@@ -17952,7 +17978,7 @@ export namespace Schemas {
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
       config: unknown;
       /** Output variable definition for downstream actions. */
       output_variable?: unknown;
@@ -17991,7 +18017,7 @@ export namespace Schemas {
       * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
       /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
-      edges?: unknown;
+      edges?: HogFlowEdge[];
       /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
       actions: HogFlowAction[];
       /** @nullable */
@@ -28308,7 +28334,7 @@ export namespace Schemas {
       * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
       /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
-      edges?: unknown;
+      edges?: HogFlowEdge[];
       /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
       actions?: HogFlowAction[];
       /** @nullable */

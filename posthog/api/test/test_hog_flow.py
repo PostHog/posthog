@@ -607,6 +607,24 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["name"] == "Renamed via UI"
 
+    def test_edges_validation_accepts_list_of_edges(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["edges"] = [{"from": "trigger_node", "to": "action_1", "type": "continue"}]
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["edges"] == [{"from": "trigger_node", "to": "action_1", "type": "continue"}]
+
+    def test_edges_validation_rejects_non_list(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["edges"] = "not-an-array"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "edges"
+
     def test_can_call_a_test_invocation(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
