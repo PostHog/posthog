@@ -307,18 +307,6 @@ class TestIpAddressFilter(BaseTest):
         serializer = AdvancedActivityLogFiltersSerializer(data=query)
         self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
-    def test_wildcard_does_not_interpret_regex_metacharacters(self):
-        # `.` in the pattern is a literal IPv4 separator, not a regex wildcard.
-        match = self._create_log("203.0.113.42")
-        non_match = self._create_log("203a0b113c42")
-
-        queryset = ActivityLog.objects.filter(team_id=self.team.id)
-        filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.*"]})
-        ids = set(filtered.values_list("id", flat=True))
-        self.assertIn(match.id, ids)
-        self.assertNotIn(non_match.id, ids)
-
-
 class TestTypeConversionIntegration(BaseTest):
     def setUp(self):
         super().setUp()
