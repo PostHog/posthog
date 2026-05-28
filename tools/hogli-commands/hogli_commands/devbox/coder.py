@@ -1218,7 +1218,7 @@ def update_workspace(
     does not declare) are dropped by the retry shim instead of aborting
     the update.
     """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
+    base_args = ["coder", "update", name, "--yes", "--use-parameter-defaults"]
     result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
@@ -1238,7 +1238,7 @@ def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
     local config key (for example, a saved ``dotfiles_uri`` after the user
     switches templates) does not abort the pre-start sync.
     """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
+    base_args = ["coder", "update", name, "--yes", "--use-parameter-defaults"]
     result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
