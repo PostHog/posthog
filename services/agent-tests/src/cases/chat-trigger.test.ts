@@ -1,0 +1,102 @@
+/**
+ * Chat trigger (`/run`, `/send`, `/listen`) e2e. Real ingress + runner + PG +
+ * filesystem + PiAiClient. Model invocations route through pi-ai's faux
+ * provider — `cluster.setScript([...])` arms responses for the next call(s).
+ *
+ * Covers the corresponding old test surface:
+ *   - app: mock-anthropic SDK roundtrip (single-turn echo)
+ *   - app: greeting-bot (asks for name, greets on second turn)
+ *   - persistent-chat: basic-multi-turn
+ *   - persistent-chat: lifecycle-edges (covered in lifecycle-edges.test.ts)
+ */
+
+import request from 'supertest'
+
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+
+describe('chat trigger: real e2e', () => {
+    let c: Cluster
+
+    beforeEach(async () => {
+        c = await buildCluster()
+    })
+
+    afterEach(async () => {
+        await c.teardown()
+    })
+
+    afterAll(async () => {
+        await closeSharedPool()
+    })
+
+    it('single-turn echo: faux returns canned text, session completes', async () => {
+        c.setScript([fauxText('hello world')])
+        await c.deployAgent({ slug: 'echo' })
+        const res = await request(c.ingress).post('/agents/echo/run').send({ message: 'hi' })
+        expect(res.status).toBe(200)
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        const assistant = session!.conversation.find((m) => m.role === 'assistant')
+        expect(assistant).not.toBeUndefined()
+        const text = (assistant as { content: Array<{ type: string; text?: string }> }).content[0].text
+        expect(text).toBe('hello world')
+    })
+
+    it('greeting-bot multi-turn: ask_for_input parks, /send resumes, second turn completes', async () => {
+        // Turn 1: ask_for_input (parks the session at waiting).
+        // Turn 2: a plain text response after the user's follow-up.
+        c.setScript([
+            fauxCallTool('@posthog/meta-ask-for-input', { prompt: "What's your name?" }),
+            fauxText('hello, alice'),
+        ])
+        await c.deployAgent({ slug: 'greeter' })
+        const res = await request(c.ingress).post('/agents/greeter/run').send({ message: 'hi' })
+        const sid = res.body.session_id
+        await c.drain()
+        let session = await c.queue.get(sid)
+        expect(session!.state).toBe('waiting')
+
+        // User replies with their name.
+        await request(c.ingress).post('/agents/greeter/send').send({ session_id: sid, message: 'alice' })
+        await c.drain()
+        session = await c.queue.get(sid)
+        expect(session!.state).toBe('completed')
+
+        const assistantTurns = session!.conversation.filter((m) => m.role === 'assistant')
+        expect(assistantTurns).toHaveLength(2)
+        const finalText = (assistantTurns[1] as { content: Array<{ type: string; text?: string }> }).content[0].text
+        expect(finalText).toBe('hello, alice')
+    })
+
+    it('basic-multi-turn: /send routes into pending_inputs while waiting; runner drains on resume', async () => {
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' }), fauxText('ok done')])
+        await c.deployAgent({ slug: 'multi' })
+        const run = await request(c.ingress).post('/agents/multi/run').send({ message: 'first' })
+        const sid = run.body.session_id
+        await c.drain()
+        expect((await c.queue.get(sid))!.state).toBe('waiting')
+
+        const send = await request(c.ingress).post('/agents/multi/send').send({ session_id: sid, message: 'second' })
+        expect(send.status).toBe(200)
+
+        // /send routed into pending_inputs. Verify before drain.
+        const before = await c.queue.get(sid)
+        expect(before!.pending_inputs).toHaveLength(1)
+
+        await c.drain()
+        const session = await c.queue.get(sid)
+        expect(session!.state).toBe('completed')
+        expect(session!.pending_inputs).toHaveLength(0) // drained
+        // First user message + assistant(tool_use) + toolResult + drained user + assistant(final)
+        const userMsgs = session!.conversation.filter((m) => m.role === 'user')
+        const userTexts = userMsgs.map((m) => (typeof m.content === 'string' ? m.content : ''))
+        expect(userTexts).toContain('first')
+        expect(userTexts).toContain('second')
+    })
+
+    it('404s an unknown agent slug', async () => {
+        const res = await request(c.ingress).post('/agents/ghost/run').send({ message: 'x' })
+        expect(res.status).toBe(404)
+    })
+})

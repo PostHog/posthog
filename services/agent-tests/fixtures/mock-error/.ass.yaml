@@ -1,5 +1,0 @@
-name: e2e-mock-error
-slug: e2e-mock-error
-description: Always-fails agent driven by the in-process mock Anthropic server.
-tools: []
-skills: []

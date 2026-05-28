@@ -1,237 +1,233 @@
-import { DateTime } from 'luxon'
-import supertest from 'supertest'
-import type { Express } from 'ultimate-express'
+import request from 'supertest'
 
-import { ListSessionsFilter, SessionQuery, SessionView } from '@posthog/agent-core'
+import {
+    AgentSession,
+    AgentSpecSchema,
+    MemoryBundleStore,
+    MemoryRevisionStore,
+    MemorySessionQueue,
+} from '@posthog/agent-shared'
 
-import { JanitorServerDeps, buildServer } from './server'
+import { buildJanitorApp } from './server'
 
-const VALID_UUID = 'b1f3d6e4-4c2a-4b0e-9d5a-1c9f7e1d8a01'
-const OTHER_UUID = 'b1f3d6e4-4c2a-4b0e-9d5a-1c9f7e1d8a02'
-const SHARED_KEY = 'unit-test-internal-key'
-
-class FakeSessionQuery {
-    public lastList: ListSessionsFilter | null = null
-    public canceled: string[] = []
-
-    constructor(private readonly rows: SessionView[]) {}
-
-    findSession = async (id: string): Promise<SessionView | null> => this.rows.find((r) => r.id === id) ?? null
-
-    listSessions = async (filter: ListSessionsFilter): Promise<SessionView[]> => {
-        this.lastList = filter
-        return this.rows.filter((row) => {
-            if (filter.teamId !== undefined && row.teamId !== filter.teamId) {
-                return false
-            }
-            if (filter.applicationId && row.applicationId !== filter.applicationId) {
-                return false
-            }
-            if (filter.revisionId && row.revisionId !== filter.revisionId) {
-                return false
-            }
-            if (filter.status) {
-                const statuses = Array.isArray(filter.status) ? filter.status : [filter.status]
-                if (!statuses.includes(row.status)) {
-                    return false
-                }
-            }
-            return true
-        })
-    }
-
-    cancelSession = async (id: string): Promise<SessionView | null> => {
-        const row = this.rows.find((r) => r.id === id)
-        if (!row) {
-            return null
-        }
-        this.canceled.push(id)
-        return { ...row, status: 'canceled' }
-    }
-}
-
-function makeView(overrides: Partial<SessionView> = {}): SessionView {
-    const now = DateTime.utc()
+function session(id: string): AgentSession {
     return {
-        id: VALID_UUID,
-        teamId: 7,
-        applicationId: 'b1f3d6e4-4c2a-4b0e-9d5a-1c9f7e1d8a03',
-        revisionId: 'b1f3d6e4-4c2a-4b0e-9d5a-1c9f7e1d8a04',
-        queueName: 'default',
-        status: 'running',
-        scheduled: now,
-        created: now,
-        lastTransition: now,
-        lastHeartbeat: now,
-        transitionCount: 1,
-        janitorTouchCount: 0,
-        stateByteSize: 42,
-        ...overrides,
+        id,
+        application_id: 'app',
+        revision_id: 'rev',
+        team_id: 1,
+        external_key: null,
+        state: 'running',
+        conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+        pending_inputs: [],
+        principal: null,
+        retry_count: 0,
+        created_at: '2026-05-27',
+        updated_at: '2026-05-27',
     }
 }
 
-interface TestHarness {
-    query: FakeSessionQuery
-    app: Express
-}
-
-async function startServer(args: { rows?: SessionView[]; sharedKey?: string | undefined }): Promise<TestHarness> {
-    const query = new FakeSessionQuery(args.rows ?? [])
-    const deps: JanitorServerDeps = {
-        query: query as unknown as SessionQuery,
-        internalApiSharedKey: args.sharedKey,
+describe('janitor HTTP', () => {
+    function mk(): { queue: MemorySessionQueue; app: ReturnType<typeof buildJanitorApp> } {
+        const queue = new MemorySessionQueue()
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+        })
+        return { queue, app }
     }
-    const app = buildServer(deps)
-    await new Promise<void>((resolve, reject) => {
-        try {
-            app.listen(0, () => resolve())
-        } catch (err) {
-            reject(err)
-        }
-    })
-    return { query, app }
-}
 
-describe('agent-janitor server', () => {
-    let harness: TestHarness
-
-    afterEach(() => {
-        // app does not expose close() in ultimate-express, and the supertest agent does
-        // not hold onto the underlying server; relying on jest --forceExit to tear it down.
+    it('GET /healthz returns ok', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/healthz')
+        expect(res.status).toBe(200)
     })
 
-    describe('public routes', () => {
-        it('GET /health is open and returns ok', async () => {
-            harness = await startServer({ sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app).get('/health')
-            expect(res.status).toBe(200)
-            expect(res.body).toEqual({ ok: true })
-        })
-
-        it('GET /metrics is open and returns prometheus text', async () => {
-            harness = await startServer({ sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app).get('/metrics')
-            expect(res.status).toBe(200)
-            expect(res.headers['content-type']).toContain('text/plain')
-        })
+    it('GET /sessions/:id returns session, 404 if missing', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue(session('s1'))
+        const ok = await request(app).get('/sessions/s1')
+        expect(ok.status).toBe(200)
+        expect(ok.body.id).toBe('s1')
+        const miss = await request(app).get('/sessions/nope')
+        expect(miss.status).toBe(404)
     })
 
-    describe('auth gating on /internal/*', () => {
-        it('refuses with 500 when no shared key is configured', async () => {
-            harness = await startServer({ rows: [makeView()], sharedKey: undefined })
-            const res = await supertest(harness.app).get(`/internal/sessions/${VALID_UUID}`)
-            expect(res.status).toBe(500)
-        })
-
-        it('refuses with 401 when the key is missing', async () => {
-            harness = await startServer({ rows: [makeView()], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app).get(`/internal/sessions/${VALID_UUID}`)
-            expect(res.status).toBe(401)
-        })
-
-        it('refuses with 401 when the key is wrong', async () => {
-            harness = await startServer({ rows: [makeView()], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .get(`/internal/sessions/${VALID_UUID}`)
-                .set('x-internal-key', 'not-the-key')
-            expect(res.status).toBe(401)
-        })
-
-        it('accepts with 200 when the key matches', async () => {
-            harness = await startServer({ rows: [makeView()], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .get(`/internal/sessions/${VALID_UUID}`)
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(200)
-        })
+    it('POST /sessions/:id/cancel marks failed', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue(session('s2'))
+        const res = await request(app).post('/sessions/s2/cancel')
+        expect(res.status).toBe(200)
+        expect((await queue.get('s2'))!.state).toBe('failed')
     })
 
-    describe('GET /internal/sessions/:id', () => {
-        it('returns the session as snake_case JSON', async () => {
-            harness = await startServer({ rows: [makeView()], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .get(`/internal/sessions/${VALID_UUID}`)
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(200)
-            expect(res.body).toMatchObject({
-                id: VALID_UUID,
-                team_id: 7,
-                status: 'running',
-                queue_name: 'default',
-                state_byte_size: 42,
-            })
-        })
-
-        it('returns 404 when the session does not exist', async () => {
-            harness = await startServer({ rows: [], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .get(`/internal/sessions/${VALID_UUID}`)
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(404)
-        })
-
-        it('returns 400 for non-uuid ids', async () => {
-            harness = await startServer({ rows: [], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .get('/internal/sessions/not-a-uuid')
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(400)
-        })
+    it('POST /sweep returns counts', async () => {
+        const { app } = mk()
+        const res = await request(app).post('/sweep')
+        expect(res.status).toBe(200)
+        expect(res.body).toEqual({ requeued: 0, poisoned: 0, failed: 0 })
     })
 
-    describe('GET /internal/sessions', () => {
-        it('lists sessions filtered by application_id + status', async () => {
-            const rowA = makeView({ id: VALID_UUID, status: 'running' })
-            const rowB = makeView({ id: OTHER_UUID, status: 'completed' })
-            harness = await startServer({ rows: [rowA, rowB], sharedKey: SHARED_KEY })
-
-            const res = await supertest(harness.app)
-                .get(`/internal/sessions?application_id=${rowA.applicationId}&status=running`)
-                .set('x-internal-key', SHARED_KEY)
-
-            expect(res.status).toBe(200)
-            expect(res.body.results).toHaveLength(1)
-            expect(res.body.results[0].id).toBe(VALID_UUID)
-            expect(harness.query.lastList).toMatchObject({
-                applicationId: rowA.applicationId,
-                status: ['running'],
-            })
+    it('enforces internal secret when configured', async () => {
+        const queue = new MemorySessionQueue()
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+            internalSecret: 'topsecret',
         })
-
-        it('rejects invalid query parameters', async () => {
-            harness = await startServer({ rows: [], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .get('/internal/sessions?application_id=not-a-uuid')
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(400)
-        })
+        const noAuth = await request(app).get('/sessions/x')
+        expect(noAuth.status).toBe(401)
+        const withAuth = await request(app).get('/sessions/x').set('x-internal-secret', 'topsecret')
+        expect(withAuth.status).toBe(404) // session not found, but auth passed
     })
 
-    describe('POST /internal/sessions/:id/cancel', () => {
-        it('cancels an existing session and returns the new view', async () => {
-            harness = await startServer({ rows: [makeView()], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .post(`/internal/sessions/${VALID_UUID}/cancel`)
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(200)
-            expect(res.body.status).toBe('canceled')
-            expect(harness.query.canceled).toEqual([VALID_UUID])
-        })
+    /* ────────────────────────── catalog ────────────────────────── */
 
-        it('returns 404 when the session does not exist', async () => {
-            harness = await startServer({ rows: [], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .post(`/internal/sessions/${VALID_UUID}/cancel`)
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(404)
-        })
+    it('GET /native_tools returns the registry catalog', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/native_tools')
+        expect(res.status).toBe(200)
+        const ids = (res.body.tools as Array<{ id: string }>).map((t) => t.id)
+        expect(ids).toEqual(expect.arrayContaining(['@posthog/query', '@posthog/meta-ask-for-input']))
+    })
 
-        it('returns 400 for non-uuid ids', async () => {
-            harness = await startServer({ rows: [], sharedKey: SHARED_KEY })
-            const res = await supertest(harness.app)
-                .post('/internal/sessions/not-a-uuid/cancel')
-                .set('x-internal-key', SHARED_KEY)
-            expect(res.status).toBe(400)
+    /* ────────────────────────── revisions ────────────────────────── */
+
+    async function mkRevisionApp(): Promise<{
+        revisions: MemoryRevisionStore
+        bundles: MemoryBundleStore
+        app: ReturnType<typeof buildJanitorApp>
+        revisionId: string
+    }> {
+        const revisions = new MemoryRevisionStore()
+        const bundles = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+        const apprec = await revisions.createApplication({ team_id: 1, slug: 'a', name: 'A', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: apprec.id,
+            parent_revision_id: null,
+            created_by: 'u',
+            bundle_uri: 'mem://b',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
         })
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+            revisions,
+            bundles,
+        })
+        return { revisions, bundles, app, revisionId: rev.id }
+    }
+
+    it('GET /revisions/:id/manifest returns the file list + state', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'agent.md', 'hello')
+        await bundles.write(revisionId, 'skills/research.md', 'be thorough')
+        const res = await request(app).get(`/revisions/${revisionId}/manifest`)
+        expect(res.status).toBe(200)
+        expect(res.body.state).toBe('draft')
+        const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
+        expect(paths).toEqual(['agent.md', 'skills/research.md'])
+    })
+
+    it('PUT /revisions/:id/file writes and GET reads back', async () => {
+        const { app, revisionId } = await mkRevisionApp()
+        const put = await request(app)
+            .put(`/revisions/${revisionId}/file?path=tools/wc/source.ts`)
+            .send({ content: 'export default 1' })
+        expect(put.status).toBe(200)
+        const get = await request(app).get(`/revisions/${revisionId}/file?path=tools/wc/source.ts`)
+        expect(get.status).toBe(200)
+        expect(get.body.content).toBe('export default 1')
+    })
+
+    it('DELETE /revisions/:id/file removes the file', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'doomed.md', 'bye')
+        const del = await request(app).delete(`/revisions/${revisionId}/file?path=doomed.md`)
+        expect(del.status).toBe(200)
+        expect(await bundles.exists(revisionId, 'doomed.md')).toBe(false)
+    })
+
+    it('GET /revisions/:id/bundle bulk-pulls every file', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'agent.md', 'a')
+        await bundles.write(revisionId, 'skills/x.md', 'b')
+        const res = await request(app).get(`/revisions/${revisionId}/bundle`)
+        expect(res.status).toBe(200)
+        expect(res.body.files).toEqual({ 'agent.md': 'a', 'skills/x.md': 'b' })
+    })
+
+    it('PUT /revisions/:id/bundle with mode=replace wipes and writes', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'old.md', 'gone')
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/bundle`)
+            .send({ files: { 'new.md': 'fresh', 'agent.md': 'top' }, mode: 'replace' })
+        expect(res.status).toBe(200)
+        const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
+        expect(paths).toEqual(['agent.md', 'new.md'])
+        expect(await bundles.exists(revisionId, 'old.md')).toBe(false)
+    })
+
+    it('PUT /revisions/:id/bundle with mode=merge upserts without wiping', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'keep.md', 'still here')
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/bundle`)
+            .send({ files: { 'added.md': 'new' }, mode: 'merge' })
+        expect(res.status).toBe(200)
+        const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
+        expect(paths).toEqual(['added.md', 'keep.md'])
+    })
+
+    it('POST /revisions/:id/freeze flips state to ready and stamps sha256', async () => {
+        const { app, bundles, revisions, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'agent.md', 'final')
+        const res = await request(app).post(`/revisions/${revisionId}/freeze`)
+        expect(res.status).toBe(200)
+        expect(res.body.state).toBe('ready')
+        expect(res.body.bundle_sha256).toMatch(/^[0-9a-f]{64}$/)
+        const after = await revisions.getRevision(revisionId)
+        expect(after!.state).toBe('ready')
+        expect(after!.bundle_sha256).toBe(res.body.bundle_sha256)
+    })
+
+    it('refuses writes once the revision is frozen', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'agent.md', 'final')
+        await request(app).post(`/revisions/${revisionId}/freeze`)
+        const put = await request(app).put(`/revisions/${revisionId}/file?path=agent.md`).send({ content: 'x' })
+        expect(put.status).toBe(409)
+        expect(put.body.error).toBe('revision_not_editable')
+    })
+
+    it('POST /revisions/:id/clone_from copies every file from the source', async () => {
+        const { app, bundles, revisions, revisionId } = await mkRevisionApp()
+        // Make the existing revision the source — seed it with files, freeze it.
+        await bundles.write(revisionId, 'agent.md', 'parent')
+        await bundles.write(revisionId, 'skills/x.md', 'parent skill')
+        await request(app).post(`/revisions/${revisionId}/freeze`)
+        // Create a fresh draft to clone into.
+        const apps = await revisions.listApplications(1)
+        const draft = await revisions.createRevision({
+            application_id: apps[0].id,
+            parent_revision_id: revisionId,
+            created_by: 'u',
+            bundle_uri: 'mem://b2',
+            spec: { model: 'x' } as never,
+        })
+        const res = await request(app)
+            .post(`/revisions/${draft.id}/clone_from`)
+            .send({ source_revision_id: revisionId })
+        expect(res.status).toBe(200)
+        const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
+        expect(paths).toEqual(['agent.md', 'skills/x.md'])
+    })
+
+    it('returns 503 when the revision/bundle stores are not configured', async () => {
+        const { app } = mk() // no revisions/bundles
+        const res = await request(app).get('/revisions/00000000-0000-0000-0000-000000000000/manifest')
+        expect(res.status).toBe(503)
     })
 })

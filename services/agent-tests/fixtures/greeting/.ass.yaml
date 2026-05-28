@@ -1,5 +1,0 @@
-name: e2e-greeting
-slug: e2e-greeting
-description: Multi-turn greeting agent for e2e tests. No custom tools.
-tools: []
-skills: []

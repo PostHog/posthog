@@ -16,7 +16,9 @@ packages:
     - nodejs/src/scripts
     - products/*
     - docs/onboarding
-    - services/agent-core
+    - services/agent-shared
+    - services/agent-tools
+    - services/agent-sandbox-host
     - services/agent-ingress
     - services/agent-janitor
     - services/agent-runner
@@ -78,6 +80,8 @@ minimumReleaseAgeExclude:
     - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.5
+    - '@earendil-works/*'
+    - typebox
     - chartjs-plugin-stacked100@1.7.1
     - torph@0.0.5
     - oxfmt@0.35.0

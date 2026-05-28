@@ -1,449 +1,455 @@
-"""DRF viewsets for agent_stack."""
+"""
+DRF viewsets for agent_stack — the authoring surface.
+
+Two model viewsets + one catalog viewset:
+
+    AgentApplicationViewSet  list / retrieve / create / update / destroy /
+                             set_env
+    AgentRevisionViewSet     list / retrieve / create (draft) / update_spec /
+                             promote / archive  +  bundle proxy actions
+                             (manifest, file, bundle, freeze, clone_from)
+    AgentNativeToolsViewSet  list (read-only catalog of native tools)
+
+Bundle reads/writes are proxied to the agent-janitor node service which
+owns the actual BundleStore (FS in dev, S3 in prod). The Django layer keeps
+its team / scope / draft-only checks and forwards the body. See
+janitor_client.py for the wire protocol.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
-from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
-import requests as http_requests
-from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import (
     serializers as drf_serializers,
     status,
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
-from posthog.api.log_entries import fetch_log_entries
-from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.helpers.encrypted_fields import EncryptedTextField
 
-from . import deploys
-from .models import AgentApplication, AgentApplicationRevision
+from .janitor_client import JanitorClient, JanitorClientError, default_client
+from .models import AgentApplication, AgentRevision
 from .serializers import (
-    AgentApplicationRevisionSerializer,
     AgentApplicationSerializer,
-    CompleteUploadRequestSerializer,
-    DisableRevisionRequestSerializer,
-    PatchEnvKeysRequestSerializer,
-    PreviewRevisionRequestSerializer,
+    AgentRevisionSerializer,
+    CloneFromRequestSerializer,
+    NewDraftRevisionRequestSerializer,
     PromoteRevisionRequestSerializer,
-    StartDeployRequestSerializer,
-    StartDeployResponseSerializer,
-    UpdateEnvRequestSerializer,
+    SetEnvRequestSerializer,
+    WriteBundleRequestSerializer,
+    WriteFileRequestSerializer,
 )
 
 logger = logging.getLogger(__name__)
 
 
+def _resolve_application(queryset: QuerySet, lookup_value: str) -> AgentApplication | None:
+    """Look up by UUID if the URL value parses as one, otherwise by slug.
+
+    Lets API consumers reference an application either by its stable id or by
+    the human-readable slug — both are unique within a team.
+    """
+    try:
+        UUID(str(lookup_value))
+        field = "pk"
+    except (ValueError, TypeError):
+        field = "slug"
+    return queryset.filter(**{field: lookup_value}).first()
+
+
+def _janitor() -> JanitorClient:
+    """Indirection so tests can monkey-patch."""
+    return default_client()
+
+
+class JanitorUpstreamError(APIException):
+    """DRF-friendly wrapper for non-2xx janitor responses. We forward the
+    status code where it makes sense (404 stays 404, 409 stays 409) and
+    surface the janitor's body as the API response."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Upstream janitor service error"
+    default_code = "janitor_upstream"
+
+    def __init__(self, e: JanitorClientError) -> None:
+        # Preserve 4xx mappings; clamp 5xx to a single 502 so we never leak
+        # the janitor's internal status (some are nominal like 503 = not
+        # configured, but the caller experience is "this isn't available").
+        upstream_code = e.status_code
+        if 400 <= upstream_code < 500:
+            self.status_code = upstream_code
+        detail = e.body if e.body is not None else {"detail": e.message}
+        super().__init__(detail=detail)
+
+
 @extend_schema(tags=["agent_stack"])
 class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """Agent applications — the deployable unit of the agent platform."""
+    """Agent applications — the deployable unit of the platform.
+
+    URLs:
+        GET    /api/projects/<team>/agent_applications/             list
+        POST   /api/projects/<team>/agent_applications/             create
+        GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+        PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+        DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+        POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+    """
 
     scope_object = "agent_application"
-    scope_object_write_actions = [
-        "create",
-        "update",
-        "partial_update",
-        "destroy",
-        "start_deploy",
-        "complete_upload",
-        "promote",
-        "preview",
-        "disable_revision",
-        "env",
-    ]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "set_env"]
     scope_object_read_actions = ["list", "retrieve"]
     serializer_class = AgentApplicationSerializer
     queryset = AgentApplication.objects.all()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(deleted=False)
+        return queryset.filter(archived=False)
 
     def safely_get_object(self, queryset: QuerySet) -> AgentApplication | None:
-        """Look up by UUID if the URL value parses as one, otherwise by slug."""
-        lookup_value = self.kwargs[self.lookup_url_kwarg or self.lookup_field]
-        try:
-            UUID(str(lookup_value))
-            field = "pk"
-        except (ValueError, TypeError):
-            field = "slug"
-        return queryset.filter(**{field: lookup_value}).first()
+        return _resolve_application(queryset, self.kwargs[self.lookup_url_kwarg or self.lookup_field])
 
     def perform_create(self, serializer: AgentApplicationSerializer) -> None:
         serializer.save(team_id=self.team_id, created_by=self.request.user)
 
     def perform_destroy(self, instance: AgentApplication) -> None:
-        instance.deleted = True
-        instance.deleted_at = timezone.now()
-        instance.save(update_fields=["deleted", "deleted_at", "updated_at"])
+        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history."""
+        instance.archived = True
+        instance.archived_at = timezone.now()
+        instance.save(update_fields=["archived", "archived_at", "updated_at"])
 
-    # --- Deploy lifecycle ---
+    @action(detail=True, methods=["post"], url_path="set_env")
+    def set_env(self, request: Request, **kwargs) -> Response:
+        """Replace the agent's encrypted env block.
 
-    def _get_revision_for_app(
-        self,
-        application: AgentApplication,
-        revision_id: UUID,
-    ) -> AgentApplicationRevision:
-        try:
-            return AgentApplicationRevision.objects.get(
-                pk=revision_id,
-                application=application,
-                team_id=self.team_id,
-            )
-        except AgentApplicationRevision.DoesNotExist as e:
-            raise NotFound("Revision not found") from e
-
-    @validated_request(
-        request_serializer=StartDeployRequestSerializer,
-        responses={
-            201: OpenApiResponse(response=StartDeployResponseSerializer),
-            503: OpenApiResponse(description="Object storage unavailable"),
-        },
-    )
-    @action(detail=True, methods=["post"], url_path="start_deploy")
-    def start_deploy(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Create a pending revision and return a presigned upload target."""
+        The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+        text gets stored on AgentApplication.encrypted_env; the worker
+        decrypts it at session start via the same Fernet schedule (see
+        agent-shared/src/runtime/encryption.ts).
+        """
         application = self.get_object()
-        data = request.validated_data
+        if application is None:
+            raise NotFound("Application not found")
+
+        body = SetEnvRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        env_map = body.validated_data["env"]
+
+        # EncryptedTextField encrypts on assignment when saved.
+        # We serialize the env dict as JSON before encryption so the worker
+        # gets a JSON object back out.
+        application.encrypted_env = json.dumps(env_map)
+        application.save(update_fields=["encrypted_env", "updated_at"])
+        return Response({"ok": True})
+
+
+@extend_schema(tags=["agent_stack"])
+class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """Revisions of an agent. Created in `draft`, promoted through
+    `ready → live` once the bundle has been uploaded + frozen.
+
+    URLs (nested under an application):
+
+        Model CRUD:
+            GET   .../revisions/                       list
+            POST  .../revisions/                       create draft
+            GET   .../revisions/<id>/                  retrieve
+            PATCH .../revisions/<id>/                  update spec (draft only)
+
+        Lifecycle:
+            POST  .../revisions/<id>/promote/          ready → live
+            POST  .../revisions/<id>/archive/          → archived
+            POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+            POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+            POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+        Bundle authoring (proxied to the janitor):
+            GET    .../revisions/<id>/manifest/        list paths + sha256
+            GET    .../revisions/<id>/file/?path=…     read one file
+            PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+            DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+            GET    .../revisions/<id>/bundle/          bulk pull all files
+            PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+    """
+
+    scope_object = "agent_application"  # share the parent's scope
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "promote",
+        "archive",
+        "freeze",
+        "clone_from",
+        "new_draft",
+        "put_file",
+        "delete_file",
+        "put_bundle",
+    ]
+    scope_object_read_actions = ["list", "retrieve", "manifest", "get_file", "get_bundle"]
+    serializer_class = AgentRevisionSerializer
+    queryset = AgentRevision.objects.all()
+
+    def get_application(self) -> AgentApplication:
+        app = _resolve_application(
+            AgentApplication.objects.filter(team_id=self.team_id, archived=False),
+            self.kwargs.get("application_id") or self.kwargs.get("parent_lookup_application"),
+        )
+        if app is None:
+            raise NotFound("Application not found")
+        return app
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(application=self.get_application())
+
+    def perform_create(self, serializer: AgentRevisionSerializer) -> None:
+        application = self.get_application()
+        # Fresh revisions start in `draft`. Parent revision is optional — if
+        # set, this revision can later be diff'd against it for review.
+        serializer.save(
+            application=application,
+            state="draft",
+            created_by=self.request.user,
+        )
+
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        """Spec edits are only allowed while state='draft'. Once promoted to
+        ready/live the spec is frozen — change requires a new revision."""
+        instance: AgentRevision = self.get_object()
+        if instance.state != "draft":
+            raise ValidationError(f"Cannot edit spec on a {instance.state} revision; create a new draft instead.")
+        return super().update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="promote")
+    def promote(self, request: Request, **kwargs) -> Response:
+        """ready → live. Sets the parent application's live_revision."""
+        revision: AgentRevision = self.get_object()
+        body = PromoteRevisionRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        if revision.state == "live":
+            return Response({"ok": True, "state": "live", "no_op": True})
+        if revision.state != "ready":
+            raise ValidationError(f"Revision is in state '{revision.state}'; only 'ready' can be promoted.")
+        if not revision.bundle_sha256:
+            raise ValidationError("Revision has no frozen bundle (bundle_sha256 is null).")
+
+        application = revision.application
+        # Demote whatever's currently live, if anything different.
+        previously_live = application.live_revision
+        if previously_live and previously_live.id != revision.id:
+            previously_live.state = "archived"
+            previously_live.save(update_fields=["state", "updated_at"])
+
+        revision.state = "live"
+        revision.save(update_fields=["state", "updated_at"])
+        application.live_revision = revision
+        application.save(update_fields=["live_revision", "updated_at"])
+        return Response({"ok": True, "state": "live"})
+
+    @action(detail=True, methods=["post"], url_path="archive")
+    def archive(self, request: Request, **kwargs) -> Response:
+        """Mark a revision archived. If it was the live one, clear the
+        application's live_revision pointer (the app effectively has no
+        deployable version until another revision is promoted)."""
+        revision: AgentRevision = self.get_object()
+        if revision.state == "archived":
+            return Response({"ok": True, "no_op": True})
+        application = revision.application
+        revision.state = "archived"
+        revision.save(update_fields=["state", "updated_at"])
+        if application.live_revision_id == revision.id:
+            application.live_revision = None
+            application.save(update_fields=["live_revision", "updated_at"])
+        return Response({"ok": True, "state": "archived"})
+
+    # ── Bundle proxy actions ───────────────────────────────────────────────
+
+    def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Wrap a janitor call: map upstream errors into DRF responses."""
         try:
-            revision, presigned = deploys.start_deploy(
-                application=application,
-                bundle_sha256=data["bundle_sha256"],
-                bundle_size=data["bundle_size"],
-                top_level_config=data["top_level_config"],
-                created_by_id=getattr(request.user, "id", None),
-            )
-        except deploys.StorageUnavailableError:
-            return Response(
-                {"detail": "object storage is unavailable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            return fn(*args, **kwargs)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+
+    @action(detail=True, methods=["get"], url_path="manifest")
+    def manifest(self, request: Request, **kwargs) -> Response:
+        """List every file in this revision's bundle (path, size, sha256)."""
+        revision: AgentRevision = self.get_object()
+        return Response(self._call(_janitor().manifest, str(revision.id)))
+
+    @action(detail=True, methods=["get"], url_path="file")
+    def get_file(self, request: Request, **kwargs) -> Response:
+        """Read one file by `?path=...`. Works on any revision state."""
+        revision: AgentRevision = self.get_object()
+        path = request.query_params.get("path")
+        if not path:
+            raise ValidationError("Missing ?path=… query parameter.")
+        return Response(self._call(_janitor().get_file, str(revision.id), path))
+
+    @action(detail=True, methods=["put"], url_path="file")
+    def put_file(self, request: Request, **kwargs) -> Response:
+        """Write one file by `?path=...`. Draft-only (janitor enforces)."""
+        revision: AgentRevision = self.get_object()
+        path = request.query_params.get("path")
+        if not path:
+            raise ValidationError("Missing ?path=… query parameter.")
+        body = WriteFileRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().put_file, str(revision.id), path, body.validated_data["content"]))
+
+    @action(detail=True, methods=["delete"], url_path="file")
+    def delete_file(self, request: Request, **kwargs) -> Response:
+        """Delete one file by `?path=...`. Draft-only."""
+        revision: AgentRevision = self.get_object()
+        path = request.query_params.get("path")
+        if not path:
+            raise ValidationError("Missing ?path=… query parameter.")
+        return Response(self._call(_janitor().delete_file, str(revision.id), path))
+
+    @action(detail=True, methods=["get"], url_path="bundle")
+    def get_bundle(self, request: Request, **kwargs) -> Response:
+        """Bulk-pull: returns `{ files: { path: content, ... }, ... }`. Use
+        this when the MCP wants the whole bundle to work on locally."""
+        revision: AgentRevision = self.get_object()
+        return Response(self._call(_janitor().get_bundle, str(revision.id)))
+
+    @action(detail=True, methods=["put"], url_path="bundle")
+    def put_bundle(self, request: Request, **kwargs) -> Response:
+        """Bulk-push the bundle. Body `{ files, mode: replace|merge }`."""
+        revision: AgentRevision = self.get_object()
+        body = WriteBundleRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
         return Response(
-            StartDeployResponseSerializer(
-                {
-                    "revision_id": revision.id,
-                    "upload_url": presigned["url"],
-                    "upload_fields": presigned["fields"],
-                    "expires_at": presigned["expires_at"],
-                    "max_size": revision.bundle_size or 0,
-                    "required_sha256": revision.bundle_sha256,
-                }
-            ).data,
+            self._call(
+                _janitor().put_bundle,
+                str(revision.id),
+                body.validated_data["files"],
+                body.validated_data["mode"],
+            )
+        )
+
+    @action(detail=True, methods=["post"], url_path="freeze")
+    def freeze(self, request: Request, **kwargs) -> Response:
+        """Freeze the bundle: draft → ready, stamps sha256 on the row.
+        The janitor computes the digest and updates the revision row in PG;
+        Django re-reads the row before returning so the response reflects
+        the persisted state."""
+        revision: AgentRevision = self.get_object()
+        result = self._call(_janitor().freeze, str(revision.id))
+        revision.refresh_from_db()
+        return Response(
+            {
+                **result,
+                "revision": AgentRevisionSerializer(revision).data,
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="clone_from")
+    def clone_from(self, request: Request, **kwargs) -> Response:
+        """Copy every file from `source_revision_id` into this revision."""
+        revision: AgentRevision = self.get_object()
+        body = CloneFromRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        source_id = str(body.validated_data["source_revision_id"])
+        # Guard against cross-app cloning — the source must belong to the same
+        # team. The janitor doesn't enforce this since it trusts Django.
+        source = AgentRevision.objects.filter(application__team_id=self.team_id, pk=source_id).first()
+        if source is None:
+            raise NotFound("Source revision not found in this team.")
+        return Response(self._call(_janitor().clone_from, str(revision.id), source_id))
+
+    @action(detail=False, methods=["post"], url_path="new_draft")
+    def new_draft(self, request: Request, **kwargs) -> Response:
+        """Create a fresh draft revision under `application_id` and seed it
+        from `source_revision_id`. Saves the MCP one round-trip vs the
+        explicit create + clone_from sequence."""
+        body = NewDraftRevisionRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        application_id = str(body.validated_data["application_id"])
+        source_id = str(body.validated_data["source_revision_id"])
+
+        application = AgentApplication.objects.filter(team_id=self.team_id, pk=application_id, archived=False).first()
+        if application is None:
+            raise NotFound("Application not found in this team.")
+        source = AgentRevision.objects.filter(application__team_id=self.team_id, pk=source_id).first()
+        if source is None:
+            raise NotFound("Source revision not found in this team.")
+
+        # bundle_uri convention: the runner-side bundle store resolves this.
+        # In dev/CI we use a filesystem prefix derived from the app + new
+        # revision id; prod swaps in the team's S3 prefix at deploy time.
+        draft = AgentRevision.objects.create(
+            application=application,
+            parent_revision=source,
+            created_by=self.request.user,
+            state="draft",
+            bundle_uri=source.bundle_uri,  # same bundle root; janitor scopes by revision_id
+            spec=source.spec,
+        )
+        self._call(_janitor().clone_from, str(draft.id), source_id)
+        return Response(
+            {
+                "revision": AgentRevisionSerializer(draft).data,
+                "source_revision_id": source_id,
+            },
             status=status.HTTP_201_CREATED,
         )
 
-    @validated_request(
-        request_serializer=CompleteUploadRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=AgentApplicationRevisionSerializer),
-            409: OpenApiResponse(description="Revision in wrong state"),
-        },
-    )
-    @action(detail=True, methods=["post"], url_path="complete_upload")
-    def complete_upload(self, request: ValidatedRequest, **kwargs) -> Response:
-        """v1: transitions the revision straight to state=ready."""
-        application = self.get_object()
-        revision = self._get_revision_for_app(application, request.validated_data["revision_id"])
-        try:
-            revision = deploys.complete_upload(revision=revision)
-        except deploys.RevisionStateError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
-        return Response(AgentApplicationRevisionSerializer(revision).data)
-
-    @validated_request(
-        request_serializer=PromoteRevisionRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=AgentApplicationRevisionSerializer),
-            409: OpenApiResponse(description="Revision is not ready"),
-        },
-    )
-    @action(detail=True, methods=["post"], url_path="promote")
-    def promote(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Promote a ready revision to live. Blocked if required secrets are missing."""
-        application = self.get_object()
-        revision = self._get_revision_for_app(application, request.validated_data["revision_id"])
-        try:
-            revision = deploys.promote_revision(revision=revision, application=application)
-        except deploys.RevisionStateError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
-        except deploys.MissingSecretsError as e:
-            return Response(
-                {"detail": str(e), "missing_secrets": e.missing},
-                status=status.HTTP_409_CONFLICT,
-            )
-        return Response(AgentApplicationRevisionSerializer(revision).data)
-
-    @validated_request(
-        request_serializer=PreviewRevisionRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=AgentApplicationRevisionSerializer),
-            409: OpenApiResponse(description="Revision is not ready or secrets missing"),
-        },
-    )
-    @action(detail=True, methods=["post"], url_path="preview")
-    def preview(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Mark a ready revision as preview. Blocked if required secrets are missing."""
-        application = self.get_object()
-        revision = self._get_revision_for_app(application, request.validated_data["revision_id"])
-        try:
-            revision = deploys.preview_revision(revision=revision, application=application)
-        except deploys.RevisionStateError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
-        except deploys.MissingSecretsError as e:
-            return Response(
-                {"detail": str(e), "missing_secrets": e.missing},
-                status=status.HTTP_409_CONFLICT,
-            )
-        return Response(AgentApplicationRevisionSerializer(revision).data)
-
-    @validated_request(
-        request_serializer=DisableRevisionRequestSerializer,
-        responses={200: OpenApiResponse(response=AgentApplicationRevisionSerializer)},
-    )
-    @action(detail=True, methods=["post"], url_path="disable_revision")
-    def disable_revision(self, request: ValidatedRequest, **kwargs) -> Response:
-        """Set a revision's deployment_status to disabled. Pulls it out of any traffic role."""
-        application = self.get_object()
-        revision = self._get_revision_for_app(application, request.validated_data["revision_id"])
-        revision = deploys.disable_revision(revision=revision)
-        return Response(AgentApplicationRevisionSerializer(revision).data)
-
-    @action(detail=True, methods=["put", "patch"], url_path="env")
-    def env(self, request: ValidatedRequest, **kwargs) -> Response:
-        """PUT: replace the entire env. PATCH: merge individual keys (set to null to remove)."""
-        application = self.get_object()
-        if request.method == "PATCH":
-            serializer = PatchEnvKeysRequestSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            application = deploys.patch_env_keys(
-                application=application,
-                keys=serializer.validated_data["keys"],
-            )
-        else:
-            serializer = UpdateEnvRequestSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            application = deploys.update_env(
-                application=application,
-                env=serializer.validated_data["env"],
-            )
-        return Response(AgentApplicationSerializer(application).data)
-
-
-def _filter_by_parent_application(queryset: QuerySet, lookup_value: str) -> QuerySet:
-    """Filter a child queryset to rows whose `application` matches the URL kwarg.
-
-    Accepts either an application UUID or a slug — symmetric with the parent
-    viewset's `safely_get_object` so nested URLs work both ways.
-    """
-    try:
-        UUID(str(lookup_value))
-        return queryset.filter(application_id=lookup_value)
-    except (ValueError, TypeError):
-        return queryset.filter(application__slug=lookup_value, application__deleted=False)
-
 
 @extend_schema(tags=["agent_stack"])
-class AgentApplicationRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """Revisions for an application — read-only, nested under agent_applications."""
+class AgentNativeToolsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Read-only catalog of every `@posthog/*` native tool the runner knows.
 
-    scope_object = "agent_application"
-    scope_object_read_actions = ["list", "retrieve"]
-    serializer_class = AgentApplicationRevisionSerializer
-    queryset = AgentApplicationRevision.objects.all().order_by("-created_at")
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["deployment_status", "state"]
+    URLs:
+        GET /api/projects/<team>/agent_native_tools/    — list
 
-    def _should_skip_parents_filter(self) -> bool:
-        # We resolve the parent slug-or-UUID ourselves below; the auto-filter
-        # only knows how to match by id, which breaks for slugs.
-        return True
-
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return _filter_by_parent_application(
-            queryset.filter(team_id=self.team_id),
-            self.parents_query_dict["application_id"],
-        )
-
-
-def _resolve_application_id(lookup_value: str, team_id: int) -> str | None:
-    """Resolve a slug-or-UUID to the application's UUID string."""
-    try:
-        UUID(str(lookup_value))
-        return str(lookup_value)
-    except (ValueError, TypeError):
-        app = AgentApplication.objects.filter(slug=lookup_value, deleted=False, team_id=team_id).first()
-        return str(app.id) if app else None
-
-
-class AgentApplicationSessionProxyPlaceholderSerializer(drf_serializers.Serializer):
-    """Placeholder so drf-spectacular has a named serializer for the proxy
-    viewset; actual response shapes are declared per-action via @extend_schema.
-    """
-
-
-@extend_schema(tags=["agent_stack"])
-@extend_schema_view(
-    list=extend_schema(
-        operation_id="agent_applications_sessions_list",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="List of sessions")},
-        description="List sessions for an agent application (proxied from agent-janitor).",
-    ),
-    retrieve=extend_schema(
-        operation_id="agent_applications_sessions_retrieve",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Single session detail")},
-        description="Fetch a single session by id (proxied from agent-janitor).",
-    ),
-    cancel=extend_schema(
-        operation_id="agent_applications_sessions_cancel",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Updated session")},
-        description="Cancel a running session (proxied from agent-janitor).",
-    ),
-    logs=extend_schema(
-        operation_id="agent_applications_sessions_logs",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Log entries page")},
-        description="Read per-session log entries from ClickHouse.",
-    ),
-)
-class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """Proxy to the agent-janitor service for session list/detail/cancel.
-
-    Django authenticates + authorizes, then forwards to the janitor's internal
-    HTTP API. The janitor owns the session schema — we pass its response through.
+    Backed by the janitor (which imports `listNativeTools()` from
+    `@posthog/agent-tools`). Keeps a single source of truth for what tools
+    exist — agents can't put unknown tool ids in their spec, and the MCP /
+    wizard show this list to humans + models when picking what to wire up.
     """
 
     scope_object = "agent_application"
-    scope_object_read_actions = ["list", "retrieve", "logs"]
-    scope_object_write_actions = ["cancel"]
-    # Opaque-JSON proxy responses: give drf-spectacular a *named* placeholder
-    # serializer (the bare `Serializer` base has no name and trips schema
-    # generation). Per-action @extend_schema decorators above declare the
-    # actual response shapes.
-    serializer_class = AgentApplicationSessionProxyPlaceholderSerializer
+    scope_object_read_actions = ["list"]
 
-    def _janitor_url(self, path: str) -> str:
-        base = getattr(settings, "AGENT_JANITOR_BASE_URL", "http://localhost:3031")
-        return f"{base.rstrip('/')}{path}"
-
-    def _janitor_headers(self) -> dict[str, str]:
-        key = getattr(settings, "AGENT_JANITOR_SHARED_KEY", "")
-        return {"x-internal-key": key} if key else {}
-
-    def _resolve_app_id(self) -> str:
-        lookup = self.parents_query_dict.get("application_id", "")
-        app_id = _resolve_application_id(lookup, self.team_id)
-        if not app_id:
-            raise NotFound("Application not found")
-        return app_id
-
+    @extend_schema(
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentNativeToolsListResponse",
+                fields={
+                    "tools": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentNativeToolEntry",
+                            fields={
+                                "id": drf_serializers.CharField(),
+                                "schema": drf_serializers.DictField(),
+                            },
+                        ),
+                    ),
+                },
+            )
+        ),
+        description="Read-only catalog of every @posthog/* native tool the runner knows.",
+    )
     def list(self, request: Request, **kwargs) -> Response:
-        """List sessions for this application via the janitor."""
-        app_id = self._resolve_app_id()
-        params = {
-            "application_id": app_id,
-            "team_id": str(self.team_id),
-        }
-        for key in ("status", "limit", "created_before"):
-            val = request.query_params.get(key)
-            if val:
-                params[key] = val
         try:
-            resp = http_requests.get(
-                self._janitor_url("/internal/sessions"), params=params, headers=self._janitor_headers(), timeout=10
-            )
-        except http_requests.ConnectionError:
-            return Response(
-                {"detail": "agent-janitor service is not reachable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(resp.json(), status=resp.status_code)
+            return Response(_janitor().native_tools())
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
 
-    def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Get a single session by id via the janitor."""
-        try:
-            resp = http_requests.get(
-                self._janitor_url(f"/internal/sessions/{pk}"), headers=self._janitor_headers(), timeout=10
-            )
-        except http_requests.ConnectionError:
-            return Response(
-                {"detail": "agent-janitor service is not reachable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(resp.json(), status=resp.status_code)
 
-    @action(detail=True, methods=["post"], url_path="cancel")
-    def cancel(self, request: Request, pk: str, **kwargs) -> Response:
-        """Cancel a running session via the janitor."""
-        try:
-            resp = http_requests.post(
-                self._janitor_url(f"/internal/sessions/{pk}/cancel"), headers=self._janitor_headers(), timeout=10
-            )
-        except http_requests.ConnectionError:
-            return Response(
-                {"detail": "agent-janitor service is not reachable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        return Response(resp.json(), status=resp.status_code)
-
-    @action(detail=True, methods=["get"], url_path="logs")
-    def logs(self, request: Request, pk: str, **kwargs) -> Response:
-        """Read per-session logs from ClickHouse `log_entries` (`log_source='agent_session'`).
-
-        Poll-friendly: pass `?after=<iso-timestamp>` to get only entries newer
-        than the previous batch. `next_after` in the response is the timestamp
-        of the newest entry returned — feed it back as `?after=` next poll.
-        """
-        app_id = self._resolve_app_id()
-        try:
-            after = parse_datetime(request.query_params.get("after")) if request.query_params.get("after") else None
-        except ValueError:
-            return Response({"detail": "invalid `after` timestamp"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            limit = max(1, min(int(request.query_params.get("limit", 200)), 500))
-        except (TypeError, ValueError):
-            limit = 200
-
-        try:
-            # `sync_execute` requires query attribution. No agent-specific
-            # ProductKey exists yet — borrow PIPELINE_DESTINATIONS to match
-            # the existing log_entries.py default. Replace once an
-            # AGENT_STACK key lands in the schema.
-            tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
-            rows = fetch_log_entries(
-                team_id=self.team_id,
-                log_source="agent_session",
-                log_source_id=app_id,
-                instance_id=pk,
-                after=after,
-                limit=limit,
-            )
-        except Exception:
-            # Full exception (ClickHouse error codes, internal hostnames, stack)
-            # goes to the server log only — never echo it to the API client.
-            logger.exception(
-                "agent_stack.session_logs query failed",
-                extra={"application_id": app_id, "session_id": pk, "team_id": self.team_id},
-            )
-            return Response(
-                {"detail": "Log store is temporarily unavailable. Retry shortly."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        # Rows come back DESC by timestamp; flip to oldest-first for the UI.
-        entries = [
-            {"timestamp": r.timestamp.isoformat(), "level": r.level, "message": r.message} for r in reversed(rows)
-        ]
-        next_after = rows[0].timestamp.isoformat() if rows else None
-        return Response({"entries": entries, "next_after": next_after})
+# Suppress unused-import warning for the type re-export below.
+_ = EncryptedTextField

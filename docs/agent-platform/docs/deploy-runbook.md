@@ -1,0 +1,136 @@
+# Agent platform — deploy runbook
+
+The agent-platform services (ingress, runner, janitor) are ESM-only Node
+processes. They take their configuration entirely from env vars. This doc
+lists what the deploy manifest needs to set for each.
+
+## Two-DB topology
+
+All three services read / write two Postgres databases:
+
+- **`POSTHOG_DB_URL`** — main posthog DB (Django-owned). Tables:
+  `agent_application`, `agent_revision`.
+- **`AGENT_DB_URL`** — runtime queue DB. Tables: `agent_session`,
+  `agent_user`, `agent_sandbox_instance`. The worker bootstraps this
+  schema on boot via `SCHEMA_SQL`.
+
+Both can point at the same Postgres in dev. In prod, give the agent DB its
+own physical instance — high write churn on sessions / sandbox instances
+shouldn't pressure the product DB.
+
+## Per-service env
+
+### `agent-runner`
+
+| Var                                                                | Required                           | Default                        | Notes                                                                                                                                                |
+| ------------------------------------------------------------------ | ---------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_DB_URL`                                                   | yes (prod)                         | localhost posthog              | Reads applications + revisions.                                                                                                                      |
+| `AGENT_DB_URL`                                                     | yes (prod)                         | localhost agent_runtime_queue  | Owns the queue schema; bootstraps SCHEMA_SQL on boot.                                                                                                |
+| `AGENT_BUNDLE_ROOT`                                                | yes                                | `/var/lib/agent-bundles`       | FS bundle root. Mount a persistent volume here.                                                                                                      |
+| `ENCRYPTION_SALT_KEYS`                                             | yes (when agents have env secrets) | unset                          | Comma-separated UTF-8 Fernet keys, matches Django's `EncryptedTextField`. When unset, `resolveSecrets` is a noop.                                    |
+| `REDIS_URL`                                                        | yes (cross-host)                   | unset                          | When set, lifecycle events publish to `RedisSessionEventBus` for cross-host `/listen` SSE.                                                           |
+| `AGENT_MAX_CONCURRENCY`                                            | no                                 | 8                              | In-flight sessions per worker process.                                                                                                               |
+| `AGENT_USE_LLM_GATEWAY`                                            | no                                 | unset                          | When `1`, routes every model call through `posthogLlmGatewayModel()`.                                                                                |
+| `POSTHOG_LLM_GATEWAY_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | per-provider                       | unset                          | First non-empty wins; runner forwards as the default `apiKey`.                                                                                       |
+| `KAFKA_BROKERS`                                                    | yes (prod)                         | unset                          | Comma-separated brokers. When set + a `KafkaLogSink` is wired in, lifecycle events fan out to ClickHouse via the existing `log_entries` Kafka topic. |
+| `KAFKA_LOG_ENTRIES_TOPIC`                                          | no                                 | `log_entries`                  | Override if a deployment uses a non-default topic.                                                                                                   |
+| `LOG_LEVEL`                                                        | no                                 | `info` (prod), `warn` (vitest) | pino level. Set `debug` to trace per-turn detail.                                                                                                    |
+
+### `agent-ingress`
+
+| Var                    | Required                   | Default                       | Notes                                                                                                                         |
+| ---------------------- | -------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_DB_URL`       | yes                        | localhost posthog             | Reads applications + revisions for slug/domain resolution.                                                                    |
+| `AGENT_DB_URL`         | yes                        | localhost agent_runtime_queue | Enqueues sessions; writes `agent_user` rows.                                                                                  |
+| `PORT`                 | no                         | 8080                          | HTTP listen port.                                                                                                             |
+| `TEAM_ID`              | no                         | 1                             | Single-tenant fallback for the in-memory dev path. Prod resolves team_id per request via the auth middleware.                 |
+| `ROUTING_MODE`         | no                         | `path`                        | `path` (`/agents/<slug>/...`) or `domain` (`<slug>.agents.example.com`).                                                      |
+| `DOMAIN_SUFFIX`        | when `ROUTING_MODE=domain` | unset                         | The shared parent domain.                                                                                                     |
+| `PATH_PREFIX`          | no                         | `/agents`                     | URL prefix in `path` mode.                                                                                                    |
+| `SLACK_SIGNING_SECRET` | yes (Slack triggers)       | unset                         | Verifies inbound Slack webhooks.                                                                                              |
+| `REDIS_URL`            | yes (cross-host)           | unset                         | When set, `/listen` SSE subscribes to `RedisSessionEventBus` so events from any runner host reach this ingress's SSE clients. |
+| `LOG_LEVEL`            | no                         | `info`                        | pino level.                                                                                                                   |
+
+### `agent-janitor`
+
+| Var                 | Required   | Default                       | Notes                                                                                               |
+| ------------------- | ---------- | ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `POSTHOG_DB_URL`    | yes        | localhost posthog             | Reads agent_revision for the authoring `/revisions/*` endpoints.                                    |
+| `AGENT_DB_URL`      | yes        | localhost agent_runtime_queue | Owns sweep + session reads.                                                                         |
+| `AGENT_BUNDLE_ROOT` | yes        | `/var/lib/agent-bundles`      | FS bundle root. Must be the **same volume** the runner mounts.                                      |
+| `INTERNAL_SECRET`   | yes (prod) | unset                         | Shared secret Django sends as `x-internal-secret`. Required for any endpoint other than `/healthz`. |
+| `PORT`              | no         | 8082                          | HTTP listen port.                                                                                   |
+| `STUCK_RUNNING_MS`  | no         | 300000 (5min)                 | Sweep re-queues `running` rows older than this.                                                     |
+| `STUCK_WAITING_MS`  | no         | 86400000 (24h)                | Sweep fails `waiting` rows older than this.                                                         |
+| `MAX_RETRIES`       | no         | 3                             | Poison-pill threshold for re-queues.                                                                |
+| `SWEEP_INTERVAL_MS` | no         | 30000                         | How often the in-process sweep timer fires.                                                         |
+| `LOG_LEVEL`         | no         | `info`                        | pino level.                                                                                         |
+
+### Django (posthog backend)
+
+| Var                    | Required                               | Default                 | Notes                                                                                          |
+| ---------------------- | -------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `AGENT_JANITOR_URL`    | yes (when `agent_stack` API is in use) | `http://localhost:8082` | Base URL of the janitor service. Bundle / native_tools API proxies through here.               |
+| `AGENT_JANITOR_SECRET` | yes (prod)                             | unset                   | Sent as `x-internal-secret` on every janitor call. Must match the janitor's `INTERNAL_SECRET`. |
+| `ENCRYPTION_SALT_KEYS` | yes                                    | (existing)              | Same keys the worker uses to decrypt `agent_application.encrypted_env`.                        |
+
+## Smoke tests after deploy
+
+### 1. Each service is up
+
+```bash
+curl -s "$INGRESS/healthz"
+curl -s "$RUNNER_METRICS/healthz"   # if metrics endpoint is exposed
+curl -s "$JANITOR/healthz"
+```
+
+### 2. Two-pool DB wire-up
+
+The runner logs `posthogDb` + `agentDb` URLs on startup (only the connection
+strings, not credentials). Check the boot log for both. Then create a
+draft revision via the Django API and watch the runner pick up a session
+that references it — if `POSTHOG_DB_URL` is wrong the runner will log
+`session.revision_missing` and mark the session failed.
+
+### 3. Redis SSE fan-out (cross-host)
+
+Run the runner on host A, ingress on host B, both with `REDIS_URL` set to
+the same Redis. Fire a chat trigger against host B, immediately open
+`/listen` against host B too. The events from host A's runner should
+arrive on host B's SSE stream. If they don't, check:
+
+- `REDIS_URL` resolves from both hosts.
+- The runner is on the same `channelPrefix` as ingress (default
+  `agent_session_v2:<id>` — kept that name for backwards-compat).
+
+### 4. Kafka log sink (when wired)
+
+After running one session end-to-end, query ClickHouse:
+
+```sql
+SELECT count() FROM log_entries
+WHERE log_source = 'agent_session'
+  AND instance_id = '<session_id>'
+```
+
+You should see at least `session_started`, `turn_started`, `completed`
+rows. If count is 0, check (a) the runner is using `KafkaLogSink` (not
+`NoopLogSink`), (b) `KAFKA_BROKERS` is set, (c) the `log_entries` topic
+exists, (d) the CH materialized view that reads the topic is up.
+
+### 5. Janitor authoring proxy
+
+```bash
+# From a host that can reach the janitor (or via Django):
+curl -H "x-internal-secret: $INTERNAL_SECRET" "$JANITOR/native_tools"
+```
+
+Returns the list of `@posthog/*` tools. Validates that
+`@posthog/agent-tools` is reachable from the janitor process. If empty or
+errored, the runner / MCP wiring will break later — fix this first.
+
+## Rollback
+
+Pre-prod cutover, no rollback plan required — agents aren't in user-visible
+production yet. After GA: a previous live revision is one `promote` away
+(idempotent, takes seconds).

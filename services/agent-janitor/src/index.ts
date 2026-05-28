@@ -1,104 +1,75 @@
-import { terminateDockerSandbox } from '@repo/ass-sandbox'
+/**
+ * Janitor entrypoint. Single-process: HTTP server + periodic sweep timer.
+ *
+ * Two Postgres pools (matches runner + ingress):
+ *   - posthogDb (POSTHOG_DB_URL): Django-owned agent_application + agent_revision.
+ *     The revision store reads from here so /revisions/* HTTP endpoints
+ *     can resolve revisions.
+ *   - agentDb (AGENT_DB_URL): queue + sandbox-instances; janitor sweep
+ *     reaps stuck rows here.
+ *
+ * Bundle storage: filesystem at AGENT_BUNDLE_ROOT in dev, swappable to S3
+ * in prod once the S3 BundleStore impl is wired.
+ *
+ * Run via `tsx src/index.ts` (no precompile).
+ */
 
-import {
-    PosthogDbClient,
-    SandboxInstanceJanitor,
-    SandboxInstancesRepository,
-    SessionQuery,
-    SessionQueueJanitor,
-    loadDevEnv,
-    logger,
-} from '@posthog/agent-core'
+import { Pool } from 'pg'
 
-import { loadConfig } from './config'
-import { buildServer } from './server'
+import { createLogger, FsBundleStore, PgRevisionStore, PgSessionQueue, SCHEMA_SQL } from '@posthog/agent-shared'
 
-loadDevEnv()
+import { buildJanitorApp } from './server'
+import { sweepOnce } from './sweep'
+
+const log = createLogger('agent-janitor')
 
 async function main(): Promise<void> {
-    const config = loadConfig()
+    const port = parseInt(process.env.PORT ?? '8082', 10)
+    const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
+    const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
+    const bundleRoot = process.env.AGENT_BUNDLE_ROOT ?? '/var/lib/agent-bundles'
 
-    if (!config.internalApiSharedKey) {
-        logger.warn(
-            'agent-janitor starting without AGENT_INTERNAL_API_SHARED_KEY — /internal routes will refuse traffic'
-        )
+    const posthogDb = new Pool({ connectionString: posthogDbUrl })
+    const agentDb = new Pool({ connectionString: agentDbUrl })
+    await agentDb.query(SCHEMA_SQL)
+
+    const queue = new PgSessionQueue(agentDb)
+    const revisions = new PgRevisionStore(posthogDb)
+    const bundles = new FsBundleStore(bundleRoot)
+
+    const sweep = {
+        queue,
+        stuckRunningThresholdMs: parseInt(process.env.STUCK_RUNNING_MS ?? `${5 * 60_000}`, 10),
+        stuckWaitingThresholdMs: parseInt(process.env.STUCK_WAITING_MS ?? `${24 * 60 * 60_000}`, 10),
+        maxRetries: parseInt(process.env.MAX_RETRIES ?? '3', 10),
     }
-
-    const query = new SessionQuery({ pool: { dbUrl: config.queueDbUrl } })
-    await query.connect()
-
-    const janitor = new SessionQueueJanitor({
-        pool: { dbUrl: config.queueDbUrl },
-        cleanupIntervalMs: config.janitorIntervalMs,
-        stallTimeoutMs: config.janitorStallTimeoutMs,
-        maxTouchCount: config.janitorMaxTouchCount,
-        cleanupGraceMs: config.janitorCleanupGraceMs,
+    const app = buildJanitorApp({
+        queue,
+        sweep,
+        revisions,
+        bundles,
+        internalSecret: process.env.INTERNAL_SECRET,
     })
-    await janitor.start()
-
-    // Periodically reap orphan tool-sandbox rows. Skipped when no PostHog DB
-    // URL is configured (test envs) or sweep interval is 0.
-    let sandboxJanitor: SandboxInstanceJanitor | null = null
-    let posthogDb: PosthogDbClient | null = null
-    if (config.posthogDbUrl && config.sandboxJanitorIntervalMs > 0) {
-        posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
-        const sandboxInstances = new SandboxInstancesRepository({ db: posthogDb })
-        sandboxJanitor = new SandboxInstanceJanitor({
-            repo: sandboxInstances,
-            intervalMs: config.sandboxJanitorIntervalMs,
-            staleMs: config.sandboxJanitorStaleMs,
-            terminate: async (row) => {
-                if (row.providerKind === 'docker') {
-                    // Best-effort: only succeeds when the janitor is colocated
-                    // with the runner host. The DB row gets marked terminated
-                    // either way — Docker labels + in-runner reaper cover the
-                    // cross-host gap.
-                    await terminateDockerSandbox(row.providerSandboxId)
-                    return
-                }
-                // Modal arm lands when ModalToolSandbox is wired in. Until
-                // then, a Modal row falling through here means a Modal
-                // sandbox is leaking — surface it loudly.
-                throw new Error(`no terminator for provider=${row.providerKind} id=${row.providerSandboxId}`)
-            },
-        })
-        await sandboxJanitor.start()
-        logger.info('sandbox janitor started', {
-            intervalMs: config.sandboxJanitorIntervalMs,
-            staleMs: config.sandboxJanitorStaleMs,
-        })
-    } else {
-        logger.info('sandbox janitor disabled', {
-            posthogDbUrlConfigured: Boolean(config.posthogDbUrl),
-            sandboxJanitorIntervalMs: config.sandboxJanitorIntervalMs,
-        })
-    }
-
-    const app = buildServer({ query, internalApiSharedKey: config.internalApiSharedKey })
-
-    const server = app.listen(config.port, () => {
-        logger.info('agent-janitor listening', { port: config.port })
+    app.listen(port, () => {
+        log.info({ port }, 'listening')
     })
 
-    const shutdown = async (signal: string): Promise<void> => {
-        logger.info('agent-janitor shutting down', { signal })
-        server.close()
-        await janitor.stop()
-        if (sandboxJanitor) {
-            await sandboxJanitor.stop()
-        }
-        if (posthogDb) {
-            await posthogDb.disconnect()
-        }
-        await query.disconnect()
-        process.exit(0)
-    }
-
-    process.on('SIGTERM', () => void shutdown('SIGTERM'))
-    process.on('SIGINT', () => void shutdown('SIGINT'))
+    setInterval(
+        async () => {
+            try {
+                const result = await sweepOnce(sweep)
+                log.debug({ ...result }, 'sweep.done')
+            } catch (err) {
+                log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'sweep.failed')
+            }
+        },
+        parseInt(process.env.SWEEP_INTERVAL_MS ?? `${30 * 1000}`, 10)
+    )
 }
 
-main().catch((err) => {
-    logger.error('agent-janitor fatal', { error: String(err) })
-    process.exit(1)
-})
+if (import.meta.url === `file://${process.argv[1]}`) {
+    main().catch((err) => {
+        log.fatal({ err: (err as Error).message, stack: (err as Error).stack }, 'fatal')
+        process.exit(1)
+    })
+}
