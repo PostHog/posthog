@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SlackChannelType } from '~/types'
 
 import { SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS, slackIntegrationLogic } from './slackIntegrationLogic'
 
@@ -12,9 +13,26 @@ const FIXED_NOW = new Date('2026-01-01T12:00:00Z')
 describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', () => {
     let logic: ReturnType<typeof slackIntegrationLogic.build>
     let lastChannelsQuery: Record<string, string> = {}
+    let nextChannelsResponse: { id: string; name: string }[] = [
+        { id: 'C1', name: 'general' },
+        { id: 'C2', name: 'engineering' },
+    ]
+
+    const buildChannel = (id: string, name: string): SlackChannelType => ({
+        id,
+        name,
+        is_private: false,
+        is_member: true,
+        is_ext_shared: false,
+        is_private_without_access: false,
+    })
 
     beforeEach(() => {
         lastChannelsQuery = {}
+        nextChannelsResponse = [
+            { id: 'C1', name: 'general' },
+            { id: 'C2', name: 'engineering' },
+        ]
         useMocks({
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': (req) => {
@@ -22,16 +40,7 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
                     return [
                         200,
                         {
-                            channels: [
-                                {
-                                    id: 'C1',
-                                    name: 'general',
-                                    is_private: false,
-                                    is_member: true,
-                                    is_ext_shared: false,
-                                    is_private_without_access: false,
-                                },
-                            ],
+                            channels: nextChannelsResponse.map((c) => buildChannel(c.id, c.name)),
                             lastRefreshedAt: '2026-01-01T00:00:00Z',
                             has_more: true,
                         },
@@ -66,6 +75,29 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
 
         expect(lastChannelsQuery.search).toBe('')
         expect(lastChannelsQuery.limit).toBe('200')
+    })
+
+    it('reloads the full list when a search-then-clear sequence runs', async () => {
+        // First, narrow the cache with a search — server returns only the matching subset.
+        nextChannelsResponse = [{ id: 'C2', name: 'engineering' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(false, 'eng')
+        }).toFinishAllListeners()
+
+        expect(lastChannelsQuery.search).toBe('eng')
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C2'])
+
+        // Then clear: empty search must re-fetch and restore the full visible set.
+        nextChannelsResponse = [
+            { id: 'C1', name: 'general' },
+            { id: 'C2', name: 'engineering' },
+        ]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        expect(lastChannelsQuery.search).toBe('')
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1', 'C2'])
     })
 })
 
