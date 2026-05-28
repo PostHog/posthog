@@ -58,6 +58,18 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const accountsNotebooksCreateBodyTitleMax = 256
+
+export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(accountsNotebooksCreateBodyTitleMax)
+        .nullish()
+        .describe('Human-readable title of the account notebook.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+})
+
 export const accountsUpdateBodyNameMax = 400
 
 export const accountsUpdateBodyExternalIdMax = 400

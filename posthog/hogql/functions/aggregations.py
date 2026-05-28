@@ -309,6 +309,14 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "quantileIf": HogQLFunctionMeta("quantileIf", 2, 2, min_params=1, max_params=1, aggregate=True),
     "quantiles": HogQLFunctionMeta("quantiles", 1, None, aggregate=True),
     "quantilesIf": HogQLFunctionMeta("quantilesIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    # `-State` and `-Merge*` combinators needed by lazy precompute paths that
+    # store quantile reservoirs (e.g. web_vitals_paths_preaggregated). Params
+    # are the percentile list; args are the value (for `-State`) or the
+    # state + filter condition (for `-MergeIf`).
+    "quantilesState": HogQLFunctionMeta("quantilesState", 1, 1, min_params=1, max_params=None, aggregate=True),
+    "quantilesStateIf": HogQLFunctionMeta("quantilesStateIf", 2, 2, min_params=1, max_params=None, aggregate=True),
+    "quantilesMerge": HogQLFunctionMeta("quantilesMerge", 1, 1, min_params=1, max_params=None, aggregate=True),
+    "quantilesMergeIf": HogQLFunctionMeta("quantilesMergeIf", 2, 2, min_params=1, max_params=None, aggregate=True),
     "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, min_params=1, max_params=1, aggregate=True),
     # "quantileExactIf": HogQLFunctionMeta("quantileExactIf", 2, 2, aggregate=True),
     # "quantileExactLow": HogQLFunctionMeta("quantileExactLow", 1, 1, aggregate=True),

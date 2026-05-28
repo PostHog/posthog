@@ -142,14 +142,14 @@ export const chart = {
         index: number,
         totalLabels = trendsSeries.pageviews.labels.length
     ): Promise<InsightTooltipAccessor> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         hoverAtIndex(wrapper, index, totalLabels)
         const tooltip = await waitForHogChartTooltip()
         return createInsightTooltipAccessor(tooltip)
     },
     async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         await clickAtIndex(wrapper, index, totalLabels)
     },

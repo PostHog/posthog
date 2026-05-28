@@ -63,7 +63,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         )
 
 
-RELATED_OBJECTS = ("group",)
+RELATED_OBJECTS = ("group", "account")
 
 
 class ResourceNotebook(UUIDTModel):
@@ -86,6 +86,13 @@ class ResourceNotebook(UUIDTModel):
         null=True,
         blank=True,
         db_column="group_id",
+    )
+    account = models.ForeignKey(
+        "customer_analytics.Account",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notebooks",
     )
 
     class Meta:

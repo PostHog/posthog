@@ -8,10 +8,11 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models import CoreMemory
 

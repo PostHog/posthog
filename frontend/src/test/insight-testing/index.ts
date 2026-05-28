@@ -5,12 +5,14 @@ export type { HogChart } from 'lib/hog-charts/testing'
 export { createInsightTooltipAccessor } from './tooltip-helpers'
 export type { InsightTooltipAccessor } from './tooltip-helpers'
 export {
+    buildFunnelsQuery,
+    buildStickinessQuery,
     buildTrendsQuery,
     renderInsight,
     renderInsight as renderInsightPage,
     renderWithInsights,
 } from './render-insight'
-export type { RenderInsightProps, RenderWithInsightsProps } from './render-insight'
+export type { InsightQuery, RenderInsightProps, RenderWithInsightsProps } from './render-insight'
 export {
     breakdown,
     chart,

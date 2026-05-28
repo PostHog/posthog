@@ -39,11 +39,14 @@ class Product(StrEnum):
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
-    MCP = "mcp"
+    METRICS = "metrics"
+    MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
+    MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
@@ -81,6 +84,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
+    EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
     # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
     # usage analysis can attribute load to the originating product surface.
@@ -122,6 +126,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
+    "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -409,6 +414,9 @@ class QueryTags(BaseModel):
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
 
+    # True when the query embeds a user-supplied HogQL string; used to split user vs platform errors in system.query_log.
+    contains_user_hogql: Optional[bool] = None
+
     hogql_features: Optional[HogQLFeatures] = None
 
     modifiers: Optional[object] = None
@@ -522,6 +530,18 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def tag_contains_user_hogql() -> None:
+    """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
+
+    Idempotent — safe to call inside hot loops (recursive ``property_to_expr``, breakdown
+    iteration, ``@property`` accessors) since the early-return skips the ``model_copy``
+    inside ``tag_queries`` after the first call per query context.
+    """
+    if get_query_tag_value("contains_user_hogql"):
+        return
+    tag_queries(contains_user_hogql=True)
+
+
 def get_team_query_tags(team: "Team") -> dict[str, Any]:
     from posthog.models.organization import Organization
 
@@ -574,6 +594,7 @@ EVENT_TAG_MATCHERS: frozenset[str] = frozenset().union(*(matchers for matchers, 
 _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
     (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"metrics", "metric_attributes"}), {"product": Product.METRICS}),
     (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
 )
 

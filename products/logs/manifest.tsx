@@ -65,7 +65,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Logs',
             intents: [ProductKey.LOGS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.APP_MONITORING,
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

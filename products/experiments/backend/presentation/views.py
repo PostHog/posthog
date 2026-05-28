@@ -24,14 +24,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -58,6 +55,9 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSerializer,
     ShipVariantSerializer,
 )
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 

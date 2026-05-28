@@ -48,6 +48,8 @@ class SlackUserProfileCache(UUIDModel):
     email = models.EmailField(blank=True, null=True)
     display_name = models.CharField(max_length=255, blank=True, default="")
     real_name = models.CharField(max_length=255, blank=True, default="")
+    is_admin = models.BooleanField(default=False, db_default=False)
+    is_owner = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

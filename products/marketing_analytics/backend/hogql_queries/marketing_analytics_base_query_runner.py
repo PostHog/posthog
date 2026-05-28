@@ -425,7 +425,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             if should_create:
                 processor = ConversionGoalProcessor(
-                    goal=conversion_goal, index=index, team=self.team, config=self.config
+                    goal=conversion_goal, index=index, team=self.team, config=self.config, user=self.user
                 )
                 processors.append(processor)
         return processors

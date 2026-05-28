@@ -8,7 +8,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.api import resolve_slack_user
+from products.slack_app.backend.api import lookup_slack_user_id_by_email, resolve_slack_user
 from products.slack_app.backend.models import SlackUserProfileCache
 
 
@@ -23,7 +23,7 @@ class TestResolveSlackUser:
 
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )
@@ -113,11 +113,13 @@ class TestResolveSlackUser:
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
             "user": {
+                "is_admin": True,
+                "is_owner": True,
                 "profile": {
                     "email": "dev@example.com",
                     "display_name": "Dev",
                     "real_name": "Developer",
-                }
+                },
             }
         }
 
@@ -129,3 +131,55 @@ class TestResolveSlackUser:
         assert profile.email == "dev@example.com"
         assert profile.display_name == "Dev"
         assert profile.real_name == "Developer"
+        assert profile.is_admin is True
+        assert profile.is_owner is True
+
+
+class TestLookupSlackUserIdByEmail:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        cache.clear()
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    @patch("posthog.models.integration.WebClient")
+    def test_uses_db_cached_profile(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        SlackUserProfileCache.objects.create(
+            integration=self.integration,
+            slack_user_id="U123",
+            email="dev@example.com",
+        )
+
+        slack = SlackIntegration(self.integration)
+        slack_user_id = lookup_slack_user_id_by_email(slack, self.integration, "dev@example.com")
+
+        assert slack_user_id == "U123"
+        mock_client.users_lookupByEmail.assert_not_called()
+
+    @patch("posthog.models.integration.WebClient")
+    def test_lookup_by_email_api(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_lookupByEmail.return_value = {
+            "ok": True,
+            "user": {
+                "id": "U456",
+                "profile": {"email": "new@example.com", "display_name": "New", "real_name": "User"},
+            },
+        }
+
+        slack = SlackIntegration(self.integration)
+        slack_user_id = lookup_slack_user_id_by_email(slack, self.integration, "new@example.com")
+
+        assert slack_user_id == "U456"
+        profile = SlackUserProfileCache.objects.get(integration=self.integration, slack_user_id="U456")
+        assert profile.email == "new@example.com"

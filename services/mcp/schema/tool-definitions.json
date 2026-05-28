@@ -17,7 +17,7 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
+        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
@@ -225,6 +225,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "notebook-edit": {
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Edit part of a notebook's content.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "get-llm-total-costs-for-project": {

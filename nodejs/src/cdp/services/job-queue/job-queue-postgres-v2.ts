@@ -10,7 +10,7 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer } from './shared'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -90,6 +90,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
+
+            observeConsumedBatch({
+                queue,
+                source: 'postgres-v2',
+                batchSize: invocations.length,
+                maxBatchSize: this.consumerBatchSize,
+            })
 
             await consumeBatch(invocations)
 

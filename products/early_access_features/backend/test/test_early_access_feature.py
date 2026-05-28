@@ -11,10 +11,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.models import FeatureFlag, Person
+from posthog.models import Person
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
@@ -789,7 +790,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert {"custom": "data", "number": 42} in payloads
         assert {} in payloads
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_early_access_features(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",

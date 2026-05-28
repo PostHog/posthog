@@ -94,6 +94,40 @@ class TestDevboxConfig:
         config = devbox_config.load_config()
         assert config == {"dotfiles_uri": "https://github.com/user/dotfiles"}
 
+    def test_save_region_persists_alongside_other_fields(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+        devbox_config.save_region("eu-central-1")
+
+        config = devbox_config.load_config()
+        assert config == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+            "region": "eu-central-1",
+        }
+
+    def test_clear_region_leaves_other_fields_intact(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+        devbox_config.save_region("eu-central-1")
+
+        devbox_config.clear_region()
+
+        config = devbox_config.load_config()
+        assert config == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+        }
+
+    def test_clear_region_is_noop_when_unset(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+
+        devbox_config.clear_region()
+
+        config = devbox_config.load_config()
+        assert config == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+        }
+
 
 class TestUserSecrets:
     """Test the per-user Coder secret helpers used for Git signing."""
@@ -661,6 +695,126 @@ class TestWorkspaceNaming:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         assert coder.extract_workspace_label("other-workspace") is None
 
+    @pytest.mark.parametrize(
+        "label, region, expected",
+        [
+            (None, "us-east-1", "devbox-test-user"),
+            (None, "eu-central-1", "devbox-test-user-eu"),
+            ("api", "us-east-1", "devbox-test-user-api"),
+            ("api", "eu-central-1", "devbox-test-user-api-eu"),
+            ("my-project", "eu-central-1", "devbox-test-user-my-project-eu"),
+        ],
+        ids=["default-us", "default-eu", "labeled-us", "labeled-eu", "hyphenated-labeled-eu"],
+    )
+    def test_workspace_name_encodes_region_suffix(
+        self, monkeypatch: pytest.MonkeyPatch, label: str | None, region: str, expected: str
+    ) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.get_workspace_name(label, region=region) == expected
+
+    @pytest.mark.parametrize("reserved", ["eu", "api-eu", "foo-eu"])
+    def test_label_colliding_with_region_suffix_rejected(self, monkeypatch: pytest.MonkeyPatch, reserved: str) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        with pytest.raises(SystemExit):
+            coder.get_workspace_name(reserved)
+
+    @pytest.mark.parametrize(
+        "workspace_name, expected_label",
+        [
+            ("devbox-test-user-eu", None),
+            ("devbox-test-user-api-eu", "api"),
+            ("devbox-test-user-my-project-eu", "my-project"),
+        ],
+        ids=["region-only-default", "labeled-with-region", "hyphenated-label-with-region"],
+    )
+    def test_extract_label_strips_region_suffix(
+        self, monkeypatch: pytest.MonkeyPatch, workspace_name: str, expected_label: str | None
+    ) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        assert coder.extract_workspace_label(workspace_name) == expected_label
+
+    @pytest.mark.parametrize(
+        "user, label, expected",
+        [
+            ("alice", None, "devbox-alice"),
+            ("alice", "api", "devbox-alice-api"),
+        ],
+    )
+    def test_shared_workspace_name_ignores_caller_region(self, user: str, label: str | None, expected: str) -> None:
+        # Shared workspace lookups never apply the caller's region pref:
+        # the remote workspace's region belongs to its owner.
+        assert coder.resolve_shared_workspace_name(user, label) == expected
+
+
+class TestWorkspaceRegion:
+    """Reading the region back from the workspace `region` metadata item."""
+
+    @pytest.mark.parametrize(
+        "workspace, expected",
+        [
+            # Region item present on a resource.
+            (
+                {"latest_build": {"resources": [{"metadata": [{"key": "region", "value": "eu-central-1"}]}]}},
+                "eu-central-1",
+            ),
+            # Region item sits among other metadata items.
+            (
+                {
+                    "latest_build": {
+                        "resources": [
+                            {"metadata": [{"key": "cpu", "value": "8"}, {"key": "region", "value": "us-east-1"}]}
+                        ]
+                    }
+                },
+                "us-east-1",
+            ),
+            # Region item lives on a later resource.
+            (
+                {
+                    "latest_build": {
+                        "resources": [
+                            {"metadata": [{"key": "cpu", "value": "8"}]},
+                            {"metadata": [{"key": "region", "value": "us-east-1"}]},
+                        ]
+                    }
+                },
+                "us-east-1",
+            ),
+            # No metadata at all (box created before the item existed).
+            ({"latest_build": {"resources": [{"metadata": []}]}}, None),
+            ({"latest_build": {"resources": []}}, None),
+            ({"latest_build": {}}, None),
+            ({}, None),
+            # Empty value is treated as unknown.
+            (
+                {"latest_build": {"resources": [{"metadata": [{"key": "region", "value": ""}]}]}},
+                None,
+            ),
+            # Malformed metadata entries are ignored, not crashed on.
+            (
+                {
+                    "latest_build": {
+                        "resources": [{"metadata": ["not-a-dict", {"key": "region", "value": "us-east-1"}]}]
+                    }
+                },
+                "us-east-1",
+            ),
+        ],
+        ids=[
+            "single-item",
+            "among-others",
+            "later-resource",
+            "empty-metadata",
+            "no-resources",
+            "no-build-resources",
+            "empty-payload",
+            "empty-value",
+            "malformed-entry-skipped",
+        ],
+    )
+    def test_get_workspace_region(self, workspace: dict[str, object], expected: str | None) -> None:
+        assert coder.get_workspace_region(workspace) == expected
+
 
 def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
     """Extract `key=value` pairs from `--parameter` flags in argv."""
@@ -694,6 +848,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         git_name: str | None = None,
         git_email: str | None = None,
         dotfiles_uri: str | None = None,
+        region: str = coder.DEFAULT_REGION,
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
         verbose: bool = False,
@@ -705,6 +860,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
                 "git_name": git_name,
                 "git_email": git_email,
                 "dotfiles_uri": dotfiles_uri,
+                "region": region,
                 "template": template,
                 "preset": preset,
             }
@@ -739,7 +895,7 @@ class TestWorkspaceCreation:
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
                 "Default (warm)",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             (
                 {
@@ -753,6 +909,7 @@ class TestWorkspaceCreation:
                 {
                     "disk_size": "100",
                     "repo": _REPO,
+                    "workspace_region": "us-east-1",
                     "git_name": "PostHog Engineer",
                     "git_email": "test-user@example.com",
                     "dotfiles_uri": _DOTFILES,
@@ -763,14 +920,14 @@ class TestWorkspaceCreation:
                 ["Default (warm)"],
                 "posthog-microvm",
                 "Default (warm)",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             (
                 {"preset": "none"},
                 ["Default (warm)"],
                 "posthog-linux",
                 "none",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
@@ -780,7 +937,15 @@ class TestWorkspaceCreation:
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
-                {"disk_size": "100", "repo": _REPO},
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
+            ),
+            # A non-default region is forwarded verbatim as workspace_region.
+            (
+                {"region": "eu-central-1"},
+                ["Default (warm)"],
+                "posthog-linux",
+                "Default (warm)",
+                {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
@@ -789,6 +954,7 @@ class TestWorkspaceCreation:
             "custom-template",
             "preset-opt-out",
             "resolver-fallback-flows-through",
+            "explicit-region",
         ],
     )
     def test_create_workspace_forwards_params_and_template(
@@ -1030,12 +1196,59 @@ class TestResolveWorkspaceName:
 
     def test_explicit_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        # Own-label resolution fetches the workspace list to allow cross-region
+        # fallback, so `workspaces` comes back populated even when the target
+        # isn't found.
         name, workspaces = devbox_cli.resolve_workspace_name("api")
         assert name == "devbox-test-user-api"
+        assert workspaces == []
+
+    def test_explicit_shared_label_skips_workspace_fetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Shared targets (`@user[/label]`) skip the own-workspace list call."""
+        calls: list[str] = []
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: calls.append("listed") or [])
+        name, workspaces = devbox_cli.resolve_workspace_name("@alice/api")
+        assert name == "devbox-alice-api"
         assert workspaces is None
+        assert calls == []
+
+    def test_own_label_falls_back_to_cross_region_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If preferred-region name doesn't exist, find a workspace with the same label in another region."""
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user-api"}],  # us-region workspace, no -eu suffix
+        )
+        name, workspaces = devbox_cli.resolve_workspace_name("api")
+        # Preferred-region name would be `devbox-test-user-api-eu`; fallback finds the us workspace.
+        assert name == "devbox-test-user-api"
+        assert workspaces == [{"name": "devbox-test-user-api"}]
+
+    def test_own_label_prefers_preferred_region_when_both_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user-api"}, {"name": "devbox-test-user-api-eu"}],
+        )
+        name, _ = devbox_cli.resolve_workspace_name("api")
+        assert name == "devbox-test-user-api-eu"
+
+    def test_preferred_region_falls_back_when_saved_value_unknown(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        # Simulate a hand-edited config with a region that's no longer in REGIONS.
+        devbox_config_path.write_text(json.dumps({"region": "ap-southeast-2"}))
+        assert devbox_cli._preferred_region() == coder.DEFAULT_REGION
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
+        monkeypatch.setattr(
+            devbox_cli, "get_workspace_name", lambda label=None, region=coder.DEFAULT_REGION: "devbox-test-user"
+        )
         monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
         name, workspaces = devbox_cli.resolve_workspace_name(None)
         assert name == "devbox-test-user"
@@ -1048,7 +1261,9 @@ class TestResolveWorkspaceName:
         assert len(workspaces) == 1
 
     def test_multiple_workspaces_prefers_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
+        monkeypatch.setattr(
+            devbox_cli, "get_workspace_name", lambda label=None, region=coder.DEFAULT_REGION: "devbox-test-user"
+        )
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -1059,7 +1274,9 @@ class TestResolveWorkspaceName:
         assert len(workspaces) == 2
 
     def test_multiple_workspaces_no_default_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
+        monkeypatch.setattr(
+            devbox_cli, "get_workspace_name", lambda label=None, region=coder.DEFAULT_REGION: "devbox-test-user"
+        )
         monkeypatch.setattr(
             devbox_cli, "extract_workspace_label", lambda name: name.split("-", 2)[-1] if name.count("-") > 1 else None
         )
@@ -1120,6 +1337,11 @@ class TestDevboxCommands:
         )
         monkeypatch.setattr(
             devbox_cli,
+            "maybe_configure_region",
+            lambda configure_region: calls.append(f"region:{configure_region}"),
+        )
+        monkeypatch.setattr(
+            devbox_cli,
             "maybe_configure_dotfiles",
             lambda configure_dotfiles: calls.append(f"dotfiles:{configure_dotfiles}"),
         )
@@ -1137,6 +1359,7 @@ class TestDevboxCommands:
                 "--skip-configure-ssh",
                 "--skip-configure-git-identity",
                 "--skip-configure-git-signing",
+                "--skip-configure-region",
                 "--skip-configure-dotfiles",
                 "--skip-configure-claude",
             ],
@@ -1152,6 +1375,7 @@ class TestDevboxCommands:
             "ssh:False",
             "git:False",
             "signing:False",
+            "region:False",
             "dotfiles:False",
             "claude:False",
             "summary",
@@ -1171,6 +1395,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -1201,6 +1426,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -1236,6 +1462,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -1254,7 +1481,7 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
@@ -1269,6 +1496,7 @@ class TestDevboxCommands:
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
+            "region": coder.DEFAULT_REGION,
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
         }
@@ -1280,7 +1508,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "resolve_workspace_name",
-            lambda ws: (f"devbox-test-user-{ws}" if ws else "devbox-test-user", []),
+            lambda ws, **kw: (f"devbox-test-user-{ws}" if ws else "devbox-test-user", []),
         )
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: "api")
@@ -1302,6 +1530,7 @@ class TestDevboxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
+        assert captured["region"] == coder.DEFAULT_REGION
         assert captured["template"] == coder.DEFAULT_TEMPLATE
         assert captured["preset"] == coder.DEFAULT_PRESET
         assert "devbox:ssh api" in result.output
@@ -1310,7 +1539,7 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
@@ -1326,7 +1555,7 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
@@ -1337,11 +1566,77 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["preset"] == "none"
 
+    def test_devbox_start_forwards_region_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--region", "eu-central-1"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["region"] == "eu-central-1"
+        assert "region=eu-central-1" in result.output
+
+    def test_devbox_start_rejects_unknown_region(self) -> None:
+        # click.Choice rejects the value during option parsing, before the
+        # command body runs, so no runtime collaborators need stubbing.
+        result = runner.invoke(cli, ["devbox:start", "--region", "ap-southeast-2"])
+
+        assert result.exit_code != 0
+        assert "ap-southeast-2" in result.output
+
+    def test_devbox_start_defaults_to_saved_region(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        """When no --region is given, devbox:start should honor the saved preference."""
+        devbox_config.save_region("eu-central-1")
+
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        # Real resolve_workspace_name so the -eu suffix gets applied.
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["region"] == "eu-central-1"
+        assert captured["name"] == "devbox-test-user-eu"
+        assert "region=eu-central-1" in result.output
+
+    def test_devbox_start_explicit_region_overrides_saved_preference(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        """An explicit --region flag should win over the saved preference for both region and name."""
+        devbox_config.save_region("us-east-1")
+
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--region", "eu-central-1"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["region"] == "eu-central-1"
+        assert captured["name"] == "devbox-test-user-eu"
+
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1364,7 +1659,7 @@ class TestDevboxCommands:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1387,7 +1682,7 @@ class TestDevboxCommands:
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1414,7 +1709,7 @@ class TestDevboxCommands:
 
     def test_devbox_status_shows_update_hint_when_outdated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1427,11 +1722,72 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "devbox:update" in result.output
 
+    @pytest.mark.parametrize(
+        "status, resources, expected",
+        [
+            (
+                "running",
+                [{"metadata": [{"key": "region", "value": "eu-central-1"}]}],
+                "Region:  eu-central-1",
+            ),
+            ("stopped", [], "Region:  unknown"),
+        ],
+        ids=["region-present", "region-absent"],
+    )
+    def test_devbox_status_shows_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: str, resources: list, expected: str
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"latest_build": {"status": status, "resources": resources}},
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        result = runner.invoke(cli, ["devbox:status"])
+
+        assert result.exit_code == 0
+        assert expected in result.output
+
+    def test_devbox_list_shows_region_column(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [
+                {
+                    "name": "devbox-test-user",
+                    "latest_build": {
+                        "status": "running",
+                        "resources": [{"metadata": [{"key": "region", "value": "eu-central-1"}]}],
+                    },
+                },
+                {"name": "devbox-test-user-api", "latest_build": {"status": "stopped", "resources": []}},
+            ],
+        )
+        monkeypatch.setattr(devbox_cli, "list_shared_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "get_shared_users", lambda name: [])
+        monkeypatch.setattr(
+            devbox_cli,
+            "extract_workspace_label",
+            lambda name: None if name == "devbox-test-user" else "api",
+        )
+
+        result = runner.invoke(cli, ["devbox:list"])
+
+        assert result.exit_code == 0
+        assert "REGION" in result.output
+        assert "eu-central-1" in result.output
+        # The box without region metadata renders the unknown placeholder.
+        assert "unknown" in result.output
+
     def test_devbox_forward_forwards_when_local_port_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
         monkeypatch.setattr(
             devbox_cli,
@@ -1449,7 +1805,7 @@ class TestDevboxCommands:
 
     def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
 
         result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
@@ -1474,6 +1830,7 @@ def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -1573,6 +1930,33 @@ class TestDevboxConfigCommands:
         assert devbox_config.load_config() == {"dotfiles_uri": "https://github.com/user/dotfiles"}
         assert "Cleared saved Git identity" in result.output
 
+    def test_rm_region_clears_only_region(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config.save_git_identity("Eng", "eng@example.com")
+        devbox_config.save_region("eu-central-1")
+
+        result = runner.invoke(cli, ["devbox:config:rm", "region"])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {"git_name": "Eng", "git_email": "eng@example.com"}
+        assert "Cleared saved region preference" in result.output
+
+    def test_show_renders_saved_region(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config.save_region("eu-central-1")
+
+        result = runner.invoke(cli, ["devbox:config:show"])
+
+        assert result.exit_code == 0
+        assert "Region" in result.output
+        assert "eu-central-1" in result.output
+
     @pytest.mark.parametrize(
         "key,expected_secret",
         [
@@ -1648,6 +2032,7 @@ class TestDevboxConfigCommands:
         assert result.exit_code != 0
         assert "git-identity" in result.output
         assert "git-signing" in result.output
+        assert "region" in result.output
         assert "dotfiles" in result.output
         assert "claude" in result.output
 
@@ -1911,7 +2296,7 @@ class TestDevboxShare:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1934,7 +2319,7 @@ class TestDevboxShare:
         captured: dict[str, object] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1955,7 +2340,7 @@ class TestDevboxShare:
 
     def test_unshare_without_user_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1977,7 +2362,7 @@ class TestDevboxShare:
 
     def test_share_list_shows_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -1997,7 +2382,7 @@ class TestDevboxShare:
 
     def test_share_without_user_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
             "get_workspace",
@@ -2112,6 +2497,59 @@ class TestCoderUserSecrets:
         monkeypatch.setattr(coder, "_run", fake_run)
         coder.delete_user_secret("CLAUDE_CODE_OAUTH_TOKEN")
         assert captured == [["coder", "secret", "delete", "CLAUDE_CODE_OAUTH_TOKEN", "--yes"]]
+
+
+class TestSetupRegion:
+    """Test the region-preference step in devbox:setup."""
+
+    def test_skip_flag_short_circuits(self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path) -> None:
+        echoed: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
+
+        devbox_cli.maybe_configure_region(False)
+
+        assert any("Skipping region" in line for line in echoed)
+        assert devbox_config.load_config().get("region") is None
+
+    def test_skip_flag_silent_when_already_set(self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path) -> None:
+        devbox_config.save_region("eu-central-1")
+        echoed: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
+
+        devbox_cli.maybe_configure_region(False)
+
+        # The compact status block at the top of devbox_setup owns the
+        # "already set" line, so this helper stays silent.
+        assert echoed == []
+        assert devbox_config.load_config()["region"] == "eu-central-1"
+
+    def test_skips_when_region_already_saved_and_no_explicit_flag(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        devbox_config.save_region("eu-central-1")
+        prompts: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: prompts.append("called") or "")
+
+        devbox_cli.maybe_configure_region(None)
+
+        assert prompts == []
+
+    def test_prompts_and_persists_when_unset(self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path) -> None:
+        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "eu-central-1")
+
+        devbox_cli.maybe_configure_region(None)
+
+        assert devbox_config.load_config()["region"] == "eu-central-1"
+
+    def test_explicit_configure_flag_reprompts_even_when_set(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        devbox_config.save_region("us-east-1")
+        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "eu-central-1")
+
+        devbox_cli.maybe_configure_region(True)
+
+        assert devbox_config.load_config()["region"] == "eu-central-1"
 
 
 class TestSetupClaudeSecret:
@@ -2605,6 +3043,22 @@ class TestEncodeSshOption:
         # Defensive: any SSH option containing the CSV delimiter must be quoted.
         encoded = coder._encode_ssh_option("ProxyCommand a,b")
         assert next(csv.reader([encoded]))[0] == "ProxyCommand a,b"
+
+
+class TestSshReplace:
+    """Verify devbox:ssh routes through the OpenSSH alias, not ``coder ssh``."""
+
+    def test_host_alias_matches_coder_config_ssh_default(self) -> None:
+        # `coder config-ssh` writes `Host coder.*` by default; the alias must match.
+        assert coder._ssh_host_alias("devbox-foo") == "coder.devbox-foo"
+
+    def test_execs_ssh_with_coder_host_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[tuple[str, list[str]]] = []
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: captured.append((file, args)))
+
+        coder.ssh_replace("devbox-foo")
+
+        assert captured == [("ssh", ["ssh", coder._ssh_host_alias("devbox-foo")])]
 
 
 class TestSetupGitSigning:
