@@ -35,6 +35,7 @@ export type {
     PendingApproval,
     SessionPrincipal,
     SessionState,
+    SessionTrigger,
     SessionUsage,
     ToastArgs,
     ToastResult,

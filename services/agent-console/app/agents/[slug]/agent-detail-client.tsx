@@ -41,11 +41,7 @@ export function AgentDetailClient({
             sessions={sessions}
             onTryAgent={() => enterPlayground(agentRef)}
             onBackToList={() => router.push('/')}
-            onOpenSession={(sessionId) => {
-                // v0 placeholder — /sessions/<id> detail route lands in v1.
-                // eslint-disable-next-line no-console
-                console.info('[stub] session detail route lands in v1', sessionId)
-            }}
+            onOpenSession={(sessionId) => router.push(`/agents/${agent.slug}/sessions/${sessionId}`)}
         />
     )
 }

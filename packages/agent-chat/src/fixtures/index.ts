@@ -8,5 +8,6 @@
 
 export * from './agents'
 export * from './bundles'
+export * from './logs'
 export * from './scripts'
 export * from './sessions'

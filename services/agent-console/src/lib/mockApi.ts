@@ -17,6 +17,7 @@ import {
     fleetLiveSessions,
     fleetStats,
     getAgentStatsFixture,
+    listLogsForSessionFixture,
     listSessionsForAgentFixture,
     liveSessionCountsByAgent,
     weeklyDigest,
@@ -27,6 +28,7 @@ import type {
     AgentRevisionFixture,
     AgentStats,
     FleetStats,
+    LogEntry,
 } from '@posthog/agent-chat/fixtures'
 
 export interface MockApiOptions {
@@ -93,4 +95,29 @@ export async function listSessionsForAgent(applicationId: string, opts: MockApiO
 export async function getAgentStats(applicationId: string, opts: MockApiOptions = {}): Promise<AgentStats> {
     await delay(opts.latencyMs ?? 0)
     return getAgentStatsFixture(applicationId)
+}
+
+/* Session detail — back the /agents/<slug>/sessions/<id> page.
+ *
+ * v0.1 maps to:
+ *   - getSession      → GET /api/projects/:t/agent_sessions/<id>/
+ *   - listLogsForSession → PostHog logs query: session_id = <id>
+ */
+
+export async function getSession(sessionId: string, opts: MockApiOptions = {}): Promise<ChatSession | null> {
+    await delay(opts.latencyMs ?? 0)
+    // Search through every agent's session history for the matching id.
+    for (const agent of agents) {
+        const found = listSessionsForAgentFixture(agent.id).find((s) => s.id === sessionId)
+        if (found) {
+            return found
+        }
+    }
+    // Also check live-now in case the session is fleet-level only.
+    return fleetLiveSessions.find((s) => s.id === sessionId) ?? null
+}
+
+export async function listLogsForSession(sessionId: string, opts: MockApiOptions = {}): Promise<LogEntry[]> {
+    await delay(opts.latencyMs ?? 0)
+    return listLogsForSessionFixture(sessionId)
 }

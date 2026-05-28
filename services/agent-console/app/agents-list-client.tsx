@@ -30,9 +30,13 @@ export function AgentsListClient({
             liveCountByAgent={liveCountByAgent}
             onOpenAgent={(slug) => router.push(`/agents/${slug}`)}
             onOpenSession={(sessionId) => {
-                // v0 placeholder — cross-agent /sessions/<id> route lands in v1.
-                // eslint-disable-next-line no-console
-                console.info('[stub] session detail route lands in v1', sessionId)
+                // We know the session's agent from its `application` field — route
+                // through the agent path. A future cross-agent /sessions/<id>
+                // route can replace this.
+                const session = liveSessions.find((s) => s.id === sessionId)
+                if (session) {
+                    router.push(`/agents/${session.application.slug}/sessions/${sessionId}`)
+                }
             }}
             onCreateAgent={() => {
                 // eslint-disable-next-line no-console

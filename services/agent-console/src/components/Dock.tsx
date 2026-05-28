@@ -77,7 +77,8 @@ export function Dock(): React.ReactElement {
                 } else if (args.kind === 'session') {
                     target = { kind: 'session', agentSlug: contextSlug, sessionId: args.sessionId }
                     if (contextSlug) {
-                        routeTarget = `/agents/${contextSlug}`
+                        // Sessions get their own page — route there directly.
+                        routeTarget = `/agents/${contextSlug}/sessions/${args.sessionId}`
                     }
                 } else if (args.kind === 'spec_section') {
                     target = { kind: 'spec_section', agentSlug: contextSlug, section: args.section }

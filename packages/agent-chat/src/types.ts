@@ -111,7 +111,30 @@ export interface ChatSession {
     started_at?: string
     /** ISO timestamp the session reached a terminal state (completed/failed/aborted/error). */
     ended_at?: string
+    /**
+     * What kicked the session off. Drives the playback shell — a chat
+     * trigger renders like a Claude conversation; a slack trigger renders
+     * like a Slack thread; a cron trigger renders as an autonomous run.
+     */
+    trigger?: SessionTrigger
 }
+
+export type SessionTrigger =
+    | { kind: 'chat' }
+    | {
+          kind: 'slack'
+          workspace: string
+          channelId: string
+          channelName: string
+          /** Slack ts of the message that mentioned the bot (also serves as thread root). */
+          threadTs: string
+          /** Original message text that started the thread. */
+          rootMessage: string
+          /** Display name of the user who pinged the bot. */
+          invokedBy: string
+      }
+    | { kind: 'cron'; schedule: string; timezone?: string; firedAt: string }
+    | { kind: 'webhook'; path: string; source?: string }
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Client-fulfilled tool handler API

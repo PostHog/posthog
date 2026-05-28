@@ -261,6 +261,7 @@ const playgroundExchange: Turn[] = [
 export const playgroundSession: ChatSession = {
     id: '01998a01-2222-7000-8000-000000000008',
     application: weeklyDigest,
+    trigger: { kind: 'chat' },
     principal,
     turns: playgroundExchange,
     state: 'idle',
@@ -295,6 +296,7 @@ function aliceTurn(text: string, at: string): Turn {
 const releaseStreamingSession: ChatSession = {
     id: '01998a01-2222-7000-8000-000000000101',
     application: releaseConcierge,
+    trigger: { kind: 'cron', schedule: '0 16 * * THU', timezone: 'UTC', firedAt: '2026-05-28T15:46:00Z' },
     principal: { kind: 'system', displayName: 'cron · weekly cut' },
     turns: [
         aliceTurn('Cut the v2.41 release. PR for the changelog, ping owners on any failing checks.', '2026-05-28T15:46:00Z'),
@@ -320,6 +322,15 @@ const releaseStreamingSession: ChatSession = {
 const releaseAwaitingSession: ChatSession = {
     id: '01998a01-2222-7000-8000-000000000102',
     application: releaseConcierge,
+    trigger: {
+        kind: 'slack',
+        workspace: 'PostHog',
+        channelId: 'C012XYZ',
+        channelName: 'product-eng',
+        threadTs: '1748452680.001200',
+        rootMessage: '@release-concierge hotfix the timezone bug in v2.40 please',
+        invokedBy: 'Ari',
+    },
     principal: { kind: 'human', userId: '2', displayName: 'Ari' },
     turns: [
         aliceTurn('Hotfix the timezone bug in v2.40.', '2026-05-28T15:38:00Z'),
@@ -351,6 +362,7 @@ const releaseAwaitingSession: ChatSession = {
 const triagerStreamingSession: ChatSession = {
     id: '01998a01-2222-7000-8000-000000000103',
     application: incidentTriager,
+    trigger: { kind: 'webhook', path: '/incidents/triage', source: 'pagerduty' },
     principal: { kind: 'system', displayName: 'pagerduty · INC-4112' },
     turns: [
         aliceTurn('INC-4112 fired: ingest p99 > 5s in prod-eu. Triage.', '2026-05-28T15:52:00Z'),
@@ -376,6 +388,7 @@ const triagerStreamingSession: ChatSession = {
 const digestActiveSession: ChatSession = {
     ...idleSession,
     state: 'streaming',
+    trigger: { kind: 'cron', schedule: '0 9 * * MON', timezone: 'US/Pacific', firedAt: '2026-05-28T15:55:00Z' },
     started_at: '2026-05-28T15:55:00Z',
     turns: [
         aliceTurn('Test run for the digest draft', '2026-05-28T15:55:00Z'),
@@ -451,6 +464,7 @@ const weeklyDigestHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007d1',
         application: weeklyDigest,
+        trigger: { kind: 'cron', schedule: '0 9 * * MON', timezone: 'US/Pacific', firedAt: '2026-05-27T09:00:00-07:00' },
         principal: { kind: 'system', displayName: 'cron · weekly fire' },
         state: 'completed',
         started_at: '2026-05-27T09:00:00-07:00',
@@ -468,6 +482,7 @@ const weeklyDigestHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007d2',
         application: weeklyDigest,
+        trigger: { kind: 'chat' },
         principal: { kind: 'human', userId: '1', displayName: 'Ben (test run)' },
         state: 'completed',
         started_at: '2026-05-27T17:11:00Z',
@@ -485,6 +500,7 @@ const weeklyDigestHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007d3',
         application: weeklyDigest,
+        trigger: { kind: 'chat' },
         principal: { kind: 'human', userId: '1', displayName: 'Ben' },
         state: 'failed',
         started_at: '2026-05-26T22:48:00Z',
@@ -503,6 +519,7 @@ const weeklyDigestHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007d4',
         application: weeklyDigest,
+        trigger: { kind: 'cron', schedule: '0 9 * * MON', timezone: 'US/Pacific', firedAt: '2026-05-20T09:00:00-07:00' },
         principal: { kind: 'system', displayName: 'cron · weekly fire' },
         state: 'completed',
         started_at: '2026-05-20T09:00:00-07:00',
@@ -525,6 +542,7 @@ const releaseConciergeHistory: ChatSession[] = [
     makeHistorical({
         id: '01998a01-2222-7000-8000-0000000007e1',
         application: releaseConcierge,
+        trigger: { kind: 'cron', schedule: '0 16 * * THU', timezone: 'UTC', firedAt: '2026-05-21T15:46:00Z' },
         principal: { kind: 'system', displayName: 'cron · weekly cut' },
         state: 'completed',
         started_at: '2026-05-21T15:46:00Z',
@@ -536,6 +554,44 @@ const releaseConciergeHistory: ChatSession[] = [
                 id: 'rh1-u',
                 timestamp: '2026-05-21T15:46:00Z',
                 text: 'Cut the v2.40 release.',
+            },
+        ],
+    }),
+    makeHistorical({
+        id: '01998a01-2222-7000-8000-0000000007e2',
+        application: releaseConcierge,
+        trigger: {
+            kind: 'slack',
+            workspace: 'PostHog',
+            channelId: 'C012XYZ',
+            channelName: 'product-eng',
+            threadTs: '1748120400.001050',
+            rootMessage: '@release-concierge what shipped in v2.39?',
+            invokedBy: 'Dylan',
+        },
+        principal: { kind: 'human', userId: '3', displayName: 'Dylan' },
+        state: 'completed',
+        started_at: '2026-05-24T10:20:00Z',
+        ended_at: '2026-05-24T10:20:48Z',
+        usage: { inputTokens: 2480, outputTokens: 620, costUsd: 0.082 },
+        turns: [
+            {
+                kind: 'user',
+                id: 'rh2-u',
+                timestamp: '2026-05-24T10:20:00Z',
+                text: '@release-concierge what shipped in v2.39?',
+            },
+            {
+                kind: 'assistant',
+                id: 'rh2-a',
+                timestamp: '2026-05-24T10:20:08Z',
+                parts: [
+                    {
+                        kind: 'text',
+                        text:
+                            'v2.39 (May 21):\n• ingest pipeline retry budget tuned (Dylan)\n• cohort calculation moved to async (Sam)\n• 6 quick fixes\n\nFull changelog: https://posthog.com/releases/v2-39',
+                    },
+                ],
             },
         ],
     }),

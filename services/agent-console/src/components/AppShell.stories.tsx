@@ -30,6 +30,7 @@ import {
     fleetLiveSessions,
     fleetStats,
     getAgentStatsFixture,
+    listLogsForSessionFixture,
     listSessionsForAgentFixture,
     liveSessionCountsByAgent,
     playgroundScripts,
@@ -43,6 +44,7 @@ import type { AgentApplicationFixture, AgentRevisionFixture, BundleFile } from '
 
 import { AgentDetail } from '@/pages/AgentDetail'
 import { AgentsList } from '@/pages/AgentsList'
+import { SessionDetail } from '@/pages/SessionDetail'
 
 import { DockContextProvider, useDockStore, useSetDockPage } from './dock-context'
 import { FocusContextProvider, useFocusStore, type FocusTarget } from './focus-context'
@@ -51,9 +53,11 @@ import { PostHogMark } from './PostHogMark'
 
 const DOCK_WIDTH = 360
 
+type Route = 'list' | { kind: 'detail'; slug: string } | { kind: 'session'; slug: string; sessionId: string }
+
 interface ShellArgs {
     /** Which view the shell starts on. */
-    initialRoute?: 'list' | { kind: 'detail'; slug: string }
+    initialRoute?: Route
     /** Force playground on the named agent slug from mount. */
     startInPlaygroundFor?: string
     /** Pool of agents to drive the list. Defaults to the standard fixture. */
@@ -62,7 +66,7 @@ interface ShellArgs {
 
 function ShellInner({ initialRoute = 'list', startInPlaygroundFor, agentPool }: ShellArgs): React.ReactElement {
     const agents = agentPool ?? defaultAgents
-    const [route, setRoute] = useState<'list' | { kind: 'detail'; slug: string }>(initialRoute)
+    const [route, setRoute] = useState<Route>(initialRoute)
     const currentAgent = useMemo(() => {
         if (route === 'list') {
             return null
@@ -70,7 +74,7 @@ function ShellInner({ initialRoute = 'list', startInPlaygroundFor, agentPool }: 
         return agents.find((a) => a.slug === route.slug) ?? null
     }, [route, agents])
 
-    const goTo = (next: 'list' | { kind: 'detail'; slug: string }): void => setRoute(next)
+    const goTo = (next: Route): void => setRoute(next)
 
     return (
         <DockContextProvider>
@@ -78,23 +82,42 @@ function ShellInner({ initialRoute = 'list', startInPlaygroundFor, agentPool }: 
                 <PlaygroundBootstrap forSlug={startInPlaygroundFor} agents={agents} />
                 <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
                     <Sidebar onGoHome={() => goTo('list')} />
-                    <main className="flex-1 overflow-y-auto">
+                    <main className="flex flex-1 flex-col overflow-hidden">
                         <FocusModeBanner />
-                        {route === 'list' ? (
-                            <ListSurface agents={agents} onOpenAgent={(slug) => goTo({ kind: 'detail', slug })} />
-                        ) : currentAgent ? (
-                            <DetailSurface
-                                agent={currentAgent}
-                                revisions={weeklyDigestRevisions}
-                                bundle={weeklyDigestBundle}
-                                onBackToList={() => goTo('list')}
-                            />
-                        ) : (
-                            <div className="p-6 text-sm text-muted-foreground">No such agent.</div>
-                        )}
+                        <div className="min-h-0 flex-1 overflow-y-auto">
+                            {route === 'list' ? (
+                                <ListSurface
+                                    agents={agents}
+                                    onOpenAgent={(slug) => goTo({ kind: 'detail', slug })}
+                                    onOpenSession={(slug, sessionId) => goTo({ kind: 'session', slug, sessionId })}
+                                />
+                            ) : route.kind === 'session' && currentAgent ? (
+                                <SessionSurface
+                                    agent={currentAgent}
+                                    sessionId={route.sessionId}
+                                    onBackToList={() => goTo('list')}
+                                    onBackToAgent={(slug) => goTo({ kind: 'detail', slug })}
+                                />
+                            ) : currentAgent ? (
+                                <DetailSurface
+                                    agent={currentAgent}
+                                    revisions={weeklyDigestRevisions}
+                                    bundle={weeklyDigestBundle}
+                                    onBackToList={() => goTo('list')}
+                                    onOpenSession={(sessionId) =>
+                                        goTo({ kind: 'session', slug: currentAgent.slug, sessionId })
+                                    }
+                                />
+                            ) : (
+                                <div className="p-6 text-sm text-muted-foreground">No such agent.</div>
+                            )}
+                        </div>
                     </main>
                     <aside className="shrink-0 border-l border-border" style={{ width: DOCK_WIDTH }}>
-                        <DockSurface onRouteToAgent={(slug) => goTo({ kind: 'detail', slug })} />
+                        <DockSurface
+                            onRouteToAgent={(slug) => goTo({ kind: 'detail', slug })}
+                            onRouteToSession={(slug, sessionId) => goTo({ kind: 'session', slug, sessionId })}
+                        />
                     </aside>
                 </div>
             </FocusContextProvider>
@@ -128,9 +151,11 @@ function Sidebar({ onGoHome }: { onGoHome: () => void }): React.ReactElement {
 function ListSurface({
     agents,
     onOpenAgent,
+    onOpenSession,
 }: {
     agents: AgentApplicationFixture[]
     onOpenAgent: (slug: string) => void
+    onOpenSession: (agentSlug: string, sessionId: string) => void
 }): React.ReactElement {
     useSetDockPage({ kind: 'agent-list' })
     return (
@@ -141,7 +166,12 @@ function ListSurface({
             liveCountByAgent={liveSessionCountsByAgent}
             onOpenAgent={onOpenAgent}
             onCreateAgent={() => console.info('[shell story] createAgent — would route to concierge')}
-            onOpenSession={(id) => console.info('[shell story] openSession', id)}
+            onOpenSession={(sessionId) => {
+                const session = fleetLiveSessions.find((s) => s.id === sessionId)
+                if (session) {
+                    onOpenSession(session.application.slug, sessionId)
+                }
+            }}
             onViewAllSessions={() => console.info('[shell story] viewAllSessions')}
         />
     )
@@ -152,11 +182,13 @@ function DetailSurface({
     revisions,
     bundle,
     onBackToList,
+    onOpenSession,
 }: {
     agent: AgentApplicationFixture
     revisions: AgentRevisionFixture[]
     bundle: BundleFile[]
     onBackToList: () => void
+    onOpenSession: (sessionId: string) => void
 }): React.ReactElement {
     const agentRef = { id: agent.id, slug: agent.slug, name: agent.name }
     useSetDockPage({ kind: 'agent', agent: agentRef })
@@ -172,12 +204,58 @@ function DetailSurface({
             sessions={sessions}
             onTryAgent={() => enterPlayground(agentRef)}
             onBackToList={onBackToList}
-            onOpenSession={(id) => console.info('[shell story] openSession', id)}
+            onOpenSession={onOpenSession}
         />
     )
 }
 
-function DockSurface({ onRouteToAgent }: { onRouteToAgent: (slug: string) => void }): React.ReactElement {
+function SessionSurface({
+    agent,
+    sessionId,
+    onBackToList,
+    onBackToAgent,
+}: {
+    agent: AgentApplicationFixture
+    sessionId: string
+    onBackToList: () => void
+    onBackToAgent: (slug: string) => void
+}): React.ReactElement {
+    const agentRef = { id: agent.id, slug: agent.slug, name: agent.name }
+    useSetDockPage({ kind: 'agent-session', agent: agentRef, sessionId })
+
+    const session =
+        listSessionsForAgentFixture(agent.id).find((s) => s.id === sessionId) ??
+        fleetLiveSessions.find((s) => s.id === sessionId)
+
+    if (!session) {
+        return (
+            <div className="p-6 text-sm text-muted-foreground">
+                Session not found.{' '}
+                <button type="button" onClick={onBackToList} className="cursor-pointer underline hover:text-foreground">
+                    Back to agents
+                </button>
+            </div>
+        )
+    }
+
+    return (
+        <SessionDetail
+            agent={agent}
+            session={session}
+            logs={listLogsForSessionFixture(sessionId)}
+            onBackToList={onBackToList}
+            onBackToAgent={() => onBackToAgent(agent.slug)}
+        />
+    )
+}
+
+function DockSurface({
+    onRouteToAgent,
+    onRouteToSession,
+}: {
+    onRouteToAgent: (slug: string) => void
+    onRouteToSession: (slug: string, sessionId: string) => void
+}): React.ReactElement {
     const { context, exitPlayground } = useDockStore()
     const focus = useFocusStore()
 
@@ -212,12 +290,16 @@ function DockSurface({ onRouteToAgent }: { onRouteToAgent: (slug: string) => voi
 
                 focus.setTarget(target)
                 if (contextSlug) {
-                    onRouteToAgent(contextSlug)
+                    if (args.kind === 'session') {
+                        onRouteToSession(contextSlug, args.sessionId)
+                    } else {
+                        onRouteToAgent(contextSlug)
+                    }
                 }
                 return { focused: true, kind: args.kind }
             },
         }),
-        [context, focus, onRouteToAgent]
+        [context, focus, onRouteToAgent, onRouteToSession]
     )
 
     const toastHandler: ClientToolHandler<ToastArgs, ToastResult> = useMemo(
