@@ -1076,6 +1076,16 @@ def custom_postprocessing_hook(result, generator, request, public):
             if is_deprecated_env:
                 definition["deprecated"] = True
 
+            # Honor an explicit ``@extend_schema(extensions={"x-product": ...})`` declaration.
+            # drf-spectacular lands extensions as top-level keys on the operation definition.
+            # Pop it before we synthesize x-product from tags + module path so we can merge
+            # the developer's intent in (at the front, so codegen Priority 1 picks it first).
+            # Accepts a string or list of strings. This is the preferred way to attribute an
+            # endpoint to a product for codegen routing — tags=[...] is for display only.
+            x_product_override = definition.pop("x-product", None)
+            if isinstance(x_product_override, str):
+                x_product_override = [x_product_override]
+
             # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
             # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
             explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
@@ -1085,13 +1095,20 @@ def custom_postprocessing_hook(result, generator, request, public):
             if product and product not in explicit_tags:
                 explicit_tags.append(product)
 
-            definition["x-explicit-tags"] = explicit_tags
+            # Prepend explicit x-product overrides so codegen folder-matching picks them first.
+            if x_product_override:
+                for v in reversed(x_product_override):
+                    if v in explicit_tags:
+                        explicit_tags.remove(v)
+                    explicit_tags.insert(0, v)
+
+            definition["x-product"] = explicit_tags
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects", "environments"]]
 
             # If a ViewSet sets x-swagger-tag via @extend_schema(extensions={"x-swagger-tag": "..."}),
             # use that as the sole display tag instead of appending the URL-derived one.
-            # This controls Swagger UI grouping without affecting x-explicit-tags (used for codegen).
+            # This controls Swagger UI grouping without affecting x-product (used for codegen).
             swagger_tag = definition.pop("x-swagger-tag", None)
             if swagger_tag:
                 definition["tags"] = [swagger_tag]

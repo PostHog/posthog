@@ -212,8 +212,8 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
 
             const operationId = operation.operationId || ''
-            const explicitTags = operation['x-explicit-tags']
-            const tags = Array.isArray(explicitTags) && explicitTags.length ? explicitTags : []
+            const productTags = operation['x-product']
+            const tags = Array.isArray(productTags) && productTags.length ? productTags : []
 
             let outputDir = null
             let routingMethod = null

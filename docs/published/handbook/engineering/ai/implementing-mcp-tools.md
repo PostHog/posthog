@@ -168,7 +168,7 @@ Product teams own their definitions and control which operations are exposed as 
 
 1. **Scaffold** a starter YAML with all operations disabled.
    `--product` discovers endpoints in two ways (same priority as frontend type generation):
-   1. **`x-explicit-tags`** — matches endpoints whose OpenAPI tag equals the product name.
+   1. **`x-product`** — matches endpoints whose product attribution equals the product name.
       ViewSets in `products/<name>/backend/` are auto-tagged.
       ViewSets elsewhere (e.g. `posthog/api/`) need `@extend_schema(tags=["<product>"])`.
    2. **URL substring fallback** — selects endpoints whose path contains `/<name>/`
