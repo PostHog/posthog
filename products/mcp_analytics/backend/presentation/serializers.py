@@ -177,7 +177,17 @@ class MCPSessionSerializer(serializers.Serializer):
     )
     intent = serializers.CharField(
         read_only=True,
-        help_text="LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs.",
+        help_text="LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until generated on demand via the generate_intent endpoint.",
+    )
+
+
+class MCPSessionIntentSerializer(serializers.Serializer):
+    session_id = serializers.CharField(
+        read_only=True, help_text="$mcp_session_id the intent summary was generated for."
+    )
+    intent = serializers.CharField(
+        read_only=True,
+        help_text="LLM-generated summary (at most two sentences) of the agent's overall goal for the session.",
     )
 
 

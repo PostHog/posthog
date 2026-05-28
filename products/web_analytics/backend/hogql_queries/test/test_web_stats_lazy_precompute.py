@@ -316,14 +316,6 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_frustration_metrics_breakdown_falls_through(self):
-        self._seed()
-        with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=WebStatsBreakdown.FRUSTRATION_METRICS))
-
-        assert self._job_count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_language_breakdown_falls_through(self):
         # LANGUAGE needs an extra topK aggregation column that can't be rebuilt
         # from hourly states — it must fall through to the raw path.

@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -7,6 +9,30 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 const ACCOUNTS_ENDPOINT = 'api/environments/:team_id/accounts/'
+const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/environments/:team_id/accounts/:account_id/notebooks/'
+
+const SINGLE_ACCOUNT_RESULTS = [
+    {
+        id: 'acc-1',
+        name: 'Acme Inc',
+        external_id: 'cust_acme_001',
+        properties: {
+            csm: { id: 1, email: 'alice@posthog.com' },
+            account_executive: { id: 2, email: 'bob@posthog.com' },
+            account_owner: null,
+        },
+        tags: ['enterprise', 'priority'],
+        created_at: '2026-05-01T00:00:00Z',
+        created_by: 1,
+        updated_at: '2026-05-20T00:00:00Z',
+    },
+]
+
+async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
+    const canvas = within(canvasElement)
+    const expandBtn = await canvas.findByTitle('Show more')
+    await userEvent.click(expandBtn)
+}
 
 const meta: Meta = {
     component: App,
@@ -101,5 +127,77 @@ export const FeatureGateOff: Story = {
         testOptions: {
             waitForSelector: '[data-attr="not-found-page"]',
         },
+    },
+}
+
+export const RowExpandedEmpty: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNTS_ENDPOINT]: {
+                    count: SINGLE_ACCOUNT_RESULTS.length,
+                    next: null,
+                    previous: null,
+                    results: SINGLE_ACCOUNT_RESULTS,
+                },
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandFirstRow(canvasElement)
+    },
+}
+
+export const RowExpandedWithNote: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNTS_ENDPOINT]: {
+                    count: SINGLE_ACCOUNT_RESULTS.length,
+                    next: null,
+                    previous: null,
+                    results: SINGLE_ACCOUNT_RESULTS,
+                },
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: '11111111-1111-1111-1111-111111111111',
+                            short_id: 'abc12345',
+                            title: 'Q2 expansion call',
+                            content: null,
+                            text_content:
+                                'Discussed expansion plans for Q2. They want to add the data warehouse integration and roll out session replay to their EU team. Decision-makers: VP Eng (Priya) and CTO (Marco). Follow-up scheduled for next week to scope pricing.',
+                            created_at: '2026-05-15T10:30:00Z',
+                            created_by: {
+                                id: 1,
+                                uuid: '00000000-0000-0000-0000-000000000001',
+                                email: 'alice@posthog.com',
+                                first_name: 'Alice',
+                                last_name: 'Anderson',
+                                is_email_verified: true,
+                            },
+                            last_modified_at: '2026-05-15T10:30:00Z',
+                            last_modified_by: {
+                                id: 1,
+                                uuid: '00000000-0000-0000-0000-000000000001',
+                                email: 'alice@posthog.com',
+                                first_name: 'Alice',
+                                last_name: 'Anderson',
+                                is_email_verified: true,
+                            },
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandFirstRow(canvasElement)
     },
 }

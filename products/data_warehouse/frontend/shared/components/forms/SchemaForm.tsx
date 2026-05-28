@@ -74,6 +74,9 @@ export default function SchemaForm(): JSX.Element {
     } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
+        if (schema.permission_error) {
+            return
+        }
         if (!isDirectQueryMode && schema.sync_type === null) {
             openSyncMethodModal(schema)
             return
@@ -99,6 +102,7 @@ export default function SchemaForm(): JSX.Element {
                 return (
                     <LemonCheckbox
                         checked={schema.should_sync}
+                        disabledReason={schema.permission_error ?? undefined}
                         onChange={(checked) => onClickCheckbox(schema, checked)}
                     />
                 )
@@ -111,18 +115,37 @@ export default function SchemaForm(): JSX.Element {
                 const isSuggested = suggestedTablesMap[schema.table] !== undefined
                 const tooltip =
                     suggestedTablesMap[schema.table] ?? 'This table is suggested to be enabled for this source'
+                const isUnavailable = !!schema.permission_error
 
                 return (
                     <div className="flex items-center gap-2">
                         <span
-                            className="font-mono cursor-pointer"
-                            onClick={() => onClickCheckbox(schema, !schema.should_sync)}
+                            className={`font-mono ${
+                                isUnavailable ? 'text-muted-alt line-through cursor-not-allowed' : 'cursor-pointer'
+                            }`}
+                            onClick={() => {
+                                if (isUnavailable) {
+                                    return
+                                }
+                                onClickCheckbox(schema, !schema.should_sync)
+                            }}
                         >
                             {schema.label || schema.table}
                         </span>
                         {schema.description && (
                             <Tooltip title={schema.description}>
                                 <IconInfo className="text-muted-alt text-base" />
+                            </Tooltip>
+                        )}
+                        {isUnavailable && (
+                            <Tooltip
+                                title={`Source credentials cannot read this table: ${schema.permission_error}. Grant the missing scope in your source provider and reconnect.`}
+                                placement="top"
+                            >
+                                <LemonTag type="warning" className="cursor-help">
+                                    <IconWarning className="mr-1" />
+                                    Permission missing
+                                </LemonTag>
                             </Tooltip>
                         )}
                         {isSuggested && (
@@ -262,6 +285,7 @@ export default function SchemaForm(): JSX.Element {
                                 type="primary"
                                 onClick={() => openSyncMethodModal(schema)}
                                 size="small"
+                                disabledReason={schema.permission_error ?? undefined}
                             >
                                 Configure
                             </LemonButton>
@@ -276,9 +300,10 @@ export default function SchemaForm(): JSX.Element {
                             type="secondary"
                             onClick={() => openSyncMethodModal(schema)}
                             disabledReason={
-                                !schema.incremental_available && !schema.append_available && !schema.supports_webhooks
+                                schema.permission_error ??
+                                (!schema.incremental_available && !schema.append_available && !schema.supports_webhooks
                                     ? 'Full refresh is the only supported sync method for this table'
-                                    : undefined
+                                    : undefined)
                             }
                         >
                             {SyncTypeLabelMap[schema.sync_type]}
@@ -316,6 +341,7 @@ export default function SchemaForm(): JSX.Element {
                             size="small"
                             type="secondary"
                             onClick={() => setColumnSelectionSchema(schema)}
+                            disabledReason={schema.permission_error ?? undefined}
                         >
                             {summary}
                         </LemonButton>
@@ -410,25 +436,49 @@ export default function SchemaForm(): JSX.Element {
                                                                 >
                                                                     <LemonCheckbox
                                                                         checked={schema.should_sync}
+                                                                        disabledReason={
+                                                                            schema.permission_error ?? undefined
+                                                                        }
                                                                         onChange={(checked) =>
                                                                             onClickCheckbox(schema, checked)
                                                                         }
                                                                     />
                                                                     <div className="flex items-center gap-2 min-w-0">
                                                                         <span
-                                                                            className="font-mono cursor-pointer truncate"
-                                                                            onClick={() =>
+                                                                            className={`font-mono truncate ${
+                                                                                schema.permission_error
+                                                                                    ? 'text-muted-alt line-through cursor-not-allowed'
+                                                                                    : 'cursor-pointer'
+                                                                            }`}
+                                                                            onClick={() => {
+                                                                                if (schema.permission_error) {
+                                                                                    return
+                                                                                }
                                                                                 onClickCheckbox(
                                                                                     schema,
                                                                                     !schema.should_sync
                                                                                 )
-                                                                            }
+                                                                            }}
                                                                         >
                                                                             {tableName}
                                                                         </span>
                                                                         {schema.description && (
                                                                             <Tooltip title={schema.description}>
                                                                                 <IconInfo className="text-muted-alt text-base shrink-0" />
+                                                                            </Tooltip>
+                                                                        )}
+                                                                        {schema.permission_error && (
+                                                                            <Tooltip
+                                                                                title={`Source credentials cannot read this table: ${schema.permission_error}. Grant the missing scope in your source provider and reconnect.`}
+                                                                                placement="top"
+                                                                            >
+                                                                                <LemonTag
+                                                                                    type="warning"
+                                                                                    className="cursor-help shrink-0"
+                                                                                >
+                                                                                    <IconWarning className="mr-1" />
+                                                                                    Permission missing
+                                                                                </LemonTag>
                                                                             </Tooltip>
                                                                         )}
                                                                         {isSuggested && (

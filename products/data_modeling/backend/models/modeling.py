@@ -1,18 +1,24 @@
 import enum
+import time
 import uuid
 import dataclasses
+from typing import ClassVar
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, models, transaction
 
+from prometheus_client import Counter, Histogram
+
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver import Resolver
+from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.models.team import Team
@@ -25,20 +31,189 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 LabelPath = list[str]
 
 
-class CycleDetectingResolver(Resolver):
-    """A resolver that detects circular dependencies in view references.
+DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
+DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
 
-    This extends the base Resolver to track which views are currently being
-    resolved, raising a QueryError if a cycle is detected.
+
+class BoundedResolverError(QueryError):
+    """Base class for bounded HogQL view-dependency resolution failures.
+
+    Inherits from QueryError so callers that catch the public HogQL exception
+    hierarchy (DRF handlers, workflow error mappers) keep treating cycle/depth/
+    timeout failures as user-facing 4xx errors rather than 500s. `initial_view`
+    names the saved query whose resolution was in progress when the failure
+    occurred — set by the resolver so callers can attribute and log the failure
+    without having to plumb context through themselves.
     """
 
-    def __init__(self, *args, initial_view_name: str | None = None, **kwargs):
+    status_label: ClassVar[str] = "error"
+
+    def __init__(self, message: str, initial_view: str | None = None):
+        super().__init__(message)
+        self.initial_view = initial_view
+
+
+class ResolutionCycleError(BoundedResolverError):
+    """A view references itself through other views.
+
+    `view_name` is the inner view at which the cycle was detected (the one
+    already on the resolution stack). `initial_view` is the saved query the
+    caller asked to resolve.
+    """
+
+    status_label: ClassVar[str] = "cycle"
+
+    def __init__(self, view_name: str, initial_view: str | None = None):
+        message = f"Circular dependency detected in view '{view_name}'"
+        if initial_view and initial_view != view_name:
+            message += f" while resolving '{initial_view}'"
+        super().__init__(message, initial_view=initial_view)
+        self.view_name = view_name
+
+
+class ResolutionDepthExceededError(BoundedResolverError):
+    """View resolution would exceed the configured nesting depth."""
+
+    status_label: ClassVar[str] = "depth_exceeded"
+
+    def __init__(self, depth: int, max_depth: int, initial_view: str | None = None):
+        message = f"View resolution depth {depth} exceeded max {max_depth}"
+        if initial_view:
+            message += f" while resolving '{initial_view}'"
+        super().__init__(message, initial_view=initial_view)
+        self.depth = depth
+        self.max_depth = max_depth
+
+
+class ResolutionTimeoutError(BoundedResolverError):
+    """View resolution exceeded its wall-clock deadline."""
+
+    status_label: ClassVar[str] = "timeout"
+
+    def __init__(self, elapsed_seconds: float, deadline_seconds: float, initial_view: str | None = None):
+        message = f"View resolution exceeded deadline ({elapsed_seconds:.2f}s > {deadline_seconds:.2f}s)"
+        if initial_view:
+            message += f" while resolving '{initial_view}'"
+        super().__init__(message, initial_view=initial_view)
+        self.elapsed_seconds = elapsed_seconds
+        self.deadline_seconds = deadline_seconds
+
+
+DAG_RESOLUTION_TOTAL = Counter(
+    "data_modeling_dag_resolution_total",
+    "Total HogQL view-dependency resolutions performed, labelled by terminal status.",
+    labelnames=["status"],  # ok | cycle | depth_exceeded | timeout | error
+)
+DAG_RESOLUTION_DURATION_SECONDS = Histogram(
+    "data_modeling_dag_resolution_duration_seconds",
+    "Wall-clock time spent resolving HogQL view dependencies.",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+DAG_RESOLUTION_VIEW_DEPTH = Histogram(
+    "data_modeling_dag_resolution_view_depth",
+    "Maximum nested view depth observed on successful HogQL dependency resolution.",
+    buckets=(1, 2, 4, 8, 16, 25, 50, 100),
+)
+DAG_RESOLUTION_DEADLINE_VIOLATIONS = Counter(
+    "data_modeling_dag_resolution_deadline_violations_total",
+    "Resolutions where the deadline elapsed; in soft mode this is observed without raising.",
+)
+
+
+class BoundedResolver(Resolver):
+    """A resolver bounded by view-depth, cycle detection, and a wall-clock deadline.
+
+    Extends the base Resolver to (a) refuse re-entry into a view already on the
+    resolution stack, (b) cap the nested view depth, and (c) abort if total
+    wall-clock time exceeds a deadline. These guards protect callers from
+    pathological views that would otherwise consume a worker indefinitely.
+
+    When `enforce_bounds=False`, depth and deadline violations emit metrics but
+    do not raise. Cycle detection still raises unconditionally — without it the
+    resolver would loop forever and the deadline check would never run.
+
+    The deadline is checked on every `visit()` call, not only at view boundaries,
+    so expensive non-join work between views is also interruptible. Metrics
+    (`DAG_RESOLUTION_*`) are emitted from the outermost `visit()` invocation, so
+    every construction-then-visit usage gets a single counter increment.
+
+    `deadline_anchor` is an optional monotonic timestamp that lets multiple
+    BoundedResolver instances share a deadline clock. `prepare_ast_for_printing`
+    invokes nested resolve_types/resolve_lazy_tables calls each of which builds
+    a fresh BoundedResolver via the factory — without a shared anchor, each
+    instance would get its own deadline_seconds budget and the bound would
+    compound. The factory in `bounded_resolver_factory_for_view` seeds one
+    anchor and passes it to every resolver it produces, so the deadline binds
+    end-to-end across the whole query. When omitted, the resolver falls back
+    to its own `start_time`, so standalone construction still works.
+    """
+
+    def __init__(
+        self,
+        *args,
+        initial_view_name: str | None = None,
+        max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+        deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
+        enforce_bounds: bool = True,
+        deadline_anchor: float | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
-        # seeded with the current view name so its "visited"
+        self.initial_view_name = initial_view_name
+        # seeded with the current view name so it counts as "visited" for cycle detection
         self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
+        self.max_view_depth = max_view_depth
+        self.deadline_seconds = deadline_seconds
+        self.enforce_bounds = enforce_bounds
+        self.deadline_anchor = deadline_anchor
+        # local clock — for per-resolver metric duration, distinct from deadline_anchor which
+        # may span multiple resolvers from the same factory
+        self.start_time: float | None = None
+        self.max_view_depth_observed = 0
+        self.deadline_violated = False
+
+    def visit(self, node: ast.AST | None):
+        if self.start_time is not None:
+            self._check_deadline()
+            return super().visit(node)
+
+        # outermost call owns metric emission
+        start_time = time.monotonic()
+        self.start_time = start_time
+        self._check_deadline()
+        status: str = "ok"
+        try:
+            return super().visit(node)
+        except BoundedResolverError as e:
+            status = e.status_label
+            raise
+        except Exception:
+            status = "error"
+            raise
+        finally:
+            DAG_RESOLUTION_TOTAL.labels(status=status).inc()
+            DAG_RESOLUTION_DURATION_SECONDS.observe(time.monotonic() - start_time)
+            if status == "ok":
+                DAG_RESOLUTION_VIEW_DEPTH.observe(self.max_view_depth_observed)
+            if self.deadline_violated:
+                DAG_RESOLUTION_DEADLINE_VIOLATIONS.inc()
+
+    def _check_deadline(self) -> None:
+        if self.deadline_seconds is None:
+            return
+        anchor = self.deadline_anchor if self.deadline_anchor is not None else self.start_time
+        if anchor is None:
+            return
+        elapsed = time.monotonic() - anchor
+        if elapsed <= self.deadline_seconds:
+            return
+        if self.enforce_bounds:
+            raise ResolutionTimeoutError(elapsed, self.deadline_seconds, initial_view=self.initial_view_name)
+        # soft mode: record and keep walking — caller opted into observe-only deadlines
+        self.deadline_violated = True
 
     def visit_join_expr(self, node: ast.JoinExpr):
-        """Override to add cycle detection when resolving views."""
+        """Override to add cycle detection and depth limiting for view tables."""
         # CTEs are handled entirely by the parent class, but for views we track visited for cycle detection
         if isinstance(node.table, ast.Field) and self.database is not None:
             try:
@@ -49,7 +224,18 @@ class CycleDetectingResolver(Resolver):
                 if isinstance(database_table, SavedQuery):
                     view_name = database_table.name
                     if view_name in self.resolving_views:
-                        raise QueryError(f"Circular dependency detected in view '{view_name}'")
+                        # cycles always raise — observe-only mode would loop forever
+                        raise ResolutionCycleError(view_name, initial_view=self.initial_view_name)
+                    # current_view_depth is incremented by Resolver.visit_join_expr inside super(); look ahead by one
+                    next_depth = self.current_view_depth + 1
+                    if next_depth > self.max_view_depth:
+                        if self.enforce_bounds:
+                            raise ResolutionDepthExceededError(
+                                next_depth, self.max_view_depth, initial_view=self.initial_view_name
+                            )
+                        # soft mode: still expand, but record the overshoot via max_view_depth_observed
+                    if next_depth > self.max_view_depth_observed:
+                        self.max_view_depth_observed = next_depth
                     self.resolving_views.add(view_name)
                     try:
                         return super().visit_join_expr(node)
@@ -57,6 +243,50 @@ class CycleDetectingResolver(Resolver):
                         self.resolving_views.discard(view_name)
 
         return super().visit_join_expr(node)
+
+
+def bounded_resolver_factory_for_view(
+    view_name: str | None,
+    *,
+    deadline_anchor: float | None = None,
+    max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+    deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
+    enforce_bounds: bool = True,
+) -> ResolverFactory:
+    """Build a ResolverFactory bound to a specific saved-query view.
+
+    The returned factory matches the signature expected by `prepare_ast_for_printing`
+    and `resolve_types`: it accepts (context, dialect, scopes) and returns a
+    BoundedResolver pre-seeded with the view name so cycle detection works.
+
+    `prepare_ast_for_printing` forwards the factory through `resolve_lazy_tables`,
+    `resolve_in_cohorts`, and `resolve_in_cohorts_conjoined`, so subqueries built
+    mid-transform also resolve through BoundedResolver. All resolvers produced
+    by one factory call share a `deadline_anchor`, so `deadline_seconds` is the
+    total wall-clock budget for the whole `prepare_ast_for_printing` pass, not
+    a per-call budget. Callers may pass an explicit `deadline_anchor` to anchor
+    the clock to an earlier event (e.g. a test fixture); when omitted the
+    factory seeds it with the current monotonic time.
+    """
+    anchor = deadline_anchor if deadline_anchor is not None else time.monotonic()
+
+    def factory(
+        context: HogQLContext,
+        dialect: HogQLDialect,
+        scopes: list[ast.SelectQueryType] | None,
+    ) -> Resolver:
+        return BoundedResolver(
+            scopes=scopes,
+            context=context,
+            dialect=dialect,
+            initial_view_name=view_name,
+            max_view_depth=max_view_depth,
+            deadline_seconds=deadline_seconds,
+            enforce_bounds=enforce_bounds,
+            deadline_anchor=anchor,
+        )
+
+    return factory
 
 
 class LabelTreeField(models.Field):
@@ -130,16 +360,17 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     """Get parents from a given query.
 
     The parents of a query are any names in the `FROM` clause of the query.
-    Uses CycleDetectingResolver to detect circular dependencies in view references.
+    Uses BoundedResolver to detect circular dependencies, cap nested view
+    depth, and enforce a wall-clock deadline on view references. Resolver-level
+    metrics (`DAG_RESOLUTION_*`) are emitted from the resolver itself, so this
+    function does not need its own try/except/metric cascade.
 
     Args:
-        model_query: The HogQL query string to parse
-        team: The team context for database resolution
-        view_name: Optional name of the view being parsed. If provided, cycles back to
-                   this view through other views will be detected.
+        team: The team context for database resolution.
+        model_name: The name of the saved query being parsed; used as the
+            initial view so cycles back to it are detected.
+        model_query: The HogQL query string to parse.
     """
-    from posthog.hogql.context import HogQLContext
-
     hogql_query = parse_select(model_query)
     context = HogQLContext(
         team_id=team.pk,
@@ -153,8 +384,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
             team=context.team,
         )
 
-    # use cycledetectingresolver to resolve types and detect circular view dependencies
-    resolver = CycleDetectingResolver(context=context, dialect="hogql", initial_view_name=model_name)
+    resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name=model_name)
     prepared_ast = resolver.visit(hogql_query)
 
     if prepared_ast is None:
@@ -175,7 +405,8 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
 
     # track by object id so that a recursive CTE (same object) is only
     # expanded once, while an inner CTE that shadows an outer name (different
-    # object) is still expanded
+    # object) is still expanded. The CTE dict holds a strong reference for the
+    # lifetime of this function, so the id() identity is stable.
     expanded_ctes: set[int] = set()
 
     while queries:

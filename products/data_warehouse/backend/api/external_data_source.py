@@ -49,6 +49,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -75,12 +76,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_webhook_url,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.postgres_helpers import (
-    filter_dwh_columns_by_enabled_columns,
-    get_postgres_source_location,
-    postgres_schema_metadata,
-    reconcile_postgres_schemas,
-)
+from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     apply_on_schema_clear as apply_postgres_warehouse_schema_clear_migration,
     detect_schema_clear_transition as detect_postgres_schema_clear_transition,
@@ -241,6 +237,28 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
         else:
             result[key] = value
     return result
+
+
+# Fields whose change could redirect the database connection to a different server
+# (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
+_SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
+
+
+def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
+    """True if the SSH tunnel's connection target (enabled/host/port) changed.
+
+    Scalars are coerced to strings to ignore type drift between stored values
+    (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
+    — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
+    making stored "False" falsely diverge from JSON `false`.
+    """
+    existing = existing if isinstance(existing, dict) else {}
+    incoming = incoming if isinstance(incoming, dict) else {}
+
+    def _coerce(value: Any) -> str:
+        return "" if value is None else str(value)
+
+    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
 def get_direct_postgres_connection_metadata(
@@ -470,6 +488,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    supports_column_selection = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
+    )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
     # predate this field; the in-app UI and MCP tool always send it explicitly.
@@ -509,6 +531,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "revenue_analytics_config",
             "user_access_level",
             "supports_webhooks",
+            "supports_column_selection",
         ]
         read_only_fields = [
             "id",
@@ -524,6 +547,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "access_method",
             "supports_webhooks",
+            "supports_column_selection",
         ]
 
     def to_representation(self, instance):
@@ -575,6 +599,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
+
+    def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
+        try:
+            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except Exception as e:
+            capture_exception(e)
+            return False
+        # Explicit cast: Mock attribute access returns a Mock that orjson can't serialize.
+        return bool(getattr(source, "supports_column_selection", False))
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -664,11 +697,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
             "host"
         ] != existing_job_inputs.get("host")
-        if connection_host_changed:
+
+        # If the SSH tunnel's connection target changed, also require credentials. Without this an
+        # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled
+        # server, exfiltrating the stored database credentials (VERIA-311).
+        ssh_tunnel_changed = "ssh_tunnel" in incoming_job_inputs and ssh_tunnel_connection_changed(
+            existing_job_inputs.get("ssh_tunnel"),
+            incoming_job_inputs.get("ssh_tunnel"),
+        )
+
+        if connection_host_changed or ssh_tunnel_changed:
             missing_credentials = [
                 key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
             ]
             if missing_credentials:
+                if ssh_tunnel_changed:
+                    raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 raise ValidationError("Changing the connection host requires re-entering your credentials.")
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
@@ -793,6 +837,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
+                # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
+                # exercise the real direct-query DataWarehouseTable rebuild.
                 reconcile_postgres_schemas(
                     source=updated_source,
                     source_schemas=discovered_schemas,
@@ -1042,12 +1088,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
         )
 
-        # CDC: create slot + publication for PostHog-managed sources
-        cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
-            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
-            if cdc_result is not None:
-                return cdc_result
+        # CDC is Postgres-only today — fold the source-type check in here so every downstream
+        # `if cdc_enabled` block is safe without repeating it.
+        cdc_enabled = (
+            payload.get("cdc_enabled", False)
+            and source_type_model == ExternalDataSourceType.POSTGRES
+            and is_cdc_enabled_for_team(self.team)
+        )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
         if is_direct_postgres:
@@ -1079,11 +1126,35 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Schemas given do not exist in source"},
             )
 
+        # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_slot`
+        # would be skipped, leaving the source with no replication slot/publication.
+        if not cdc_enabled:
+            cdc_schemas_in_payload = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                }
+            )
+            if cdc_schemas_in_payload:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "CDC must be enabled on the source before selecting it as a sync type. "
+                            f"The following schemas requested CDC: {', '.join(cdc_schemas_in_payload)}."
+                        )
+                    },
+                )
+
         active_schemas: list[ExternalDataSchema] = []
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+        if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
             for schema in payload_schemas:
@@ -1113,6 +1184,37 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                             schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                             if schema_name is not None:
                                 pk_columns_by_table[schema_name] = primary_key_columns
+
+            # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_slot` doesn't
+            # create replication state on the source for a config we're about to reject.
+            tables_missing_pk = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                    and not pk_columns_by_table.get(schema["name"])
+                }
+            )
+            if tables_missing_pk:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "CDC requires a primary key on each table. "
+                            f"The following tables have no primary key: {', '.join(tables_missing_pk)}."
+                        )
+                    },
+                )
+
+        # Slot + publication setup runs after PK validation so we don't leave replication state
+        # on the source for a config we're about to refuse.
+        if cdc_enabled:
+            cdc_result = self._setup_cdc_slot(source, source_config, new_source_model, payload)
+            if cdc_result is not None:
+                return cdc_result
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
@@ -1165,8 +1267,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
                 default_schema=default_source_schema,
             )
+            # Postgres writes here so direct-mode `DataWarehouseTable` and the column picker have
+            # data immediately. Non-Postgres sources populate via `reconcile_schema_metadata` on
+            # the next `refresh_schemas` run.
             schema_metadata = (
-                postgres_schema_metadata(
+                sql_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
                     source_catalog=resolved_source_catalog,
@@ -1633,7 +1738,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Persist schema_metadata for per-row routing + (direct mode) rebuild DataWarehouseTable.
+            # Direct call (not via hook): tests that mock `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
@@ -1702,6 +1807,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
+        # Best-effort per-endpoint scope probe — transient failure falls back to "available".
+        try:
+            endpoint_permissions = source.get_endpoint_permissions(
+                source_config, self.team_id, [schema.name for schema in schemas]
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            endpoint_permissions = {schema.name: None for schema in schemas}
+
         # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
@@ -1728,6 +1842,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
+                "permission_error": endpoint_permissions.get(schema.name),
             }
             for schema in schemas
         ]

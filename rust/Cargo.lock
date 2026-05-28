@@ -212,6 +212,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a3a1fd6f75306b68087b831f025c712524bcb19aad54e557b1129cfa0a2b207"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3336,6 +3345,7 @@ version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
+ "arc-swap",
  "assert-json-diff",
  "async-trait",
  "aws-config",
@@ -4142,7 +4152,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.72"
+version = "1.3.75"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -6642,8 +6652,12 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "flate2",
  "futures",
  "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
  "metrics",
  "pin-project",
  "sqlx",
@@ -6730,6 +6744,7 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics-exporter-prometheus",
  "personhog-common",
@@ -6758,6 +6773,7 @@ dependencies = [
  "common-alloc",
  "dashmap 6.1.0",
  "envconfig",
+ "flate2",
  "futures",
  "http 1.4.0",
  "http-body 1.0.1",

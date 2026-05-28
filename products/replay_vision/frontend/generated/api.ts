@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EstimateRequestApi,
+    EstimateResponseApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
@@ -17,6 +19,7 @@ import type {
     ReplayObservationApi,
     ReplayScannerApi,
     VisionObservationsListParams,
+    VisionQuotaApi,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
 } from './api.schemas'
@@ -81,6 +84,20 @@ export const visionObservationsRetrieve = async (
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
     return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/vision/quota/`
+}
+
+export const environmentVisionQuotaRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<VisionQuotaApi> => {
+    return apiMutator<VisionQuotaApi>(getEnvironmentVisionQuotaRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -264,5 +281,25 @@ export const visionScannersObservationsRetrieve = async (
     return apiMutator<ReplayObservationApi>(getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/vision/scanners/estimate/`
+}
+
+/**
+ * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
+ */
+export const visionScannersEstimateCreate = async (
+    projectId: string,
+    estimateRequestApi?: EstimateRequestApi,
+    options?: RequestInit
+): Promise<EstimateResponseApi> => {
+    return apiMutator<EstimateResponseApi>(getVisionScannersEstimateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(estimateRequestApi),
     })
 }

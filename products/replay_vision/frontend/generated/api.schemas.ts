@@ -12,6 +12,7 @@
  * `running` - Running
  * `succeeded` - Succeeded
  * `failed` - Failed
+ * `ineligible` - Ineligible
  */
 export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
 
@@ -20,6 +21,7 @@ export const ObservationStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Ineligible: 'ineligible',
 } as const
 
 /**
@@ -182,14 +184,15 @@ export interface ReplayObservationApi {
     readonly scanner_id: string
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
-    /** Observation status (pending, running, succeeded, failed).
+    /** Observation status (pending, running, succeeded, failed, ineligible).
 
   * `pending` - Pending
   * `running` - Running
   * `succeeded` - Succeeded
-  * `failed` - Failed */
+  * `failed` - Failed
+  * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on failure; includes the malformed model response when validation fails. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -218,6 +221,21 @@ export interface PaginatedReplayObservationListApi {
     /** @nullable */
     previous?: string | null
     results: ReplayObservationApi[]
+}
+
+export interface VisionQuotaApi {
+    /** Total observations the org may complete per calendar month. */
+    readonly monthly_quota: number
+    /** Observations created this month that are in flight or have succeeded, counted against the quota. */
+    readonly usage_this_month: number
+    /** `monthly_quota - usage_this_month`, floored at 0. */
+    readonly remaining: number
+    /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+    readonly exhausted: boolean
+    /** First moment of the current quota period (UTC). */
+    readonly period_start: string
+    /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+    readonly period_end: string
 }
 
 export interface ReplayScannerApi {
@@ -348,6 +366,34 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
+/**
+ * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
+ */
+export interface EstimateRequestApi {
+    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+    query?: unknown
+    /**
+     * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+/**
+ * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+ */
+export interface EstimateResponseApi {
+    /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+    matched_sessions_in_window: number
+    /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+    window_days: number
+    /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+    estimated_observations_per_month: number
+    /** Sampling rate applied to the projection. Echoed from the request. */
+    sampling_rate: number
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -449,6 +495,7 @@ export type VisionScannersObservationsListParams = {
 * `running` - Running
 * `succeeded` - Succeeded
 * `failed` - Failed
+* `ineligible` - Ineligible
  */
     status?: VisionScannersObservationsListStatus
     /**
@@ -465,6 +512,7 @@ export type VisionScannersObservationsListStatus =
 
 export const VisionScannersObservationsListStatus = {
     Failed: 'failed',
+    Ineligible: 'ineligible',
     Pending: 'pending',
     Running: 'running',
     Succeeded: 'succeeded',

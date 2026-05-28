@@ -22,7 +22,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.models import Insight, User
+from posthog.models import User
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
@@ -32,6 +32,7 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.models.insight import Insight
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
 

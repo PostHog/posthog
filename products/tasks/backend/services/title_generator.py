@@ -1,8 +1,8 @@
 import logging
 from typing import Any
 
-from products.llm_analytics.backend.llm.client import Client
-from products.llm_analytics.backend.llm.types import CompletionRequest
+from products.ai_observability.backend.llm.client import Client
+from products.ai_observability.backend.llm.types import CompletionRequest
 
 logger = logging.getLogger(__name__)
 
