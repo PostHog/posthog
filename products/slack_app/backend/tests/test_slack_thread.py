@@ -123,6 +123,15 @@ class TestSlackThreadHandler(TestCase):
         assert "seedling" in stale
         assert ack_emoji_for("1234.5678") in stale
 
+    def test_stale_ack_emojis_for_dedupes_when_pick_is_seedling(self):
+        # `seedling` is both in the pool and the legacy ack — when the deterministic
+        # pick coincidentally lands on it, the tuple should not contain a duplicate.
+        seedling_ts = "1700000000.000005"
+        assert ack_emoji_for(seedling_ts) == "seedling", "fixture ts no longer maps to seedling"
+        stale = stale_ack_emojis_for(seedling_ts)
+        assert stale == ("eyes", "seedling")
+        assert stale.count("seedling") == 1
+
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):
         mock_client = MagicMock()

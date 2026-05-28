@@ -103,9 +103,14 @@ def stale_ack_emojis_for(message_ts: str) -> tuple[str, ...]:
     `eyes` is the follow-up ack, the deterministic pool pick is the initial
     ack, and `_LEGACY_ACK_EMOJI` covers tasks ack'd before this pool landed.
     Keeping the set small (vs. iterating the full pool) avoids burning the
-    `reactions.remove` rate limit on guaranteed-`no_reaction` calls.
+    `reactions.remove` rate limit on guaranteed-`no_reaction` calls. The
+    legacy emoji is also a pool member, so we dedupe when the deterministic
+    pick coincidentally lands on it.
     """
-    return ("eyes", ack_emoji_for(message_ts), _LEGACY_ACK_EMOJI)
+    emojis = ["eyes", ack_emoji_for(message_ts)]
+    if _LEGACY_ACK_EMOJI not in emojis:
+        emojis.append(_LEGACY_ACK_EMOJI)
+    return tuple(emojis)
 
 
 def _format_task_error(error: str) -> str:
