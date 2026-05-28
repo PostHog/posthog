@@ -972,11 +972,6 @@ def _validate_label(label: str) -> None:
             _fail(f"Label '{label}' conflicts with the '-{reserved}' region suffix. Pick a different label.")
 
 
-def _region_name_suffix(region: str) -> str:
-    """Return the workspace-name suffix for ``region`` (`''` for the default region)."""
-    return REGION_NAME_SUFFIXES.get(region, "")
-
-
 def get_workspace_name(label: str | None = None, *, region: str = DEFAULT_REGION) -> str:
     """Derive workspace name from Coder username, optional label, and region.
 
@@ -986,7 +981,7 @@ def get_workspace_name(label: str | None = None, *, region: str = DEFAULT_REGION
     or ``devbox-{username}-{label}-eu``.
     """
     base = f"{_WORKSPACE_PREFIX}-{get_username()}"
-    suffix = _region_name_suffix(region)
+    suffix = REGION_NAME_SUFFIXES.get(region, "")
     if label is None:
         return f"{base}-{suffix}" if suffix else base
     _validate_label(label)

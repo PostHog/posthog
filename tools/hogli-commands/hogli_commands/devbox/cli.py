@@ -791,17 +791,18 @@ def _reset_git_identity() -> bool:
     if not (config.get("git_name") or config.get("git_email")):
         click.echo("Nothing to clear: Git identity was not set.")
         return False
-    clear_git_identity()
+    clear_git_identity(config)
     click.echo("Cleared saved Git identity. New workspaces will prompt for one.")
     return True
 
 
 def _reset_region() -> bool:
     """Drop the saved region preference. Returns True iff something was cleared."""
-    if not load_config().get("region"):
+    config = load_config()
+    if not config.get("region"):
         click.echo("Nothing to clear: region preference was not set.")
         return False
-    clear_region()
+    clear_region(config)
     click.echo("Cleared saved region preference. New workspaces will use the built-in default.")
     return True
 
@@ -814,10 +815,11 @@ def _reset_dotfiles() -> bool:
 
     Returns True iff something was cleared.
     """
-    if not load_config().get("dotfiles_uri"):
+    config = load_config()
+    if not config.get("dotfiles_uri"):
         click.echo("Nothing to clear: dotfiles was not set.")
         return False
-    clear_dotfiles_uri()
+    clear_dotfiles_uri(config)
     click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
     for ws in list_user_workspaces():
         ws_name = ws.get("name")
@@ -833,12 +835,9 @@ def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
     return f"{name} <{email}>" if name and email else None
 
 
-def _dotfiles_status(config: DevboxConfig, _: set[str]) -> str | None:
-    return config.get("dotfiles_uri")
-
-
-def _region_status(config: DevboxConfig, _: set[str]) -> str | None:
-    return config.get("region")
+def _field_status(field: str) -> Callable[[DevboxConfig, set[str]], str | None]:
+    """Status reader that returns a single config field's value (or ``None``)."""
+    return lambda config, _: config.get(field)
 
 
 def _secret_status(secret_name: str) -> Callable[[DevboxConfig, set[str]], str | None]:
@@ -884,14 +883,14 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         cli_key="region",
         label="Region",
         needs_secrets=False,
-        status=_region_status,
+        status=_field_status("region"),
         reset=_reset_region,
     ),
     _ConfigItem(
         cli_key="dotfiles",
         label="Dotfiles",
         needs_secrets=False,
-        status=_dotfiles_status,
+        status=_field_status("dotfiles_uri"),
         reset=_reset_dotfiles,
     ),
     _ConfigItem(

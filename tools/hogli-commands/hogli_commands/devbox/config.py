@@ -74,17 +74,25 @@ def save_dotfiles_uri(dotfiles_uri: str) -> DevboxConfig:
     return config
 
 
-def clear_dotfiles_uri() -> DevboxConfig:
-    """Remove any saved dotfiles repo URL so new workspaces don't clone one."""
-    config = load_config()
+def clear_dotfiles_uri(config: DevboxConfig | None = None) -> DevboxConfig:
+    """Remove any saved dotfiles repo URL so new workspaces don't clone one.
+
+    Pass ``config`` to reuse an already-loaded dict and avoid a redundant disk read.
+    """
+    if config is None:
+        config = load_config()
     config.pop("dotfiles_uri", None)
     save_config(config)
     return config
 
 
-def clear_git_identity() -> DevboxConfig:
-    """Remove any saved Git identity defaults for new workspaces."""
-    config = load_config()
+def clear_git_identity(config: DevboxConfig | None = None) -> DevboxConfig:
+    """Remove any saved Git identity defaults for new workspaces.
+
+    Pass ``config`` to reuse an already-loaded dict and avoid a redundant disk read.
+    """
+    if config is None:
+        config = load_config()
     config.pop("git_name", None)
     config.pop("git_email", None)
     save_config(config)
@@ -92,16 +100,20 @@ def clear_git_identity() -> DevboxConfig:
 
 
 def save_region(region: str) -> DevboxConfig:
-    """Persist the preferred AWS region for new workspaces."""
+    """Persist the preferred region for new workspaces."""
     config = load_config()
     config["region"] = region
     save_config(config)
     return config
 
 
-def clear_region() -> DevboxConfig:
-    """Drop the saved preferred region so new workspaces fall back to the built-in default."""
-    config = load_config()
+def clear_region(config: DevboxConfig | None = None) -> DevboxConfig:
+    """Drop the saved preferred region so new workspaces fall back to the built-in default.
+
+    Pass ``config`` to reuse an already-loaded dict and avoid a redundant disk read.
+    """
+    if config is None:
+        config = load_config()
     config.pop("region", None)
     save_config(config)
     return config
