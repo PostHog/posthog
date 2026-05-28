@@ -161,16 +161,22 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_billable": _is_product_billable(product),
         }
 
-        # Cache token breakdown is reported by LiteLLM in the response usage object
-        # for providers that support prompt caching (Anthropic). Emit the fields
-        # only when present so non-caching providers don't pollute events with
-        # zeros, matching the schema in posthog/models/ai_events/sql.py.
+        # Cache and reasoning token breakdowns are reported by LiteLLM in the
+        # response usage object for providers that support them (Anthropic for
+        # cache, OpenAI o-series for reasoning). Emit the fields only when
+        # present so providers that don't report them don't pollute events with
+        # zeros, matching the schema in posthog/models/ai_events/sql.py and the
+        # parity established by posthoganalytics' langchain CallbackHandler.
         cache_read_input_tokens = usage_object.get("cache_read_input_tokens")
         if cache_read_input_tokens is not None:
             properties["$ai_cache_read_input_tokens"] = cache_read_input_tokens
         cache_creation_input_tokens = usage_object.get("cache_creation_input_tokens")
         if cache_creation_input_tokens is not None:
             properties["$ai_cache_creation_input_tokens"] = cache_creation_input_tokens
+        completion_tokens_details = usage_object.get("completion_tokens_details") or {}
+        reasoning_tokens = completion_tokens_details.get("reasoning_tokens")
+        if reasoning_tokens is not None:
+            properties["$ai_reasoning_tokens"] = reasoning_tokens
 
         posthog_properties = get_posthog_properties() or {}
         if isinstance(posthog_properties, dict):
