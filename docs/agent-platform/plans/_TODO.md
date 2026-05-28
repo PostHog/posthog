@@ -87,14 +87,15 @@ file (and out of this list) once the design lands.
 
 - [x] ~~**Agents expose their own MCP server**~~ — see
       [`agent-as-mcp-server.md`](agent-as-mcp-server.md). The mcp
-      trigger on the ingress becomes a first-class HTTP MCP endpoint
-      at `/agents/<slug>/mcp`. v0 default `ask({ message, session_id?
-})` tool + sessions-as-resources + reuse of `spec.auth`. v1 lets
-      the author (or authoring AI) declare typed entry-points via
-      `spec.mcp.tools[]`. Replaces the original "wrap ingress
-      endpoints as Django/MCP tools" idea — direct ingress-as-MCP is
-      cleaner: no Django proxy, no PostHog-specific auth, the agent
-      stands on its own.
+      trigger on the ingress is now a first-class HTTP MCP endpoint
+      at `/agents/<slug>/mcp` with a universal default `ask({
+message, session_id? })` tool, sessions exposed as MCP
+      resources (`agent://session/<id>`) scoped by per-connection
+      id, and `spec.auth` reused as the transport auth. Discovery
+      lives on the ingress at `GET /agents/<slug>/mcp/connect-info`
+      — public endpoint, returns the URL + auth contract + paste-ready
+      snippets for Claude Code / Cursor / generic mcp.json. v1
+      (`spec.mcp.tools[]` author-curated entry-points) pending.
 
 - [ ] **Defensive programming across the three node services.** A
       malformed request to the janitor today can take the process down.

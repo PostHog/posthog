@@ -1,6 +1,6 @@
 # Design — agents expose their own MCP server
 
-**Status:** draft. **Owner:** ben.
+**Status:** v0 shipped; v1 (`spec.mcp.tools[]`) pending. **Owner:** ben.
 
 > Distinct from [`runtime-mcps.md`](runtime-mcps.md), which is about the
 > runner _consuming_ third-party MCPs as tools. This plan is the inverse:
@@ -141,9 +141,16 @@ good MCP tool surface** — narrow verbs, typed inputs, descriptions
 that tell a connecting LLM when to call this tool vs another. Same
 principles we apply to the agent's own native-tool design.
 
-## 6. Connect-info — `agent-applications-mcp-connect-info`
+## 6. Connect-info — `GET /agents/<slug>/mcp/connect-info`
 
-New MCP tool on the Django side (no new UI required for v0). Returns:
+**The ingress owns this**, not Django. The ingress is the source of
+truth for routing mode, auth contract, and URL shape — Django would
+just be shadowing that state via env vars. Putting connect-info on the
+ingress also means anyone can `curl` it without going through PostHog
+authoring auth: discovery is unconditionally public (the snippet itself
+never carries real secrets, only placeholders, so there's no leak).
+
+Returns:
 
 ```json
 {
@@ -172,27 +179,31 @@ from their own secret stores.
 
 When and where the URL is generated:
 
-- **Path mode** (local dev): `http://localhost:8081/agents/<slug>/mcp`.
-- **Domain mode** (prod):
-  `https://<slug>.agents.posthog.com/mcp`.
-- The `agent-applications-mcp-connect-info` action reads
-  `routingMode` + `domainSuffix` from Django settings (same as the
-  preview-proxy already does) and renders accordingly.
+- **Path mode** (local dev): `http://localhost:3030/agents/<slug>/mcp`.
+- **Domain mode** (prod): `https://<slug>.agents.posthog.com/mcp`.
+- The ingress reconstructs the base URL from the inbound request
+  (`req.protocol://req.get('host')`) by default; production sets
+  `publicBaseUrl` explicitly via env when behind a proxy whose
+  forwarded host doesn't match the public DNS.
 
 ## 7. Rollout
 
-**v0 — default `ask` + auth + connect-info.** Next.
+**v0 — default `ask` + auth + connect-info.** ✅ shipped.
 
-- Rewrite the existing MCP trigger handler:
-  - Rename `chat` tool → `ask`, add optional `session_id` for
+- Rewrote the existing MCP trigger handler:
+  - Renamed `chat` tool → `ask`, added optional `session_id` for
     continuation (→ `/send` instead of `/run`).
-  - Wire `authorize()` against `spec.auth` on every JSON-RPC call.
-  - Add `resources/list` + `resources/read` for sessions; scope by
-    MCP connection id.
-- New Django action: `agent-applications-mcp-connect-info`.
-- Tests: unit tests on the trigger for the new shape + an e2e case
-  in `agent-tests/` that initialises an MCP client against the
-  ingress and calls `ask`.
+  - Wired `authorize()` against `spec.auth` on every JSON-RPC call;
+    `initialize` is allowed pre-auth so a client can discover the
+    protocol version before being asked to authenticate.
+  - Added `resources/list` + `resources/read` for sessions; scope by
+    MCP connection id minted on `initialize` and echoed back via
+    `_meta.connectionId`.
+- New `GET /agents/<slug>/mcp/connect-info` on the ingress (not
+  Django — see §6). Public discovery endpoint returning URL, auth
+  contract, and paste-ready snippets.
+- Unit tests on the trigger for the new shape + an e2e case in
+  `agent-tests/` pending.
 
 **v1 — `spec.mcp.tools[]` author-curated.** After v0.
 

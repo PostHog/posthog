@@ -140,14 +140,16 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.result.serverInfo.name).toBe('agent:weekly-digest')
     })
 
-    it('POST /mcp tools/list returns the chat tool', async () => {
+    it('POST /mcp tools/list returns the ask tool', async () => {
         const { revisions, app } = mk()
         await seedApp(revisions, 'x')
         const res = await request(app).post('/agents/x/mcp').send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
-        expect(res.body.result.tools[0].name).toBe('chat')
+        expect(res.body.result.tools[0].name).toBe('ask')
+        // Inputs include the optional session_id for continuation.
+        expect(res.body.result.tools[0].inputSchema.properties.session_id).not.toBeUndefined()
     })
 
-    it('POST /mcp tools/call name=chat enqueues a session', async () => {
+    it('POST /mcp tools/call name=ask enqueues a session', async () => {
         const { revisions, queue, app } = mk()
         await seedApp(revisions, 'x')
         const res = await request(app)
@@ -156,10 +158,11 @@ describe('ingress HTTP server (path mode)', () => {
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'tools/call',
-                params: { name: 'chat', arguments: { message: 'hi via mcp' } },
+                params: { name: 'ask', arguments: { message: 'hi via mcp' } },
             })
         const parsed = JSON.parse(res.body.result.content[0].text)
         expect(parsed.session_id).not.toBeUndefined()
+        expect(parsed.state).toBe('queued')
         const session = await queue.get(parsed.session_id)
         expect(session!.conversation[0].content).toBe('hi via mcp')
     })
@@ -260,6 +263,274 @@ describe('ingress HTTP server (path mode)', () => {
         const res = await request(app).post('/agents/wh/webhook').send([])
         expect(res.status).toBe(400)
         expect(res.body.error).toBe('invalid_body')
+    })
+
+    it('POST /mcp initialize mints a per-connection id', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app).post('/agents/x/mcp').send({ jsonrpc: '2.0', id: 1, method: 'initialize' })
+        // The id is non-empty and (informally) UUID-shaped.
+        const connectionId = res.body.result._meta.connectionId as string
+        expect(connectionId).toMatch(/^[0-9a-f-]{36}$/)
+    })
+
+    it('POST /mcp tools/call ask with session_id continues an existing session', async () => {
+        const { revisions, queue, app } = mk()
+        await seedApp(revisions, 'x')
+        const initial = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: { name: 'ask', arguments: { message: 'first' } },
+            })
+        const sid = JSON.parse(initial.body.result.content[0].text).session_id as string
+        // Mark the queue session running so it isn't terminal — continuation
+        // appends into pending_inputs.
+        await queue.update(sid, { state: 'running' })
+        const followup = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/call',
+                params: { name: 'ask', arguments: { message: 'second', session_id: sid } },
+            })
+        expect(JSON.parse(followup.body.result.content[0].text).session_id).toBe(sid)
+        const after = await queue.get(sid)
+        // Original conversation seed + the queued follow-up.
+        expect(after!.conversation).toHaveLength(1)
+        expect(after!.pending_inputs).toHaveLength(1)
+        expect(after!.pending_inputs[0].content).toBe('second')
+    })
+
+    it('POST /mcp tools/call ask returns invalid_params for a missing message', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: { name: 'ask', arguments: {} },
+            })
+        expect(res.body.error.code).toBe(-32602)
+    })
+
+    it('POST /mcp tools/call rejects unknown tool name', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: { name: 'shout', arguments: { message: 'hi' } },
+            })
+        expect(res.body.error.code).toBe(-32601)
+    })
+
+    it('POST /mcp resources/list returns only sessions owned by this connection', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        // Connection A creates a session.
+        const aCreate = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'ask',
+                    arguments: { message: 'from A' },
+                    _meta: { connectionId: 'conn-A' },
+                },
+            })
+        const aSessionId = JSON.parse(aCreate.body.result.content[0].text).session_id as string
+        // Connection B creates a session.
+        const bCreate = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'ask',
+                    arguments: { message: 'from B' },
+                    _meta: { connectionId: 'conn-B' },
+                },
+            })
+        const bSessionId = JSON.parse(bCreate.body.result.content[0].text).session_id as string
+        // resources/list as A: only A's session shows up.
+        const listA = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'resources/list',
+                params: { _meta: { connectionId: 'conn-A' } },
+            })
+        const aUris = (listA.body.result.resources as Array<{ uri: string }>).map((r) => r.uri)
+        expect(aUris).toContain(`agent://session/${aSessionId}`)
+        expect(aUris).not.toContain(`agent://session/${bSessionId}`)
+        // A connection with no connection id sees nothing (security default).
+        const listAnon = await request(app)
+            .post('/agents/x/mcp')
+            .send({ jsonrpc: '2.0', id: 1, method: 'resources/list' })
+        expect(listAnon.body.result.resources).toEqual([])
+    })
+
+    it('POST /mcp resources/read refuses sessions owned by another connection', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const create = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'ask',
+                    arguments: { message: 'mine' },
+                    _meta: { connectionId: 'conn-owner' },
+                },
+            })
+        const sessionId = JSON.parse(create.body.result.content[0].text).session_id as string
+        // Stranger tries to read.
+        const stranger = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'resources/read',
+                params: {
+                    uri: `agent://session/${sessionId}`,
+                    _meta: { connectionId: 'conn-stranger' },
+                },
+            })
+        expect(stranger.body.error.code).toBe(-32001)
+        // Owner can read.
+        const owner = await request(app)
+            .post('/agents/x/mcp')
+            .send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'resources/read',
+                params: {
+                    uri: `agent://session/${sessionId}`,
+                    _meta: { connectionId: 'conn-owner' },
+                },
+            })
+        expect(owner.body.result.contents[0].text).toContain(sessionId)
+    })
+
+    it('POST /mcp respects spec.auth — a pat-gated agent rejects unauthenticated calls', async () => {
+        const { revisions, app } = mk()
+        // Seed an agent with PAT auth (default app is public).
+        const store = revisions
+        const agentApp = await store.createApplication({
+            team_id: 1,
+            slug: 'gated',
+            name: 'gated',
+            description: '',
+        })
+        const rev = await store.createRevision({
+            application_id: agentApp.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'mcp', config: {} }],
+                auth: { mode: 'pat' },
+            }),
+        })
+        await store.setRevisionState(rev.id, 'live')
+        await store.setLiveRevision(agentApp.id, rev.id)
+        // tools/list without a bearer token → RPC_UNAUTHORIZED (-32001).
+        // The default app-build wires PUBLIC_ONLY_AUTH_PROVIDER, which
+        // rejects every PAT, so any call to a PAT-mode agent fails here.
+        const res = await request(app).post('/agents/gated/mcp').send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+        expect(res.body.error.code).toBe(-32001)
+        // initialize is allowed pre-auth so a client can discover capabilities
+        // before being asked to authenticate.
+        const init = await request(app).post('/agents/gated/mcp').send({ jsonrpc: '2.0', id: 1, method: 'initialize' })
+        expect(init.body.result.serverInfo.name).toBe('agent:gated')
+    })
+
+    it('GET /mcp/connect-info advertises a public agent with no headers', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'public-agent')
+        const res = await request(app).get('/agents/public-agent/mcp/connect-info')
+        expect(res.status).toBe(200)
+        expect(res.body.url).toMatch(/\/agents\/public-agent\/mcp$/)
+        expect(res.body.transport).toBe('http')
+        expect(res.body.auth.mode).toBe('public')
+        expect(res.body.auth.header).toBeNull()
+        // No --header flags when no auth is required.
+        expect(res.body.snippets.claude_code_command).not.toContain('--header')
+        expect(res.body.snippets.mcp_json.mcpServers['public-agent'].headers).toBeUndefined()
+    })
+
+    it('GET /mcp/connect-info renders Bearer placeholder for a PAT-gated agent', async () => {
+        const { revisions, app } = mk()
+        const store = revisions
+        const agentApp = await store.createApplication({
+            team_id: 1,
+            slug: 'pat-gated',
+            name: 'pat-gated',
+            description: '',
+        })
+        const rev = await store.createRevision({
+            application_id: agentApp.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'mcp', config: {} }],
+                auth: { mode: 'pat' },
+            }),
+        })
+        await store.setRevisionState(rev.id, 'live')
+        await store.setLiveRevision(agentApp.id, rev.id)
+        const res = await request(app).get('/agents/pat-gated/mcp/connect-info')
+        expect(res.body.auth.mode).toBe('pat')
+        expect(res.body.auth.header).toBe('Authorization')
+        // Placeholder only — never a real secret.
+        expect(res.body.snippets.mcp_json.mcpServers['pat-gated'].headers.Authorization).toBe(
+            'Bearer <YOUR_POSTHOG_PAT>'
+        )
+        expect(res.body.snippets.claude_code_command).toContain('Authorization=Bearer <YOUR_POSTHOG_PAT>')
+    })
+
+    it('GET /mcp/connect-info 404s when the agent has no mcp trigger', async () => {
+        const { revisions, app } = mk()
+        const store = revisions
+        const agentApp = await store.createApplication({
+            team_id: 1,
+            slug: 'no-mcp',
+            name: 'no-mcp',
+            description: '',
+        })
+        const rev = await store.createRevision({
+            application_id: agentApp.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'chat', config: { require_auth: false } }],
+            }),
+        })
+        await store.setRevisionState(rev.id, 'live')
+        await store.setLiveRevision(agentApp.id, rev.id)
+        const res = await request(app).get('/agents/no-mcp/mcp/connect-info')
+        expect(res.status).toBe(404)
+        expect(res.body.error).toBe('no_mcp_trigger')
     })
 
     it('POST /mcp with the wrong jsonrpc version returns 400', async () => {

@@ -199,13 +199,13 @@ resolver in place, wildcard cert + UI affordance pending; v2
 
 ### C.7 [`agent-as-mcp-server.md`](agent-as-mcp-server.md)
 
-The mcp trigger on the ingress becomes a first-class HTTP MCP
-endpoint at `/agents/<slug>/mcp`. v0 ships a universal default `ask`
-tool + sessions-as-MCP-resources + auth reuse from `spec.auth`. v1
-adds author-curated `spec.mcp.tools[]` — typed entry-points the
-authoring AI populates when building the agent. Lets a user paste a
-connect command into Claude Code / Cursor and talk to the agent
-directly. No Django proxy.
+The mcp trigger on the ingress is a first-class HTTP MCP endpoint at
+`/agents/<slug>/mcp`. **v0 (universal default `ask` + sessions-as-MCP-
+resources + `spec.auth` reuse + public `/connect-info` discovery
+endpoint) ✅ shipped; v1 (author-curated `spec.mcp.tools[]` typed
+entry-points populated by the authoring AI) pending.** Lets a user
+paste a connect command into Claude Code / Cursor and talk to the
+agent directly. No Django proxy.
 
 ### C.8 [`streaming-and-reasoning.md`](streaming-and-reasoning.md)
 
