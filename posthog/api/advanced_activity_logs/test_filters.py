@@ -307,6 +307,7 @@ class TestIpAddressFilter(BaseTest):
         serializer = AdvancedActivityLogFiltersSerializer(data=query)
         self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
+
 class TestTypeConversionIntegration(BaseTest):
     def setUp(self):
         super().setUp()
