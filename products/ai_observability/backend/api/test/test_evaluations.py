@@ -460,7 +460,8 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
         self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
 
-    def test_rollout_percentage_out_of_range_rejected(self):
+    @pytest.mark.parametrize("rollout_percentage", [-1, 101, 150])
+    def test_rollout_percentage_out_of_range_rejected(self, rollout_percentage):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -469,7 +470,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "evaluation_config": {"prompt": "Evaluate"},
                 "output_type": "boolean",
                 "output_config": {},
-                "conditions": [{"id": "cond-1", "rollout_percentage": 150, "properties": []}],
+                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
