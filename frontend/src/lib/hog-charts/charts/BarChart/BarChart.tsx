@@ -505,7 +505,7 @@ function BarChartInner<Meta = unknown>({
                 ...clickData,
                 series: hit.series,
                 value: hit.value,
-                seriesIndex: series.indexOf(hit.series),
+                seriesIndex: series.findIndex((s) => s.key === hit.series.key),
             })
         }
     }, [onPointClick, barLayout, isHorizontal, stackedData, topStackedKeyByAxis, series])

@@ -31,6 +31,14 @@ describe('barContainsPointOnBandAxis', () => {
     ])('horizontal bar — ignores x, checks band (y) axis only: $desc -> $expected', ({ y, expected }) => {
         expect(barContainsPointOnBandAxis(horizontalBar, { x: -9999, y }, true)).toBe(expected)
     })
+
+    it.each([
+        { desc: 'inside band', x: 110, expected: true },
+        { desc: 'outside band left', x: 80, expected: false },
+        { desc: 'outside band right', x: 200, expected: false },
+    ])('vertical bar — ignores y, checks band (x) axis only: $desc -> $expected', ({ x, expected }) => {
+        expect(barContainsPointOnBandAxis(verticalBar, { x, y: -9999 }, false)).toBe(expected)
+    })
 })
 
 describe('barContainsPoint', () => {
@@ -41,5 +49,14 @@ describe('barContainsPoint', () => {
         { desc: 'inside x but outside band', x: 120, y: 80, expected: false },
     ])('horizontal bar — $desc -> $expected', ({ x, y, expected }) => {
         expect(barContainsPoint(horizontalBar, { x, y })).toBe(expected)
+    })
+
+    it.each([
+        { desc: 'inside the segment', x: 110, y: 220, expected: true },
+        { desc: 'above the segment', x: 110, y: 80, expected: false },
+        { desc: 'below the segment', x: 110, y: 360, expected: false },
+        { desc: 'inside y but outside band', x: 80, y: 220, expected: false },
+    ])('vertical bar — $desc -> $expected', ({ x, y, expected }) => {
+        expect(barContainsPoint(verticalBar, { x, y })).toBe(expected)
     })
 })
