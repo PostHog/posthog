@@ -823,6 +823,34 @@ Freeform list of features / refinements that surfaced during build-out
 but don't yet have a home in §17 (Rollout). Promote to a rollout
 phase — or a separate plan — once we commit. Newest first.
 
+- **Focus-with-mutation: refresh + visual flair.** ~~Today
+  `@posthog/ui/focus` only navigates the read panel. Extend the
+  contract so a focus call can also signal "the underlying data
+  changed — refetch and show me what's different." Two pieces:
+  (a) the focus event carries a `mutation_id` (or a per-entity
+  `revision_token`) the consumer can compare against its last-rendered
+  state to decide whether to refetch; (b) when focus mode is **on**,
+  components whose data version moved across that boundary render a
+  brief flair (border pulse / row highlight / scroll-into-view ring)
+  so the user can _see_ what the agent just changed beneath them.
+  Mockable end-to-end in the demo: the fake runner's tool-call steps
+  bump a mock-api counter, the focus event tells the consumer
+  "data moved", components refetch + animate. This is the missing
+  half of the focus story — today you go _somewhere_, tomorrow you
+  go _somewhere and see exactly what's new_. Captured 2026-05-28.~~
+  **Shipped 2026-05-28 (v0 mock).** `FocusArgs`/`FocusResult` now
+  carry `mutationId`; tool-call script steps declare a `mutations[]`
+  array of `{ entityKey, mutationId?, payload? }`; the fake runner
+  fires `onToolMutate` after a successful resolve; mockApi's
+  `recordMutation` + per-app bundle overlay drive `useMutationFlair`,
+  which gates a `flair-pulse` CSS animation on focus mode being on.
+  Bundle-file consumers (`BundleTree` rows + `FileViewer`) and the
+  `useMutatingBundle` hook refetch + flair on bump. Demo: click
+  "Tighten the prompt" in the Storybook `Console/Shell · FocusFlowDemo`
+  or `FocusWithMutationDemo` story. v0.3 swap: the runner protocol's
+  real `mutations[]` field on tool results replaces the script-side
+  declaration; everything downstream is unchanged.
+
 - **Spend breakdown** — drill into total cost by principal (user or
   cron trigger), by day, by tool, by revision. Surface on the Sessions
   tab as an additional view, or as a dedicated `/spend` page later.

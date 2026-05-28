@@ -17,7 +17,7 @@
 import { useRouter } from 'next/navigation'
 import { useMemo } from 'react'
 
-import { AgentChat, useFakeRunner, type ClientToolHandler } from '@posthog/agent-chat'
+import { AgentChat, useFakeRunner, type ClientToolHandler, type ResolvedMutation } from '@posthog/agent-chat'
 import type { FocusArgs, FocusResult, ToastArgs, ToastResult } from '@posthog/agent-chat'
 import {
     conciergeScripts,
@@ -27,8 +27,19 @@ import {
     waitingSession,
 } from '@posthog/agent-chat/fixtures'
 
+import { applyBundleFilePatch, recordMutation } from '@/lib/mockApi'
+
 import { useDockStore } from './dock-context'
 import { useFocusStore, type FocusTarget } from './focus-context'
+
+function isBundleFilePayload(payload: unknown): payload is { newContent: string } {
+    return (
+        typeof payload === 'object' &&
+        payload !== null &&
+        'newContent' in payload &&
+        typeof (payload as { newContent: unknown }).newContent === 'string'
+    )
+}
 
 export function Dock(): React.ReactElement {
     const { context, exitPlayground } = useDockStore()
@@ -63,25 +74,26 @@ export function Dock(): React.ReactElement {
 
                 let target: FocusTarget
                 let routeTarget: string | null = null
+                const mutationId = args.mutationId
 
                 if (args.kind === 'file') {
-                    target = { kind: 'file', agentSlug: contextSlug, path: args.path }
+                    target = { kind: 'file', agentSlug: contextSlug, path: args.path, mutationId }
                     if (contextSlug) {
                         routeTarget = `/agents/${contextSlug}`
                     }
                 } else if (args.kind === 'revision') {
-                    target = { kind: 'revision', agentSlug: contextSlug, revisionId: args.revisionId }
+                    target = { kind: 'revision', agentSlug: contextSlug, revisionId: args.revisionId, mutationId }
                     if (contextSlug) {
                         routeTarget = `/agents/${contextSlug}`
                     }
                 } else if (args.kind === 'session') {
-                    target = { kind: 'session', agentSlug: contextSlug, sessionId: args.sessionId }
+                    target = { kind: 'session', agentSlug: contextSlug, sessionId: args.sessionId, mutationId }
                     if (contextSlug) {
                         // Sessions get their own page — route there directly.
                         routeTarget = `/agents/${contextSlug}/sessions/${args.sessionId}`
                     }
                 } else if (args.kind === 'spec_section') {
-                    target = { kind: 'spec_section', agentSlug: contextSlug, section: args.section }
+                    target = { kind: 'spec_section', agentSlug: contextSlug, section: args.section, mutationId }
                     if (contextSlug) {
                         routeTarget = `/agents/${contextSlug}`
                     }
@@ -95,7 +107,7 @@ export function Dock(): React.ReactElement {
                     router.push(routeTarget)
                 }
 
-                return { focused: true, kind: args.kind }
+                return { focused: true, kind: args.kind, mutationId }
             },
         }),
         [context, focus, router]
@@ -119,11 +131,29 @@ export function Dock(): React.ReactElement {
     const initialSession = context.mode === 'playground' ? playgroundSession : waitingSession
     const scripts = context.mode === 'playground' ? playgroundScripts : conciergeScripts
 
+    const handleToolMutate = useMemo(
+        () =>
+            (mutations: ResolvedMutation[]): void => {
+                for (const m of mutations) {
+                    // Apply the patch first so a later refetch driven by the
+                    // recordMutation listener sees the new content.
+                    if (m.entityKey.startsWith('bundle-file:') && isBundleFilePayload(m.payload)) {
+                        const [, applicationId, ...rest] = m.entityKey.split(':')
+                        const path = rest.join(':')
+                        applyBundleFilePatch(applicationId, path, m.payload.newContent)
+                    }
+                    recordMutation(m.entityKey, m.mutationId)
+                }
+            },
+        []
+    )
+
     const runner = useFakeRunner({
         initialSession,
         scripts,
         fallbackScript,
         handlers,
+        onToolMutate: handleToolMutate,
     })
 
     return (
@@ -135,6 +165,10 @@ export function Dock(): React.ReactElement {
             onFollowingChange={focus.setEnabled}
             onExitPlayground={() => {
                 exitPlayground()
+                runner.reset()
+                focus.clear()
+            }}
+            onNewSession={() => {
                 runner.reset()
                 focus.clear()
             }}

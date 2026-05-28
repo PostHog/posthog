@@ -30,6 +30,24 @@ import type { AssistantTurnPart, ChatSession, ClientToolHandler, Turn } from './
 
 /* ── Script shape ────────────────────────────────────────────────── */
 
+/**
+ * A side-effect a tool call advertises so the host UI can refetch +
+ * flair the affected surface. v0.3+ this is what the runner protocol's
+ * `mutations[]` field on a tool result carries; for v0 the script
+ * author declares it inline.
+ *
+ * `entityKey` is an opaque consumer-recognized identifier (convention:
+ * `<kind>:<id>[:<subpath>]`, e.g. `bundle-file:agent-app-id:agent.md`).
+ * `payload` is a free-form blob the consumer interprets (for bundle
+ * files: the new content).
+ */
+export interface ToolMutation {
+    entityKey: string
+    /** Stable id the consumer can dedupe across replays. Generated if absent. */
+    mutationId?: string
+    payload?: unknown
+}
+
 export type ScriptStep =
     | { kind: 'thinking'; text: string }
     | { kind: 'text'; text: string; chunkMs?: number }
@@ -42,8 +60,17 @@ export type ScriptStep =
           result?: { ok: true; body: unknown } | { ok: false; error: string }
           /** Delay before the result resolves (server) or before invoking the handler (client). */
           pendingMs?: number
+          /** Declared side effects — bumped after the result resolves. */
+          mutations?: ToolMutation[]
       }
     | { kind: 'pause'; ms: number }
+
+/** Same as `ToolMutation` but with `mutationId` always present (generated if not provided). */
+export interface ResolvedMutation {
+    entityKey: string
+    mutationId: string
+    payload?: unknown
+}
 
 export interface Script {
     /** Stable id, used in stories + tests. */
@@ -64,6 +91,13 @@ export interface UseFakeRunnerOpts {
     fallbackScript?: Script
     /** Registered handlers — invoked when a `tool_call` step has `fulfillment: 'client'`. */
     handlers?: ClientToolHandler[]
+    /**
+     * Notified after a successful tool call that declared `mutations[]`.
+     * The host wires this into its mock-api mutation registry so consumer
+     * components can refetch + flair. Missing mutationIds get one
+     * generated; the consumer sees them in the resolved form.
+     */
+    onToolMutate?: (mutations: ResolvedMutation[]) => void
 }
 
 export interface FakeRunnerControls {
@@ -81,12 +115,15 @@ export function useFakeRunner({
     scripts,
     fallbackScript,
     handlers = [],
+    onToolMutate,
 }: UseFakeRunnerOpts): FakeRunnerControls {
     const [session, setSession] = useState<ChatSession>(initialSession)
     const [playing, setPlaying] = useState(false)
     const aliveRef = useRef(true)
     const handlersRef = useRef(handlers)
     handlersRef.current = handlers
+    const onToolMutateRef = useRef(onToolMutate)
+    onToolMutateRef.current = onToolMutate
 
     useEffect(() => {
         aliveRef.current = true
@@ -133,7 +170,7 @@ export function useFakeRunner({
             }
 
             setPlaying(true)
-            void playScript({ script, assistantId, setSession, aliveRef, handlersRef }).finally(() => {
+            void playScript({ script, assistantId, setSession, aliveRef, handlersRef, onToolMutateRef }).finally(() => {
                 if (aliveRef.current) {
                     setPlaying(false)
                 }
@@ -153,12 +190,14 @@ async function playScript({
     setSession,
     aliveRef,
     handlersRef,
+    onToolMutateRef,
 }: {
     script: Script
     assistantId: string
     setSession: React.Dispatch<React.SetStateAction<ChatSession>>
     aliveRef: React.RefObject<boolean>
     handlersRef: React.RefObject<ClientToolHandler[]>
+    onToolMutateRef: React.RefObject<UseFakeRunnerOpts['onToolMutate']>
 }): Promise<void> {
     for (const step of script.steps) {
         if (!aliveRef.current) {
@@ -234,6 +273,22 @@ async function playScript({
                 args: step.args,
                 result,
             })
+
+            // Fire declared side effects so the host UI can refetch + flair.
+            // Only on successful results — failed calls shouldn't be presented
+            // as if the underlying data moved.
+            if (result.ok && step.mutations && step.mutations.length > 0) {
+                const resolved: ResolvedMutation[] = step.mutations.map((m) => ({
+                    entityKey: m.entityKey,
+                    mutationId: m.mutationId ?? `mut-${callId}-${Math.random().toString(36).slice(2, 7)}`,
+                    payload: m.payload,
+                }))
+                try {
+                    onToolMutateRef.current?.(resolved)
+                } catch {
+                    // Host bug — swallow so playback keeps going.
+                }
+            }
             continue
         }
     }

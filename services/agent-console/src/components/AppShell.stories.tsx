@@ -19,6 +19,7 @@ import {
     type ClientToolHandler,
     type FocusArgs,
     type FocusResult,
+    type ResolvedMutation,
     type ToastArgs,
     type ToastResult,
 } from '@posthog/agent-chat'
@@ -42,6 +43,7 @@ import {
 } from '@posthog/agent-chat/fixtures'
 import type { AgentApplicationFixture, AgentRevisionFixture, BundleFile } from '@posthog/agent-chat/fixtures'
 
+import { applyBundleFilePatch, recordMutation } from '@/lib/mockApi'
 import { AgentDetail } from '@/pages/AgentDetail'
 import { AgentsList } from '@/pages/AgentsList'
 import { SessionDetail } from '@/pages/SessionDetail'
@@ -50,6 +52,7 @@ import { DockContextProvider, useDockStore, useSetDockPage } from './dock-contex
 import { FocusContextProvider, useFocusStore, type FocusTarget } from './focus-context'
 import { FocusModeBanner } from './FocusModeBanner'
 import { PostHogMark } from './PostHogMark'
+import { useMutatingBundle } from './use-mutating-bundle'
 
 const DOCK_WIDTH = 360
 
@@ -195,11 +198,12 @@ function DetailSurface({
     const { enterPlayground } = useDockStore()
     const stats = getAgentStatsFixture(agent.id)
     const sessions = listSessionsForAgentFixture(agent.id)
+    const { bundle: liveBundle } = useMutatingBundle(agent.id, bundle)
     return (
         <AgentDetail
             agent={agent}
             revisions={revisions}
-            bundle={bundle}
+            bundle={liveBundle}
             stats={stats}
             sessions={sessions}
             onTryAgent={() => enterPlayground(agentRef)}
@@ -276,14 +280,15 @@ function DockSurface({
                           : undefined
 
                 let target: FocusTarget
+                const mutationId = args.mutationId
                 if (args.kind === 'file') {
-                    target = { kind: 'file', agentSlug: contextSlug, path: args.path }
+                    target = { kind: 'file', agentSlug: contextSlug, path: args.path, mutationId }
                 } else if (args.kind === 'revision') {
-                    target = { kind: 'revision', agentSlug: contextSlug, revisionId: args.revisionId }
+                    target = { kind: 'revision', agentSlug: contextSlug, revisionId: args.revisionId, mutationId }
                 } else if (args.kind === 'session') {
-                    target = { kind: 'session', agentSlug: contextSlug, sessionId: args.sessionId }
+                    target = { kind: 'session', agentSlug: contextSlug, sessionId: args.sessionId, mutationId }
                 } else if (args.kind === 'spec_section') {
-                    target = { kind: 'spec_section', agentSlug: contextSlug, section: args.section }
+                    target = { kind: 'spec_section', agentSlug: contextSlug, section: args.section, mutationId }
                 } else {
                     return { focused: false, reason: 'unknown_focus_kind' }
                 }
@@ -296,7 +301,7 @@ function DockSurface({
                         onRouteToAgent(contextSlug)
                     }
                 }
-                return { focused: true, kind: args.kind }
+                return { focused: true, kind: args.kind, mutationId }
             },
         }),
         [context, focus, onRouteToAgent, onRouteToSession]
@@ -319,11 +324,26 @@ function DockSurface({
     const initialSession = context.mode === 'playground' ? playgroundSession : waitingSession
     const scripts = context.mode === 'playground' ? playgroundScripts : conciergeScripts
 
+    const handleToolMutate = useMemo(
+        () =>
+            (mutations: ResolvedMutation[]): void => {
+                for (const m of mutations) {
+                    if (m.entityKey.startsWith('bundle-file:') && isBundleFilePayload(m.payload)) {
+                        const [, applicationId, ...rest] = m.entityKey.split(':')
+                        applyBundleFilePatch(applicationId, rest.join(':'), m.payload.newContent)
+                    }
+                    recordMutation(m.entityKey, m.mutationId)
+                }
+            },
+        []
+    )
+
     const runner = useFakeRunner({
         initialSession,
         scripts,
         fallbackScript,
         handlers,
+        onToolMutate: handleToolMutate,
     })
 
     return (
@@ -338,8 +358,21 @@ function DockSurface({
                 runner.reset()
                 focus.clear()
             }}
+            onNewSession={() => {
+                runner.reset()
+                focus.clear()
+            }}
             onSend={runner.send}
         />
+    )
+}
+
+function isBundleFilePayload(payload: unknown): payload is { newContent: string } {
+    return (
+        typeof payload === 'object' &&
+        payload !== null &&
+        'newContent' in payload &&
+        typeof (payload as { newContent: unknown }).newContent === 'string'
     )
 }
 
@@ -400,5 +433,17 @@ export const AgentDetailPlayground: Story = {
  * tab + bundle file change underneath you.
  */
 export const FocusFlowDemo: Story = {
+    args: { initialRoute: { kind: 'detail', slug: weeklyDigest.slug } },
+}
+
+/**
+ * Focus-with-mutation demo — click "Tighten the prompt" in the dock.
+ * The concierge calls a server tool that declares a `bundle-file:`
+ * mutation, the mock-api overlay absorbs the new content, and the
+ * file tree row + viewer flair as the bundle re-reads. Toggle focus
+ * mode off via the dock header to confirm the data still refreshes
+ * silently — flair is gated on focus mode being on.
+ */
+export const FocusWithMutationDemo: Story = {
     args: { initialRoute: { kind: 'detail', slug: weeklyDigest.slug } },
 }

@@ -28,3 +28,36 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* Mirror of the flair animation in `src/styles/globals.css` — Storybook
+ * compiles Tailwind independently, so the keyframes need to be re-declared
+ * here for stories that demonstrate the focus-with-mutation flow. */
+@keyframes Flair__pulse {
+    0% {
+        background-color: hsl(var(--info) / 12%);
+        box-shadow: 0 0 0 0 hsl(var(--info) / 55%);
+    }
+
+    60% {
+        background-color: hsl(var(--info) / 5%);
+        box-shadow: 0 0 0 6px hsl(var(--info) / 0%);
+    }
+
+    100% {
+        background-color: transparent;
+        box-shadow: 0 0 0 0 hsl(var(--info) / 0%);
+    }
+}
+
+.flair-pulse {
+    border-radius: 0.25rem;
+    animation: Flair__pulse 1600ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .flair-pulse {
+        outline: 2px solid hsl(var(--info));
+        outline-offset: 2px;
+        animation: none;
+    }
+}

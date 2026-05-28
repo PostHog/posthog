@@ -9,7 +9,7 @@
  * user enters / exits playground or toggles focus mode.
  */
 
-import { EyeIcon, EyeOffIcon, XIcon } from 'lucide-react'
+import { EyeIcon, EyeOffIcon, RotateCcwIcon, XIcon } from 'lucide-react'
 import type { ChatContext } from '../context'
 import { describeContext } from '../context'
 
@@ -18,7 +18,14 @@ interface DockHeaderProps {
     followingEnabled?: boolean
     onFollowingChange?: (next: boolean) => void
     onExitPlayground?: () => void
+    /**
+     * Concierge-mode reset. Clears the current chat back to the waiting
+     * state so the user can start a fresh conversation without
+     * navigating away. Playground uses `onExitPlayground` instead.
+     */
     onNewSession?: () => void
+    /** True while a script is mid-playback — disables the reset button. */
+    busy?: boolean
 }
 
 export function DockHeader({
@@ -26,6 +33,8 @@ export function DockHeader({
     followingEnabled,
     onFollowingChange,
     onExitPlayground,
+    onNewSession,
+    busy,
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
@@ -51,6 +60,20 @@ export function DockHeader({
                 the dock is talking *to* the agent, not navigating the console). */}
             {!isPlayground && onFollowingChange ? (
                 <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
+            ) : null}
+
+            {!isPlayground && onNewSession ? (
+                <button
+                    type="button"
+                    onClick={() => onNewSession()}
+                    disabled={busy}
+                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                    aria-label="Start a new conversation"
+                    title="Clear the chat and start a fresh conversation"
+                >
+                    <RotateCcwIcon className="h-3 w-3" />
+                    New
+                </button>
             ) : null}
 
             {isPlayground ? (

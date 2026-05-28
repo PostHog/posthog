@@ -115,6 +115,7 @@ export function RevisionsBrowser({
                                     files={bundle}
                                     focusedPath={focusedBundlePath ?? null}
                                     focusedPathTick={focusedBundleTick}
+                                    applicationId={agent.id}
                                 />
                             </div>
                         </Section>

@@ -15,6 +15,7 @@
  */
 
 import type { Script } from '../fake-runner'
+import { weeklyDigest } from './agents'
 
 const matchesAny = (...needles: string[]) => (text: string): boolean =>
     needles.some((n) => text.toLowerCase().includes(n.toLowerCase()))
@@ -91,6 +92,98 @@ export const conciergeAgentMakeChange: Script = {
             kind: 'text',
             text: '\n\nThe `digest-shape` skill is the format spec — most "make the digest read better" changes start here. The `pr-callouts` skill (added in the draft) covers GitHub.\n\nWhat\'s the change you want?',
             chunkMs: 12,
+        },
+    ],
+}
+
+/**
+ * Demos the focus-with-mutation flow: the concierge edits agent.md, then
+ * focuses the user on it. The tool call declares `mutations[]`, so the
+ * console's mock-api overlay receives the new content + bumps the
+ * entity revision. With focus mode on, the file row + viewer flair as
+ * the new content lands. With focus mode off, the data still updates
+ * but the UI stays calm.
+ */
+const tightenAgentMdMutationId = 'mut-tighten-agent-md-001'
+const tightenedAgentMdContent = `# Weekly digest
+
+You write the Monday-morning summary that lands in #product-eng. The
+audience is engineers + PMs who weren't paying close attention last
+week — your job is to surface the 3-5 things they'd care most about
+without making them dig.
+
+## Sources to pull from
+
+Use \`@posthog/query\` to fetch:
+
+- Top events by volume (last 7 days)
+- Notable changes vs. the previous 7-day window
+- Any feature flag rollouts that hit 100%
+- **Friday's deploys** — pull the deploy log for Fri/Sat to flag
+  what shipped right before the weekend (highest blast-radius risk)
+
+## Voice
+
+Casual but tight. No emoji, no headlines that say "Exciting news!".
+Lead with the numbers; let the prose stay out of the way.
+
+## What good looks like
+
+A typical digest is 6-10 bullets, total length under 1500 chars.
+Each bullet is one fact + one quick interpretation.
+
+When you load the digest-shape skill via \`@posthog/load-skill\` you'll
+see the exact format the team has converged on.
+`
+
+export const conciergeAgentTightenPrompt: Script = {
+    id: 'concierge.agent.tighten-prompt',
+    match: matchesAny('mention friday', 'friday deploy', 'tighten the prompt', 'add friday'),
+    steps: [
+        { kind: 'thinking', text: 'Pulling agent.md, adding a Friday-deploys callout to the sources list…' },
+        { kind: 'pause', ms: 300 },
+        {
+            kind: 'tool_call',
+            toolId: 'posthog_update_bundle_file',
+            fulfillment: 'server',
+            args: {
+                application_id: weeklyDigest.id,
+                path: 'agent.md',
+                summary: 'Add Friday deploys to the sources list',
+            },
+            result: {
+                ok: true,
+                body: {
+                    revision_id: '01998a01-1111-7000-8000-000000000a03',
+                    sha256: 'sha256:friday-deploys-call-out',
+                    mutation_id: tightenAgentMdMutationId,
+                },
+            },
+            pendingMs: 600,
+            mutations: [
+                {
+                    entityKey: `bundle-file:${weeklyDigest.id}:agent.md`,
+                    mutationId: tightenAgentMdMutationId,
+                    payload: { newContent: tightenedAgentMdContent },
+                },
+            ],
+        },
+        {
+            kind: 'text',
+            text: 'Patched `agent.md` — added a bullet under "Sources to pull from" calling out Friday/Saturday deploys.',
+            chunkMs: 14,
+        },
+        {
+            kind: 'tool_call',
+            toolId: '@posthog/ui/focus',
+            fulfillment: 'client',
+            args: { kind: 'file', path: 'agent.md', mutationId: tightenAgentMdMutationId },
+            pendingMs: 200,
+        },
+        {
+            kind: 'text',
+            text: "\n\nOpening it now — the new bullet should flair as the bundle re-reads.",
+            chunkMs: 14,
         },
     ],
 }
@@ -178,6 +271,7 @@ export const fallbackScript: Script = {
  * first matching script wins, so put narrower matchers first.
  */
 export const conciergeScripts: Script[] = [
+    conciergeAgentTightenPrompt,
     conciergeAgentExplain,
     conciergeAgentMakeChange,
     conciergeAgentRecentSessions,

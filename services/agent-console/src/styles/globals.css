@@ -41,3 +41,38 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* ── Mutation flair ───────────────────────────────────────────────
+ * Brief ring + tint pulse used when focus mode is on and an entity's
+ * data version moved (see useMutationFlair). The animation is
+ * intentionally short — long enough to register, not so long it
+ * lingers. Respects reduced motion. */
+@keyframes Flair__pulse {
+    0% {
+        background-color: hsl(var(--info) / 12%);
+        box-shadow: 0 0 0 0 hsl(var(--info) / 55%);
+    }
+
+    60% {
+        background-color: hsl(var(--info) / 5%);
+        box-shadow: 0 0 0 6px hsl(var(--info) / 0%);
+    }
+
+    100% {
+        background-color: transparent;
+        box-shadow: 0 0 0 0 hsl(var(--info) / 0%);
+    }
+}
+
+.flair-pulse {
+    border-radius: 0.25rem;
+    animation: Flair__pulse 1600ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .flair-pulse {
+        outline: 2px solid hsl(var(--info));
+        outline-offset: 2px;
+        animation: none;
+    }
+}

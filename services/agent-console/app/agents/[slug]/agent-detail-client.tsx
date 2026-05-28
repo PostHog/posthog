@@ -11,6 +11,7 @@ import type {
 } from '@posthog/agent-chat/fixtures'
 
 import { useDockStore, useSetDockPage } from '@/components/dock-context'
+import { useMutatingBundle } from '@/components/use-mutating-bundle'
 import { AgentDetail } from '@/pages/AgentDetail'
 
 export function AgentDetailClient({
@@ -32,11 +33,15 @@ export function AgentDetailClient({
     const { enterPlayground } = useDockStore()
     const router = useRouter()
 
+    // The server-rendered bundle is the starting point; subsequent
+    // mutations driven by the runner re-read from mockApi's overlay.
+    const { bundle: liveBundle } = useMutatingBundle(agent.id, bundle)
+
     return (
         <AgentDetail
             agent={agent}
             revisions={revisions}
-            bundle={bundle}
+            bundle={liveBundle}
             stats={stats}
             sessions={sessions}
             onTryAgent={() => enterPlayground(agentRef)}

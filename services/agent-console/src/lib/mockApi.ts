@@ -21,12 +21,14 @@ import {
     listSessionsForAgentFixture,
     liveSessionCountsByAgent,
     weeklyDigest,
+    weeklyDigestBundle,
     weeklyDigestRevisions,
 } from '@posthog/agent-chat/fixtures'
 import type {
     AgentApplicationFixture,
     AgentRevisionFixture,
     AgentStats,
+    BundleFile,
     FleetStats,
     LogEntry,
 } from '@posthog/agent-chat/fixtures'
@@ -120,4 +122,125 @@ export async function getSession(sessionId: string, opts: MockApiOptions = {}): 
 export async function listLogsForSession(sessionId: string, opts: MockApiOptions = {}): Promise<LogEntry[]> {
     await delay(opts.latencyMs ?? 0)
     return listLogsForSessionFixture(sessionId)
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Bundle reads + the mutation registry.
+ *
+ * In the real platform, "the agent just changed agent.md" arrives via two
+ * channels: (1) the runner protocol's `mutations[]` field on a tool
+ * result, (2) the next bundle fetch returning new content. The console
+ * needs both — `mutationId` so the *focused* view can re-fetch + flair,
+ * and a per-entity revision counter so *any* mounted view of that entity
+ * can flair the moment its data moves underneath it (when focus mode is
+ * on; off-mode views just refetch silently).
+ *
+ * For v0 we mock the whole thing in-process: a module-level overlay map
+ * absorbs writes, every read merges overlay onto the base fixture, and
+ * the registry notifies subscribers so UI can refetch + flair.
+ *
+ * Conventions:
+ *   entityKey shape       form
+ *   ─────────────────     ────────────────────────────────────────
+ *   bundle-file           `bundle-file:<applicationId>:<path>`
+ *   bundle                `bundle:<applicationId>`
+ *   agent                 `agent:<applicationId>`
+ *   agent-revisions       `agent-revisions:<applicationId>`
+ *
+ * v0.1+ replaces this whole section with a real client backed by the
+ * janitor's bundle service + a server-sent `mutations` stream.
+ * ──────────────────────────────────────────────────────────────── */
+
+export type EntityKey = string
+
+interface MutationRecord {
+    /** Monotonic per-entity counter; bumps every time `recordMutation` runs. */
+    revision: number
+    /** The most recent mutation_id. Useful for focus-event correlation. */
+    mutationId: string
+    /** Wall-clock of the bump. Used by flair animation to time itself. */
+    at: number
+}
+
+type MutationListener = (record: MutationRecord) => void
+
+const mutationRegistry = new Map<EntityKey, MutationRecord>()
+const listeners = new Map<EntityKey, Set<MutationListener>>()
+
+export function getMutationRecord(entityKey: EntityKey): MutationRecord | null {
+    return mutationRegistry.get(entityKey) ?? null
+}
+
+/** Subscribe to changes for a specific entity. Returns an unsubscribe fn. */
+export function subscribeMutation(entityKey: EntityKey, listener: MutationListener): () => void {
+    let set = listeners.get(entityKey)
+    if (!set) {
+        set = new Set()
+        listeners.set(entityKey, set)
+    }
+    set.add(listener)
+    return () => {
+        set?.delete(listener)
+    }
+}
+
+export function recordMutation(entityKey: EntityKey, mutationId: string): MutationRecord {
+    const prev = mutationRegistry.get(entityKey)
+    const record: MutationRecord = {
+        revision: (prev?.revision ?? 0) + 1,
+        mutationId,
+        at: Date.now(),
+    }
+    mutationRegistry.set(entityKey, record)
+    listeners.get(entityKey)?.forEach((fn) => fn(record))
+    // Cascade to the parent `bundle:<app>` entity so consumers watching
+    // the whole bundle (e.g. the tree pane) can refetch without
+    // subscribing per-file.
+    if (entityKey.startsWith('bundle-file:')) {
+        const [, applicationId] = entityKey.split(':')
+        const parentKey: EntityKey = `bundle:${applicationId}`
+        const parentPrev = mutationRegistry.get(parentKey)
+        const parentRecord: MutationRecord = {
+            revision: (parentPrev?.revision ?? 0) + 1,
+            mutationId,
+            at: record.at,
+        }
+        mutationRegistry.set(parentKey, parentRecord)
+        listeners.get(parentKey)?.forEach((fn) => fn(parentRecord))
+    }
+    return record
+}
+
+/* ── Bundle overlay + reads ──────────────────────────────────────── */
+
+/** `${applicationId}:${path}` → patched content. v0 demo overlay. */
+const bundleOverlay = new Map<string, string>()
+
+export function applyBundleFilePatch(applicationId: string, path: string, newContent: string): void {
+    bundleOverlay.set(`${applicationId}:${path}`, newContent)
+}
+
+function baseBundleForApplication(applicationId: string): BundleFile[] {
+    if (applicationId === weeklyDigest.id) {
+        return weeklyDigestBundle
+    }
+    return []
+}
+
+export async function getBundleForApplication(applicationId: string, opts: MockApiOptions = {}): Promise<BundleFile[]> {
+    await delay(opts.latencyMs ?? 0)
+    const base = baseBundleForApplication(applicationId)
+    return base.map((f) => {
+        const patched = bundleOverlay.get(`${applicationId}:${f.path}`)
+        return patched !== undefined ? { ...f, content: patched } : f
+    })
+}
+
+/** Sync variant — used by client-side hooks that refetch on mutation. */
+export function getBundleForApplicationSync(applicationId: string): BundleFile[] {
+    const base = baseBundleForApplication(applicationId)
+    return base.map((f) => {
+        const patched = bundleOverlay.get(`${applicationId}:${f.path}`)
+        return patched !== undefined ? { ...f, content: patched } : f
+    })
 }

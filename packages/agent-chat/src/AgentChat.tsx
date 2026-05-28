@@ -39,11 +39,17 @@ export interface AgentChatProps {
      * fixture); accepted so the API shape is stable across v0 → v0.2.
      */
     handlers?: ClientToolHandler[]
+    /** Current focus-mode state — when off, the dock header narrates instead of navigating. */
+    followingEnabled?: boolean
+    /** Notified when the user toggles focus mode from the dock header. */
+    onFollowingChange?: (next: boolean) => void
     onSend?: (text: string) => void
     onApprove?: (callId: string) => void
     onDeny?: (callId: string) => void
     onReconnect?: () => void
     onExitPlayground?: () => void
+    /** Concierge-mode reset — clear the chat back to waiting state. */
+    onNewSession?: () => void
 }
 
 export function AgentChat({
@@ -57,6 +63,7 @@ export function AgentChat({
     onDeny,
     onReconnect,
     onExitPlayground,
+    onNewSession,
 }: AgentChatProps): React.ReactElement {
     const [draft, setDraft] = useState('')
     const inputId = useId()
@@ -87,6 +94,8 @@ export function AgentChat({
                 followingEnabled={followingEnabled}
                 onFollowingChange={onFollowingChange}
                 onExitPlayground={onExitPlayground}
+                onNewSession={onNewSession}
+                busy={sending}
             />
 
             <div className="flex-1 overflow-y-auto">

@@ -50,12 +50,24 @@ function savePersistedEnabled(next: boolean): void {
     }
 }
 
+/**
+ * `mutationId` is an optional correlation token the agent sets to say
+ * "the underlying data I just touched moved at the same time as this
+ * focus call". Consumers compare it against `useMutationFlair`'s
+ * `lastMutationId` to confirm the change has landed in the registry —
+ * useful for refetch + flair flows. See §14.5 in the plan.
+ */
 export type FocusTarget =
-    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'sessions' }
-    | { kind: 'file'; agentSlug?: string; path: string }
-    | { kind: 'revision'; agentSlug?: string; revisionId: string }
-    | { kind: 'session'; agentSlug?: string; sessionId: string }
-    | { kind: 'spec_section'; agentSlug?: string; section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' }
+    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'sessions'; mutationId?: string }
+    | { kind: 'file'; agentSlug?: string; path: string; mutationId?: string }
+    | { kind: 'revision'; agentSlug?: string; revisionId: string; mutationId?: string }
+    | { kind: 'session'; agentSlug?: string; sessionId: string; mutationId?: string }
+    | {
+          kind: 'spec_section'
+          agentSlug?: string
+          section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits'
+          mutationId?: string
+      }
 
 interface FocusStore {
     target: FocusTarget | null

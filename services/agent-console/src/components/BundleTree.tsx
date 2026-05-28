@@ -29,6 +29,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { JsonView } from '@posthog/agent-chat'
 import type { BundleFile, BundleFileLanguage } from '@posthog/agent-chat/fixtures'
 
+import { useMutationFlair } from './use-mutation-flair'
+
 export interface BundleTreeProps {
     files: BundleFile[]
     /** Initial file path to select. Defaults to the first file. */
@@ -41,9 +43,22 @@ export interface BundleTreeProps {
     focusedPath?: string | null
     /** Bump alongside `focusedPath` so identical-path focuses still re-apply. */
     focusedPathTick?: number
+    /**
+     * Used to scope mutation-registry entityKeys (`bundle-file:<app>:<path>`).
+     * When provided, file rows + the viewer flair when their backing data
+     * moves and focus mode is on. Optional — stories that don't pipe an
+     * application id still render correctly, just without flair.
+     */
+    applicationId?: string
 }
 
-export function BundleTree({ files, initialPath, focusedPath, focusedPathTick }: BundleTreeProps): React.ReactElement {
+export function BundleTree({
+    files,
+    initialPath,
+    focusedPath,
+    focusedPathTick,
+    applicationId,
+}: BundleTreeProps): React.ReactElement {
     // `agent.md` is the most important file in a bundle — open it by default
     // when it exists, fall back to the first file otherwise.
     const defaultPath = initialPath ?? (files.some((f) => f.path === 'agent.md') ? 'agent.md' : (files[0]?.path ?? ''))
@@ -70,9 +85,17 @@ export function BundleTree({ files, initialPath, focusedPath, focusedPathTick }:
     return (
         <div className="grid grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-background">
             <div className="overflow-y-auto border-r border-border bg-muted/20 py-1.5">
-                <TreeView node={tree} selected={selected} onSelect={setSelected} depth={0} />
+                <TreeView
+                    node={tree}
+                    selected={selected}
+                    onSelect={setSelected}
+                    depth={0}
+                    applicationId={applicationId}
+                />
             </div>
-            <div className="min-w-0">{selectedFile ? <FileViewer file={selectedFile} /> : <EmptyViewer />}</div>
+            <div className="min-w-0">
+                {selectedFile ? <FileViewer file={selectedFile} applicationId={applicationId} /> : <EmptyViewer />}
+            </div>
         </div>
     )
 }
@@ -149,14 +172,22 @@ interface TreeViewProps {
     selected: string
     onSelect: (path: string) => void
     depth: number
+    applicationId?: string
 }
 
-function TreeView({ node, selected, onSelect, depth }: TreeViewProps): React.ReactElement {
+function TreeView({ node, selected, onSelect, depth, applicationId }: TreeViewProps): React.ReactElement {
     return (
         <ul className="text-xs">
             {node.children.map((child) =>
                 child.kind === 'dir' ? (
-                    <DirRow key={child.path} dir={child} selected={selected} onSelect={onSelect} depth={depth} />
+                    <DirRow
+                        key={child.path}
+                        dir={child}
+                        selected={selected}
+                        onSelect={onSelect}
+                        depth={depth}
+                        applicationId={applicationId}
+                    />
                 ) : (
                     <FileRow
                         key={child.path}
@@ -164,6 +195,7 @@ function TreeView({ node, selected, onSelect, depth }: TreeViewProps): React.Rea
                         selected={selected === child.path}
                         onSelect={onSelect}
                         depth={depth}
+                        applicationId={applicationId}
                     />
                 )
             )}
@@ -176,11 +208,13 @@ function DirRow({
     selected,
     onSelect,
     depth,
+    applicationId,
 }: {
     dir: DirNode
     selected: string
     onSelect: (path: string) => void
     depth: number
+    applicationId?: string
 }): React.ReactElement {
     const [open, setOpen] = useState(true)
     return (
@@ -195,7 +229,15 @@ function DirRow({
                 {open ? <FolderOpenIcon className="h-3.5 w-3.5" /> : <FolderIcon className="h-3.5 w-3.5" />}
                 <span>{dir.name}</span>
             </button>
-            {open ? <TreeView node={dir} selected={selected} onSelect={onSelect} depth={depth + 1} /> : null}
+            {open ? (
+                <TreeView
+                    node={dir}
+                    selected={selected}
+                    onSelect={onSelect}
+                    depth={depth + 1}
+                    applicationId={applicationId}
+                />
+            ) : null}
         </li>
     )
 }
@@ -205,12 +247,16 @@ function FileRow({
     selected,
     onSelect,
     depth,
+    applicationId,
 }: {
     file: FileNode
     selected: boolean
     onSelect: (path: string) => void
     depth: number
+    applicationId?: string
 }): React.ReactElement {
+    const entityKey = applicationId ? `bundle-file:${applicationId}:${file.path}` : null
+    const { flair } = useMutationFlair(entityKey)
     return (
         <li>
             <button
@@ -218,9 +264,10 @@ function FileRow({
                 onClick={() => onSelect(file.path)}
                 aria-current={selected ? 'true' : undefined}
                 className={
-                    selected
+                    (selected
                         ? 'flex w-full cursor-pointer items-center gap-1 bg-accent px-2 py-1 text-left text-foreground'
-                        : 'flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground'
+                        : 'flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground') +
+                    (flair ? ' flair-pulse' : '')
                 }
                 style={{ paddingLeft: `${8 + depth * 12 + 16}px` }}
             >
@@ -244,7 +291,9 @@ function FileIconFor({ language }: { language: BundleFileLanguage }): React.Reac
 
 /* ── Right pane: file viewer ─────────────────────────────────────── */
 
-function FileViewer({ file }: { file: BundleFile }): React.ReactElement {
+function FileViewer({ file, applicationId }: { file: BundleFile; applicationId?: string }): React.ReactElement {
+    const entityKey = applicationId ? `bundle-file:${applicationId}:${file.path}` : null
+    const { flair } = useMutationFlair(entityKey)
     return (
         <div className="flex h-full flex-col">
             <div className="flex items-center gap-2 border-b border-border bg-muted/10 px-3 py-1.5">
@@ -254,7 +303,7 @@ function FileViewer({ file }: { file: BundleFile }): React.ReactElement {
                     {file.language}
                 </span>
             </div>
-            <div className="overflow-auto p-3">
+            <div className={'overflow-auto p-3' + (flair ? ' flair-pulse' : '')}>
                 <FileBody file={file} />
             </div>
         </div>
