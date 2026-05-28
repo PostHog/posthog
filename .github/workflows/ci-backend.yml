@@ -446,7 +446,7 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
-              run: bin/ci-wait-for-docker wait
+              run: bin/ci-wait-for-docker wait temporal
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}

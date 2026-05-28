@@ -20,7 +20,7 @@ fi
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
-TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
+TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-420}"
 
 only_listed=0
 if [ "${1:-}" = "--only" ]; then
