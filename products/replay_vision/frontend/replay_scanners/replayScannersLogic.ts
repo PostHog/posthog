@@ -1,7 +1,6 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
@@ -10,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    environmentVisionQuotaRetrieve,
     visionScannersCreate,
     visionScannersDestroy,
     visionScannersList,
@@ -66,7 +66,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setSearch: (search: string) => ({ search }),
         setEnabledFilter: (values: EnabledFilter[]) => ({ values }),
         setScannerTypeFilter: (scannerTypes: ScannerType[]) => ({ scannerTypes }),
-        setUsageRangeDays: (days: 7 | 30 | 90) => ({ days }),
         clearFilters: true,
     }),
 
@@ -116,12 +115,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 clearFilters: () => [],
             },
         ],
-        usageRangeDays: [
-            30 as 7 | 30 | 90,
-            {
-                setUsageRangeDays: (_, { days }) => days,
-            },
-        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -145,8 +138,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.get(`/api/environments/${teamId}/vision/quota/`)
+                const response = await environmentVisionQuotaRetrieve(String(teamId))
                 actions.loadQuotaSuccess(response)
             } catch {
                 actions.loadQuotaSuccess(null)

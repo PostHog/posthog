@@ -1,6 +1,20 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AIObservabilityGetCostsSchema": {
+            "type": "object",
+            "properties": {
+                "projectId": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                },
+                "days": {
+                    "type": "number"
+                }
+            },
+            "required": ["projectId"]
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -119,6 +133,10 @@
                     "default": true,
                     "description": "Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).",
                     "type": "boolean"
+                },
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
                 }
             },
             "required": ["query"]
@@ -947,20 +965,6 @@
                 }
             },
             "required": ["insightId"]
-        },
-        "LLMAnalyticsGetCostsSchema": {
-            "type": "object",
-            "properties": {
-                "projectId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                },
-                "days": {
-                    "type": "number"
-                }
-            },
-            "required": ["projectId"]
         },
         "OrganizationSetActiveSchema": {
             "type": "object",
