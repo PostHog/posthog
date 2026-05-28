@@ -279,7 +279,7 @@ class TestRevenueCatSourcePipelineDispatch:
         manager.load_state.return_value = RevenueCatResumeConfig(endpoint="customers", starting_after="cus_50")
 
         response = source.source_for_pipeline(_config("k", "p"), manager, inputs)
-        list(response.items())
+        list(cast(Iterable[dict[str, str]], response.items()))
 
         kwargs = mock_iter.call_args.kwargs
         assert kwargs["starting_after"] == "cus_50"
@@ -297,7 +297,7 @@ class TestRevenueCatSourcePipelineDispatch:
         manager.load_state.return_value = RevenueCatResumeConfig(endpoint="products", starting_after="prod_10")
 
         response = source.source_for_pipeline(_config("k", "p"), manager, inputs)
-        list(response.items())
+        list(cast(Iterable[dict[str, str]], response.items()))
 
         kwargs = mock_iter.call_args.kwargs
         assert kwargs["starting_after"] is None
