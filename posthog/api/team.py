@@ -93,6 +93,7 @@ from products.feature_flags.backend.models.evaluation_context import (
     TeamDefaultEvaluationContext,
     normalize_context_name,
 )
+from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
 
 tracer = trace.get_tracer(__name__)
@@ -1702,6 +1703,44 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this environment."""
+        from rest_framework import serializers
+
+        class TeamLogsConfigSerializer(serializers.ModelSerializer):
+            logs_distinct_id_attribute_key = serializers.CharField(
+                max_length=200,
+                help_text=(
+                    "Log attribute key whose value should match a person's distinct_id. "
+                    "Used by the person profile Logs tab and the `query-logs` MCP tool. "
+                    "Defaults to 'posthogDistinctId' — the convention documented at "
+                    "https://posthog.com/docs/logs/link-session-replay and the key the "
+                    "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
+                    "your pipeline emits a different attribute."
+                ),
+            )
+
+            class Meta:
+                model = TeamLogsConfig
+                fields = ["logs_distinct_id_attribute_key"]
+
+        team = self.get_object()
+        config = get_or_create_team_extension(team, TeamLogsConfig)
+
+        if request.method == "PATCH":
+            serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return response.Response(serializer.data)
+
+        return response.Response(TeamLogsConfigSerializer(config).data)
 
     @action(
         methods=["GET", "PATCH"],
