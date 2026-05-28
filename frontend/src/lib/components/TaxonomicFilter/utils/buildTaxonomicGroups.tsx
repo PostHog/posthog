@@ -7,8 +7,7 @@ import {
     buildAutocaptureSeriesShortcuts,
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
     DataWarehousePopoverField,
     SimpleOption,
@@ -1001,32 +1000,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 'name' in item ? (item.name ?? null) : null,
             getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
         },
-        {
-            name: 'Recent',
-            searchPlaceholder: 'recent',
-            type: TaxonomicFilterGroupType.RecentFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: recentTaxonomicFiltersLogic,
-            value: 'recentFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Recent',
-        } as TaxonomicFilterGroup,
-        {
-            name: 'Pinned',
-            searchPlaceholder: 'pinned',
-            type: TaxonomicFilterGroupType.PinnedFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: taxonomicFilterPinnedPropertiesLogic,
-            value: 'pinnedFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Pinned',
-        } as TaxonomicFilterGroup,
+        ...RECENT_PINNED_TAB_DEFINITIONS,
         ...groupAnalyticsTaxonomicGroups,
         ...groupAnalyticsTaxonomicGroupNames,
     ]
