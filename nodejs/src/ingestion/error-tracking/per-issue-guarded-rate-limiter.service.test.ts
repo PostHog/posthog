@@ -194,6 +194,17 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(r[0][1].isRateLimited).toBe(true)
     })
 
+    it('allows the first N inputs of an over-budget single-scopeKey batch and denies the rest', async () => {
+        const limiter = build('partial-passthrough')
+        await cleanLimiter(limiter)
+
+        // bucketSize 3, refillRate 0 — five inputs sharing one scopeKey: first 3 pass, last 2 limited.
+        const requests = Array.from({ length: 5 }, () => req(42, 'shared', 1, { bucketSize: 3, refillRate: 0 }))
+        const res = await limiter.rateLimitGrouped(requests)
+
+        expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, false, true, true])
+    })
+
     it('throws when a request is missing teamId', async () => {
         const limiter = build('missing-team')
         await cleanLimiter(limiter)
