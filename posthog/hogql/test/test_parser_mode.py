@@ -16,30 +16,32 @@ from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode
 class TestParserMode(BaseTest):
     @parameterized.expand(
         [
-            (None, ("rust-py", "cpp-json")),
-            (ParserMode.CPP_ONLY, ("cpp-json", None)),
-            (ParserMode.RUST_ONLY, ("rust-json", None)),
-            (ParserMode.CPP_WITH_RUST_SHADOW, ("cpp-json", "rust-json")),
-            (ParserMode.CPP_WITH_RUST_PY_SHADOW, ("cpp-json", "rust-py")),
-            (ParserMode.RUST_WITH_CPP_SHADOW, ("rust-json", "cpp-json")),
-            (ParserMode.RUST_PY_ONLY, ("rust-py", None)),
-            (ParserMode.RUST_PY_WITH_CPP_SHADOW, ("rust-py", "cpp-json")),
+            # No mode + no explicit backend → new shadow default (rust-py primary, cpp shadow).
+            (None, None, ("rust-py", "cpp-json")),
+            # No mode + explicit backend → honour the explicit backend, no shadow.
+            (None, "cpp-json", ("cpp-json", None)),
+            (None, "rust-json", ("rust-json", None)),
+            (None, "rust-py", ("rust-py", None)),
+            (ParserMode.CPP_ONLY, None, ("cpp-json", None)),
+            (ParserMode.RUST_ONLY, None, ("rust-json", None)),
+            (ParserMode.CPP_WITH_RUST_SHADOW, None, ("cpp-json", "rust-json")),
+            (ParserMode.CPP_WITH_RUST_PY_SHADOW, None, ("cpp-json", "rust-py")),
+            (ParserMode.RUST_WITH_CPP_SHADOW, None, ("rust-json", "cpp-json")),
+            (ParserMode.RUST_PY_ONLY, None, ("rust-py", None)),
+            (ParserMode.RUST_PY_WITH_CPP_SHADOW, None, ("rust-py", "cpp-json")),
         ]
     )
-    def test_resolve_parser_mode(self, mode, expected):
-        self.assertEqual(_resolve_parser_mode(mode, "cpp-json"), expected)
-
-    def test_resolve_parser_mode_honours_explicit_backend_when_modifier_absent(self):
-        self.assertEqual(_resolve_parser_mode(None, "rust-json"), ("rust-json", None))
+    def test_resolve_parser_mode(self, mode, backend, expected):
+        self.assertEqual(_resolve_parser_mode(mode, backend), expected)
 
     def test_resolve_parser_mode_default_shadows_in_prod_not_only_in_test(self):
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
-            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("rust-py", "cpp-json"))
+            self.assertEqual(_resolve_parser_mode(None, None), ("rust-py", "cpp-json"))
 
     def test_resolve_parser_mode_drops_shadow_when_rust_unavailable(self):
         with patch("posthog.hogql.parser._RUST_PARSER_AVAILABLE", False):
-            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", None))
+            self.assertEqual(_resolve_parser_mode(None, None), ("cpp-json", None))
 
     def test_shadow_silent_when_backends_agree(self):
         with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):

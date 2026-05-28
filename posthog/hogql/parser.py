@@ -252,31 +252,35 @@ def _shadow_sample_rate() -> float:
 
 
 def _resolve_parser_mode(
-    parser_mode: ParserMode | None, backend: HogQLParserBackend
+    parser_mode: ParserMode | None, backend: HogQLParserBackend | None
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    An absent modifier defaults to `RUST_PY_WITH_CPP_SHADOW`: rust-py is the
-    primary (its result is always returned) and cpp runs as the shadow,
-    sampled per `_shadow_sample_rate` (100% in test, 0.1% in prod). The
-    divergence behavior differs by environment downstream
-    (`_run_shadow_comparison`): TEST raises on any mismatch, prod only
-    reports it (never failing the request).
+    With neither `parser_mode` nor an explicit `backend=` set, the default is
+    `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result is always
+    returned) and cpp runs as the shadow, sampled per `_shadow_sample_rate`
+    (100% in test, 0.1% in prod). The divergence behavior differs by
+    environment downstream (`_run_shadow_comparison`): TEST raises on any
+    mismatch, prod only reports it (never failing the request).
 
     If the rust wheel failed to import (`_RUST_PARSER_AVAILABLE` is False)
     the default falls back to cpp-only, so a broken wheel can't take the
     parse path down; the unavailability is reported once at import time.
 
     An explicit `backend=` override (test factories / parity scripts) is
-    honoured untouched and bypasses the shadow. Resolution happens here at
-    the call site and is never written back onto the modifier, so the query
-    hash is unaffected.
+    honoured untouched and bypasses the shadow — this includes
+    `backend="cpp-json"`, which must NOT collapse into the default shadow
+    pair because tests rely on it to opt into cpp-only parsing.
+    Resolution happens here at the call site and is never written back
+    onto the modifier, so the query hash is unaffected.
     """
-    if parser_mode is None:
-        if backend == DEFAULT_BACKEND and _RUST_PARSER_AVAILABLE:
-            return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
+    if parser_mode is not None:
+        return _PARSER_MODE_BACKENDS[parser_mode]
+    if backend is not None:
         return backend, None
-    return _PARSER_MODE_BACKENDS[parser_mode]
+    if _RUST_PARSER_AVAILABLE:
+        return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
+    return DEFAULT_BACKEND, None
 
 
 class HogQLParserShadowMismatch(Exception):
@@ -565,7 +569,7 @@ def parse_string_template(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Call:
@@ -598,7 +602,7 @@ def parse_expr(
     start: int | None = 0,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Expr:
@@ -622,7 +626,7 @@ def parse_order_expr(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.OrderExpr:
@@ -644,7 +648,7 @@ def parse_select(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -666,7 +670,7 @@ def parse_program(
     source: str,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Program:
