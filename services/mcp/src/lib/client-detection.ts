@@ -59,6 +59,10 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'aider',
     'copilot',
     'gemini-cli',
+    // Notion AI ships its own `notion-mcp-client` (not a coding agent per se,
+    // but an LLM-driven consumer that benefits from the same single-exec mode
+    // and formatted-text rendering as coding agents).
+    'notion',
 ] as const
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
@@ -67,14 +71,16 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // emission in single-exec mode. Slack-launched runs send `"slack"` instead.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
-// OAuth application names (from token introspection) for vibe-coding platforms
-// that should default to single-exec mode. These match against the OAuth
+// OAuth application names (from token introspection) for upstream tools that
+// should default to single-exec mode. These match against the OAuth
 // `client_name` (the registered OAuth app name in PostHog), not the MCP
-// `clientInfo.name` self-report — those platforms typically connect through a
+// `clientInfo.name` self-report — many of these platforms connect through a
 // generic MCP client wrapper, so the OAuth name is what reliably identifies
 // the upstream tool. Substring match is case-insensitive and separator-agnostic
 // so "Lovable", "Lovable.dev", "Replit", and "Replit Agent" all resolve.
-export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit'] as const
+// Notion is included here because a sizeable share of sessions only carry the
+// OAuth name without the `notion-mcp-client` self-report.
+export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'notion'] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
