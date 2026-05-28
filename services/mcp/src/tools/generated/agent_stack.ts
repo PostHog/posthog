@@ -146,6 +146,29 @@ const agentApplicationsPartialUpdate = (): ToolBase<
     },
 })
 
+const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true }).extend(
+    AgentApplicationsPreviewProxyQueryParams.shape
+)
+
+const agentApplicationsPreviewProxy = (): ToolBase<
+    typeof AgentApplicationsPreviewProxySchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-preview-proxy',
+    schema: AgentApplicationsPreviewProxySchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewProxySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview-proxy/${encodeURIComponent(String(params.rest))}/`,
+            query: {
+                revision_id: params.revision_id,
+            },
+        })
+        return result
+    },
+})
+
 const AgentApplicationsRetrieveSchema = AgentApplicationsRetrieveParams.omit({ project_id: true })
 
 const agentApplicationsRetrieve = (): ToolBase<typeof AgentApplicationsRetrieveSchema, Schemas.AgentApplication> => ({
@@ -540,29 +563,6 @@ const agentApplicationsRevisionsValidateCreate = (): ToolBase<
     },
 })
 
-const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true }).extend(
-    AgentApplicationsPreviewProxyQueryParams.shape
-)
-
-const agentApplicationsPreviewProxy = (): ToolBase<
-    typeof AgentApplicationsPreviewProxySchema,
-    Schemas.AgentApplication
-> => ({
-    name: 'agent-applications-preview-proxy',
-    schema: AgentApplicationsPreviewProxySchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewProxySchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentApplication>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview-proxy/${encodeURIComponent(String(params.rest))}/`,
-            query: {
-                revision_id: params.revision_id,
-            },
-        })
-        return result
-    },
-})
-
 const AgentApplicationsSessionsListSchema = AgentApplicationsSessionsListParams.omit({ project_id: true }).extend(
     AgentApplicationsSessionsListQueryParams.shape
 )
@@ -663,6 +663,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-destroy': agentApplicationsDestroy,
     'agent-applications-list': agentApplicationsList,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
+    'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-retrieve': agentApplicationsRetrieve,
     'agent-applications-revisions-archive-create': agentApplicationsRevisionsArchiveCreate,
     'agent-applications-revisions-bundle-retrieve': agentApplicationsRevisionsBundleRetrieve,
@@ -680,7 +681,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-promote-create': agentApplicationsRevisionsPromoteCreate,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
     'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
-    'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
     'agent-applications-set-env-create': agentApplicationsSetEnvCreate,
