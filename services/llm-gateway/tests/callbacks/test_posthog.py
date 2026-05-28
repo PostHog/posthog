@@ -255,6 +255,58 @@ class TestPostHogCallback:
         assert callback.callback_name == "posthog"
 
     @pytest.mark.asyncio
+    async def test_on_success_emits_cache_tokens_when_present(
+        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-sonnet-4-6",
+                "custom_llm_provider": "anthropic",
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "metadata": {
+                    "usage_object": {
+                        "cache_read_input_tokens": 60,
+                        "cache_creation_input_tokens": 30,
+                    },
+                },
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        assert props["$ai_cache_read_input_tokens"] == 60
+        assert props["$ai_cache_creation_input_tokens"] == 30
+
+    @pytest.mark.asyncio
+    async def test_on_success_omits_cache_tokens_when_absent(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        assert "$ai_cache_read_input_tokens" not in props
+        assert "$ai_cache_creation_input_tokens" not in props
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("product", ["wizard", "posthog_code", "llm_gateway"])
     async def test_on_success_includes_ai_product(
         self,
