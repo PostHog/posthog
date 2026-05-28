@@ -17,6 +17,7 @@ import {
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
+import { ingestionConsumerService } from '../ingestion/common/common-ingestion-consumer'
 import {
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
@@ -278,12 +279,9 @@ export class IngestionGeneralServer implements NodeServer {
                               INGESTION_CONSUMER_GROUP_ID: override.groupId,
                           }
                         : this.config
-                    const consumer = createClientWarningsConsumer(
-                        { ...this.config, ...consumerConfig },
-                        sharedServicesScope
-                    )
-                    await consumer.start()
-                    return consumer.service
+                    const consumerScope = createClientWarningsConsumer(consumerConfig, sharedServicesScope)
+                    const { consumer, stop } = await consumerScope.start()
+                    return ingestionConsumerService(consumer, stop)
                 })
             }
 

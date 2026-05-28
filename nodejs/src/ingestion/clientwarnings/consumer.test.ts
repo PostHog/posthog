@@ -1,7 +1,6 @@
 import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { TeamManagerScope } from '../../utils/team-manager'
-import { CommonIngestionConsumer } from '../common/common-ingestion-consumer'
 import { ProducerName } from '../common/outputs'
 import { newScopeBuilder } from '../common/service-registry'
 import { IngestionOutputsConfig } from '../config'
@@ -24,9 +23,9 @@ describe('createClientWarningsConsumer', () => {
     }
 
     function makeSharedScope(): ClientWarningsSharedScope {
-        // The consumer factory chains off this lifecycle but doesn't start
-        // it (start happens inside `consumer.start()`), so the shape only
-        // has to be type-correct — the Managers' bodies don't run.
+        // The consumer factory extends this scope but doesn't start it
+        // (start happens at the caller), so the shape only has to be
+        // type-correct — the Managers' bodies don't run.
         return newScopeBuilder()
             .register('postgres', {
                 start: () => Promise.resolve({ value: {} as PostgresRouter, stop: () => Promise.resolve() }),
@@ -55,24 +54,12 @@ describe('createClientWarningsConsumer', () => {
         })
     })
 
-    it('returns a CommonIngestionConsumer', () => {
-        const consumer = createClientWarningsConsumer(makeConfig(), makeSharedScope())
-        expect(consumer).toBeInstanceOf(CommonIngestionConsumer)
-    })
-
-    it('defers pipeline construction until start time', () => {
+    it('defers pipeline construction until scope.start()', () => {
         createClientWarningsConsumer(makeConfig(), makeSharedScope())
 
-        // The pipeline factory runs inside `consumer.start()`, after the
-        // lifecycle's services come up — not at consumer construction time.
+        // The pipeline factory runs inside the extend callback at start
+        // time, after the scope's services come up — not at consumer
+        // construction time.
         expect(pipelineModule.createClientWarningsPipeline).not.toHaveBeenCalled()
-    })
-
-    it('exposes a service descriptor whose id derives from the configured topic', () => {
-        const consumer = createClientWarningsConsumer(
-            { ...makeConfig(), INGESTION_CONSUMER_CONSUME_TOPIC: 'client_warnings' },
-            makeSharedScope()
-        )
-        expect(consumer.service.id).toBe('ingestion-consumer-client_warnings')
     })
 })

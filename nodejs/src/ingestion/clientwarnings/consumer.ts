@@ -2,7 +2,7 @@ import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { EventIngestionRestrictionManagerScope } from '../../utils/event-ingestion-restrictions'
 import { TeamManager } from '../../utils/team-manager'
-import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from '../common/common-ingestion-consumer'
+import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '../common/common-ingestion-consumer'
 import { EventFilterManager } from '../common/event-filters'
 import { ProducerName } from '../common/outputs'
 import { Scope } from '../common/service-registry'
@@ -44,5 +44,8 @@ export function createClientWarningsConsumer(
             )
     )
 
-    return new CommonIngestionConsumer(config, scope, ({ container }) => createClientWarningsPipeline(container))
+    const name = `ingestion-consumer-${config.INGESTION_CONSUMER_CONSUME_TOPIC}`
+    return new CommonIngestionConsumerScope(name, config, scope, ({ container }) =>
+        createClientWarningsPipeline(container)
+    )
 }
