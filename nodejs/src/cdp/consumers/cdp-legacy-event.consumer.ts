@@ -411,8 +411,18 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             })
 
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
+                // Phase 1: Filter webhook events and warm the group type cache
+                // sequentially, before the parallel storm starts. This ensures
+                // the gRPC call for group types completes while the event loop
+                // is clear — otherwise Track 2's thousands of concurrent
+                // promises delay HTTP/2 DATA frame flushes by ~400ms.
+                const webhookEvents = await this.legacyWebhookService.filterAndPrefetchGroups(messages)
+
+                // Phase 2: Run enrichment + webhooks and plugin processing in
+                // parallel. The group type cache is warm, so no gRPC calls
+                // happen during the microtask storm.
                 const [webhookBatch, pluginBatch] = await Promise.all([
-                    this.legacyWebhookService.processBatch(messages),
+                    this.legacyWebhookService.enrichAndProcess(webhookEvents),
                     this._parseKafkaBatch(messages).then((invocations) => this.processBatch(invocations)),
                 ])
                 return {

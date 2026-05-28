@@ -96,6 +96,11 @@ describe('LegacyWebhookService', () => {
         jest.clearAllMocks()
     })
 
+    async function processBatch(svc: LegacyWebhookService, messages: Message[]) {
+        const events = await svc.filterAndPrefetchGroups(messages)
+        return svc.enrichAndProcess(events)
+    }
+
     describe('processBatch', () => {
         it('should parse events for teams with both webhooks and zapier', async () => {
             service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
@@ -103,7 +108,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(service['actionMatcher'].hasWebhooks).toHaveBeenCalledWith(team.id)
@@ -119,7 +124,7 @@ describe('LegacyWebhookService', () => {
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(service.processEvent).not.toHaveBeenCalled()
@@ -132,7 +137,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(service.processEvent).not.toHaveBeenCalled()
@@ -145,7 +150,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(service.processEvent).not.toHaveBeenCalled()
@@ -161,7 +166,7 @@ describe('LegacyWebhookService', () => {
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(service.processEvent).toHaveBeenCalledTimes(1)
@@ -193,7 +198,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(processEventSpy).toHaveBeenCalledTimes(1)
@@ -223,7 +228,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(processEventSpy).toHaveBeenCalledTimes(1)
@@ -256,7 +261,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await service.processBatch(messages)
+            const result = await processBatch(service, messages)
             await result.backgroundTask
 
             expect(processEventSpy).toHaveBeenCalledTimes(2)
@@ -510,7 +515,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await personhogService.processBatch(messages)
+            const result = await processBatch(personhogService, messages)
             await result.backgroundTask
 
             expect(processEventSpy).toHaveBeenCalledTimes(1)

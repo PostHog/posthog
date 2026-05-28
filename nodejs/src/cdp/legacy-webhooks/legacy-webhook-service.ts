@@ -98,28 +98,62 @@ export class LegacyWebhookService {
         )
     }
 
-    public async processBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
-        const eventsWithoutGroups: PostIngestionEvent[] = []
+    /**
+     * Filter messages to webhook-eligible events and warm the group type
+     * cache. This runs sequentially to avoid flooding the microtask queue —
+     * both checks (hasWebhooks, hasAvailableFeature) are sync or cached, and
+     * the gRPC call for group types needs a clear event loop to flush its
+     * HTTP/2 DATA frame promptly.
+     */
+    public async filterAndPrefetchGroups(messages: Message[]): Promise<PostIngestionEvent[]> {
+        const events: PostIngestionEvent[] = []
 
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+        for (const message of messages) {
+            try {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                    if (
-                        !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
-                        !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
-                    ) {
-                        return
-                    }
-
-                    eventsWithoutGroups.push(convertToPostIngestionEvent(clickHouseEvent))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                if (
+                    !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
+                    !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
+                ) {
+                    continue
                 }
-            })
-        )
+
+                events.push(convertToPostIngestionEvent(clickHouseEvent))
+            } catch (e) {
+                logger.error('Error parsing message', e)
+                counterParseError.labels({ error: e.message }).inc()
+            }
+        }
+
+        if (events.length > 0) {
+            // Warm the group type cache so the enrichment step hits cache
+            // instead of making gRPC calls during the parallel processing storm.
+            // Best-effort: if this fails, enrichAndProcess will retry and handle
+            // the error with its own fallback logic.
+            try {
+                const projectIds = new Set(events.map((e) => e.projectId))
+                await this.groupTypeManager.fetchGroupTypesForProjects(projectIds)
+            } catch (e) {
+                logger.warn('Group type prefetch failed, enrichment will retry', e)
+            }
+        }
+
+        return events
+    }
+
+    /**
+     * Enrich filtered events with group properties and fire webhooks.
+     * Designed to run in parallel with other batch processing — the group
+     * type cache was warmed by filterAndPrefetchGroups, so no gRPC calls
+     * are made here.
+     */
+    public async enrichAndProcess(
+        eventsWithoutGroups: PostIngestionEvent[]
+    ): Promise<{ backgroundTask: Promise<any> }> {
+        if (eventsWithoutGroups.length === 0) {
+            return { backgroundTask: Promise.resolve() }
+        }
 
         let events: PostIngestionEvent[]
         try {
