@@ -341,3 +341,66 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
     def __str__(self):
         metric_uuid = self.metric.get("uuid", "unknown")
         return f"ExperimentTimeseriesRecalculation(exp={self.experiment_id}, metric={metric_uuid}, fingerprint={self.fingerprint}, status={self.status})"
+
+
+class ExperimentMetricsRecalculation(UUIDModel):
+    """Tracks batch recalculation of all metrics for an experiment.
+
+    The primary key (`id`, a uuid7 from UUIDModel) is the recalculation_id passed to the workflow and folded into
+    each result's per-run recalc fingerprint (sha256(config_fp + str(id))).
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
+        EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
+        EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
+    total_metrics = models.PositiveIntegerField(default=0)
+    completed_metrics = models.PositiveIntegerField(default=0)
+    failed_metrics = models.PositiveIntegerField(default=0)
+    errors = models.JSONField(default=dict)
+    metric_uuids = models.JSONField(default=list)
+
+    # Single data-window end shared by all metrics in the run. Set once when the run starts; every metric (including
+    # retries) uses this value so all metrics cover the same window and retries overwrite rather than orphan rows.
+    query_to = models.DateTimeField(null=True, blank=True)
+
+    trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["experiment", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["experiment"],
+                condition=models.Q(status__in=["pending", "in_progress"]),
+                name="unique_active_metrics_recalculation_per_experiment",
+            ),
+        ]
+        db_table = "posthog_experimentmetricsrecalculation"
+
+    def __str__(self):
+        return f"ExperimentMetricsRecalculation(exp={self.experiment_id}, status={self.status}, {self.completed_metrics}/{self.total_metrics})"
