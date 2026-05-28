@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconTrash } from '@posthog/icons'
+import { IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -48,6 +48,18 @@ export function IntegrationView({
 
     suffix = suffix || (
         <div className="flex flex-row gap-2">
+            <LemonButton
+                type="secondary"
+                to={api.integrations.authorizeUrl({
+                    kind: integration.kind,
+                    next: window.location.pathname,
+                })}
+                disableClientSideRouting
+                icon={<IconRefresh />}
+                disabledReason={restrictedReason}
+            >
+                Reconnect
+            </LemonButton>
             <LemonButton
                 type="secondary"
                 status="danger"
