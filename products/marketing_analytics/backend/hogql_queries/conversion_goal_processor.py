@@ -379,7 +379,13 @@ class ConversionGoalProcessor:
             time_range_start=date_from,
             time_range_end=date_to,
             ttl_seconds={
-                "0d": 15 * 60,
+                # "today" is the only volatile window, but a 15-minute TTL re-materializes it on
+                # nearly every dashboard view (views are typically further apart than 15 min), so the
+                # cache rarely fully hits for recent ranges while still paying the (blocking)
+                # materialization cost. Production logs show ~38% of executions are partial_hits
+                # averaging ~35s, dominated by re-materializing "today". Ad spend / conversions are
+                # not minute-fresh, so 1h trades negligible staleness for far fewer cold re-computes.
+                "0d": 60 * 60,
                 "1d": 60 * 60,
                 "7d": 24 * 60 * 60,
                 "default": 7 * 24 * 60 * 60,
