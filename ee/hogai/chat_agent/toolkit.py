@@ -22,6 +22,7 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
     CreateNotebookTool,
+    EditNotebookTool,
     ListDataTool,
     ManageMemoriesTool,
     ReadDataTool,
@@ -51,6 +52,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     SwitchModeTool,
     CreateFormTool,
     CreateNotebookTool,
+    EditNotebookTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [

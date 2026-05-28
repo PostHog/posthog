@@ -1,0 +1,641 @@
+import copy
+import uuid
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal, cast
+
+from django.utils.timezone import now
+
+from asgiref.sync import sync_to_async
+from pydantic import BaseModel, Field, model_validator
+
+from posthog.schema import AssistantTool, MaxUIContext
+
+from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.python_analysis import annotate_python_nodes
+
+from ee.hogai.artifacts.types import VisualizationRefBlock
+from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
+from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, markdown_to_tiptap_nodes
+from ee.models.assistant import AgentArtifact
+
+EDIT_NOTEBOOK_PROMPT = """
+Use this tool to edit an existing saved notebook. Prefer it whenever the user asks you to change, update, append to, or replace content in a notebook they are viewing or have referenced.
+
+This tool applies anchored edits to the latest notebook content through the same collaboration save path used by the notebook editor. Open notebook pages receive the change live.
+
+# When to use this instead of create_notebook
+- The user asks to modify an existing notebook.
+- The user asks to replace a placeholder block in the current notebook.
+- Notebook context contains instructions like "replace this block", "add an insight here", or "fill this in".
+- You created an insight and now need to place it into the notebook.
+
+# Targeting notebooks
+- If the user is viewing a notebook, you may omit `short_id`; the current notebook from UI context will be used.
+- If multiple notebooks are in context, provide the exact `short_id`.
+
+# Inserting insights
+Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
+
+Example:
+{
+  "edits": [
+    {
+      "type": "replace_block",
+      "anchor": "replace this block with an insight showing number of active users last 30 days",
+      "content": "<insight>abc123</insight>"
+    }
+  ]
+}
+
+# Edit operations
+- `replace_block`: replace the whole top-level notebook block containing exact anchor text. Use this for placeholders.
+- `insert_after`, `insert_before`, `insert_after_heading`, `insert_between`: insert content around exact text anchors.
+- `append`: add content to the end of the notebook.
+- `replace_text`: replace exact text within text nodes only.
+
+Use exact anchors copied from notebook context. Do not use create_notebook to edit a saved notebook.
+""".strip()
+
+
+ProseMirrorNode = dict[str, Any]
+ProseMirrorDoc = dict[str, Any]
+ReplaceStep = dict[str, Any]
+
+LEAF_NODE_TYPES = {"hardBreak", "horizontalRule"}
+MAX_TEXT_REPLACEMENTS = 100
+
+
+class InsertContentArgs(BaseModel):
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Text or simple Markdown to insert. Supports <insight>artifact_id</insight> tags for visualization "
+            "artifacts. Provide either content or nodes, not both."
+        ),
+    )
+    content_format: Literal["markdown", "plain_text"] = Field(
+        default="markdown",
+        description="How to turn content into notebook blocks. Markdown supports headings, lists, code, and insight tags.",
+    )
+    nodes: list[ProseMirrorNode] | None = Field(
+        default=None,
+        description="Advanced escape hatch: one or more raw ProseMirror JSON nodes to insert.",
+    )
+
+    @model_validator(mode="after")
+    def validate_content_or_nodes(self) -> "InsertContentArgs":
+        if self.content is not None and self.nodes is not None:
+            raise ValueError("Provide either content or nodes, not both.")
+        if self.content is None and self.nodes is None:
+            raise ValueError("Provide content or nodes.")
+        if self.nodes is not None and len(self.nodes) == 0:
+            raise ValueError("Provide at least one node.")
+        if self.content is not None and not self.content.strip():
+            raise ValueError("Notebook edit content must include non-empty text.")
+        return self
+
+
+class AppendEdit(InsertContentArgs):
+    type: Literal["append"] = "append"
+
+
+class InsertAfterHeadingEdit(InsertContentArgs):
+    type: Literal["insert_after_heading"] = "insert_after_heading"
+    heading: str = Field(description="Exact plain-text heading to insert after.")
+    occurrence: int = Field(default=1, ge=1, description="Which matching heading to use.")
+
+
+class InsertAfterEdit(InsertContentArgs):
+    type: Literal["insert_after"] = "insert_after"
+    anchor: str = Field(description="Exact text anchor. Inserts after the top-level block containing it.")
+    occurrence: int = Field(default=1, ge=1, description="Which matching anchor to use.")
+
+
+class InsertBeforeEdit(InsertContentArgs):
+    type: Literal["insert_before"] = "insert_before"
+    anchor: str = Field(description="Exact text anchor. Inserts before the top-level block containing it.")
+    occurrence: int = Field(default=1, ge=1, description="Which matching anchor to use.")
+
+
+class InsertBetweenEdit(InsertContentArgs):
+    type: Literal["insert_between"] = "insert_between"
+    after: str = Field(description="Exact text anchor in the block before the insertion point.")
+    before: str = Field(description="Exact text anchor in a later block before which content is inserted.")
+    after_occurrence: int = Field(default=1, ge=1, description="Which matching after anchor to use.")
+    before_occurrence: int = Field(default=1, ge=1, description="Which matching before anchor to use.")
+
+
+class ReplaceBlockEdit(InsertContentArgs):
+    type: Literal["replace_block"] = "replace_block"
+    anchor: str = Field(description="Exact text anchor inside the top-level block to replace.")
+    occurrence: int = Field(default=1, ge=1, description="Which matching anchor to replace.")
+
+
+class ReplaceTextEdit(BaseModel):
+    type: Literal["replace_text"] = "replace_text"
+    find: str = Field(description="Exact text to find inside a single text node.")
+    replace: str = Field(description="Replacement text. Use an empty string to delete the matching text.")
+    all_occurrences: bool = Field(default=False, description="Replace every exact match instead of only the first.")
+
+
+NotebookEdit = Annotated[
+    AppendEdit
+    | InsertAfterHeadingEdit
+    | InsertAfterEdit
+    | InsertBeforeEdit
+    | InsertBetweenEdit
+    | ReplaceBlockEdit
+    | ReplaceTextEdit,
+    Field(discriminator="type"),
+]
+
+
+class EditNotebookToolArgs(BaseModel):
+    short_id: str | None = Field(
+        default=None,
+        description="Short ID of the notebook to edit. Omit only when exactly one notebook is in UI context.",
+    )
+    edits: list[NotebookEdit] = Field(description="Ordered notebook edits to apply.", min_length=1)
+    title: str | None = Field(default=None, description="Optional notebook title update to save with the edit.")
+    max_retries: int = Field(default=3, ge=0, le=5, description="How many times to retry after collab conflicts.")
+
+
+@dataclass
+class TextMatch:
+    from_pos: int
+    to_pos: int
+    node: ProseMirrorNode
+    parent: ProseMirrorNode | ProseMirrorDoc | None
+    child_index: int | None
+    start_index: int
+
+
+class EditPlan(BaseModel):
+    content: ProseMirrorDoc
+    steps: list[ReplaceStep]
+    text_content: str
+
+
+def clone_json[T](value: T) -> T:
+    return copy.deepcopy(value)
+
+
+def normalize_document(content: Any) -> ProseMirrorDoc:
+    if not isinstance(content, dict):
+        return {"type": "doc", "content": []}
+
+    cloned = clone_json(content)
+    raw_content = cloned.get("content")
+    return {
+        **cloned,
+        "type": "doc",
+        "content": [node for node in raw_content if isinstance(node, dict)] if isinstance(raw_content, list) else [],
+    }
+
+
+def node_size(node: ProseMirrorNode) -> int:
+    if node.get("type") == "text":
+        text = node.get("text")
+        return len(text) if isinstance(text, str) else 0
+
+    content = node.get("content")
+    if not isinstance(content, list):
+        node_type = node.get("type")
+        return 1 if isinstance(node_type, str) and (node_type.startswith("ph-") or node_type in LEAF_NODE_TYPES) else 2
+
+    return 2 + sum(node_size(cast(ProseMirrorNode, child)) for child in content if isinstance(child, dict))
+
+
+def document_content_size(doc: ProseMirrorDoc) -> int:
+    return sum(node_size(child) for child in doc.get("content", []) if isinstance(child, dict))
+
+
+def replace_step(from_pos: int, to_pos: int, content: list[ProseMirrorNode] | None = None) -> ReplaceStep:
+    step: ReplaceStep = {"stepType": "replace", "from": from_pos, "to": to_pos}
+    if content:
+        step["slice"] = {"content": clone_json(content)}
+    return step
+
+
+def text_content(node: ProseMirrorNode | ProseMirrorDoc) -> str:
+    if node.get("type") == "text":
+        text = node.get("text")
+        return text if isinstance(text, str) else ""
+
+    content = node.get("content")
+    if not isinstance(content, list):
+        return ""
+
+    child_text = [text_content(child) for child in content if isinstance(child, dict)]
+    child_text = [text for text in child_text if text]
+    if node.get("type") in {"bulletList", "orderedList", "listItem"}:
+        return "\n".join(child_text)
+    return "".join(child_text)
+
+
+def document_text_content(doc: ProseMirrorDoc) -> str:
+    return "\n".join(
+        text for text in [text_content(child) for child in doc.get("content", []) if isinstance(child, dict)] if text
+    )
+
+
+def top_level_position_before(doc: ProseMirrorDoc, index: int) -> int:
+    position = 0
+    for child in doc.get("content", [])[:index]:
+        if isinstance(child, dict):
+            position += node_size(child)
+    return position
+
+
+def top_level_position_after(doc: ProseMirrorDoc, index: int) -> int:
+    position = 0
+    for child in doc.get("content", [])[: index + 1]:
+        if isinstance(child, dict):
+            position += node_size(child)
+    return position
+
+
+def find_top_level_anchor_index(doc: ProseMirrorDoc, anchor: str, occurrence: int, start_index: int = 0) -> int | None:
+    matches = 0
+    for index, node in enumerate(doc.get("content", [])[start_index:], start=start_index):
+        if not isinstance(node, dict) or anchor not in text_content(node):
+            continue
+        matches += 1
+        if matches == occurrence:
+            return index
+    return None
+
+
+def resolve_insert_nodes(edit: InsertContentArgs, viz_lookup: dict[str, dict[str, Any]]) -> list[ProseMirrorNode]:
+    if edit.nodes is not None:
+        return clone_json(edit.nodes)
+
+    assert edit.content is not None
+    if edit.content_format == "plain_text":
+        return [
+            {"type": "paragraph", "content": [{"type": "text", "text": line.strip()}]}
+            for line in edit.content.replace("\r\n", "\n").split("\n")
+            if line.strip()
+        ]
+
+    blocks = parse_notebook_content_for_storage(edit.content)
+
+    def resolve_visualization(artifact_id: str) -> dict[str, Any] | None:
+        return viz_lookup.get(artifact_id)
+
+    return blocks_to_tiptap_doc(blocks, resolve_visualization=resolve_visualization).get("content", [])
+
+
+def apply_append_edit(doc: ProseMirrorDoc, nodes: list[ProseMirrorNode]) -> ReplaceStep:
+    position = document_content_size(doc)
+    inserted_nodes = clone_json(nodes)
+    doc["content"].extend(inserted_nodes)
+    return replace_step(position, position, inserted_nodes)
+
+
+def apply_insert_after_heading_edit(
+    doc: ProseMirrorDoc, heading: str, occurrence: int, nodes: list[ProseMirrorNode]
+) -> ReplaceStep:
+    matches = 0
+    for index, node in enumerate(doc.get("content", [])):
+        if not isinstance(node, dict) or node.get("type") != "heading" or text_content(node).strip() != heading.strip():
+            continue
+        matches += 1
+        if matches != occurrence:
+            continue
+
+        position = top_level_position_after(doc, index)
+        inserted_nodes = clone_json(nodes)
+        doc["content"][index + 1 : index + 1] = inserted_nodes
+        return replace_step(position, position, inserted_nodes)
+
+    raise MaxToolRetryableError(f'Could not find heading "{heading}" in the notebook.')
+
+
+def apply_insert_after_edit(
+    doc: ProseMirrorDoc, anchor: str, occurrence: int, nodes: list[ProseMirrorNode]
+) -> ReplaceStep:
+    index = find_top_level_anchor_index(doc, anchor, occurrence)
+    if index is None:
+        raise MaxToolRetryableError(f'Could not find text "{anchor}" in the notebook.')
+
+    position = top_level_position_after(doc, index)
+    inserted_nodes = clone_json(nodes)
+    doc["content"][index + 1 : index + 1] = inserted_nodes
+    return replace_step(position, position, inserted_nodes)
+
+
+def apply_insert_before_edit(
+    doc: ProseMirrorDoc, anchor: str, occurrence: int, nodes: list[ProseMirrorNode]
+) -> ReplaceStep:
+    index = find_top_level_anchor_index(doc, anchor, occurrence)
+    if index is None:
+        raise MaxToolRetryableError(f'Could not find text "{anchor}" in the notebook.')
+
+    position = top_level_position_before(doc, index)
+    inserted_nodes = clone_json(nodes)
+    doc["content"][index:index] = inserted_nodes
+    return replace_step(position, position, inserted_nodes)
+
+
+def apply_insert_between_edit(
+    doc: ProseMirrorDoc,
+    after: str,
+    before: str,
+    after_occurrence: int,
+    before_occurrence: int,
+    nodes: list[ProseMirrorNode],
+) -> ReplaceStep:
+    after_index = find_top_level_anchor_index(doc, after, after_occurrence)
+    if after_index is None:
+        raise MaxToolRetryableError(f'Could not find text "{after}" in the notebook.')
+
+    before_index = find_top_level_anchor_index(doc, before, before_occurrence, after_index + 1)
+    if before_index is None:
+        raise MaxToolRetryableError(f'Could not find text "{before}" after "{after}" in the notebook.')
+
+    position = top_level_position_before(doc, before_index)
+    inserted_nodes = clone_json(nodes)
+    doc["content"][before_index:before_index] = inserted_nodes
+    return replace_step(position, position, inserted_nodes)
+
+
+def apply_replace_block_edit(
+    doc: ProseMirrorDoc, anchor: str, occurrence: int, nodes: list[ProseMirrorNode]
+) -> ReplaceStep:
+    index = find_top_level_anchor_index(doc, anchor, occurrence)
+    if index is None:
+        raise MaxToolRetryableError(f'Could not find text "{anchor}" in the notebook.')
+
+    from_pos = top_level_position_before(doc, index)
+    to_pos = top_level_position_after(doc, index)
+    inserted_nodes = clone_json(nodes)
+    doc["content"][index : index + 1] = inserted_nodes
+    return replace_step(from_pos, to_pos, inserted_nodes)
+
+
+def find_text_match(
+    node: ProseMirrorNode | ProseMirrorDoc,
+    find: str,
+    position: int,
+    parent: ProseMirrorNode | ProseMirrorDoc | None = None,
+    child_index: int | None = None,
+) -> TextMatch | None:
+    if node.get("type") == "text":
+        text = node.get("text")
+        if not isinstance(text, str):
+            return None
+        start_index = text.find(find)
+        if start_index == -1:
+            return None
+        return TextMatch(
+            from_pos=position + start_index,
+            to_pos=position + start_index + len(find),
+            node=node,
+            parent=parent,
+            child_index=child_index,
+            start_index=start_index,
+        )
+
+    content = node.get("content")
+    if not isinstance(content, list):
+        return None
+
+    child_position = position if node.get("type") == "doc" else position + 1
+    for index, child in enumerate(content):
+        if not isinstance(child, dict):
+            continue
+        match = find_text_match(child, find, child_position, node, index)
+        if match:
+            return match
+        child_position += node_size(child)
+    return None
+
+
+def replacement_text_nodes(match: TextMatch, replacement: str) -> list[ProseMirrorNode]:
+    if not replacement:
+        return []
+
+    node: ProseMirrorNode = {"type": "text", "text": replacement}
+    marks = match.node.get("marks")
+    if isinstance(marks, list):
+        node["marks"] = clone_json(marks)
+    return [node]
+
+
+def apply_text_replacement(doc: ProseMirrorDoc, find: str, replacement: str) -> ReplaceStep | None:
+    match = find_text_match(doc, find, 0)
+    if not match:
+        return None
+
+    text = match.node.get("text")
+    if not isinstance(text, str):
+        return None
+
+    match.node["text"] = f"{text[: match.start_index]}{replacement}{text[match.start_index + len(find) :]}"
+    if (
+        not match.node["text"]
+        and match.parent
+        and match.child_index is not None
+        and isinstance(match.parent.get("content"), list)
+    ):
+        match.parent["content"].pop(match.child_index)
+
+    return replace_step(match.from_pos, match.to_pos, replacement_text_nodes(match, replacement))
+
+
+def apply_replace_text_edit(
+    doc: ProseMirrorDoc, find: str, replacement: str, all_occurrences: bool
+) -> list[ReplaceStep]:
+    steps: list[ReplaceStep] = []
+    while True:
+        step = apply_text_replacement(doc, find, replacement)
+        if not step:
+            break
+        steps.append(step)
+        if not all_occurrences:
+            break
+        if len(steps) >= MAX_TEXT_REPLACEMENTS:
+            raise MaxToolRetryableError(
+                f'Stopped after {MAX_TEXT_REPLACEMENTS} replacements for "{find}". Narrow the edit target.'
+            )
+
+    if not steps:
+        raise MaxToolRetryableError(f'Could not find text "{find}" in the notebook.')
+    return steps
+
+
+def apply_notebook_edit(
+    doc: ProseMirrorDoc, edit: NotebookEdit, viz_lookup: dict[str, dict[str, Any]]
+) -> list[ReplaceStep]:
+    if isinstance(edit, AppendEdit):
+        return [apply_append_edit(doc, resolve_insert_nodes(edit, viz_lookup))]
+    if isinstance(edit, InsertAfterHeadingEdit):
+        return [
+            apply_insert_after_heading_edit(doc, edit.heading, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))
+        ]
+    if isinstance(edit, InsertAfterEdit):
+        return [apply_insert_after_edit(doc, edit.anchor, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))]
+    if isinstance(edit, InsertBeforeEdit):
+        return [apply_insert_before_edit(doc, edit.anchor, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))]
+    if isinstance(edit, InsertBetweenEdit):
+        return [
+            apply_insert_between_edit(
+                doc,
+                edit.after,
+                edit.before,
+                edit.after_occurrence,
+                edit.before_occurrence,
+                resolve_insert_nodes(edit, viz_lookup),
+            )
+        ]
+    if isinstance(edit, ReplaceBlockEdit):
+        return [apply_replace_block_edit(doc, edit.anchor, edit.occurrence, resolve_insert_nodes(edit, viz_lookup))]
+    if isinstance(edit, ReplaceTextEdit):
+        return apply_replace_text_edit(doc, edit.find, edit.replace, edit.all_occurrences)
+
+    raise MaxToolRetryableError("Unsupported notebook edit type.")
+
+
+def referenced_visualization_ids(edits: list[NotebookEdit]) -> list[str]:
+    ref_ids: list[str] = []
+    for edit in edits:
+        if not isinstance(edit, InsertContentArgs) or edit.content is None:
+            continue
+        blocks = parse_notebook_content_for_storage(edit.content)
+        ref_ids.extend(block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock))
+    return ref_ids
+
+
+async def build_visualization_lookup(team_id: int, ref_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not ref_ids:
+        return {}
+
+    viz_lookup: dict[str, dict[str, Any]] = {}
+    async for viz_artifact in AgentArtifact.objects.filter(short_id__in=ref_ids, team_id=team_id):
+        data = viz_artifact.data
+        if data.get("content_type") != "visualization":
+            continue
+        query = data.get("query")
+        if not isinstance(query, dict):
+            continue
+        kind = query.get("kind", "")
+        if kind == "DataVisualizationNode":
+            notebook_query = query
+        elif kind == "HogQLQuery" or "HogQL" in kind:
+            notebook_query = {"kind": "DataVisualizationNode", "source": query}
+        else:
+            notebook_query = {"kind": "InsightVizNode", "source": query}
+        viz_lookup[viz_artifact.short_id] = {"query": notebook_query, "name": data.get("name")}
+    return viz_lookup
+
+
+def build_edit_plan(content: Any, edits: list[NotebookEdit], viz_lookup: dict[str, dict[str, Any]]) -> EditPlan:
+    doc = normalize_document(content)
+    steps: list[ReplaceStep] = []
+    for edit in edits:
+        steps.extend(apply_notebook_edit(doc, edit, viz_lookup))
+
+    return EditPlan(content=doc, steps=steps, text_content=document_text_content(doc))
+
+
+def markdown_to_plain_text(markdown: str) -> str:
+    doc = {"type": "doc", "content": markdown_to_tiptap_nodes(markdown)}
+    return document_text_content(doc)
+
+
+class EditNotebookTool(MaxTool):
+    name: Literal[AssistantTool.EDIT_NOTEBOOK] = AssistantTool.EDIT_NOTEBOOK
+    args_schema: type[BaseModel] = EditNotebookToolArgs
+    description: str = EDIT_NOTEBOOK_PROMPT
+
+    def _current_context_notebook_id(self) -> str | None:
+        ui_context = self._context_manager.get_ui_context(self._state)
+        if not isinstance(ui_context, MaxUIContext) or not ui_context.notebooks or len(ui_context.notebooks) != 1:
+            return None
+        return ui_context.notebooks[0].id
+
+    async def _get_notebook(self, short_id: str) -> Notebook:
+        try:
+            notebook = await Notebook.objects.aget(team=self._team, short_id=short_id, deleted=False)
+        except Notebook.DoesNotExist:
+            raise MaxToolRetryableError(f"Notebook with short_id={short_id} not found.")
+
+        await self.check_object_access(notebook, "editor", resource="notebook", action="edit")
+        return notebook
+
+    async def _save_plan(self, notebook: Notebook, plan: EditPlan, title: str | None) -> Notebook | None:
+        result = await sync_to_async(submit_steps, thread_sensitive=False)(
+            team_id=notebook.team_id,
+            notebook_id=str(notebook.short_id),
+            client_id=f"max-{uuid.uuid4()}",
+            steps_json=plan.steps,
+            last_seen_version=notebook.version,
+            last_saved_version=notebook.version,
+            user_id=self._user.pk,
+            user_name=self._user.get_full_name() or "PostHog AI",
+        )
+
+        if result.status != "accepted":
+            return None
+
+        await Notebook.objects.filter(pk=notebook.pk).aupdate(
+            content=annotate_python_nodes(plan.content),
+            text_content=plan.text_content,
+            title=title if title is not None else notebook.title,
+            version=result.version,
+            last_modified_at=now(),
+            last_modified_by=self._user,
+        )
+        return await Notebook.objects.aget(pk=notebook.pk)
+
+    async def _update_title_only(self, notebook: Notebook, title: str) -> Notebook:
+        await Notebook.objects.filter(pk=notebook.pk).aupdate(
+            title=title,
+            last_modified_at=now(),
+            last_modified_by=self._user,
+        )
+        return await Notebook.objects.aget(pk=notebook.pk)
+
+    async def _arun_impl(
+        self,
+        edits: list[NotebookEdit],
+        short_id: str | None = None,
+        title: str | None = None,
+        max_retries: int = 3,
+    ) -> tuple[str, Any]:
+        target_short_id = short_id or self._current_context_notebook_id()
+        if not target_short_id:
+            return (
+                "Error: No notebook short_id was provided, and there is not exactly one notebook in the current context.",
+                None,
+            )
+
+        viz_lookup = await build_visualization_lookup(self._team.pk, referenced_visualization_ids(edits))
+
+        for attempt in range(max_retries + 1):
+            notebook = await self._get_notebook(target_short_id)
+            plan = build_edit_plan(notebook.content, edits, viz_lookup)
+
+            if not plan.steps:
+                if title is None:
+                    return "Error: No notebook edits were generated.", None
+                updated = await self._update_title_only(notebook, title)
+                return f"Updated notebook {updated.short_id}.", {"short_id": updated.short_id}
+
+            updated = await self._save_plan(notebook, plan, title)
+            if updated is not None:
+                return (
+                    f"Updated notebook {updated.short_id} with {len(edits)} edit{'s' if len(edits) != 1 else ''}.",
+                    {"short_id": updated.short_id, "applied_edits": len(edits)},
+                )
+
+            if attempt == max_retries:
+                break
+
+        raise MaxToolRetryableError(
+            f"Could not apply notebook edit after {max_retries + 1} attempts because the notebook kept changing."
+        )

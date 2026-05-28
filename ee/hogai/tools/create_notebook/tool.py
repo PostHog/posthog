@@ -69,8 +69,9 @@ Our signup funnel shows the following conversion rates:
 ```
 
 # Updating existing notebooks:
-- If you want to update an existing notebook, use the `artifact_id` parameter to specify the ID of the existing artifact
-- *IMPORTANT*: Updating a notebook will replace the existing content with the new content
+- Use `edit_notebook` when the user asks to change an existing saved notebook, especially a notebook they are viewing.
+- If you want to update an existing transient notebook artifact, use the `artifact_id` parameter to specify the ID of the existing artifact.
+- *IMPORTANT*: Updating a notebook artifact will replace the existing artifact content with the new content.
 
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.

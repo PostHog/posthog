@@ -499,6 +499,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
         },
     },
+    edit_notebook: {
+        name: 'Edit notebook',
+        description: 'Edit notebook content',
+        icon: <IconNotebook />,
+        product: Scene.Notebook,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited a notebook'
+            }
+            return 'Editing a notebook...'
+        },
+    },
     search_session_recordings: {
         name: 'Search recordings',
         description: 'Search recordings quickly',
