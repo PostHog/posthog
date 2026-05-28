@@ -65,11 +65,17 @@ jobs:
                     - release: property-defs-rs
                       digest_key: property-defs-rs
                       values_key: image
+                    - release: property-vals-rs
+                      digest_key: property-vals-rs
+                      values_key: image
                     - release: feature-flags
                       digest_key: feature-flags
                       values_key: image
                     - release: flags-cache-jumphost
                       digest_key: flags-cache-warmer
+                      values_key: image
+                    - release: flags-consumer
+                      digest_key: flags-consumer
                       values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker

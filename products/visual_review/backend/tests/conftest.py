@@ -10,6 +10,7 @@ import json
 import base64
 import hashlib
 import subprocess
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import pytest
@@ -17,9 +18,75 @@ from unittest.mock import MagicMock
 
 import responses
 
+from posthog.models.scoping import team_scope
+
 from products.visual_review.backend.models import Repo
 
 PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
+
+
+@pytest.fixture(autouse=True)
+def _set_team_scope(request):
+    """Set team context for raw pytest tests that use the database.
+
+    ProductTeamModel is fail-closed — queries without context raise
+    TeamScopeError. Only activates for tests marked with @pytest.mark.django_db.
+
+    TestCase / APIBaseTest subclasses are skipped here even when the
+    marker is present, because they create their own team in setUp()
+    and `getfixturevalue("team")` would duplicate-create with the same
+    api_token (collision on `posthog_team_api_token_a9a1df8a_uniq`).
+    Those tests use VisualReviewTeamScopedTestMixin (below) which
+    wraps setUp/tearDown with team_scope using the test's own
+    self.team — no extra team creation.
+    """
+    if request.node.get_closest_marker("django_db") is None:
+        yield
+        return
+
+    is_django_testcase = request.cls is not None and any(cls.__name__ == "TestCase" for cls in request.cls.__mro__)
+    if is_django_testcase:
+        yield
+        return
+
+    team = request.getfixturevalue("team")
+    with team_scope(team.id):
+        yield
+
+
+class VisualReviewTeamScopedTestMixin:
+    """Mixin for TestCase / APIBaseTest tests that use ProductTeamModel.
+
+    Wraps setUp/tearDown with team_scope so the test body's queries to
+    Repo, Run, RunSnapshot etc. find a scope. Place this BEFORE
+    APIBaseTest in the MRO so its setUp runs first (creating self.team)
+    and our setUp can use it:
+
+        class TestFoo(VisualReviewTeamScopedTestMixin, APIBaseTest):
+            def test_thing(self):
+                Repo.objects.create(...)  # auto-scoped
+
+    The `_team_scope_cm` attribute is initialized to None up front so a
+    partial-init failure in setUp (e.g. team_scope() raising during
+    resolve, or super().setUp() raising) doesn't leave tearDown trying
+    to __exit__ an unentered context manager.
+    """
+
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()  # type: ignore[misc]
+        cm = team_scope(self.team.id)  # type: ignore[attr-defined]
+        cm.__enter__()
+        self._team_scope_cm = cm
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            try:
+                self._team_scope_cm.__exit__(None, None, None)
+            finally:
+                self._team_scope_cm = None
+        super().tearDown()  # type: ignore[misc]
 
 
 # --- Local Git Repo Fixtures ---

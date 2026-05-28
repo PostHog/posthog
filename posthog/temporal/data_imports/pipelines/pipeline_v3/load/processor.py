@@ -9,6 +9,7 @@ import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.common.load import run_post_load_operations, supports_partial_data_loading
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -35,8 +36,9 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -133,12 +135,14 @@ async def _handle_partial_data_loading(
         if modified_files:
             logger.warning(
                 "Found modified files during first sync, skipping partial data loading",
+                batch_index=export_signal.batch_index,
                 modified_count=len(modified_files),
             )
+            capture_exception(Exception(f"Found {len(modified_files)} modified delta files during first sync"))
             return
 
     if not new_file_uris:
-        logger.debug("No new files to make queryable")
+        logger.debug("No new files to make queryable", batch_index=export_signal.batch_index)
         return
 
     logger.debug(
@@ -165,9 +169,14 @@ async def _handle_partial_data_loading(
         row_count=export_signal.cumulative_row_count,
         queryable_folder=queryable_folder,
         table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        primary_keys=export_signal.primary_keys,
     )
 
-    logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)
+    logger.debug(
+        "partial_data_loading_complete",
+        batch_index=export_signal.batch_index,
+        queryable_folder=queryable_folder,
+    )
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
@@ -200,7 +209,11 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         delta_table = await delta_table_helper.get_delta_table()
         if delta_table is None:
-            logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
+            logger.error(
+                "no_delta_table_for_post_load",
+                job_id=export_signal.job_id,
+                batch_index=export_signal.batch_index,
+            )
             return
 
         pa_table = read_parquet(export_signal.s3_path)
@@ -231,6 +244,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
+        logger=logger,
         latest_error=None,
     )
 
@@ -264,6 +278,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
+        logger=logger,
         latest_error=str(error),
     )
 
@@ -353,6 +368,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
         logger.debug(
             "parquet_file_read",
+            batch_index=export_signal.batch_index,
             s3_path=export_signal.s3_path,
             num_rows=pa_table.num_rows,
             num_columns=pa_table.num_columns,
@@ -399,6 +415,13 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                             delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
 
                     if delete_key_set:
+                        logger.debug(
+                            "cdc_delete_enrichment",
+                            delete_row_count=len(delete_key_set),
+                            primary_key_count=len(present_pks),
+                            cdc_write_mode=cdc_write_mode,
+                            batch_index=export_signal.batch_index,
+                        )
                         # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
                         # For composite PKs that IN is a superset — narrow in PyArrow below.
                         first_pk = present_pks[0]
@@ -497,8 +520,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         )
 
         if export_signal.is_final_batch:
-            logger.debug(
+            logger.info(
                 "final_batch_received",
+                batch_index=export_signal.batch_index,
                 total_batches=export_signal.total_batches,
                 total_rows=export_signal.total_rows,
                 cdc_write_mode=export_signal.cdc_write_mode,

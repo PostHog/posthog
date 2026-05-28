@@ -13,15 +13,14 @@ import {
 import { LogsIngestionConsumer } from '../logs-ingestion/logs-ingestion-consumer'
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
-    KafkaMskProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
-    getDefaultKafkaMskProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
 import { createLogsOutputsRegistry } from '../logs-ingestion/outputs/registry'
+import { SamplingRulesCache } from '../logs-ingestion/sampling/sampling-rules-cache'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -36,7 +35,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - LogsIngestionConsumerConfig: Kafka topics, Redis, rate limiter settings
  * - LogsIngestionOutputsConfig: per-output topic + producer routing
- * - Producer env configs: typed env vars for the DEFAULT + MSK producers
+ * - Producer env configs: typed env vars for the Warpstream logs + ingestion producers
  * - Infrastructure configs: Kafka broker, Postgres, Redis
  * - Remaining CommonConfig picks: server mode, observability
  */
@@ -44,7 +43,6 @@ export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
-    KafkaMskProducerEnvConfig &
     KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
@@ -63,7 +61,6 @@ export class IngestionLogsServer implements NodeServer {
         this.config = {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
             ...config,
@@ -103,6 +100,7 @@ export class IngestionLogsServer implements NodeServer {
 
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
+        const samplingRulesCache = new SamplingRulesCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -115,6 +113,7 @@ export class IngestionLogsServer implements NodeServer {
                 teamManager,
                 quotaLimiting,
                 outputs,
+                samplingRulesCache,
             })
             await consumer.start()
             return consumer.service

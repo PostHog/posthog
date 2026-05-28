@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react'
 import type { Series } from '../types'
 import { DEFAULT_MARGINS, useChartMargins } from './useChartMargins'
 
-jest.mock('../../overlays/AxisLabels', () => ({
+jest.mock('../../utils/text-measure', () => ({
     measureLabelWidth: (text: string) => text.length * 10,
 }))
 
@@ -30,12 +30,30 @@ describe('useChartMargins', () => {
         expect(render().bottom).toBe(DEFAULT_MARGINS.bottom)
     })
 
+    it('adds bottom space for an x-axis title', () => {
+        expect(render({ xAxisLabel: 'Signup date' }).bottom).toBeGreaterThan(DEFAULT_MARGINS.bottom)
+    })
+
+    it('does not add bottom space for a whitespace-only x-axis title', () => {
+        expect(render({ xAxisLabel: '   ' }).bottom).toBe(DEFAULT_MARGINS.bottom)
+    })
+
     it('collapses left margin when hideYAxis is true', () => {
         expect(render({ hideYAxis: true }).left).toBe(8)
     })
 
     it('left margin is at least 20 when y-axis is shown', () => {
         expect(render({ series: [], labels: [] }).left).toBeGreaterThanOrEqual(20)
+    })
+
+    it('adds left space for a y-axis title', () => {
+        const withoutTitle = render()
+        const withTitle = render({ yAxisLabel: 'Unique users' })
+        expect(withTitle.left).toBeGreaterThan(withoutTitle.left)
+    })
+
+    it('does not add left space for a whitespace-only y-axis title', () => {
+        expect(render({ yAxisLabel: '   ' }).left).toBe(render().left)
     })
 
     it('grows the right margin to at least 48 when multiple y-axes are present', () => {
@@ -62,5 +80,38 @@ describe('useChartMargins', () => {
         const big: Series[] = [{ key: 'a', label: 'A', data: [1_000_000_000, 2_000_000_000] }]
         const small: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
+    })
+
+    describe('horizontal orientation', () => {
+        it('sizes the left margin from the widest category label, not value-tick width', () => {
+            const longCategoryLabels = ['shortest', 'a-considerably-longer-label']
+            const shortValueData: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
+            const horizontal = render({
+                series: shortValueData,
+                labels: longCategoryLabels,
+                axisOrientation: 'horizontal',
+            })
+            const vertical = render({ series: shortValueData, labels: longCategoryLabels })
+            // Horizontal: left margin reflects category-label width (25 chars × 10 = 250 + padding).
+            // Vertical: left margin reflects value-tick width (single-digit ticks → small).
+            expect(horizontal.left).toBeGreaterThan(vertical.left)
+        })
+
+        it('sizes the right margin from the widest value tick, not category-label width', () => {
+            const shortLabels = ['a', 'b']
+            const bigValueData: Series[] = [{ key: 'a', label: 'A', data: [1_000_000_000, 2_000_000_000] }]
+            const horizontal = render({
+                series: bigValueData,
+                labels: shortLabels,
+                axisOrientation: 'horizontal',
+            })
+            const vertical = render({
+                series: bigValueData,
+                labels: shortLabels,
+            })
+            // Horizontal: bottom-axis value ticks force the right margin wider to accommodate the
+            // rightmost tick's half-width. Vertical's right margin only sees the (tiny) category label.
+            expect(horizontal.right).toBeGreaterThan(vertical.right)
+        })
     })
 })

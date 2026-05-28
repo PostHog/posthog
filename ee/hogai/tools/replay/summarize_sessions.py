@@ -12,13 +12,14 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.session_replay.session_summary.types.group import (
+from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
+from posthog.temporal.session_replay.session_summary_group.types import (
+    FailedSessionInfo,
     SessionProgressStreamData,
     SessionStatusChange,
     SessionSummaryStreamUpdate,
 )
+from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
@@ -155,7 +156,7 @@ class SummarizeSessionsTool(MaxTool):
         )
         try:
             # Summarize the sessions
-            summaries_content, session_group_summary_id = await self._summarize_sessions(
+            summaries_content, session_group_summary_id, failed_sessions = await self._summarize_sessions(
                 session_ids=session_ids,
                 summary_title=summary_title,
                 session_ids_source=llm_provided_session_ids_source,
@@ -191,6 +192,7 @@ class SummarizeSessionsTool(MaxTool):
             summary_type=summary_type,
             session_ids=session_ids,
             success=True,
+            failed_session_count=len(failed_sessions),
         )
         return content, artifact
 
@@ -325,12 +327,33 @@ class SummarizeSessionsTool(MaxTool):
         summaries_str = "\n\n".join(stringified_summaries)
         return summaries_str
 
+    @staticmethod
+    def _format_failed_sessions_note(failed_sessions: list[FailedSessionInfo], total_requested: int) -> str:
+        """Short note prepended to the LLM context when the run was partial, bucketed by category."""
+        if not failed_sessions:
+            return ""
+        analyzed = total_requested - len(failed_sessions)
+        counts: dict[str, int] = {}
+        reasons_by_category: dict[str, str] = {}
+        for fs in failed_sessions:
+            counts[fs.category] = counts.get(fs.category, 0) + 1
+            reasons_by_category.setdefault(fs.category, fs.reason)
+        breakdown_parts = [
+            f"{counts[category]} {category.replace('_', ' ')} ({reasons_by_category[category]})" for category in counts
+        ]
+        breakdown = "; ".join(breakdown_parts)
+        return (
+            f"Note: only {analyzed} of {total_requested} sessions were included in this summary. "
+            f"{len(failed_sessions)} sessions were dropped: {breakdown}. "
+            f"When responding to the user, mention this so they know the summary is based on a partial set.\n\n"
+        )
+
     async def _summarize_sessions_as_group(
         self,
         session_ids: list[str],
         summary_title: str | None,
-    ) -> tuple[str, str]:
-        """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
+    ) -> tuple[str, str, list[FailedSessionInfo]]:
+        """Summarize sessions as a group. Returns (summary_str, summary_id, failed_sessions)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
         min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
@@ -365,14 +388,14 @@ class SummarizeSessionsTool(MaxTool):
                     self._dispatch_structured_update(cast(SessionProgressStreamData, data))
                 # Final summary result
                 elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
-                    if not isinstance(data, tuple) or len(data) != 2:
+                    if not isinstance(data, tuple) or len(data) != 3:
                         msg = (
                             f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
-                            f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
+                            f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]])"
                         )
                         logger.error(msg, signals_type="session-summaries")
                         raise ValueError(msg)
-                    summary, session_group_summary_id = data
+                    summary, session_group_summary_id, failed_sessions = data
                     if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
                         msg = (  # type: ignore[unreachable]
                             f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
@@ -383,7 +406,8 @@ class SummarizeSessionsTool(MaxTool):
                     # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                     stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                     summary_str = stringifier.stringify_patterns()
-                    return summary_str, session_group_summary_id
+                    note = self._format_failed_sessions_note(failed_sessions, total_requested=len(session_ids))
+                    return note + summary_str, session_group_summary_id, failed_sessions
                 else:
                     msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
                     logger.error(msg, signals_type="session-summaries")
@@ -395,11 +419,9 @@ class SummarizeSessionsTool(MaxTool):
 
     async def _summarize_sessions(
         self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]
-    ) -> tuple[str, str | None]:
-        """
-        Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
-        session_group_summary_id is None for individual summaries, as report is not generated.
-        """
+    ) -> tuple[str, str | None, list[FailedSessionInfo]]:
+        """Returns (summary_str, summary_id, failed_sessions). summary_id and failed_sessions are
+        only populated for the group path; the individual path logs per-session errors inline."""
         # Fetch per-session metadata for the progress widget
         metadata = await database_sync_to_async(self._get_session_metadata, thread_sensitive=False)(session_ids)
         # Emit sessions_discovered for the frontend progress widget
@@ -422,13 +444,13 @@ class SummarizeSessionsTool(MaxTool):
         # Process sessions based on count
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
-            return summaries_content, None
+            return summaries_content, None, []
         # For large groups, process in detail, searching for patterns
-        summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
+        summaries_content, session_group_summary_id, failed_sessions = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,
         )
-        return summaries_content, session_group_summary_id
+        return summaries_content, session_group_summary_id, failed_sessions
 
     def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
         """Validate that specific session IDs exist in the database."""

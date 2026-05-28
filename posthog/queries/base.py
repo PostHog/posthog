@@ -350,7 +350,7 @@ def property_to_Q(
             # falling back to the persons-DB ORM otherwise. Mirrors the override
             # short-circuit below (returning Q(pk__isnull=False|True)).
             if person_id is not None and team_id is not None:
-                from posthog.models.person.util import is_person_in_cohort
+                from posthog.models.cohort.util import is_person_in_cohort
 
                 if is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id):
                     return Q(pk__isnull=False)
@@ -362,7 +362,7 @@ def property_to_Q(
             # the Exists(CohortPeople) subquery so the persons DB is not
             # required on the personhog path.
             if team_id is not None:
-                from posthog.models.person.util import list_cohort_member_ids
+                from posthog.models.cohort.util import list_cohort_member_ids
 
                 member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
                 if not member_ids:

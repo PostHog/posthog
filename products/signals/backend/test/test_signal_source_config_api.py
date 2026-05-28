@@ -39,7 +39,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert data["source_product"] == "session_replay"
         assert data["source_type"] == "session_analysis_cluster"
         assert data["enabled"] is True
-        assert data["config"] == {"recording_filters": {"duration_min": 5}}
+        # `sample_rate` is auto-set to the default for newly created session-analysis configs.
+        assert data["config"] == {"recording_filters": {"duration_min": 5}, "sample_rate": 0.1}
         assert SignalSourceConfig.objects.filter(id=data["id"], team=self.team).exists()
 
     def test_create_source_config_sets_created_by(self):
@@ -61,6 +62,31 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, data
         assert data["enabled"] is True
+        assert data["config"] == {"sample_rate": 0.1}
+
+    def test_create_source_config_preserves_user_provided_sample_rate(self):
+        response = self.client.post(
+            self._url(),
+            data={
+                "source_product": "session_replay",
+                "source_type": "session_analysis_cluster",
+                "config": {"sample_rate": 0.5},
+            },
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, data
+        assert data["config"] == {"sample_rate": 0.5}
+
+    def test_create_source_config_no_default_for_other_source_types(self):
+        # Defaulting only applies to session_replay/session_analysis_cluster.
+        response = self.client.post(
+            self._url(),
+            data={"source_product": "github", "source_type": "issue", "enabled": False},
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, data
         assert data["config"] == {}
 
     def test_create_source_config_invalid_source_type(self):
@@ -342,3 +368,31 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get(self._url())
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
+class TestIsSourceEnabledGating(APIBaseTest):
+    """Source-level gating quirks: session_problem routes through the session_analysis_cluster
+    config rather than requiring its own SignalSourceConfig row."""
+
+    def test_session_problem_gated_by_session_analysis_cluster(self):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
+
+    def test_pganalyze_issue_requires_own_config(self):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.PGANALYZE,
+            source_type=SignalSourceConfig.SourceType.ISSUE,
+            enabled=True,
+        )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is True
+
+    def test_pganalyze_disabled_when_no_config(self):
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is False

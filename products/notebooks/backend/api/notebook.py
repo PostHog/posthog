@@ -11,7 +11,13 @@ from django.utils.timezone import now
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
@@ -90,6 +96,21 @@ _NOTEBOOK_FIELD_HELP_TEXTS = {
     "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
 }
 
+_PARENT_RESOURCE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "description": (
+        "Parent resource this notebook is attached to, if any. Used by the notebook scene "
+        "to render context-aware breadcrumbs (e.g. account notebooks link back to the "
+        "Customer analytics accounts list)."
+    ),
+    "properties": {
+        "type": {"type": "string", "enum": ["account"]},
+        "id": {"type": "string", "format": "uuid"},
+    },
+    "required": ["type", "id"],
+}
+
 
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
@@ -115,6 +136,14 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    parent_resource = serializers.SerializerMethodField(
+        help_text=(
+            "Parent resource this notebook is attached to, or `null`. Returns "
+            "`{type: 'account', id: <uuid>}` for account-linked notebooks; used by the "
+            "frontend to route breadcrumbs back to the resource's list."
+        ),
+    )
+
     class Meta:
         model = Notebook
         fields = [
@@ -130,6 +159,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -140,6 +170,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
@@ -149,6 +180,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
+    def get_parent_resource(self, obj: Notebook) -> dict | None:
+        # Group parents are skipped: ResourceNotebook stores group PK but personhog has no get-by-pk RPC.
+        link = obj.resources.filter(account_id__isnull=False).only("account_id").first()
+        if link is None:
+            return None
+        return {"type": "account", "id": str(link.account_id)}
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
@@ -292,8 +331,11 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
         help_text="List of ProseMirror step JSON objects to apply.",
     )
     content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
-    text_content = serializers.CharField(required=False, default="", help_text="Plain text for search indexing.")
-    title = serializers.CharField(required=False, help_text="Updated notebook title.")
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
     cursor_head = serializers.IntegerField(
         required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
     )
@@ -756,13 +798,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             client_id=data["client_id"],
             steps_json=data["steps"],
             last_seen_version=data["version"],
+            last_saved_version=notebook.version,
             user_id=user.pk,
             user_name=user_name,
             cursor_head=data.get("cursor_head"),
         )
 
+        content = data["content"]
+
         if result.status == "accepted":
-            content = data["content"]
+            notebook_before = Notebook.objects.get(pk=notebook.pk)
             Notebook.objects.filter(pk=notebook.pk).update(
                 content=annotate_python_nodes(content) if isinstance(content, dict) else content,
                 text_content=data.get("text_content", ""),
@@ -772,13 +817,43 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 last_modified_by=request.user,
             )
             notebook.refresh_from_db()
+
+            # Snapshot diffs into the activity logs for history
+            changes = changes_between("Notebook", previous=notebook_before, current=notebook)
+            log_notebook_activity(
+                activity="updated",
+                notebook=notebook,
+                organization_id=cast(UUIDT, user.current_organization_id),
+                team_id=notebook.team_id,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                changes=changes,
+            )
+
             return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
+        # Snapshot the rejected save attempt so user has a recovery path
+        log_notebook_activity(
+            activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
+            notebook=notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="Notebook",
+                    field="content",
+                    action="changed",
+                    before=notebook.content,
+                    after=content,
+                ),
+            ],
+        )
+
         if result.status == "stale":
-            return Response(
-                {"code": "conflict_stale", "detail": "Reload the notebook."},
-                status=410,
-            )
+            # Stream was trimmed (MAXLEN/TTL).
+            return Response({"code": "conflict_stale"}, status=410)
 
         # Carries the missed steps so the client can reconcile without depending on SSE
         assert result.steps_since is not None  # status == "conflict" guarantees this

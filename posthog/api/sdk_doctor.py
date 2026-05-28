@@ -2,8 +2,6 @@ import json
 from dataclasses import asdict
 from typing import Any, cast
 
-from django.conf import settings
-
 import structlog
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
@@ -233,16 +231,12 @@ def sdk_doctor(request: Request) -> Response:
     force_refresh = raw_force_refresh.lower() == "true"
 
     team_data = get_team_data(team_id, force_refresh)
-    if not team_data:
-        if settings.DEBUG:  # Running locally, usually doesn't have anything in the cache, just return empty
-            logger.info(
-                "sdk_doctor_no_local_data",
-                team_id=team_id,
-                detail="no data received from ClickHouse, returning empty response",
-            )
-            return Response({}, status=200)
-
+    if team_data is None:
         return Response({"error": "Failed to get SDK versions. Please try again later."}, status=500)
+    if not team_data:
+        # Empty dict: brand-new team, deleted team, or no SDK traffic in the last 7 days.
+        # Match SdkDoctorViewSet.report's empty-report behavior — never 500 here.
+        return Response({}, status=200)
 
     sdk_data = get_github_sdk_data()
     if not sdk_data:

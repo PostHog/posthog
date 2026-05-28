@@ -88,6 +88,7 @@ mod tests {
             variant: None,
             early_exit: None,
             aggregation_group_type_index: condition_level,
+            extra: Default::default(),
         };
         assert_eq!(group.effective_aggregation(flag_level), expected);
     }

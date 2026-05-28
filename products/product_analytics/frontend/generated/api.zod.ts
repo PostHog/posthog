@@ -18,10 +18,16 @@ export const ColumnConfigurationsCreateBody = /* @__PURE__ */ zod.object({
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsCreateBodyNameMax).optional(),
     filters: zod.unknown().optional(),
+    order_by: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
     visibility: zod
         .enum(['private', 'shared'])
         .optional()
-        .describe('* `private` - Private (only visible to creator)\n* `shared` - Shared with team'),
+        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
 })
 
 export const columnConfigurationsUpdateBodyContextKeyMax = 255
@@ -33,10 +39,16 @@ export const ColumnConfigurationsUpdateBody = /* @__PURE__ */ zod.object({
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsUpdateBodyNameMax).optional(),
     filters: zod.unknown().optional(),
+    order_by: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
     visibility: zod
         .enum(['private', 'shared'])
         .optional()
-        .describe('* `private` - Private (only visible to creator)\n* `shared` - Shared with team'),
+        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
 })
 
 export const columnConfigurationsPartialUpdateBodyContextKeyMax = 255
@@ -48,10 +60,16 @@ export const ColumnConfigurationsPartialUpdateBody = /* @__PURE__ */ zod.object(
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsPartialUpdateBodyNameMax).optional(),
     filters: zod.unknown().optional(),
+    order_by: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
     visibility: zod
         .enum(['private', 'shared'])
         .optional()
-        .describe('* `private` - Private (only visible to creator)\n* `shared` - Shared with team'),
+        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
 })
 
 export const elementsCreateBodyTextMax = 10000
@@ -165,7 +183,7 @@ cached response, ensuring the request is authorized.
  */
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -177,7 +195,7 @@ cached response, ensuring the request is authorized.
  */
 export const InsightsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -189,7 +207,7 @@ cached response, ensuring the request is authorized.
  */
 export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -201,10 +219,18 @@ cached response, ensuring the request is authorized.
  */
 export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -223,9 +249,9 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('List of object IDs to update tags on.'),
     action: zod
         .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
         .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })
@@ -240,19 +266,23 @@ cached response, ensuring the request is authorized.
  */
 export const InsightsCancelCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Generate an AI-suggested name and description for an insight based on its query configuration.
  */
 export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Update insight view timestamps.
-Expects: {"insight_ids": [1, 2, 3, ...]}
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
  */
-export const InsightsViewedCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const insightsViewedCreateBodyInsightIdsMax = 2500
+
+export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
+    insight_ids: zod
+        .array(zod.number())
+        .max(insightsViewedCreateBodyInsightIdsMax)
+        .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
+})

@@ -1,4 +1,3 @@
-import re
 import uuid
 from typing import Any
 
@@ -7,16 +6,21 @@ import temporalio.activity
 from prometheus_client import Counter
 from structlog import get_logger
 
+from posthog.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
-from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
+from posthog.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.models import CoreMemory
 
 LOGGER = get_logger(__name__)
 
@@ -67,6 +71,23 @@ def _extract_columns(query_results: Any) -> list[str] | None:
         return None
     cleaned = [c for c in raw_columns if isinstance(c, str)]
     return cleaned or None
+
+
+def _load_annotations_section(
+    subscription: Subscription,
+    content_snapshots: list[dict],
+    insight_ids: list[int],
+) -> str:
+    """Build the annotation context block injected into the LLM prompt.
+
+    Returns an empty string if there is no usable date window or no annotations match.
+    """
+    return build_annotations_block(
+        subscription.team,
+        resolve_snapshot_date_range(content_snapshots),
+        dashboard_id=subscription.dashboard_id,
+        insight_ids=insight_ids,
+    )
 
 
 def _build_states_from_content_snapshot(
@@ -209,8 +230,27 @@ def _get_insight_query_kinds(insight_ids: list[int]) -> dict[int, str]:
     return result
 
 
-def _sanitize_prompt_guide(prompt_guide: str) -> str:
-    return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
+def _load_core_memory_text(subscription: Subscription) -> str:
+    """Load the team's saved core memory facts so the summary tool can use them.
+
+    Returns an empty string when no memory exists yet or anything goes wrong —
+    memory is a nice-to-have for the summary, never load-bearing for the delivery.
+    """
+    if not subscription.team_id:
+        return ""
+    try:
+        memory = CoreMemory.objects.filter(team_id=subscription.team_id).only("text").first()
+    except Exception:
+        LOGGER.warning(
+            "subscription_ai_summary.core_memory_load_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            exc_info=True,
+        )
+        return ""
+    if not memory:
+        return ""
+    return memory.formatted_text
 
 
 def _prompt_guide_feature_enabled_for_subscription(subscription: Subscription) -> bool:
@@ -320,7 +360,7 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
             SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight").inc()
             continue
 
-        content: bytes | None = asset.content
+        content: bytes | None = bytes(asset.content) if asset.content else None
         if not content and asset.content_location:
             try:
                 content = object_storage.read_bytes(asset.content_location, missing_ok=True)
@@ -460,9 +500,33 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         if subscription.summary_prompt_guide and await database_sync_to_async(
             _prompt_guide_feature_enabled_for_subscription, thread_sensitive=False
         )(subscription):
-            prompt_guide = _sanitize_prompt_guide(subscription.summary_prompt_guide)
+            prompt_guide = sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
         else:
             prompt_guide = ""
+        core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
+        content_snapshots = [
+            s
+            for s in (
+                current_delivery.content_snapshot,
+                previous_delivery.content_snapshot if previous_delivery else None,
+            )
+            if s
+        ]
+        # Annotations are best-effort context — a DB hiccup here should not fail the whole
+        # summary, which would also drop the rest of the digest. Log and continue with an
+        # empty block.
+        try:
+            annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
+                subscription, content_snapshots, insight_ids
+            )
+        except Exception as annotations_error:
+            annotations_section = ""
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.annotations_load_failed",
+                subscription_id=inputs.subscription_id,
+                error=str(annotations_error),
+                exc_info=True,
+            )
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
             previous_states,
             current_states,
@@ -471,6 +535,8 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             team=subscription.team,
             delivery_id=inputs.delivery_id,
             insight_images=insight_images or None,
+            core_memory_text=core_memory_text,
+            annotations_section=annotations_section,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

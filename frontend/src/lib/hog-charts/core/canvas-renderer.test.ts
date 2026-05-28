@@ -1,20 +1,8 @@
 import * as d3 from 'd3'
 
+import { dimensions, makeSeries } from '../testing'
 import { composeDrawHoverWithCrosshair, drawArea, drawGrid, drawLine, type DrawContext } from './canvas-renderer'
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, ResolvedSeries, Series } from './types'
-
-const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: 48,
-    plotTop: 16,
-    plotWidth: 736,
-    plotHeight: 352,
-}
-
-function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): ResolvedSeries {
-    return { label: overrides.key, color: '#f00', ...overrides }
-}
+import type { ChartDrawArgs, ChartScales, ChartTheme } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -53,7 +41,7 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
 
 /** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
 function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
-    return ctx.setLineDash.mock.calls.map(([p]: [number[]]) => p)
+    return ctx.setLineDash.mock.calls.map(([p]) => p as number[])
 }
 
 describe('hog-charts canvas-renderer', () => {
@@ -355,6 +343,59 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawArea — gradient fill', () => {
+        it('uses a vertical CanvasGradient as fillStyle when fill.gradient is true', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's', data: [10, 20, 30], color: '#22d3ee', fill: { gradient: true } })
+
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            drawArea(makeDrawContext(ctx, labels), series)
+
+            expect(ctx.createLinearGradient).toHaveBeenCalledWith(
+                0,
+                dimensions.plotTop,
+                0,
+                dimensions.plotTop + dimensions.plotHeight
+            )
+            expect(gradient.addColorStop).toHaveBeenCalledWith(0, '#22d3ee')
+            expect(gradient.addColorStop).toHaveBeenCalledWith(1, 'transparent')
+            expect(recordedFillStyles).toContain(gradient)
+        })
+
+        it('ignores gradient when lowerData is set (fill-between needs a solid fill)', () => {
+            const ctx = mockCanvasContext()
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest.fn()
+            const labels = ['a', 'b']
+            const series = makeSeries({ key: 's', data: [50, 80], color: '#22d3ee', fill: { gradient: true } })
+            drawArea(makeDrawContext(ctx, labels), series, undefined, [10, 20])
+            expect(ctx.createLinearGradient).not.toHaveBeenCalled()
+        })
+
+        it('lets the area extend below baseline when bottomValues is omitted (single-series negative case)', () => {
+            // LineChart now skips stacking for a single fillable series, so drawArea is called
+            // without bottomValues — meaning negative data is plotted against the raw scale,
+            // not clamped to the baseline by a stacked band's Math.max(0, raw).
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's', data: [10, -5, 20], color: '#22d3ee', fill: {} })
+            drawArea(makeDrawContext(ctx, labels), series)
+            const baseline = dimensions.plotTop + dimensions.plotHeight
+            const lineToYs = (ctx.lineTo as jest.Mock).mock.calls.map(([, y]) => y as number)
+            expect(lineToYs.some((y) => y > baseline)).toBe(true)
+        })
+    })
+
     describe('drawArea — partial dashing', () => {
         it.each([
             {
@@ -454,38 +495,95 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawGrid', () => {
-        it('draws a horizontal line at every y-tick', () => {
+        it('draws a horizontal line at the first y-tick (vertical orientation)', () => {
             const ctx = mockCanvasContext()
-            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
-            drawGrid(drawCtx)
-            const tickCount = ctx.moveTo.mock.calls.length - 1
-            expect(tickCount).toBeGreaterThan(0)
-            for (let i = 0; i < tickCount; i++) {
-                const [moveX, moveY] = ctx.moveTo.mock.calls[i] as [number, number]
-                const [lineX, lineY] = ctx.lineTo.mock.calls[i] as [number, number]
-                expect(moveX).toBe(dimensions.plotLeft)
-                expect(lineX).toBe(dimensions.plotLeft + dimensions.plotWidth)
-                expect(moveY).toBe(lineY)
-            }
+            drawGrid(makeDrawContext(ctx, ['a', 'b']))
+            // Implementation emits the same shape for every tick, so one representative is enough.
+            const [fromX, fromY] = ctx.moveTo.mock.calls[0]
+            const [toX, toY] = ctx.lineTo.mock.calls[0]
+            expect(fromX).toBe(dimensions.plotLeft)
+            expect(toX).toBe(dimensions.plotLeft + dimensions.plotWidth)
+            expect(fromY).toBe(toY)
         })
 
-        it('draws a vertical y-axis line at plotLeft as the final stroke', () => {
+        it('frames the plot area with left and right vertical axis lines', () => {
             const ctx = mockCanvasContext()
-            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
-            drawGrid(drawCtx)
-            const lastMoveTo = ctx.moveTo.mock.calls[ctx.moveTo.mock.calls.length - 1] as [number, number]
-            const lastLineTo = ctx.lineTo.mock.calls[ctx.lineTo.mock.calls.length - 1] as [number, number]
-            expect(lastMoveTo[0]).toBe(dimensions.plotLeft + 0.5)
-            expect(lastMoveTo[1]).toBe(dimensions.plotTop)
-            expect(lastLineTo[0]).toBe(dimensions.plotLeft + 0.5)
-            expect(lastLineTo[1]).toBe(dimensions.plotTop + dimensions.plotHeight)
+            drawGrid(makeDrawContext(ctx, ['a', 'b']))
+            const leftX = dimensions.plotLeft + 0.5
+            const rightX = dimensions.plotLeft + dimensions.plotWidth - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([leftX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([leftX, dimensions.plotTop + dimensions.plotHeight])
+            expect(ctx.moveTo.mock.calls).toContainEqual([rightX, dimensions.plotTop])
+            expect(ctx.lineTo.mock.calls).toContainEqual([rightX, dimensions.plotTop + dimensions.plotHeight])
         })
 
         it('uses the provided gridColor', () => {
             const ctx = mockCanvasContext()
-            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
-            drawGrid(drawCtx, { gridColor: 'rgb(1, 2, 3)' })
+            drawGrid(makeDrawContext(ctx, ['a', 'b']), { gridColor: 'rgb(1, 2, 3)' })
             expect(ctx.strokeStyle).toBe('rgb(1, 2, 3)')
+        })
+
+        it('draws a vertical line at the first value-tick (horizontal orientation)', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
+            const [fromX, fromY] = ctx.moveTo.mock.calls[0]
+            const [toX, toY] = ctx.lineTo.mock.calls[0]
+            expect(fromX).toBe(toX)
+            expect(fromY).toBe(dimensions.plotTop)
+            expect(toY).toBe(dimensions.plotTop + dimensions.plotHeight)
+        })
+
+        it('frames the plot area with top and bottom baselines (horizontal orientation)', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
+            const topY = dimensions.plotTop + 0.5
+            const bottomY = dimensions.plotTop + dimensions.plotHeight - 0.5
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, topY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, topY])
+            expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, bottomY])
+            expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, bottomY])
+        })
+
+        describe('categoryTicks', () => {
+            // Coords snap to integer + 0.5 for crisp 1px strokes (e.g. 123 → 123.5).
+            it.each([
+                {
+                    orientation: 'vertical' as const,
+                    tick: 123,
+                    expectedMove: [123.5, dimensions.plotTop],
+                    expectedLine: [123.5, dimensions.plotTop + dimensions.plotHeight],
+                },
+                {
+                    orientation: 'horizontal' as const,
+                    tick: 200,
+                    expectedMove: [dimensions.plotLeft, 200.5],
+                    expectedLine: [dimensions.plotLeft + dimensions.plotWidth, 200.5],
+                },
+            ])(
+                '$orientation categoryTicks span the full cross axis at the snapped coord',
+                ({ orientation, tick, expectedMove, expectedLine }) => {
+                    const ctx = mockCanvasContext()
+                    drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation, categoryTicks: [tick] })
+                    expect(ctx.moveTo.mock.calls).toContainEqual(expectedMove)
+                    expect(ctx.lineTo.mock.calls).toContainEqual(expectedLine)
+                }
+            )
+
+            it.each([{ orientation: 'vertical' as const }, { orientation: 'horizontal' as const }])(
+                'skips non-finite categoryTicks ($orientation)',
+                ({ orientation }) => {
+                    const finiteOnly = mockCanvasContext()
+                    drawGrid(makeDrawContext(finiteOnly, ['a', 'b']), { orientation, categoryTicks: [200] })
+
+                    const withNonFinite = mockCanvasContext()
+                    drawGrid(makeDrawContext(withNonFinite, ['a', 'b']), {
+                        orientation,
+                        categoryTicks: [Number.NaN, 200, Number.POSITIVE_INFINITY],
+                    })
+
+                    expect(withNonFinite.moveTo.mock.calls.length).toBe(finiteOnly.moveTo.mock.calls.length)
+                }
+            )
         })
     })
 
@@ -507,42 +605,60 @@ describe('hog-charts canvas-renderer', () => {
                 series: [],
                 labels: ['Mon', 'Tue', 'Wed'],
                 hoverIndex,
+                hoverPosition: null,
                 theme: {} as ChartTheme,
+                hoverProgress: 1,
+                resetHoverFade: () => 0,
             }
         }
 
         it('always invokes the underlying drawHover', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, '#f00', true)
+            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+                crosshairColor: '#f00',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(drawHover).toHaveBeenCalledTimes(1)
         })
 
         it('skips crosshair when showCrosshair is false', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), '#f00', false)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                showCrosshair: false,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('skips crosshair when crosshairColor is undefined', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), undefined, true)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: undefined,
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('skips crosshair when hoverIndex is negative', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), '#f00', true)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, -1, 200))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 
         it('skips crosshair when scales.x returns a non-finite value', () => {
             const ctx = mockCanvasContext()
-            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), '#f00', true)
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, undefined))
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
@@ -550,11 +666,34 @@ describe('hog-charts canvas-renderer', () => {
         it('draws the crosshair on the happy path', () => {
             const ctx = mockCanvasContext()
             const drawHover = jest.fn()
-            const composed = composeDrawHoverWithCrosshair(() => drawHover, '#abc', true)
+            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+                crosshairColor: '#abc',
+                showCrosshair: true,
+            })
             composed(makeArgs(ctx, 1, 200))
             expect(ctx.stroke).toHaveBeenCalled()
             expect(ctx.strokeStyle).toBe('#abc')
             expect(drawHover).toHaveBeenCalledTimes(1)
+        })
+
+        it('uses labelToCoord when provided in horizontal orientation', () => {
+            const ctx = mockCanvasContext()
+            const drawHover = jest.fn()
+            const labelToCoord = jest.fn((label: string) => (label === 'Tue' ? 150 : undefined))
+            const composed = composeDrawHoverWithCrosshair(() => drawHover, {
+                crosshairColor: '#0f0',
+                showCrosshair: true,
+                axisOrientation: 'horizontal',
+                labelToCoord,
+            })
+            composed(makeArgs(ctx, 1, 200))
+            expect(labelToCoord).toHaveBeenCalledWith('Tue')
+            const moves = (ctx.moveTo as jest.Mock).mock.calls
+            const lines = (ctx.lineTo as jest.Mock).mock.calls
+            const lastMove = moves[moves.length - 1]
+            const lastLine = lines[lines.length - 1]
+            expect(lastMove[1]).toBeCloseTo(lastLine[1])
+            expect(lastMove[0]).not.toBeCloseTo(lastLine[0])
         })
 
         it('reads the latest drawHover via the getter on each call', () => {
@@ -562,7 +701,10 @@ describe('hog-charts canvas-renderer', () => {
             const first = jest.fn()
             const second = jest.fn()
             let current = first
-            const composed = composeDrawHoverWithCrosshair(() => current, '#f00', false)
+            const composed = composeDrawHoverWithCrosshair(() => current, {
+                crosshairColor: '#f00',
+                showCrosshair: false,
+            })
             composed(makeArgs(ctx, 0, 100))
             current = second
             composed(makeArgs(ctx, 0, 100))

@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { ActivityScope } from '~/types'
 
+import { editorSceneLogic } from './editorSceneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -12,7 +13,8 @@ const STORY_TAB_ID = 'story-query-history'
 
 // Opens the modal immediately so the story renders it in the open state
 function OpenQueryHistoryModal(): JSX.Element {
-    const { openHistoryModal, updateTab } = useActions(sqlEditorLogic({ tabId: STORY_TAB_ID }))
+    const { openHistoryModal } = useActions(editorSceneLogic({ tabId: STORY_TAB_ID }))
+    const { updateTab } = useActions(sqlEditorLogic({ tabId: STORY_TAB_ID }))
     useEffect(() => {
         updateTab({
             uri: { toString: () => 'story-uri' } as any,
@@ -22,8 +24,10 @@ function OpenQueryHistoryModal(): JSX.Element {
         openHistoryModal()
     }, [openHistoryModal, updateTab])
     return (
-        <BindLogic logic={sqlEditorLogic} props={{ tabId: STORY_TAB_ID }}>
-            <QueryHistoryModal />
+        <BindLogic logic={editorSceneLogic} props={{ tabId: STORY_TAB_ID }}>
+            <BindLogic logic={sqlEditorLogic} props={{ tabId: STORY_TAB_ID }}>
+                <QueryHistoryModal />
+            </BindLogic>
         </BindLogic>
     )
 }

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_hypercache::CacheSource;
 use common_metrics::{gauge, inc};
@@ -13,8 +13,51 @@ use crate::flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper, Prepare
 use crate::metrics::consts::{
     FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE, FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER,
     FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
-    FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE,
+    FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE, FLAG_DEFINITIONS_INMEM_LOAD_MS,
 };
+
+/// Outcome of a single `get_or_load` call. Used as the `outcome` label on
+/// `flags_definitions_inmem_load_ms`. Six variants total; cardinality is
+/// `6 × buckets` per pod.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LoadOutcome {
+    /// In-memory cache returned a value without invoking the loader.
+    Hit,
+    /// Loader ran successfully via HyperCache → Redis/S3 and the result
+    /// was cached under the etag.
+    MissLoadOk,
+    /// `get_or_load_classified` returned `Err`. Covers both loader
+    /// infrastructure failures (HyperCache stall, Redis/S3 outage) and
+    /// `compile_from_wrapper` data-parsing failures on otherwise healthy
+    /// loader output. The two are indistinguishable at this label, so an
+    /// `outcome="miss_load_err"` spike with healthy upstreams points at
+    /// data-shape regressions, not infra.
+    MissLoadErr,
+    /// `etag` was `Some` but the loader returned a non-empty wrapper for
+    /// which no etag is in Redis — version-key drift.
+    EtagMissing,
+    /// `etag` was `None` and the loader returned `__missing__` (Django's
+    /// empty-team marker).
+    Sentinel,
+    /// Loader fell through to PG. The result is not cached under the
+    /// etag (see struct doc); split from `MissLoadOk` so a PG fallback
+    /// storm is visually separable from an etag-rollover thunder herd.
+    Fallback,
+}
+
+impl LoadOutcome {
+    /// Stable label value, kept in sync with the dashboard contract.
+    const fn label(self) -> &'static str {
+        match self {
+            LoadOutcome::Hit => "hit",
+            LoadOutcome::MissLoadOk => "miss_load_ok",
+            LoadOutcome::MissLoadErr => "miss_load_err",
+            LoadOutcome::EtagMissing => "etag_missing",
+            LoadOutcome::Sentinel => "sentinel",
+            LoadOutcome::Fallback => "fallback",
+        }
+    }
+}
 
 /// In-memory cache for regex-compiled flag definitions, keyed on
 /// `(team_id, etag)` where `etag` is the version tag Django writes alongside
@@ -64,6 +107,13 @@ impl FlagDefinitionsCache {
     /// runs, the result is compiled, and only `Redis`/`S3`-source values are
     /// inserted. The returned `CacheSource` is `Redis` for in-memory hits
     /// and whatever the loader reports otherwise.
+    ///
+    /// Total wall-clock duration of this call is recorded into
+    /// [`FLAG_DEFINITIONS_INMEM_LOAD_MS`] with an `outcome` label. Hits
+    /// resolve in microseconds; misses dominate the p99 because the loader
+    /// chain (HyperCache → Pickle/JSON decode → regex compile) is sync-
+    /// heavy. A spike in `outcome="miss_load_ok"` p99 is the dashboard
+    /// signature of an etag-rollover thunder herd (see struct doc).
     pub async fn get_or_load<F, Fut>(
         &self,
         team_id: TeamId,
@@ -76,31 +126,72 @@ impl FlagDefinitionsCache {
             Output = Result<(Option<HypercacheFlagsWrapper>, CacheSource), FlagError>,
         >,
     {
+        let start = Instant::now();
+        let result = self
+            .get_or_load_classified(team_id, etag, load_payload)
+            .await;
+        let outcome = match &result {
+            Ok((_, _, oc)) => *oc,
+            Err(_) => LoadOutcome::MissLoadErr,
+        };
+        // Sub-ms-precision recording paired with the sub-ms-floor bucket
+        // override registered in `metrics::buckets`. Hits would otherwise
+        // collapse into the lowest integer-ms bucket and hide tail behavior.
+        // Direct `metrics::histogram!` (not `common_metrics::histogram`) so
+        // the `&'static str` outcome label avoids per-call `String`
+        // allocations on the hot read path; this metric has no `team_id`
+        // label, so the allowlist filter does not apply.
+        metrics::histogram!(
+            FLAG_DEFINITIONS_INMEM_LOAD_MS,
+            "outcome" => outcome.label(),
+        )
+        .record(start.elapsed().as_secs_f64() * 1000.0);
+        result.map(|(prepared, src, _)| (prepared, src))
+    }
+
+    /// Inner worker for [`Self::get_or_load`]. Returns the success outcome
+    /// alongside the value so the wrapper can pick the histogram label
+    /// without re-deriving control flow. `Err` is treated as
+    /// [`LoadOutcome::MissLoadErr`] uniformly at the wrapper level —
+    /// including `compile_from_wrapper` parse failures, which are
+    /// indistinguishable from infrastructure errors at the metric level.
+    async fn get_or_load_classified<F, Fut>(
+        &self,
+        team_id: TeamId,
+        etag: Option<String>,
+        load_payload: F,
+    ) -> Result<(Arc<PreparedFlagDefinitions>, CacheSource, LoadOutcome), FlagError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<
+            Output = Result<(Option<HypercacheFlagsWrapper>, CacheSource), FlagError>,
+        >,
+    {
         let Some(etag) = etag else {
             // `wrapper.is_none()` is the `__missing__` sentinel (Django
             // deletes the etag for empty teams); anything else with a
             // missing etag is real version-key drift. Splitting the labels
             // lets dashboards exclude steady-state empty teams from alerts.
             let (wrapper, src) = load_payload().await?;
-            let reason = if wrapper.is_none() {
-                "sentinel"
+            let outcome = if wrapper.is_none() {
+                LoadOutcome::Sentinel
             } else {
-                "etag_missing"
+                LoadOutcome::EtagMissing
             };
             inc(
                 FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
-                &[("reason".to_string(), reason.to_string())],
+                &[("reason".to_string(), outcome.label().to_string())],
                 1,
             );
             let prepared = compile_from_wrapper(team_id, wrapper)?;
-            return Ok((prepared, src));
+            return Ok((prepared, src, outcome));
         };
 
         let cache_key = (team_id, etag);
 
         if let Some(prepared) = self.cache.get(&cache_key).await {
             inc(FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER, &[], 1);
-            return Ok((prepared, CacheSource::Redis));
+            return Ok((prepared, CacheSource::Redis, LoadOutcome::Hit));
         }
 
         let (wrapper, src) = load_payload().await?;
@@ -108,13 +199,16 @@ impl FlagDefinitionsCache {
         inc(FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER, &[], 1);
         self.report_cache_metrics();
 
-        // Source is checked after the loader returns so a fall-through to PG
-        // never persists under the etag (see struct doc).
-        if !matches!(src, CacheSource::Fallback) {
+        // Fallback (PG) results aren't persisted under the etag (see
+        // struct doc) and get their own outcome label.
+        let outcome = if matches!(src, CacheSource::Fallback) {
+            LoadOutcome::Fallback
+        } else {
             self.cache.insert(cache_key, Arc::clone(&prepared)).await;
-        }
+            LoadOutcome::MissLoadOk
+        };
 
-        Ok((prepared, src))
+        Ok((prepared, src, outcome))
     }
 
     /// Starts periodic monitoring of cache metrics. Honors the lifecycle
@@ -334,6 +428,112 @@ mod tests {
             counter.load(Ordering::SeqCst),
             2,
             "etag=None must invoke loader on every call"
+        );
+    }
+
+    /// Snapshots the `outcome` label of the most recent
+    /// `flags_definitions_inmem_load_ms` sample. Returns `None` when no
+    /// sample was recorded. Shared by the per-outcome tests below.
+    fn last_load_outcome_label(
+        snapshotter: &metrics_util::debugging::Snapshotter,
+    ) -> Option<String> {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .rfind(|(ckey, _, _, _)| ckey.key().name() == FLAG_DEFINITIONS_INMEM_LOAD_MS)
+            .and_then(|(ckey, _, _, _)| {
+                ckey.key()
+                    .labels()
+                    .find(|l| l.key() == "outcome")
+                    .map(|l| l.value().to_string())
+            })
+    }
+
+    #[tokio::test]
+    async fn test_pg_fallback_emits_fallback_outcome_label() {
+        use metrics_util::debugging::DebuggingRecorder;
+
+        // `set_default_local_recorder` returns a thread-local guard;
+        // safe across `.await` because `#[tokio::test]` defaults to a
+        // current-thread runtime.
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let cache = FlagDefinitionsCache::new(None, None);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let fallback_loader = move || -> LoaderFuture {
+            Box::pin(async move { Ok::<_, FlagError>((Some(w), CacheSource::Fallback)) })
+        };
+        let (_, src) = cache
+            .get_or_load(1, Some("etag-present".into()), fallback_loader)
+            .await
+            .unwrap();
+        assert!(matches!(src, CacheSource::Fallback));
+
+        assert_eq!(
+            last_load_outcome_label(&snapshotter).as_deref(),
+            Some("fallback")
+        );
+    }
+
+    /// Pins the dashboard contract for the `miss_load_ok` label: a
+    /// cache miss with a healthy Redis-source loader must classify as
+    /// `miss_load_ok`, not `fallback` or `miss_load_err`. Without this
+    /// assertion, a regression that swapped the `Fallback` arm in
+    /// `get_or_load_classified` would not fail any other test.
+    #[tokio::test]
+    async fn test_etag_present_redis_loader_emits_miss_load_ok_label() {
+        use metrics_util::debugging::DebuggingRecorder;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let cache = FlagDefinitionsCache::new(None, None);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        cache
+            .get_or_load(1, Some("fresh-etag".into()), loader_for(w))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            last_load_outcome_label(&snapshotter).as_deref(),
+            Some("miss_load_ok")
+        );
+    }
+
+    /// Pins the dashboard contract for `miss_load_err`: an `Err` from
+    /// the loader (here `DatabaseUnavailable`) must classify as
+    /// `miss_load_err`. The same label also covers
+    /// `compile_from_wrapper` parse failures — see the `LoadOutcome`
+    /// doc — so an alert on this label cannot distinguish the two
+    /// without correlating against upstream health.
+    #[tokio::test]
+    async fn test_loader_error_emits_miss_load_err_label() {
+        use metrics_util::debugging::DebuggingRecorder;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let cache = FlagDefinitionsCache::new(None, None);
+        let loader = || -> LoaderFuture {
+            Box::pin(async {
+                Err::<(Option<HypercacheFlagsWrapper>, CacheSource), _>(
+                    FlagError::DatabaseUnavailable,
+                )
+            })
+        };
+        cache
+            .get_or_load(1, Some("e".into()), loader)
+            .await
+            .expect_err("loader error must surface");
+
+        assert_eq!(
+            last_load_outcome_label(&snapshotter).as_deref(),
+            Some("miss_load_err")
         );
     }
 
@@ -557,58 +757,6 @@ mod tests {
         );
     }
 
-    /// The weigher must walk `super_groups` as well as `groups` so cache
-    /// capacity isn't silently overshot for teams whose super_groups carry
-    /// non-trivial property payloads.
-    #[test]
-    fn test_weigher_accounts_for_super_groups() {
-        use crate::flags::flag_models::FlagPropertyGroup;
-        use crate::properties::property_models::PropertyType;
-
-        let make_flag = |super_groups: Option<Vec<FlagPropertyGroup>>| {
-            let mut flag = mock!(FeatureFlag,
-                name: None,
-                key: "k".mock_into(),
-            );
-            flag.filters.super_groups = super_groups;
-            flag
-        };
-
-        let big_str = "x".repeat(10_000);
-        let big_group = FlagPropertyGroup {
-            properties: Some(vec![PropertyFilter {
-                key: "prop".to_string(),
-                value: Some(json!(big_str)),
-                operator: Some(OperatorType::Exact),
-                prop_type: PropertyType::Person,
-                group_type_index: None,
-                negation: None,
-                compiled_regex: None,
-            }]),
-            rollout_percentage: Some(100.0),
-            variant: None,
-            early_exit: None,
-            aggregation_group_type_index: None,
-        };
-
-        let without = Arc::new(PreparedFlagDefinitions {
-            flags: PreparedFlags::seal(vec![make_flag(None)]),
-            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
-            cohorts: None,
-        });
-        let with = Arc::new(PreparedFlagDefinitions {
-            flags: PreparedFlags::seal(vec![make_flag(Some(vec![big_group]))]),
-            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
-            cohorts: None,
-        });
-
-        let without_sz = without.estimated_size_bytes();
-        let with_sz = with.estimated_size_bytes();
-        assert!(
-            with_sz > without_sz + 9_000,
-            "weigher must count super_groups property bytes: without={without_sz}, with={with_sz}"
-        );
-    }
 
     /// The weigher must include JSON-valued `PropertyFilter.value` bytes so
     /// large cohort-in-flag filters don't push the cache over its capacity.
@@ -643,6 +791,100 @@ mod tests {
         assert!(
             big_sz > small_sz + 9_000,
             "weigher should reflect ~10KB of JSON payload: small={small_sz}, big={big_sz}"
+        );
+    }
+
+    /// The weigher must include `#[serde(flatten)] extra` passthrough bytes on
+    /// `FlagFilters`, `FlagPropertyGroup`, and `PropertyFilter`. Without this,
+    /// a project member could store arbitrarily large unknown JSONB keys on flag
+    /// filters (the Django API does not validate unknown keys) and bypass the
+    /// cache's byte-budget eviction.
+    #[test]
+    fn test_weigher_accounts_for_extra_passthrough() {
+        use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+        use crate::properties::property_models::PropertyType;
+        use serde_json::Map;
+
+        let big_str = "x".repeat(10_000);
+
+        let make_flag = |filters_extra: Map<String, serde_json::Value>,
+                         group_extra: Map<String, serde_json::Value>,
+                         prop_extra: Map<String, serde_json::Value>| {
+            let mut flag = mock!(FeatureFlag, name: None, key: "k".mock_into());
+            flag.filters = FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "prop".to_string(),
+                        value: Some(json!("v")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                        compiled_regex: None,
+                        extra: prop_extra,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: None,
+                    early_exit: None,
+                    extra: group_extra,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                extra: filters_extra,
+            };
+            flag
+        };
+
+        let baseline = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(Map::new(), Map::new(), Map::new())]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let mut filters_extra = Map::new();
+        filters_extra.insert("holdout_groups".to_string(), json!(big_str));
+        let with_filters_extra = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(filters_extra, Map::new(), Map::new())]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let mut group_extra = Map::new();
+        group_extra.insert("description".to_string(), json!(big_str));
+        let with_group_extra = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(Map::new(), group_extra, Map::new())]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let mut prop_extra = Map::new();
+        prop_extra.insert("cohort_name".to_string(), json!(big_str));
+        let with_prop_extra = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(Map::new(), Map::new(), prop_extra)]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let base_sz = baseline.estimated_size_bytes();
+        let filters_sz = with_filters_extra.estimated_size_bytes();
+        let group_sz = with_group_extra.estimated_size_bytes();
+        let prop_sz = with_prop_extra.estimated_size_bytes();
+
+        assert!(
+            filters_sz > base_sz + 9_000,
+            "weigher must count FlagFilters.extra: base={base_sz}, with_filters_extra={filters_sz}"
+        );
+        assert!(
+            group_sz > base_sz + 9_000,
+            "weigher must count FlagPropertyGroup.extra: base={base_sz}, with_group_extra={group_sz}"
+        );
+        assert!(
+            prop_sz > base_sz + 9_000,
+            "weigher must count PropertyFilter.extra: base={base_sz}, with_prop_extra={prop_sz}"
         );
     }
 }

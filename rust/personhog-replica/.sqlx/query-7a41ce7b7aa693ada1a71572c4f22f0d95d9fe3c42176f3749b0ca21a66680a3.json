@@ -15,7 +15,9 @@
         "Int8"
       ]
     },
-    "nullable": [true]
+    "nullable": [
+      false
+    ]
   },
   "hash": "7a41ce7b7aa693ada1a71572c4f22f0d95d9fe3c42176f3749b0ca21a66680a3"
 }

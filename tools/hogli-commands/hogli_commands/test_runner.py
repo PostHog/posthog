@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 import click
-from hogli.cli import cli
 from hogli.command_types import _run
 from hogli.manifest import REPO_ROOT
 
@@ -724,7 +723,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-@cli.command(
+@click.command(
     name="test",
     help=(
         "Auto-detect test type and run the correct test runner.\n\n"

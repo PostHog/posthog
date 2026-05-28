@@ -12,11 +12,19 @@ import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DataModelingJob, DataModelingSyncInterval, LogEntryLevel, OrNever } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DataModelingJob,
+    DataModelingSyncInterval,
+    LogEntryLevel,
+    OrNever,
+} from '~/types'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
@@ -148,6 +156,10 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
     const isDagSchedulesOnly = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_BACKEND_V2]
+    const materializationAccessReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
 
     if (!savedQuery) {
         return (
@@ -187,7 +199,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     <LemonButton
                                         className="whitespace-nowrap"
                                         loading={startingMaterialization || currentJobStatus === 'Running'}
-                                        disabledReason={sync}
+                                        disabledReason={sync || materializationAccessReason}
                                         onClick={() => {
                                             setStartingMaterialization(true)
                                             runDataWarehouseSavedQuery(viewId)
@@ -197,7 +209,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => cancelDataWarehouseSavedQuery(viewId),
-                                            disabledReason: cancel,
+                                            disabledReason: cancel || materializationAccessReason || undefined,
                                         }}
                                     >
                                         {startingMaterialization
@@ -209,7 +221,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     {kind !== 'endpoint' && !isDagSchedulesOnly && (
                                         <LemonSelect
                                             className="h-9"
-                                            disabledReason={sync}
+                                            disabledReason={sync || materializationAccessReason}
                                             value={savedQuery.sync_frequency || 'never'}
                                             onChange={(newValue) => {
                                                 if (newValue) {
@@ -230,7 +242,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             type="secondary"
                                             size="small"
                                             tooltip="Revert materialized view to view"
-                                            disabledReason={revert}
+                                            disabledReason={revert || materializationAccessReason}
                                             icon={<IconRevert />}
                                             onClick={() => {
                                                 LemonDialog.open({
@@ -272,6 +284,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     onClick={() => materializeDataWarehouseSavedQuery(viewId)}
                                     type="primary"
                                     loading={updatingDataWarehouseSavedQuery}
+                                    disabledReason={materializationAccessReason}
                                 >
                                     Materialize
                                 </LemonButton>

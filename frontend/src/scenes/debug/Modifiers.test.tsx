@@ -52,6 +52,7 @@ describe('Modifiers', () => {
                 prefix: 'analytics-db',
                 description: null,
                 access_method: 'direct',
+                created_via: 'web',
                 latest_error: null,
                 revenue_analytics_config: {
                     enabled: false,

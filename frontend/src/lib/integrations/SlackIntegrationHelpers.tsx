@@ -45,6 +45,11 @@ export function SlackNotConfiguredBanner(): JSX.Element {
     )
 }
 
+// Slack channel IDs are 9+ char uppercase alphanumerics beginning with C (public), G (private), or D (DM).
+// Only trigger a direct lookup against Slack when the typed text plausibly *is* a channel ID, so
+// free-text channel names route through the search endpoint instead.
+const SLACK_CHANNEL_ID_PATTERN = /^[CGD][A-Z0-9]{8,}$/
+
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => {
@@ -74,6 +79,7 @@ export type SlackChannelPickerProps = {
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
     const {
         slackChannels,
+        allSlackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
         isMemberOfSlackChannel,
@@ -83,7 +89,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
 
-    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `getChannelRefreshButtonDisabledReason`
+    const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
+    // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
+    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
@@ -124,8 +132,24 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 onInputChange={(val) => {
                     if (val) {
-                        loadSlackChannelById(val)
+                        // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
+                        // resolve via direct lookup. ID-shape input fires only the direct lookup;
+                        // anything else fires only the search, skipping the otherwise-redundant
+                        // by-id call for a free-text channel name.
+                        const idCandidate = val.trim().toUpperCase()
+                        if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
+                            loadSlackChannelById(idCandidate)
+                        } else if (val !== modifiedValue) {
+                            // LemonInputSelect auto-fills the input with the selected option's key on
+                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
+                            // search — the composite "id|#name" matches no channel server-side and
+                            // would overwrite the cached list with [], so the bare ID could no longer
+                            // resolve to a name after blur.
+                            loadAllSlackChannels(false, val)
+                        }
                         setLocalValue(val)
+                    } else {
+                        loadAllSlackChannels()
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
@@ -137,10 +161,13 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 action={{
                     children: <span className="Link">Refresh channels</span>,
                     onClick: () => loadAllSlackChannels(true),
-                    disabledReason: getChannelRefreshButtonDisabledReason(),
+                    disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
+                    // The popover is portaled outside the modal and matchWidth only sets min-width,
+                    // not max-width — without a cap the popover can grow to fit a long single line
+                    // and spill past the modal edge.
+                    <p className="text-secondary italic p-1 max-w-sm">
                         No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.
@@ -160,6 +187,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 }
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+
+            {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    Only the first 200 channels are shown — type to search for a specific channel.
+                </p>
+            ) : null}
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">

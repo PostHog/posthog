@@ -5,12 +5,14 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
+import { LemonMenuItem } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +28,7 @@ import {
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,6 +48,8 @@ import {
     EventsNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -80,7 +85,6 @@ import {
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
-    BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
     DeviceType,
@@ -153,6 +157,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'rawWebAnalyticsFilters',
                 'domainFilter',
                 'deviceTypeFilter',
+                'countryFilter',
+                'referrerFilter',
                 'compareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
@@ -180,6 +186,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'togglePropertyFilter',
                 'setDomainFilter',
                 'setDeviceTypeFilter',
+                'setCountryFilter',
+                'setReferrerFilter',
                 'setCompareFilter',
                 'loadPreset',
             ],
@@ -211,7 +219,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
-        setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
+        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean) => ({ useWebAnalyticsPrecompute }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -427,12 +435,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     clearFilters: () => false,
                 },
             ],
-            botTrafficFilter: [
-                'regular' as BotTrafficFilter,
+            useWebAnalyticsPrecompute: [
+                false as boolean,
                 persistConfig,
                 {
-                    setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
-                    clearFilters: () => 'regular' as BotTrafficFilter,
+                    setUseWebAnalyticsPrecompute: (_, { useWebAnalyticsPrecompute }) => useWebAnalyticsPrecompute,
                 },
             ],
             shouldStripQueryParams: [
@@ -586,6 +593,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.rawWebAnalyticsFilters,
                 s.domainFilter,
                 s.deviceTypeFilter,
+                s.countryFilter,
+                s.referrerFilter,
                 s.compareFilter,
                 s.dateFilter,
                 s.conversionGoal,
@@ -596,6 +605,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 properties,
                 domainFilter,
                 deviceTypeFilter,
+                countryFilter,
+                referrerFilter,
                 compareFilter,
                 dateFilter,
                 conversionGoal,
@@ -609,6 +620,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 domainFilter,
                 deviceTypeFilter,
+                countryFilter,
+                referrerFilter,
                 conversionGoal,
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
@@ -620,50 +633,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.isPathCleaningEnabled,
                 s.selectedHost,
                 s.deviceTypeFilter,
-                s.botTrafficFilter,
-                s.featureFlags,
+                s.countryFilter,
+                s.referrerFilter,
             ],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 selectedHost: string | null,
                 deviceTypeFilter: DeviceType | null,
-                botTrafficFilter: BotTrafficFilter,
-                featureFlags: Record<string, boolean | string | undefined>
+                countryFilter: string | null,
+                referrerFilter: string | null
             ) => {
                 let filters = rawWebAnalyticsFilters
-
-                // Add bot traffic filter (only when feature flag is enabled)
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
-                    if (botTrafficFilter === 'regular') {
-                        filters = [
-                            ...filters,
-                            {
-                                key: '$virt_is_bot',
-                                value: ['false'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]
-                    } else if (botTrafficFilter === 'bot') {
-                        filters = [
-                            ...filters,
-                            {
-                                key: '$virt_is_bot',
-                                value: ['true'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                            {
-                                // Exclude events with no user agent — these are missing data, not confirmed bots
-                                key: '$virt_traffic_category',
-                                value: ['no_user_agent'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]
-                    }
-                }
 
                 if (selectedHost) {
                     filters = [
@@ -685,6 +666,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             key: '$device_type',
                             // Extra handling for device type to include mobile+tablet as a single filter
                             value: deviceTypeFilter === 'Desktop' ? 'Desktop' : ['Mobile', 'Tablet'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
+                }
+
+                if (countryFilter) {
+                    filters = [
+                        ...filters,
+                        {
+                            key: '$geoip_country_code',
+                            value: countryFilter,
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
+                }
+
+                if (referrerFilter) {
+                    filters = [
+                        ...filters,
+                        {
+                            key: '$referring_domain',
+                            value: referrerFilter,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
@@ -753,6 +758,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.shouldStripQueryParams,
                 s.includeHostPath,
+                s.useWebAnalyticsPrecompute,
                 s.featureFlags,
             ],
             (
@@ -760,12 +766,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts: boolean,
                 shouldStripQueryParams: boolean,
                 includeHostPath: boolean,
+                useWebAnalyticsPrecompute: boolean,
                 featureFlags: Record<string, boolean>
             ) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
+                useWebAnalyticsPrecompute,
             }),
         ],
         filters: [
@@ -930,7 +938,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (
                 productTab,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeoIPQueries, activeHoursTab },
-                { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams, includeHostPath },
+                {
+                    isPathCleaningEnabled,
+                    filterTestAccounts,
+                    shouldStripQueryParams,
+                    includeHostPath,
+                    useWebAnalyticsPrecompute,
+                },
                 {
                     webAnalyticsFilters,
                     replayFilters,
@@ -1146,6 +1160,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Apply the per-team opt-in here so every stats-table tab (Path,
+                                // Entry path, End path, channel breakdowns, etc.) consistently
+                                // reaches the lazy precompute gate. The backend gate decides
+                                // per-breakdown which combinations are actually served from the
+                                // precompute. `source` overrides can still pin this off for a
+                                // specific tab if ever needed.
+                                useWebAnalyticsPrecompute,
                                 ...source,
                             },
                             embedded: false,
@@ -1188,7 +1209,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             tileId: TileId.WEB_VITALS,
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                orderWhenLargeClassName: '2xl:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsQuery,
@@ -1218,7 +1239,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                orderWhenLargeClassName: '2xl:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsPathBreakdownQuery,
@@ -1232,6 +1253,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
                                 ],
+                                useWebAnalyticsPrecompute,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(
@@ -1246,13 +1268,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
+                const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
+
+                const includeHostMenuItem: LemonMenuItem | null =
+                    useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
+                        ? {
+                              label: 'Include host',
+                              tooltip: 'Show the full host + path (e.g. example.com/about) instead of just the path',
+                              active: includeHostPath,
+                              onClick: () => actions.setIncludeHostPath(!includeHostPath),
+                          }
+                        : null
+
+                const pathTabExtras = useTileHeaderV2
+                    ? { extraMenuItems: includeHostMenuItem ? [includeHostMenuItem] : undefined }
+                    : { control: <IncludeHostToggle /> }
+
                 const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
                         tileId: TileId.OVERVIEW,
                         layout: {
                             colSpanClassName: 'md:col-span-full',
-                            orderWhenLargeClassName: 'xxl:order-0',
+                            orderWhenLargeClassName: '2xl:order-0',
                             className: '-mt-2',
                         },
                         query: {
@@ -1264,6 +1302,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
+                            useWebAnalyticsPrecompute,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: true,
@@ -1273,8 +1312,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-1',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1 2xl:col-span-2' : 'md:col-span-2',
+                            orderWhenLargeClassName: '2xl:order-1',
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -1347,8 +1386,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-4',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1' : 'md:col-span-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-2' : '2xl:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1379,9 +1418,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                               includeAvgTimeOnPage:
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
+                                              useWebAnalyticsPrecompute,
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Paths',
@@ -1428,7 +1468,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Entry Path',
@@ -1463,7 +1503,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'End Path',
@@ -1495,6 +1535,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
+                                                  doPathCleaning: isPathCleaningEnabled,
                                               },
                                               embedded: false,
                                               showActions: true,
@@ -1520,7 +1561,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.SOURCES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-3' : '2xl:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1536,20 +1577,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.InitialChannelType,
                                 {},
                                 {
-                                    control: (
-                                        <div className="flex flex-row deprecated-space-x-2 font-medium">
-                                            <span>Customize channel types</span>
-                                            <LemonButton
-                                                icon={<IconGear />}
-                                                type="tertiary"
-                                                status="alt"
-                                                size="small"
-                                                noPadding={true}
-                                                tooltip="Customize channel types"
-                                                to={urls.settings('environment-web-analytics', 'channel-type')}
-                                            />
-                                        </div>
-                                    ),
+                                    ...(useTileHeaderV2
+                                        ? {
+                                              extraMenuItems: [
+                                                  {
+                                                      label: 'Customize channel types',
+                                                      icon: <IconGear />,
+                                                      to: urls.settings('environment-web-analytics', 'channel-type'),
+                                                  },
+                                              ],
+                                          }
+                                        : {
+                                              control: (
+                                                  <div className="flex flex-row deprecated-space-x-2 font-medium">
+                                                      <span>Customize channel types</span>
+                                                      <LemonButton
+                                                          icon={<IconGear />}
+                                                          type="tertiary"
+                                                          status="alt"
+                                                          size="small"
+                                                          noPadding={true}
+                                                          tooltip="Customize channel types"
+                                                          to={urls.settings(
+                                                              'environment-web-analytics',
+                                                              'channel-type'
+                                                          )}
+                                                      />
+                                                  </div>
+                                              ),
+                                          }),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
                                         title: 'Channels',
@@ -1742,7 +1798,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.DEVICES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-3',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-4' : '2xl:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -1997,6 +2053,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
+                                        // Web overview attributes session metrics to the session's start hour;
+                                        // mirror that here so visitor counts line up across the dashboard.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
+                                        },
                                     },
                                 },
                                 docs: {
@@ -2123,6 +2184,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // Backend gate decides whether this query is actually served
+                                      // from the precomputed table; we just pass the per-team opt-in.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2130,6 +2194,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
+                              extraMenuItems: useTileHeaderV2
+                                  ? [
+                                        {
+                                            label: 'Manage actions',
+                                            icon: <IconOpenInNew />,
+                                            to: urls.actions(),
+                                            onClick: () => {
+                                                void addProductIntentForCrossSell({
+                                                    from: ProductKey.WEB_ANALYTICS,
+                                                    to: ProductKey.ACTIONS,
+                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                                })
+                                            },
+                                        },
+                                    ]
+                                  : undefined,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
                                   title: 'Goals',
@@ -2216,6 +2296,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // The backend frustration lazy precompute gate decides whether
+                                      // this query is actually served from the precomputed table; we
+                                      // just pass the per-team opt-in through so it's eligible.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2479,6 +2563,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
+            const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
+            const oneDayMs = 24 * 60 * 60 * 1000
+            const lastStamp = Number(localStorage.getItem(stampKey) || 0)
+            if (Date.now() - lastStamp > oneDayMs) {
+                posthog.setPersonProperties({ last_used_web_analytics_at: new Date().toISOString() })
+                localStorage.setItem(stampKey, Date.now().toString())
+            }
+
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
             if (parsedFilters) {
                 if (productTab === ProductTab.BOT_ANALYTICS) {
@@ -2567,7 +2660,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
         return {
             '/web': toAction,
-            '/web/page-reports': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
             },

@@ -158,7 +158,11 @@ async def SandboxedEval(
             continue
         eval_cases.append(
             EvalCase(
-                input={"name": case.name, "prompt": case.prompt, "repo_fixture": case.repo_fixture},
+                input={
+                    "name": case.name,
+                    "prompt": case.prompt,
+                    "repo_fixture": case.repo_fixture,
+                },
                 expected=case.expected,
                 metadata=case.metadata,
             )
@@ -173,11 +177,13 @@ async def SandboxedEval(
         original_case = cases_by_name.get(input["name"])
 
         try:
-            # The factory does Django ORM work (fresh org/team/user, ClickHouse
-            # copy SQL, PSQL person sync). Django's async-safety guard rejects
-            # sync ORM calls from async contexts, so run it in a worker thread.
-            sandbox_context = await asyncio.to_thread(sandboxed_demo_data.make_context, eval_case.name)
-
+            # The factory does Django ORM work. Django's async-safety guard
+            # rejects sync ORM calls from async contexts, so run it in a worker
+            # thread.
+            sandbox_context = await asyncio.to_thread(
+                sandboxed_demo_data.make_context,
+                eval_case.name,
+            )
             seed_result: dict[str, Any] = {}
             if original_case is not None and original_case.setup is not None:
                 try:
@@ -245,6 +251,7 @@ async def SandboxedEval(
                 "messages": messages,
                 "raw_log": result.raw_log,
                 "seed": seed_result,
+                "prompt": eval_case.prompt,
             }
         except Exception as e:
             logger.exception("Eval task failed for '%s'", input.get("name", "?"))
@@ -309,7 +316,7 @@ async def SandboxedEval(
             posthog_client.flush()
             print(  # noqa: T201
                 f"\nPostHog evaluations: "
-                f"https://us.posthog.com/project/2/llm-analytics/evaluations/offline/experiments/"
+                f"https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/"
                 f"{experiment_id}?offline_date_from=-1d\n"
             )
         except Exception:

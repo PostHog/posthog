@@ -10,6 +10,7 @@ import { logsAlertingLogic } from '../logsAlertingLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
+    logsAlertsCreate: jest.fn(),
     logsAlertsDestroy: jest.fn(),
     logsAlertsList: jest.fn().mockResolvedValue({ results: [] }),
     logsAlertsPartialUpdate: jest.fn(),
@@ -89,6 +90,45 @@ describe('logsAlertingLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith('Failed to reset alert')
             expect(mockList).not.toHaveBeenCalled()
 
+            logic.unmount()
+        })
+    })
+
+    describe('createAlertAndOpen', () => {
+        it('posts an empty draft and routes to detail', async () => {
+            const mockCreate = require('products/logs/frontend/generated/api').logsAlertsCreate as jest.Mock
+            mockCreate.mockResolvedValueOnce({ id: 'new-alert-id', name: 'Untitled alert' })
+            const { router } = require('kea-router')
+            const pushSpy = jest.spyOn(router.actions, 'push')
+
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.createAlertAndOpen()
+            }).toFinishAllListeners()
+
+            expect(mockCreate).toHaveBeenCalledWith(expect.any(String), { enabled: false })
+            expect(pushSpy).toHaveBeenCalledWith('/logs/alerts/new-alert-id')
+
+            pushSpy.mockRestore()
+            logic.unmount()
+        })
+
+        it('shows an error toast on create failure', async () => {
+            const mockCreate = require('products/logs/frontend/generated/api').logsAlertsCreate as jest.Mock
+            mockCreate.mockRejectedValueOnce({ detail: 'Maximum number of alerts reached' })
+
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.createAlertAndOpen()
+            }).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Maximum number of alerts reached')
             logic.unmount()
         })
     })

@@ -1,7 +1,8 @@
 import * as d3 from 'd3'
 import { useMemo } from 'react'
 
-import { measureLabelWidth } from '../../overlays/AxisLabels'
+import { normalizeAxisLabel } from '../../utils/axis-labels'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
@@ -13,14 +14,60 @@ const MIN_LEFT_MARGIN = 20
 const MIN_RIGHT_MARGIN_DUAL_AXIS = 48
 const Y_LABEL_RIGHT_PADDING = 12
 const X_LABEL_EDGE_PADDING = 4
+const X_AXIS_TITLE_MARGIN = 22
+const Y_AXIS_TITLE_MARGIN = 24
 
 interface UseChartMarginsOptions {
     series: Series[]
     labels: string[]
     hideXAxis: boolean
     hideYAxis: boolean
+    xAxisLabel?: string
+    yAxisLabel?: string
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
+    axisOrientation?: 'vertical' | 'horizontal'
+    /** Per-side overrides applied on top of the computed margins. */
+    override?: Partial<ChartMargins>
+    /** Override the value-range source for value-axis tick sizing. Defaults to `series`. Use
+     *  this when the visible series's `data[i]` doesn't span the full y-domain — e.g. BoxPlot
+     *  passes the whisker min/max samples so the y-tick column fits the actual range, not just
+     *  the medians it draws on `series.data`. yAxis-id discovery still reads from `series`. */
+    valueRangeSeries?: Series[]
+}
+
+function widestCategoryLabelWidth(
+    labels: string[],
+    xTickFormatter: ((value: string, index: number) => string | null) | undefined
+): number {
+    let widest = 0
+    for (let i = 0; i < labels.length; i++) {
+        const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
+        if (text === null) {
+            continue
+        }
+        widest = Math.max(widest, measureLabelWidth(text))
+    }
+    return widest
+}
+
+function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
+    const range = seriesValueRange(series)
+    if (range.count === 0) {
+        return 0
+    }
+    const min = range.min > 0 ? 0 : range.min
+    const max = range.max < 0 ? 0 : range.max
+    const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
+    if (ticks.length === 0) {
+        return 0
+    }
+    const formatter = yTickFormatter ?? autoFormatterFor(ticks)
+    let widest = 0
+    for (const t of ticks) {
+        widest = Math.max(widest, measureLabelWidth(formatter(t)))
+    }
+    return widest
 }
 
 export function useChartMargins({
@@ -28,9 +75,19 @@ export function useChartMargins({
     labels,
     hideXAxis,
     hideYAxis,
+    xAxisLabel,
+    yAxisLabel,
     xTickFormatter,
     yTickFormatter,
+    axisOrientation = 'vertical',
+    override,
+    valueRangeSeries,
 }: UseChartMarginsOptions): ChartMargins {
+    const isHorizontal = axisOrientation === 'horizontal'
+    const valueSeries = valueRangeSeries ?? series
+    const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
+    const normalizedYAxisLabel = normalizeAxisLabel(yAxisLabel)
+
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
             series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID)
@@ -42,50 +99,49 @@ export function useChartMargins({
         if (hideYAxis) {
             return 0
         }
-        const range = seriesValueRange(series)
-        if (range.count === 0) {
-            return 0
+        if (isHorizontal) {
+            return widestCategoryLabelWidth(labels, xTickFormatter)
         }
-        const min = range.min > 0 ? 0 : range.min
-        const max = range.max < 0 ? 0 : range.max
-        const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
-        if (ticks.length === 0) {
-            return 0
-        }
-        const formatter = yTickFormatter ?? autoFormatterFor(ticks)
-        let widest = 0
-        for (const t of ticks) {
-            widest = Math.max(widest, measureLabelWidth(formatter(t)))
-        }
-        return widest
-    }, [series, yTickFormatter, hideYAxis])
+        return widestValueLabelWidth(valueSeries, yTickFormatter)
+    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter])
 
     const xLabelHalfWidth = useMemo<number>(() => {
-        if (hideXAxis || labels.length === 0) {
+        if (hideXAxis) {
             return 0
         }
-        let widest = 0
-        for (let i = 0; i < labels.length; i++) {
-            const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
-            if (text === null) {
-                continue
-            }
-            widest = Math.max(widest, measureLabelWidth(text))
+        if (isHorizontal) {
+            const widest = widestValueLabelWidth(valueSeries, yTickFormatter)
+            return Math.ceil(widest / 2)
         }
-        return Math.ceil(widest / 2)
-    }, [labels, xTickFormatter, hideXAxis])
+        if (labels.length === 0) {
+            return 0
+        }
+        return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter) / 2)
+    }, [labels, xTickFormatter, hideXAxis, isHorizontal, valueSeries, yTickFormatter])
 
     return useMemo<ChartMargins>(() => {
-        const bottom = hideXAxis ? COLLAPSED_AXIS_MARGIN : DEFAULT_MARGINS.bottom
+        const bottom = hideXAxis
+            ? COLLAPSED_AXIS_MARGIN
+            : DEFAULT_MARGINS.bottom + (normalizedXAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
         const left = hideYAxis
             ? COLLAPSED_AXIS_MARGIN
             : Math.max(
                   MIN_LEFT_MARGIN,
                   Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING,
                   xLabelHalfWidth + X_LABEL_EDGE_PADDING
-              )
+              ) + (normalizedYAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const right = Math.max(rightFloor, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
-        return { top: DEFAULT_MARGINS.top, right, bottom, left }
-    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
+        const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
+        return override ? { ...computed, ...override } : computed
+    }, [
+        hideXAxis,
+        hideYAxis,
+        hasMultipleAxes,
+        yLabelWidth,
+        xLabelHalfWidth,
+        normalizedXAxisLabel,
+        normalizedYAxisLabel,
+        override,
+    ])
 }

@@ -14,7 +14,7 @@ from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -24,6 +24,8 @@ from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
+
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
@@ -70,6 +72,7 @@ def prepare_ast_for_printing(
     dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
@@ -86,9 +89,18 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
+    # Load property-level access control restrictions before type resolution so that
+    # FieldType.get_child() can block access to restricted properties during resolution.
+    if context.team_id is not None and context.restricted_properties is None:
+        with context.timings.measure("load_restricted_properties"):
+            context.restricted_properties = get_restricted_properties_for_team(
+                team_id=context.team_id,
+                user=context.user,
+            )
+
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
-            resolve_in_cohorts_conjoined(node, dialect, context, stack)
+            resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(
@@ -96,6 +108,7 @@ def prepare_ast_for_printing(
             context,
             dialect=dialect,
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
+            resolver_factory=resolver_factory,
         )
 
     # Detect workload from resolved table types and store on context
@@ -110,7 +123,7 @@ def prepare_ast_for_printing(
 
     if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -133,7 +146,7 @@ def prepare_ast_for_printing(
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
@@ -155,7 +168,7 @@ def prepare_ast_for_printing(
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
+            resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

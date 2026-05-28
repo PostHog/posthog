@@ -4,14 +4,14 @@ import { Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { healthMenuLogic } from '../HealthMenu/healthMenuLogic'
+import { posthogStatusLogic } from '../HelpMenu/posthogStatusLogic'
 
 export function PosthogStatusShownOnlyIfNotOperational({
     iconOnly = false,
 }: {
     iconOnly?: boolean
 }): JSX.Element | null {
-    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus } = useValues(healthMenuLogic)
+    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus } = useValues(posthogStatusLogic)
 
     if (postHogStatus === 'operational') {
         return null
@@ -49,7 +49,7 @@ export function PosthogStatusShownOnlyIfNotOperational({
                         />
                     </svg>
                 </span>
-                {!iconOnly && <span>{tooltipText}</span>}
+                {!iconOnly && <span className="truncate">{tooltipText}</span>}
             </Link>
         </div>
     )

@@ -91,13 +91,6 @@ impl std::fmt::Display for EvaluationType {
     }
 }
 
-#[derive(Debug)]
-struct SuperConditionEvaluation {
-    should_evaluate: bool,
-    is_match: bool,
-    reason: FeatureFlagMatchReason,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FeatureFlagMatch {
     pub matches: bool,
@@ -338,6 +331,10 @@ pub struct FeatureFlagMatcher {
     /// so the matcher skips the CohortCacheManager PG query entirely.
     /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
     preloaded_cohorts: Option<Arc<[Cohort]>>,
+    /// Whether to include detailed condition analysis in flag evaluation results.
+    detailed_analysis: bool,
+    /// Whether to only use person properties from request payload, ignoring database properties.
+    only_use_override_person_properties: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -357,6 +354,22 @@ impl FlagSnapshot {
             version: flag.version,
         }
     }
+}
+
+/// Mirrors Python's `add_local_person_and_group_properties` so flag conditions
+/// matching on `distinct_id` evaluate without a DB lookup. Always injects the
+/// request `distinct_id` (including `""`) unless an explicit
+/// `person_property_overrides["distinct_id"]` is already present, in which case
+/// the explicit override wins.
+fn merge_distinct_id_into_person_properties(
+    distinct_id: &str,
+    overrides: Option<HashMap<String, Value>>,
+) -> HashMap<String, Value> {
+    let mut overrides = overrides.unwrap_or_default();
+    overrides
+        .entry("distinct_id".to_string())
+        .or_insert_with(|| Value::String(distinct_id.to_string()));
+    overrides
 }
 
 impl FeatureFlagMatcher {
@@ -387,6 +400,8 @@ impl FeatureFlagMatcher {
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             preloaded_cohorts: None,
+            detailed_analysis: false,
+            only_use_override_person_properties: false,
         }
     }
 
@@ -418,6 +433,16 @@ impl FeatureFlagMatcher {
         self
     }
 
+    pub fn with_detailed_analysis(mut self, detailed_analysis: bool) -> Self {
+        self.detailed_analysis = detailed_analysis;
+        self
+    }
+
+    pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
+        self.only_use_override_person_properties = only_use_override;
+        self
+    }
+
     /// Evaluates all feature flags for the current matcher context.
     ///
     /// ## Arguments
@@ -444,6 +469,11 @@ impl FeatureFlagMatcher {
         optimize_experience_continuity_lookups: bool,
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
+
+        let person_property_overrides = Some(merge_distinct_id_into_person_properties(
+            &self.distinct_id,
+            person_property_overrides,
+        ));
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -810,7 +840,7 @@ impl FeatureFlagMatcher {
             &self.filtered_out_flag_ids,
         );
 
-        if flags_requiring_db_preparation.is_empty() {
+        if flags_requiring_db_preparation.is_empty() || self.only_use_override_person_properties {
             self.flag_evaluation_state.skip_person_properties();
             return false;
         }
@@ -929,6 +959,7 @@ impl FeatureFlagMatcher {
                         &result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
+                        person_property_overrides,
                     );
                 });
             }
@@ -950,6 +981,7 @@ impl FeatureFlagMatcher {
                         result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
+                        person_property_overrides,
                     );
                 }
             }
@@ -977,13 +1009,27 @@ impl FeatureFlagMatcher {
         result: &Result<FeatureFlagMatch, FlagError>,
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
+        person_property_overrides: &Option<HashMap<String, Value>>,
     ) {
         match result {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                level_evaluated_flags_map
-                    .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
+                let flag_details = if self.detailed_analysis {
+                    // Use merged person properties (DB + overrides) for condition analysis
+                    let merged_person_props = self
+                        .get_person_properties(person_property_overrides.as_ref())
+                        .ok();
+                    FlagDetails::create_with_analysis(
+                        flag,
+                        flag_match,
+                        true,
+                        merged_person_props.as_ref(),
+                    )
+                } else {
+                    FlagDetails::create(flag, flag_match)
+                };
+                level_evaluated_flags_map.insert(flag.key.clone(), flag_details);
             }
             Err(e) => {
                 *errors_while_computing_flags = true;
@@ -1204,13 +1250,7 @@ impl FeatureFlagMatcher {
 
         // Evaluate feature enrollment (early access features) first.
         // Enrollment is a person-level concept — always uses person properties, even for
-        // group-based flags. The API validates that group-based flags cannot have early access
-        // features attached.
-        //
-        // New format: `feature_enrollment: true` — the enrollment property key is derived
-        // from the flag key as `$feature_enrollment/{flag_key}`.
-        // Legacy format: `super_groups` array with explicit property filters.
-        // New format takes precedence when both are present.
+        // group-based flags.
         if flag.filters.feature_enrollment == Some(true) {
             let enrollment_key = FlagFilters::enrollment_key(&flag.key);
             let person_properties = self.get_person_properties(person_property_overrides)?;
@@ -1226,45 +1266,9 @@ impl FeatureFlagMatcher {
                     payload,
                 });
             }
-            // Person doesn't have enrollment property set — fall through to normal conditions
-        } else if let Some(super_groups) = &flag.filters.super_groups {
-            if let Some(super_condition) = super_groups.first() {
-                // Legacy path: evaluate super_groups property filters directly.
-                if super_condition
-                    .properties
-                    .as_ref()
-                    .is_some_and(|p| !p.is_empty())
-                {
-                    if cached_person_properties.is_none() {
-                        cached_person_properties =
-                            Some(self.get_person_properties(person_property_overrides)?);
-                    }
-                    let super_condition_evaluation = self.is_super_condition_match(
-                        flag,
-                        cached_person_properties.as_ref().unwrap(),
-                        hash_key_overrides,
-                        request_hash_key_override,
-                    )?;
-
-                    if super_condition_evaluation.should_evaluate {
-                        let payload = self.get_matching_payload(None, flag);
-                        return Ok(FeatureFlagMatch {
-                            matches: super_condition_evaluation.is_match,
-                            variant: None,
-                            reason: super_condition_evaluation.reason,
-                            condition_index: Some(0),
-                            payload,
-                        });
-                    }
-                    // if no match, continue to normal conditions
-                }
-            }
         }
 
-        // Match for holdout super condition
-        // TODO: Flags shouldn't have both super_groups and holdout
-        // TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
-        // this will shoot ourselves in the foot when we extend early access to support variants as well.
+        // Match for holdout condition
         // TODO: Validate holdout variant should have 0% default rollout %?
         // TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
         // in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
@@ -1435,10 +1439,6 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                if highest_match == FeatureFlagMatchReason::SuperConditionValue {
-                    break; // Exit early if we've found a super condition match
-                }
-
                 // Check for variant override in the condition
                 let variant = if let Some(variant_override) = &condition.variant {
                     // Check if the override is a valid variant
@@ -1586,7 +1586,6 @@ impl FeatureFlagMatcher {
                 }
             }
         }
-
         self.check_rollout(
             feature_flag,
             rollout_percentage,
@@ -1679,11 +1678,15 @@ impl FeatureFlagMatcher {
         &self,
         property_overrides: Option<&HashMap<String, Value>>,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // Start with DB properties (clone only when we need a mutable copy)
-        let mut merged_properties = self
-            .get_person_properties_from_evaluation_state()
-            .cloned()
-            .unwrap_or_default();
+        let mut merged_properties = if self.only_use_override_person_properties {
+            // When only_use_override_person_properties is true, ignore DB properties entirely
+            HashMap::new()
+        } else {
+            // Start with DB properties (clone only when we need a mutable copy)
+            self.get_person_properties_from_evaluation_state()
+                .cloned()
+                .unwrap_or_default()
+        };
 
         // Merge in overrides (overrides take precedence)
         if let Some(overrides) = property_overrides {
@@ -1722,66 +1725,6 @@ impl FeatureFlagMatcher {
             ));
         }
         Ok((false, None, FeatureFlagMatchReason::NoConditionMatch))
-    }
-
-    /// Check if a super condition matches for a feature flag.
-    ///
-    /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
-    /// It uses pre-computed person properties (DB properties with overrides applied).
-    /// The function returns a struct indicating whether a super condition should be evaluated,
-    /// whether it matches if evaluated, and the reason for the match.
-    ///
-    /// Note: Super conditions (early access features) always use person properties, even for
-    /// group-based flags, because early access enrollment is a person-level concept.
-    fn is_super_condition_match(
-        &self,
-        feature_flag: &FeatureFlag,
-        person_properties: &HashMap<String, Value>,
-        hash_key_overrides: Option<&HashMap<String, String>>,
-        request_hash_key_override: &Option<String>,
-    ) -> Result<SuperConditionEvaluation, FlagError> {
-        if let Some(super_condition) = feature_flag
-            .filters
-            .super_groups
-            .as_ref()
-            .and_then(|sc| sc.first())
-        {
-            let has_relevant_super_condition_properties =
-                super_condition.properties.as_ref().is_some_and(|props| {
-                    props
-                        .iter()
-                        .any(|prop| person_properties.contains_key(&prop.key))
-                });
-
-            if has_relevant_super_condition_properties {
-                // Super conditions always use person-level aggregation (None)
-                let empty_group_props = HashMap::new();
-                let property_context = PropertyContext {
-                    person_properties: Some(person_properties),
-                    group_properties: &empty_group_props,
-                    aggregation: None,
-                };
-                let (is_match, _) = self.is_condition_match(
-                    feature_flag,
-                    super_condition,
-                    &property_context,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                )?;
-
-                return Ok(SuperConditionEvaluation {
-                    should_evaluate: true,
-                    is_match,
-                    reason: FeatureFlagMatchReason::SuperConditionValue,
-                });
-            }
-        }
-
-        Ok(SuperConditionEvaluation {
-            should_evaluate: false,
-            is_match: false,
-            reason: FeatureFlagMatchReason::NoConditionMatch,
-        })
     }
 
     /// Get hashed identifier for flag evaluation.
@@ -2475,5 +2418,54 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    #[rstest::rstest]
+    #[case::injects_when_overrides_absent("user_42", None, "user_42", vec![])]
+    #[case::injects_when_overrides_lack_distinct_id(
+        "user_42",
+        Some(vec![("email", "a@x.com")]),
+        "user_42",
+        vec![("email", "a@x.com")],
+    )]
+    #[case::explicit_override_wins(
+        "user_42",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    #[case::injects_empty_string_when_overrides_absent("", None, "", vec![])]
+    #[case::injects_empty_string_when_overrides_lack_distinct_id(
+        "",
+        Some(vec![("foo", "bar")]),
+        "",
+        vec![("foo", "bar")],
+    )]
+    #[case::explicit_override_wins_over_empty_request_distinct_id(
+        "",
+        Some(vec![("distinct_id", "explicit")]),
+        "explicit",
+        vec![],
+    )]
+    fn test_merge_distinct_id_into_person_properties(
+        #[case] request_distinct_id: &str,
+        #[case] overrides: Option<Vec<(&str, &str)>>,
+        #[case] expected_distinct_id: &str,
+        #[case] expected_extras: Vec<(&str, &str)>,
+    ) {
+        let overrides = overrides.map(|kvs| {
+            kvs.into_iter()
+                .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
+                .collect::<HashMap<_, _>>()
+        });
+        let result = merge_distinct_id_into_person_properties(request_distinct_id, overrides);
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String(expected_distinct_id.to_string())),
+        );
+        for (k, v) in &expected_extras {
+            assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
+        }
+        assert_eq!(result.len(), 1 + expected_extras.len());
     }
 }

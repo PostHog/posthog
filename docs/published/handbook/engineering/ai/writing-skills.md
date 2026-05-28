@@ -55,6 +55,24 @@ and describe the desired outcome for the customer.
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
 
+### When to write a skill
+
+The decision flow:
+
+1. **Ask PostHog Code or Claude Code to do X.** If it works on its own, you don't need a skill.
+2. **If it can't do X, fix the tool prompts first.**
+   Tool names, descriptions, and schemas are the cheapest lever — most "the agent doesn't know how to do X" problems are really "the tool description doesn't explain how to do X."
+   See [Adding tools to the MCP server](/handbook/engineering/ai/implementing-mcp-tools).
+3. **If improving tool prompts doesn't unlock the task — or the agent burns significant tokens figuring out which work to do — write a skill.**
+
+Additional signals that a skill is the right answer even when tool prompts are already solid:
+
+- **Complex inputs or outputs.** AI observability, logs, and other query-style endpoints have nested or non-obvious payload shapes the agent has to reason over. Ship a skill so it doesn't rediscover that shape every conversation.
+- **The guidance naturally splits into entry point plus references.**
+  SQL skills are the canonical example — a top-level workflow with optional schemas, query patterns, and function indexes loaded on demand. If your guidance has that shape, structure it as a skill with `references/`.
+
+Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
+
 ### Referencing MCP tools in skills
 
 When a skill references an MCP tool, use the `posthog:` namespace prefix
@@ -166,7 +184,7 @@ description: >
 
 description: >
   Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
-  Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
+  Use when the user pastes a trace URL (e.g. /ai-observability/traces/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
   or analyze token usage and costs.
@@ -176,7 +194,7 @@ description: >
 
 ```yaml
 # Too vague – agents can't determine when to use it
-description: 'Helps with LLM analytics'
+description: 'Helps with AI observability'
 
 # Too broad – an umbrella for everything isn't a skill
 description: 'Everything about PostHog AI features'
@@ -187,7 +205,7 @@ description: 'Everything about PostHog AI features'
 ### Good: `exploring-llm-traces`
 
 A focused skill that guides the agent through a specific workflow –
-see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/SKILL.md):
+see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/ai_observability/skills/exploring-llm-traces/SKILL.md):
 
 - Declares the exact MCP tools it relies on (`posthog:query-llm-traces-list`, `posthog:query-llm-trace`, `posthog:execute-sql`).
 - Explains the `$ai_trace` / `$ai_span` / `$ai_generation` / `$ai_embedding` event hierarchy
@@ -197,7 +215,7 @@ see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/ma
 - Uses progressive disclosure – details like the full event schema live in `references/`
   so the entry point stays focused.
 - Ships with pre-written Python helpers in
-  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/llm_analytics/skills/exploring-llm-traces/scripts)
+  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/ai_observability/skills/exploring-llm-traces/scripts)
   that cover the common workflows.
   The agent runs these instead of re-deriving the shape of the trace JSON,
   slicing nested payloads by hand, or burning tokens on exploratory parsing –

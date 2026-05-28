@@ -23,6 +23,7 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
@@ -53,7 +54,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
+class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -86,6 +87,76 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+    def dispatch(self, request, *args, **kwargs):
+        """
+        Outermost wrapper for the request lifecycle. The try/finally below
+        ensures cleanup across the standard `initial`/`finalize_response`
+        override surface — a subclass that customizes either of those without
+        calling super() would otherwise leak the token.
+
+        Note: a subclass that overrides `dispatch` itself without super() would
+        also bypass this cleanup; in this codebase only `query_coalescer.py`
+        overrides dispatch and it does call super().
+
+        ContextVars in sync Django are thread-local and the same worker thread
+        is reused across requests, so a leaked token would let scope from one
+        request bleed into the next.
+
+        Setting the scope still happens in initial() (where authentication has
+        completed and self.team is loaded by permission checks for free).
+        """
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            token = getattr(self, "_team_scope_token", None)
+            if token is not None:
+                reset_current_team_id(token)
+                self._team_scope_token = None
+
+    def initial(self, request, *args, **kwargs):
+        """
+        Set team scope context to the canonical team_id (parent if the URL
+        team is a child environment, the URL team itself otherwise). This is
+        the single source of truth for team scoping in DRF request flows —
+        any code path that reads through TeamScopedManager (used by both
+        main-DB models and ProductTeamModel-based product models) during
+        this request filters by this id.
+
+        Sourcing from the URL (not user.current_team_id) avoids the org-level
+        bug from #50899: user.current_team_id is a UI preference that can
+        drift from the team being acted on.
+
+        Runs after super().initial() so authentication has completed and
+        permission checks have already loaded self.team for free.
+
+        If a subclass overrides initial() without calling super(), context is
+        simply never set — scoped queries raise TeamScopeError, which is the
+        correct fail-closed behavior. dispatch() above guarantees cleanup
+        regardless.
+        """
+        super().initial(request, *args, **kwargs)
+        self._team_scope_token = None
+        if self._is_team_view or self._is_project_view:
+            try:
+                team_id = self.team_id
+            except (KeyError, ValidationError, AuthenticationFailed):
+                # Resolution failed — leave context unset; downstream code that
+                # touches a scoped model will get TeamScopeError, which is the
+                # correct fail-closed behavior.
+                return
+            # Compute canonical team_id. self.team is a @cached_property
+            # (line ~297) usually loaded by the permission checks above, so
+            # this is free. Reading via __dict__ rather than attribute access
+            # avoids triggering the lookup if it hasn't fired yet; if it
+            # hasn't, fall back to the raw URL team_id (correct for root
+            # teams, which are the common case). If self.team ever stops
+            # being a @cached_property this still degrades safely.
+            if "team" in self.__dict__:
+                canonical_team_id = self.team.parent_team_id or team_id
+            else:
+                canonical_team_id = team_id
+            self._team_scope_token = set_current_team_id(canonical_team_id)
 
     def dangerously_get_permissions(self):
         """
@@ -190,8 +261,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
-        # Projects and dashboards: org admins have implicit access; list must match retrieve (see issue #44364).
-        if self.scope_object in ("project", "dashboard"):
+        # Projects, dashboards, feature flags: org admins have implicit access; list must match retrieve (see issue #44364).
+        if self.scope_object in ("project", "dashboard", "feature_flag"):
             include_all_if_admin = True
 
         # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because

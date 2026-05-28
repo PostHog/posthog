@@ -77,11 +77,12 @@ const DiscussionContent = ({
     children?: React.ReactNode
 }): JSX.Element => {
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
-    const { setReplyingComment } = useActions(commentsLogic(logicProps))
+    const { setSelectedComment } = useActions(commentsLogic(logicProps))
     const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
 
     useEffect(() => {
-        setReplyingComment(selectedTabOptions ?? null)
+        // Use setSelectedComment without auto-focusing the composer
+        setSelectedComment(selectedTabOptions ?? null)
     }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

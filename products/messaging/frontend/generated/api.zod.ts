@@ -21,7 +21,7 @@ export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -42,7 +42,7 @@ export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -62,7 +62,7 @@ export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -87,7 +87,7 @@ export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -110,8 +110,25 @@ export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zo
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
+})
+
+/**
+ * Manually add a recipient to the opt-out list for a specific category or all marketing messages.
+ * @summary Manually add a recipient to the opt-out list
+ */
+export const messagingPreferencesAddOptOutCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesAddOptOutCreateBodyIdentifierMax)
+        .describe('The recipient identifier to opt out (e.g. email address).'),
+    category_key: zod
+        .string()
+        .optional()
+        .describe('Optional message category key. If omitted, the recipient is opted out of all marketing messages.'),
 })
 
 export const messagingTemplatesCreateBodyNameMax = 400
@@ -123,15 +140,18 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     content: zod
         .object({
-            templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
+            templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
             email: zod
-                .object({
-                    subject: zod.string().optional(),
-                    text: zod.string().optional(),
-                    html: zod.string().optional(),
-                    design: zod.unknown().optional(),
-                })
-                .nullish(),
+                .union([
+                    zod.object({
+                        subject: zod.string().optional(),
+                        text: zod.string().optional(),
+                        html: zod.string().optional(),
+                        design: zod.unknown().optional(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
         })
         .optional(),
     type: zod.string().max(messagingTemplatesCreateBodyTypeMax).optional(),

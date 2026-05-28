@@ -1,12 +1,15 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
-class TestMCPAnalyticsPresentation(APIBaseTest):
+class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -130,6 +133,70 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == field
 
+    def test_intent_clusters_returns_empty_idle_when_no_snapshot(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "idle"
+        assert data["clusters"] == []
+        assert data["last_computed_at"] is None
+        assert data["computed_with"] is None
+
+    def test_intent_clusters_returns_stored_snapshot(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "clusters": [
+                    {
+                        "id": 0,
+                        "label": "check feature flag rollout",
+                        "intent_count": 2,
+                        "call_count": 14,
+                        "error_count": 1,
+                        "error_rate_pct": 7.1,
+                        "routing_entropy": 0.1,
+                        "tool_distribution": [
+                            {"tool": "feature_flag_get", "count": 12, "pct": 85.7, "errors": 1, "error_rate_pct": 8.3},
+                        ],
+                        "sample_intents": ["check feature flag rollout"],
+                    }
+                ],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 2,
+                    "n_clusters": 1,
+                },
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "idle"
+        assert len(data["clusters"]) == 1
+        assert data["clusters"][0]["label"] == "check feature flag rollout"
+        assert data["computed_with"]["n_clusters"] == 1
+
+    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
+        # Mock only the Celery dispatch so the synchronous COMPUTING write
+        # still runs. The 202 body should reflect the new state, not the
+        # stale pre-trigger state.
+        with patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["status"] == "computing"
+        mock_delay.assert_called_once_with(self.team.id, self.user.id)
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        assert snapshot.last_computed_by_id == self.user.id
+
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
             team=self.team,
@@ -199,3 +266,56 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["count"] == 101
         assert len(data["results"]) == 100
         assert data["next"] is not None
+
+
+class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _url(self, session_id: str) -> str:
+        return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
+
+    def test_requires_authentication(self) -> None:
+        self.client.logout()
+        response = self.client.post(self._url("abc"))
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_staff_only_in_cloud(self) -> None:
+        with self.is_cloud(True):
+            response = self.client.post(self._url("abc"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_returns_cached_intent_in_response_shape(self) -> None:
+        session_id = "session-123"
+        MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
+
+        response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
+
+    def test_generates_and_persists_when_empty(self) -> None:
+        session_id = "session-fresh"
+        # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
+        with (
+            patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
+            patch.object(intent_generation, "summarize_intents", return_value="Generated summary."),
+        ):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_id": session_id, "intent": "Generated summary."}
+        assert MCPSession.objects.get(team=self.team, session_id=session_id).intent == "Generated summary."
+
+    def test_returns_503_when_generation_unavailable(self) -> None:
+        session_id = "session-unavailable"
+        with (
+            patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
+            patch.object(
+                intent_generation,
+                "summarize_intents",
+                side_effect=intent_generation.IntentGenerationUnavailable("LLM down"),
+            ),
+        ):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        # Nothing persisted when generation fails.
+        assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()

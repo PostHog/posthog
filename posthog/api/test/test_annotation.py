@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries_context
@@ -10,9 +11,10 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Annotation, Insight, Organization, Team, User
+from posthog.models import Annotation, Organization, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
@@ -476,6 +478,66 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_item"
         assert response.json()["code"] == "does_not_exist"
+
+    @parameterized.expand(
+        [
+            (
+                "insight",
+                lambda tc: (
+                    insight := Insight.objects.create(team=tc.team, name="My Insight"),
+                    Annotation.objects.create(
+                        organization=tc.organization,
+                        team=tc.team,
+                        created_by=tc.user,
+                        content="Insight annotation",
+                        dashboard_item=insight,
+                    ),
+                ),
+            ),
+            (
+                "dashboard",
+                lambda tc: (
+                    dashboard := Dashboard.objects.create(team=tc.team, name="My Dashboard"),
+                    Annotation.objects.create(
+                        organization=tc.organization,
+                        team=tc.team,
+                        created_by=tc.user,
+                        content="Dashboard annotation",
+                        scope=Annotation.Scope.DASHBOARD,
+                        dashboard=dashboard,
+                    ),
+                ),
+            ),
+        ]
+    )
+    def test_annotations_attached_to_soft_deleted_parent_are_hidden(
+        self, _kind: str, create_annotation: Callable[[Any], tuple[Insight | Dashboard, Annotation]]
+    ) -> None:
+        parent, annotation = create_annotation(self)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id in {a["id"] for a in list_response.json()["results"]}
+
+        parent.deleted = True
+        parent.save()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id not in {a["id"] for a in list_response.json()["results"]}
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{annotation.id}/")
+        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"content": "edited"},
+        )
+        assert patch_response.status_code == status.HTTP_404_NOT_FOUND
+
+        parent.deleted = False
+        parent.save()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id in {a["id"] for a in list_response.json()["results"]}
 
     def test_creating_annotation_with_nonexistent_insight_returns_400(self) -> None:
         response = self.client.post(
