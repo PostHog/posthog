@@ -59,10 +59,9 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
 }
 
 // `InsightActorsQueryOptionsResponse` also carries non-option fields (e.g. `warnings` inherited
-// from analytics-response semantics) that must not be rendered as UI option lists. Restrict to
-// the explicit allowlist instead of blanket-iterating over `Object.keys`.
-type InsightActorsQueryOptionKey = (typeof insightActorsQueryOptionsResponseKeys)[number] &
-    keyof InsightActorsQueryOptionsResponse
+// from analytics-response semantics) that must not be rendered as UI option lists. Exclude them
+// from the option-key union, and iterate the explicit allowlist at runtime rather than Object.keys.
+type InsightActorsQueryOptionKey = Exclude<keyof InsightActorsQueryOptionsResponse, 'warnings'>
 type InsightActorsQueryOptionTuple = {
     [K in InsightActorsQueryOptionKey]: [K, NonNullable<InsightActorsQueryOptionsResponse[K]>]
 }[InsightActorsQueryOptionKey]
