@@ -15,6 +15,23 @@ export interface ResolvedAgent {
     revision: AgentRevision
 }
 
+/**
+ * Thrown by the resolver when a `<slug>-<revision-prefix>` URL is requested
+ * and the prefix matches more than one revision under that application. The
+ * ingress catches this and returns a 400 with the candidate ids so the caller
+ * can re-issue with a longer prefix.
+ */
+export class AmbiguousRevisionError extends Error {
+    constructor(
+        readonly applicationId: string,
+        readonly prefix: string,
+        readonly candidates: string[]
+    ) {
+        super(`prefix "${prefix}" matches ${candidates.length} revisions on application ${applicationId}`)
+        this.name = 'AmbiguousRevisionError'
+    }
+}
+
 export interface ResolverOpts {
     revisions: RevisionStore
     mode: RoutingMode
@@ -42,22 +59,45 @@ export class RevisionResolver {
         return this.resolveBySlug(slug)
     }
 
-    async resolveBySlug(slug: string, opts?: { revisionId?: string }): Promise<ResolvedAgent | null> {
-        const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, slug)
-        if (!application || application.archived) {
-            return null
-        }
-        // Explicit revision_id override (used to invoke draft/ready revisions
-        // for testing). The revision must belong to this application — anything
-        // else is treated as a 404 so we don't leak revisions across apps.
+    async resolveBySlug(rawSlug: string, opts?: { revisionId?: string }): Promise<ResolvedAgent | null> {
+        // Explicit ?revision_id=<uuid> wins over everything. Look up the
+        // verbatim slug + verify ownership.
         if (opts?.revisionId) {
-            const override = await this.opts.revisions.getRevision(opts.revisionId)
-            if (!override || override.application_id !== application.id || override.state === 'archived') {
+            const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, rawSlug)
+            if (!application || application.archived) {
                 return null
             }
-            return { application, revision: override }
+            return this.resolveWithExplicitRevision(application, opts.revisionId)
         }
-        if (!application.live_revision_id) {
+
+        // Try `<slug>-<8..32 hex>` first. The prefix must be ≥ 8 hex chars to
+        // avoid colliding with normal slugs that contain trailing hex (the
+        // serializer already forbids trailing `-` so `slug-` followed by 8
+        // hex chars is unambiguous if `<slug>` resolves to an application).
+        const suffixMatch = rawSlug.match(/^(.+)-([0-9a-f]{8,32})$/i)
+        if (suffixMatch) {
+            const [, baseSlug, prefix] = suffixMatch
+            const baseApp = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, baseSlug)
+            if (baseApp && !baseApp.archived) {
+                const candidates = await this.opts.revisions.listRevisionsByIdPrefix(baseApp.id, prefix)
+                const live = candidates.filter((c) => c.state !== 'archived')
+                if (live.length === 1) {
+                    return { application: baseApp, revision: live[0] }
+                }
+                if (live.length > 1) {
+                    throw new AmbiguousRevisionError(
+                        baseApp.id,
+                        prefix,
+                        live.map((c) => c.id)
+                    )
+                }
+                // No prefix match: fall through to the verbatim slug lookup so
+                // a slug that legitimately ends in 8 hex chars still works.
+            }
+        }
+
+        const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, rawSlug)
+        if (!application || application.archived || !application.live_revision_id) {
             return null
         }
         const revision = await this.opts.revisions.getRevision(application.live_revision_id)
@@ -65,6 +105,17 @@ export class RevisionResolver {
             return null
         }
         return { application, revision }
+    }
+
+    private async resolveWithExplicitRevision(
+        application: AgentApplication,
+        revisionId: string
+    ): Promise<ResolvedAgent | null> {
+        const override = await this.opts.revisions.getRevision(revisionId)
+        if (!override || override.application_id !== application.id || override.state === 'archived') {
+            return null
+        }
+        return { application, revision: override }
     }
 
     extractSlugFromHost(host: string): string | null {

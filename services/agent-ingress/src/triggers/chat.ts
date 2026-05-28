@@ -32,9 +32,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
     const r = Router({ mergeParams: true })
 
     r.post('/run', async (req: Request, res: Response) => {
-        const resolved = await resolveAgent(deps.resolver, req)
+        const resolved = await resolveAgent(deps.resolver, req, res)
         if (!resolved) {
-            res.status(404).json({ error: 'no_agent' })
+            // resolveAgent may have already written a 400 (ambiguous prefix).
+            if (!res.headersSent) {
+                res.status(404).json({ error: 'no_agent' })
+            }
             return
         }
         if (!hasTrigger(resolved, 'chat')) {
@@ -85,9 +88,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
         }
         // Strict principal match: re-authenticate against the agent's auth
         // mode and compare to the principal stored at /run time.
-        const resolved = await resolveAgent(deps.resolver, req)
+        const resolved = await resolveAgent(deps.resolver, req, res)
         if (!resolved) {
-            res.status(404).json({ error: 'no_agent' })
+            // resolveAgent may have already written a 400 (ambiguous prefix).
+            if (!res.headersSent) {
+                res.status(404).json({ error: 'no_agent' })
+            }
             return
         }
         const auth = await authorize(
