@@ -10,6 +10,8 @@ import {
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
 import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
+import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
+import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
 
 export type DashboardWidgetRegistryLookupContext = {
     tileId?: number
@@ -92,6 +94,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditErrorTrackingWidgetModal,
         productAccess: 'error_tracking',
     },
+    session_replay_list: {
         Component: SessionReplayWidget,
         EditModal: EditSessionReplayWidgetModal,
         productAccess: 'session_recording',

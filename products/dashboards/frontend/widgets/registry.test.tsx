@@ -27,6 +27,8 @@ describe('dashboard widget registry', () => {
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
+    it('registers session_replay_list widget', () => {
+        const definition = getDashboardWidgetDefinition('session_replay_list')
         expect(definition?.Component).toBeDefined()
         expect(definition?.EditModal).toBeDefined()
         expect(definition?.productAccess).toBe('session_recording')

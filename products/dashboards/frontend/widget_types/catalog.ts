@@ -57,7 +57,33 @@ export const DASHBOARD_WIDGET_CATALOG = {
         } satisfies DashboardWidgetHeaderMeta,
         titleHref: urls.errorTracking(),
     },
-,
+    session_replay_list: {
+        groupId: 'session_replay',
+        groupLabel: 'Session replay',
+        label: 'Recent recordings',
+        description: 'Recent session recordings you can open in the replay player.',
+        headerTitle: 'Recent recordings',
+        defaultConfig: sessionReplayWidgetConfigSchema.parse({
+            limit: 10,
+            dateRange: { date_from: '-7d' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        productAccess: 'session_recording',
+        headerLayout: 'dashboard_tile' satisfies DashboardWidgetHeaderLayout,
+        headerMeta: {
+            showWidgetType: true,
+            showDateRange: true,
+        } satisfies DashboardWidgetHeaderMeta,
+        titleHref: urls.replay(),
+        availability: {
+            requirement: 'session_replay_enabled',
+            unavailableTitle: 'Session replay is not enabled',
+            unavailableReason:
+                'Turn on session recordings for this project to watch recent replays from your dashboard.',
+            setupActionLabel: 'Enable session replay',
+            docsHref: 'https://posthog.com/docs/session-replay',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG

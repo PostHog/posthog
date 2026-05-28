@@ -41,19 +41,23 @@ describe('widgetAvailability', () => {
         ).toBe(false)
     })
 
+    it('evaluates session_replay_enabled requirement from team session_recording_opt_in', () => {
         const availability: WidgetAvailabilityConfig = {
+            requirement: 'session_replay_enabled',
             unavailableTitle: 'Session replay is not enabled',
             unavailableReason: 'Turn on session recordings for this project.',
             setupActionLabel: 'Enable session replay',
         }
 
         expect(
+            isWidgetAvailabilityRequirementMet('session_replay_enabled', {
                 ...MOCK_DEFAULT_TEAM,
                 session_recording_opt_in: false,
             })
         ).toBe(false)
 
         expect(
+            isWidgetAvailabilityRequirementMet('session_replay_enabled', {
                 ...MOCK_DEFAULT_TEAM,
                 session_recording_opt_in: true,
             })

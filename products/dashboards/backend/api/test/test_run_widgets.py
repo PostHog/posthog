@@ -14,6 +14,10 @@ from products.dashboards.backend.widget_registry import (
 )
 from products.dashboards.backend.widgets.config import MAX_WIDGET_CONFIG_LIMIT
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
+from products.dashboards.backend.widgets.session_replay_list import (
+    SESSION_REPLAY_ORDER_BY,
+    validate_session_replay_list_config,
+)
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -51,6 +55,21 @@ class TestWidgetRegistry(APIBaseTest):
     def test_validate_error_tracking_list_config_rejects_unsupported_date_range(self) -> None:
         with self.assertRaises(Exception):
             validate_error_tracking_list_config({"dateRange": {"date_from": "-48h"}})
+
+    def test_validate_session_replay_list_config_defaults(self) -> None:
+        validated = validate_session_replay_list_config({})
+        assert validated["limit"] == MAX_WIDGET_CONFIG_LIMIT
+        assert validated["orderBy"] == "start_time"
+        assert "filterTestAccounts" not in validated
+
+    def test_validate_session_replay_list_config_rejects_invalid_order_by(self) -> None:
+        with self.assertRaises(Exception):
+            validate_session_replay_list_config({"orderBy": "not_a_field"})
+
+    @parameterized.expand(sorted(SESSION_REPLAY_ORDER_BY))
+    def test_validate_session_replay_list_config_accepts_order_by(self, order_by: str) -> None:
+        validated = validate_session_replay_list_config({"orderBy": order_by})
+        assert validated["orderBy"] == order_by
 
 
 class TestDashboardRunWidgets(APIBaseTest):
@@ -99,6 +118,79 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertIsNone(body["results"][0]["error"])
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_calculate.assert_called_once()
+
+    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    def test_runs_session_replay_widget_for_requested_tile(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="session_replay_list", config={"limit": 10}
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["results"][0]["tile_id"], tile_id)
+        self.assertEqual(body["results"][0]["widget_type"], "session_replay_list")
+        self.assertIsNone(body["results"][0]["error"])
+        self.assertEqual(body["results"][0]["result"]["limit"], 10)
+        mock_list_recordings.assert_called_once()
+        self.assertEqual(mock_list_recordings.call_args.kwargs["user"], self.user)
+
+    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    def test_session_replay_widget_tags_queries_in_debug_mode(self, mock_list_recordings: MagicMock) -> None:
+        from django.test.utils import override_settings
+
+        from posthog.clickhouse.client.execute import UntaggedQueryError
+        from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+        from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
+
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        def assert_tagged(*_args: object, **_kwargs: object) -> tuple[list[object], bool, None, None]:
+            tags = get_query_tags()
+            if tags.product != Product.REPLAY or tags.feature != Feature.QUERY:
+                raise UntaggedQueryError("session replay widget must tag ClickHouse queries")
+            return ([], False, None, None)
+
+        mock_list_recordings.side_effect = assert_tagged
+
+        with override_settings(DEBUG=True, TEST=False):
+            result = run_session_replay_list_widget(
+                self.team,
+                {"limit": 10, "dateRange": {"date_from": "-7d"}},
+                user=self.user,
+            )
+
+        self.assertEqual(result["limit"], 10)
+        mock_list_recordings.assert_called_once()
+
+    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
+        from posthog.models import Person
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
+        recording = SessionRecording(
+            session_id="019e6a07-04fe-792c-b828-49375b8d42e8",
+            team=self.team,
+            distinct_id="widget-test-distinct",
+            duration=120,
+        )
+        recording.person = person
+        mock_list_recordings.return_value = ([recording], False, None, None)
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="session_replay_list", config={"limit": 10}
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertIsNone(body["results"][0]["error"])
+        self.assertEqual(body["results"][0]["result"]["results"][0]["person"]["name"], "widget-test@example.com")
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_uses_team_filter_test_accounts_default(self, mock_runner_cls: MagicMock) -> None:

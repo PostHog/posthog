@@ -170,6 +170,7 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     limit: 10,
                 },
             }
+        case 'session_replay_list':
             return {
                 title: defaultTitle,
                 description: catalogEntry.description,

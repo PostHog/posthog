@@ -5,6 +5,7 @@ import { dashboardsWidgetsPartialUpdate } from './generated/api'
 import type { DashboardType, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { parseErrorTrackingWidgetConfigApiError } from './widgets/error_tracking/errorTrackingWidgetConfigValidation'
+import { parseSessionReplayWidgetConfigApiError } from './widgets/session_replay/sessionReplayWidgetConfigValidation'
 import { WidgetConfigValidationError, type WidgetFieldErrors } from './widget_types/widgetConfigValidation'
 
 function parseWidgetConfigApiError(widgetType: string, error: unknown): WidgetFieldErrors | null {
@@ -12,6 +13,8 @@ function parseWidgetConfigApiError(widgetType: string, error: unknown): WidgetFi
         case 'error_tracking':
         case 'error_tracking_list':
             return parseErrorTrackingWidgetConfigApiError(error)
+        case 'session_replay_list':
+            return parseSessionReplayWidgetConfigApiError(error)
         default:
             return null
     }
