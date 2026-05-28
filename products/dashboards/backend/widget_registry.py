@@ -1,3 +1,17 @@
+"""Runtime registry for dashboard widget types.
+
+Maps each widget_type string to the backend hooks that power dashboard tiles:
+config validation, query execution, and product access requirements. The
+dashboard API uses this when creating/updating widget tiles, enforcing access
+on run_widgets, and validating stored config.
+
+Widget metadata shown in the UI and MCP (labels, descriptions, config hints)
+lives in widget_catalog.py instead — keep that in sync when adding types here.
+
+New widget types: add an entry to WIDGET_REGISTRY and EXPECTED_WIDGET_TYPES.
+See products/dashboards/CONTRIBUTING.md.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -12,7 +26,7 @@ from products.dashboards.backend.widgets.error_tracking_list import (
     validate_error_tracking_list_config,
 )
 
-# New widget types: add here. See products/dashboards/CONTRIBUTING.md.
+# Canonical widget types. Must match WIDGET_REGISTRY keys.
 EXPECTED_WIDGET_TYPES = frozenset({"error_tracking_list"})
 
 DashboardWidgetType = Literal["error_tracking_list"]
@@ -30,7 +44,7 @@ class WidgetRegistryEntry(TypedDict):
     required_product_access: NotRequired[str | None]
 
 
-# New widget types: add here. See products/dashboards/CONTRIBUTING.md.
+# Per-type validate_config / query_fn / access control. Keys must match EXPECTED_WIDGET_TYPES.
 WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
     "error_tracking_list": {
         "validate_config": validate_error_tracking_list_config,
