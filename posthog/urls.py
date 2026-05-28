@@ -7,6 +7,7 @@ from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.generic.base import RedirectView
 
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -470,6 +471,13 @@ if settings.TEST:
     if not settings.DEBUG:
         urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
+
+# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
+# app./us./eu. subdomains because only the path changes; the host is preserved by the
+# relative redirect.
+urlpatterns.append(
+    opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
+)
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = [
