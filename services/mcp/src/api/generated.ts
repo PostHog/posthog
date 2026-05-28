@@ -6805,6 +6805,52 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    /**
+     * * `left` - left
+    * `right` - right
+     */
+    export type PlacementEnum = typeof PlacementEnum[keyof typeof PlacementEnum];
+
+
+    export const PlacementEnum = {
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    export interface DashboardTileBasic {
+      readonly id: number;
+      readonly dashboard_id: number;
+      /** @nullable */
+      deleted?: boolean | null;
+    }
+
+    /**
+     * * `primary` - Primary
+    * `secondary` - Secondary
+     */
+    export type StyleEnum = typeof StyleEnum[keyof typeof StyleEnum];
+
+
+    export const StyleEnum = {
+      Primary: 'primary',
+      Secondary: 'secondary',
+    } as const;
+
+    export interface ButtonTile {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /** @maxLength 2000 */
+      url: string;
+      /** @maxLength 200 */
+      text: string;
+      placement?: PlacementEnum;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      style?: StyleEnum;
+      readonly last_modified_at: string;
+      team: number;
+    }
+
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -8805,6 +8851,41 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface TileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
+    }
+
+    export interface CreateTextTileRequest {
+      /**
+         * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+         * @minLength 1
+         * @maxLength 4000
+         */
+      body: string;
+      /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
+      layouts?: TileLayouts;
+      /**
+         * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+    }
+
     /**
      * * `web` - web
     * `api` - api
@@ -9125,80 +9206,57 @@ export namespace Schemas {
       is_featured?: boolean;
     }
 
-    export interface DashboardTileBasic {
-      readonly id: number;
-      readonly dashboard_id: number;
-      /** @nullable */
-      deleted?: boolean | null;
-    }
-
-    /**
-     * InsightSerializer restricted to identifiers + result only.
-     */
-    export interface InsightResult {
-      readonly id: number;
-      readonly short_id: string;
-      /** @nullable */
-      readonly name: string | null;
-      /** @nullable */
-      readonly derived_name: string | null;
-      readonly result: unknown;
-    }
-
-    /**
-     * DashboardTileSerializer restricted to tile id + insight result fields.
-     */
-    export interface DashboardTileResult {
-      id?: number;
-      insight: InsightResult;
-    }
-
-    export interface DataColorTheme {
-      readonly id: number;
-      /** @maxLength 100 */
-      name: string;
-      colors?: unknown;
-      readonly is_global: boolean;
-      /** @nullable */
-      readonly created_at: string | null;
-      readonly created_by: UserBasic;
-    }
-
-    /**
-     * * `Cancelled` - Cancelled
-    * `Completed` - Completed
-    * `Failed` - Failed
-    * `Running` - Running
-     */
-    export type DataModelingJobStatusEnum = typeof DataModelingJobStatusEnum[keyof typeof DataModelingJobStatusEnum];
+    export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
 
 
-    export const DataModelingJobStatusEnum = {
-      Cancelled: 'Cancelled',
-      Completed: 'Completed',
-      Failed: 'Failed',
-      Running: 'Running',
+    export const InsightVizNodeKind = {
+      InsightVizNode: 'InsightVizNode',
     } as const;
 
-    export interface DataModelingJob {
-      readonly id: string;
-      /** @nullable */
-      readonly saved_query_id: string | null;
-      readonly status: DataModelingJobStatusEnum;
-      readonly rows_materialized: number;
-      /** @nullable */
-      readonly error: string | null;
-      readonly created_at: string;
-      readonly last_run_at: string;
-      /** @nullable */
-      readonly workflow_id: string | null;
-      /** @nullable */
-      readonly workflow_run_id: string | null;
-      /**
-         * Total rows expected to be materialized
-         * @nullable
-         */
-      readonly rows_expected: number | null;
+    export interface Retention {
+      hideLineGraph?: boolean | null;
+      hideSizeColumn?: boolean | null;
+      useSmallLayout?: boolean | null;
+    }
+
+    export interface VizSpecificOptions {
+      ActionsPie?: ActionsPie | null;
+      RETENTION?: Retention | null;
+    }
+
+    export interface InsightVizNode {
+      /** Query is embedded inside another bordered component */
+      embedded?: boolean | null;
+      /** Show with most visual options enabled. Used in insight scene. */
+      full?: boolean | null;
+      hidePersonsModal?: boolean | null;
+      hideTooltipOnScroll?: boolean | null;
+      kind: InsightVizNodeKind;
+      showCorrelationTable?: boolean | null;
+      showFilters?: boolean | null;
+      showHeader?: boolean | null;
+      showLastComputation?: boolean | null;
+      showLastComputationRefresh?: boolean | null;
+      showResults?: boolean | null;
+      showTable?: boolean | null;
+      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
+      suppressSessionAnalysisWarning?: boolean | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+      vizSpecificOptions?: VizSpecificOptions | null;
+    }
+
+    export type DataTableNodeViewPropsContextType = typeof DataTableNodeViewPropsContextType[keyof typeof DataTableNodeViewPropsContextType];
+
+
+    export const DataTableNodeViewPropsContextType = {
+      EventDefinition: 'event_definition',
+      TeamColumns: 'team_columns',
+    } as const;
+
+    export interface DataTableNodeViewPropsContext {
+      eventDefinitionId?: string | null;
+      type: DataTableNodeViewPropsContextType;
     }
 
     export type DataTableNodeKind = typeof DataTableNodeKind[keyof typeof DataTableNodeKind];
@@ -10031,21 +10089,6 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | null;
-
-    export type DataTableNodeViewPropsContextType = typeof DataTableNodeViewPropsContextType[keyof typeof DataTableNodeViewPropsContextType];
-
-
-    export const DataTableNodeViewPropsContextType = {
-      EventDefinition: 'event_definition',
-      TeamColumns: 'team_columns',
-    } as const;
-
-    export interface DataTableNodeViewPropsContext {
-      eventDefinitionId?: string | null;
-      type: DataTableNodeViewPropsContextType;
     }
 
     export type TaxonomicFilterGroupType = typeof TaxonomicFilterGroupType[keyof typeof TaxonomicFilterGroupType];
@@ -11445,6 +11488,8 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type DataTableNodeResponse = { [key: string]: unknown } | Response | Response1 | Response2 | Response3 | Response4 | Response5 | Response6 | Response7 | Response8 | Response9 | Response10 | Response11 | Response12 | Response13 | Response14 | Response15 | Response16 | Response18 | Response19 | Response20 | Response21 | Response22 | Response23 | Response24 | Response25 | Response26 | null;
+
     export interface DataTableNode {
       /** Can the user click on column headers to sort the table? (default: true) */
       allowSorting?: boolean | null;
@@ -11545,6 +11590,250 @@ export namespace Schemas {
       tableSettings?: TableSettings | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export type HogQueryKind = typeof HogQueryKind[keyof typeof HogQueryKind];
+
+
+    export const HogQueryKind = {
+      HogQuery: 'HogQuery',
+    } as const;
+
+    export interface HogQueryResponse {
+      bytecode?: unknown[] | null;
+      coloredBytecode?: unknown[] | null;
+      results: unknown;
+      stdout?: string | null;
+    }
+
+    export interface HogQuery {
+      code?: string | null;
+      kind: HogQueryKind;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: HogQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * The query definition for this insight. The `kind` field determines the query type:
+    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+    - `DataVisualizationNode` — SQL insights using HogQL
+    - `DataTableNode` — raw data tables
+    - `HogQuery` — Hog language queries
+     */
+    export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery;
+
+    /**
+     * @nullable
+     */
+    export type InsightResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * Simplified serializer to speed response times when loading large amounts of objects.
+     */
+    export interface Insight {
+      readonly id: number;
+      readonly short_id: string;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      derived_name?: string | null;
+      query?: _InsightQuerySchema | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      order?: number | null;
+      deleted?: boolean;
+      /**
+              DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+              A dashboard ID for each of the dashboards that this insight is displayed on.
+               */
+      dashboards?: number[];
+      /**
+          A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+           */
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      /**
+         *
+          The datetime this insight's results were generated.
+          If added to one or more dashboards the insight can be refreshed separately on each.
+          Returns the appropriate last_refresh datetime for the context the insight is viewed in
+          (see from_dashboard query parameter).
+
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      /**
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
+      readonly cache_target_age: string | null;
+      /**
+         *
+          The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+          by querying the database.
+
+         * @nullable
+         */
+      readonly next_allowed_client_refresh: string | null;
+      readonly result: unknown;
+      /** @nullable */
+      readonly hasMore: boolean | null;
+      /** @nullable */
+      readonly columns: readonly string[] | null;
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly created_by: UserBasic;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+      readonly updated_at: string;
+      tags?: unknown[];
+      favorited?: boolean;
+      readonly last_modified_at: string;
+      readonly last_modified_by: UserBasic;
+      readonly is_sample: boolean;
+      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
+      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /**
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
+      readonly timezone: string | null;
+      readonly is_cached: boolean;
+      readonly query_status: unknown;
+      /** @nullable */
+      readonly hogql: string | null;
+      /** @nullable */
+      readonly types: readonly unknown[] | null;
+      /** @nullable */
+      readonly resolved_date_range: InsightResolvedDateRange;
+      _create_in_folder?: string;
+      readonly alerts: readonly unknown[];
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+    }
+
+    export interface Text {
+      readonly id: number;
+      readonly created_by: UserBasic;
+      readonly last_modified_by: UserBasic;
+      /**
+         * @maxLength 4000
+         * @nullable
+         */
+      body?: string | null;
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      readonly last_modified_at: string;
+      team: number;
+    }
+
+    export interface DashboardTile {
+      id?: number;
+      insight: Insight;
+      text: Text;
+      button_tile: ButtonTile;
+      layouts?: unknown;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      filters_overrides?: unknown;
+      /** @nullable */
+      show_description?: boolean | null;
+      /** @nullable */
+      transparent_background?: boolean | null;
+    }
+
+    /**
+     * InsightSerializer restricted to identifiers + result only.
+     */
+    export interface InsightResult {
+      readonly id: number;
+      readonly short_id: string;
+      /** @nullable */
+      readonly name: string | null;
+      /** @nullable */
+      readonly derived_name: string | null;
+      readonly result: unknown;
+    }
+
+    /**
+     * DashboardTileSerializer restricted to tile id + insight result fields.
+     */
+    export interface DashboardTileResult {
+      id?: number;
+      insight: InsightResult;
+    }
+
+    export interface DataColorTheme {
+      readonly id: number;
+      /** @maxLength 100 */
+      name: string;
+      colors?: unknown;
+      readonly is_global: boolean;
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
+    /**
+     * * `Cancelled` - Cancelled
+    * `Completed` - Completed
+    * `Failed` - Failed
+    * `Running` - Running
+     */
+    export type DataModelingJobStatusEnum = typeof DataModelingJobStatusEnum[keyof typeof DataModelingJobStatusEnum];
+
+
+    export const DataModelingJobStatusEnum = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      Failed: 'Failed',
+      Running: 'Running',
+    } as const;
+
+    export interface DataModelingJob {
+      readonly id: string;
+      /** @nullable */
+      readonly saved_query_id: string | null;
+      readonly status: DataModelingJobStatusEnum;
+      readonly rows_materialized: number;
+      /** @nullable */
+      readonly error: string | null;
+      readonly created_at: string;
+      readonly last_run_at: string;
+      /** @nullable */
+      readonly workflow_id: string | null;
+      /** @nullable */
+      readonly workflow_run_id: string | null;
+      /**
+         * Total rows expected to be materialized
+         * @nullable
+         */
+      readonly rows_expected: number | null;
     }
 
     export interface DataWarehouseModelPath {
@@ -18675,31 +18964,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type HogQueryKind = typeof HogQueryKind[keyof typeof HogQueryKind];
-
-
-    export const HogQueryKind = {
-      HogQuery: 'HogQuery',
-    } as const;
-
-    export interface HogQueryResponse {
-      bytecode?: unknown[] | null;
-      coloredBytecode?: unknown[] | null;
-      results: unknown;
-      stdout?: string | null;
-    }
-
-    export interface HogQuery {
-      code?: string | null;
-      kind: HogQueryKind;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      response?: HogQueryResponse | null;
-      tags?: QueryLogTags | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
     export interface PageURL {
       url: string;
     }
@@ -19636,164 +19900,6 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
-    }
-
-    /**
-     * @nullable
-     */
-    export type InsightResolvedDateRange = {
-      readonly date_from?: string;
-      readonly date_to?: string;
-    } | null;
-
-    export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
-
-
-    export const InsightVizNodeKind = {
-      InsightVizNode: 'InsightVizNode',
-    } as const;
-
-    export interface Retention {
-      hideLineGraph?: boolean | null;
-      hideSizeColumn?: boolean | null;
-      useSmallLayout?: boolean | null;
-    }
-
-    export interface VizSpecificOptions {
-      ActionsPie?: ActionsPie | null;
-      RETENTION?: Retention | null;
-    }
-
-    export interface InsightVizNode {
-      /** Query is embedded inside another bordered component */
-      embedded?: boolean | null;
-      /** Show with most visual options enabled. Used in insight scene. */
-      full?: boolean | null;
-      hidePersonsModal?: boolean | null;
-      hideTooltipOnScroll?: boolean | null;
-      kind: InsightVizNodeKind;
-      showCorrelationTable?: boolean | null;
-      showFilters?: boolean | null;
-      showHeader?: boolean | null;
-      showLastComputation?: boolean | null;
-      showLastComputationRefresh?: boolean | null;
-      showResults?: boolean | null;
-      showTable?: boolean | null;
-      source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
-      suppressSessionAnalysisWarning?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-      vizSpecificOptions?: VizSpecificOptions | null;
-    }
-
-    /**
-     * The query definition for this insight. The `kind` field determines the query type:
-    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
-    - `DataVisualizationNode` — SQL insights using HogQL
-    - `DataTableNode` — raw data tables
-    - `HogQuery` — Hog language queries
-     */
-    export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery;
-
-    /**
-     * Simplified serializer to speed response times when loading large amounts of objects.
-     */
-    export interface Insight {
-      readonly id: number;
-      readonly short_id: string;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      derived_name?: string | null;
-      query?: _InsightQuerySchema | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      order?: number | null;
-      deleted?: boolean;
-      /**
-              DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-              A dashboard ID for each of the dashboards that this insight is displayed on.
-               */
-      dashboards?: number[];
-      /**
-          A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-           */
-      readonly dashboard_tiles: readonly DashboardTileBasic[];
-      /**
-         *
-          The datetime this insight's results were generated.
-          If added to one or more dashboards the insight can be refreshed separately on each.
-          Returns the appropriate last_refresh datetime for the context the insight is viewed in
-          (see from_dashboard query parameter).
-
-         * @nullable
-         */
-      readonly last_refresh: string | null;
-      /**
-         * The target age of the cached results for this insight.
-         * @nullable
-         */
-      readonly cache_target_age: string | null;
-      /**
-         *
-          The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-          by querying the database.
-
-         * @nullable
-         */
-      readonly next_allowed_client_refresh: string | null;
-      readonly result: unknown;
-      /** @nullable */
-      readonly hasMore: boolean | null;
-      /** @nullable */
-      readonly columns: readonly string[] | null;
-      /** @nullable */
-      readonly created_at: string | null;
-      readonly created_by: UserBasic;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      description?: string | null;
-      readonly updated_at: string;
-      tags?: unknown[];
-      favorited?: boolean;
-      readonly last_modified_at: string;
-      readonly last_modified_by: UserBasic;
-      readonly is_sample: boolean;
-      readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
-      readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      /**
-         * The timezone this chart is displayed in.
-         * @nullable
-         */
-      readonly timezone: string | null;
-      readonly is_cached: boolean;
-      readonly query_status: unknown;
-      /** @nullable */
-      readonly hogql: string | null;
-      /** @nullable */
-      readonly types: readonly unknown[] | null;
-      /** @nullable */
-      readonly resolved_date_range: InsightResolvedDateRange;
-      _create_in_folder?: string;
-      readonly alerts: readonly unknown[];
-      /** @nullable */
-      readonly last_viewed_at: string | null;
     }
 
     /**
@@ -37719,6 +37825,25 @@ export namespace Schemas {
       target_language?: string;
     }
 
+    export interface UpdateTextTileRequest {
+      /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+      /**
+         * New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.
+         * @minLength 1
+         * @maxLength 4000
+         */
+      body?: string;
+      /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
+      layouts?: TileLayouts;
+      /**
+         * New accent color name, empty string or null to clear. Omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+    }
+
     /**
      * Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.
      * @nullable
@@ -38866,6 +38991,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsCreateTextTileCreateParams = {
+    format?: EnvironmentsDashboardsCreateTextTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsCreateTextTileCreateFormat = typeof EnvironmentsDashboardsCreateTextTileCreateFormat[keyof typeof EnvironmentsDashboardsCreateTextTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsCreateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -38977,6 +39114,18 @@ export namespace Schemas {
     export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type EnvironmentsDashboardsUpdateTextTileCreateParams = {
+    format?: EnvironmentsDashboardsUpdateTextTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsUpdateTextTileCreateFormat = typeof EnvironmentsDashboardsUpdateTextTileCreateFormat[keyof typeof EnvironmentsDashboardsUpdateTextTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsUpdateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
@@ -43848,6 +43997,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsCreateTextTileCreateParams = {
+    format?: DashboardsCreateTextTileCreateFormat;
+    };
+
+    export type DashboardsCreateTextTileCreateFormat = typeof DashboardsCreateTextTileCreateFormat[keyof typeof DashboardsCreateTextTileCreateFormat];
+
+
+    export const DashboardsCreateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -43959,6 +44120,18 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type DashboardsUpdateTextTileCreateParams = {
+    format?: DashboardsUpdateTextTileCreateFormat;
+    };
+
+    export type DashboardsUpdateTextTileCreateFormat = typeof DashboardsUpdateTextTileCreateFormat[keyof typeof DashboardsUpdateTextTileCreateFormat];
+
+
+    export const DashboardsUpdateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type DashboardsBulkUpdateTagsCreateParams = {
