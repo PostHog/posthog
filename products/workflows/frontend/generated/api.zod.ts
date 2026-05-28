@@ -42,24 +42,10 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                    threshold: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                        ),
-                    hash: zod
-                        .string()
-                        .describe(
-                            "HogQL template expression used as the masking key (e.g. '{person.properties.email}')."
-                        ),
-                    bytecode: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                        ),
+                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
             ])
@@ -129,9 +115,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
             .array(
                 zod
                     .record(zod.string(), zod.string())
-                    .describe(
-                        "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                    )
+                    .describe('Variable: {key, type: string|number|boolean, default}.')
             )
             .optional(),
     })
@@ -172,24 +156,10 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                    threshold: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                        ),
-                    hash: zod
-                        .string()
-                        .describe(
-                            "HogQL template expression used as the masking key (e.g. '{person.properties.email}')."
-                        ),
-                    bytecode: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                        ),
+                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
             ])
@@ -259,9 +229,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
             .array(
                 zod
                     .record(zod.string(), zod.string())
-                    .describe(
-                        "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                    )
+                    .describe('Variable: {key, type: string|number|boolean, default}.')
             )
             .optional(),
     })
@@ -303,24 +271,10 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                    threshold: zod
-                        .number()
-                        .nullish()
-                        .describe(
-                            'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                        ),
-                    hash: zod
-                        .string()
-                        .describe(
-                            "HogQL template expression used as the masking key (e.g. '{person.properties.email}')."
-                        ),
-                    bytecode: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                        ),
+                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
             ])
@@ -394,9 +348,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
             .array(
                 zod
                     .record(zod.string(), zod.string())
-                    .describe(
-                        "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                    )
+                    .describe('Variable: {key, type: string|number|boolean, default}.')
             )
             .optional(),
     })
@@ -417,17 +369,14 @@ export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Human-readable name for the workflow.'),
-    description: zod
-        .string()
-        .default(hogFlowsCreateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+    name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -437,71 +386,52 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsCreateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsCreateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -513,18 +443,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -546,39 +468,31 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsCreateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsUpdateBodyNameMax = 400
@@ -594,17 +508,14 @@ export const hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyActionsItemTypeMax = 100
 
 export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(hogFlowsUpdateBodyNameMax).nullish().describe('Human-readable name for the workflow.'),
-    description: zod
-        .string()
-        .default(hogFlowsUpdateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+    name: zod.string().max(hogFlowsUpdateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsUpdateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -614,71 +525,52 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsUpdateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsUpdateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsUpdateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -690,18 +582,10 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -723,39 +607,31 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsUpdateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsPartialUpdateBodyNameMax = 400
@@ -771,21 +647,14 @@ export const hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault = `even
 export const hogFlowsPartialUpdateBodyActionsItemTypeMax = 100
 
 export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(hogFlowsPartialUpdateBodyNameMax)
-        .nullish()
-        .describe('Human-readable name for the workflow.'),
-    description: zod
-        .string()
-        .default(hogFlowsPartialUpdateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+    name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsPartialUpdateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -795,71 +664,52 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsPartialUpdateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsPartialUpdateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -871,18 +721,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -904,40 +746,32 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsPartialUpdateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
         .optional()
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsBatchJobsCreateBodyNameMax = 400
@@ -953,21 +787,14 @@ export const hogFlowsBatchJobsCreateBodyActionsItemFiltersOneSourceDefault = `ev
 export const hogFlowsBatchJobsCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(hogFlowsBatchJobsCreateBodyNameMax)
-        .nullish()
-        .describe('Human-readable name for the workflow.'),
-    description: zod
-        .string()
-        .default(hogFlowsBatchJobsCreateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+    name: zod.string().max(hogFlowsBatchJobsCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsBatchJobsCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -977,71 +804,52 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsBatchJobsCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsBatchJobsCreateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsBatchJobsCreateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsBatchJobsCreateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -1053,18 +861,10 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -1086,39 +886,31 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsBatchJobsCreateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
@@ -1151,18 +943,18 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .max(hogFlowsInvocationsCreateBodyConfigurationOneNameMax)
                 .nullish()
-                .describe('Human-readable name for the workflow.'),
+                .describe('Workflow name.'),
             description: zod
                 .string()
                 .default(hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault)
-                .describe("Optional description of the workflow's purpose."),
+                .describe('Optional description.'),
             version: zod.number(),
             status: zod
                 .enum(['draft', 'active', 'archived'])
                 .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
                 .optional()
                 .describe(
-                    'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                    'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -1214,73 +1006,58 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .min(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin)
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax)
                             .nullish()
-                            .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
+                            .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
                         threshold: zod
                             .number()
                             .nullish()
-                            .describe(
-                                'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                            ),
-                        hash: zod
-                            .string()
-                            .describe(
-                                "HogQL template expression used as the masking key (e.g. '{person.properties.email}')."
-                            ),
-                        bytecode: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                            ),
+                            .describe('Min matching events before triggering (k-anonymity).'),
+                        hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                     }),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+                    'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
                 ),
             conversion: zod
                 .unknown()
                 .optional()
                 .describe(
-                    'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+                    'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
                 ),
             exit_condition: zod
-                .union([
-                    zod
-                        .enum([
-                            'exit_on_conversion',
-                            'exit_on_trigger_not_matched',
-                            'exit_on_trigger_not_matched_or_conversion',
-                            'exit_only_at_end',
-                        ])
-                        .describe(
-                            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                        ),
-                    zod.null(),
+                .enum([
+                    'exit_on_conversion',
+                    'exit_on_trigger_not_matched',
+                    'exit_on_trigger_not_matched_or_conversion',
+                    'exit_only_at_end',
                 ])
+                .describe(
+                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+                )
                 .optional()
                 .describe(
-                    "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                    "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
                 ),
             edges: zod
                 .unknown()
                 .optional()
                 .describe(
-                    "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+                    "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
                 ),
             actions: zod
                 .array(
                     zod.object({
-                        id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
+                        id: zod.string().describe('Unique node ID within the workflow.'),
                         name: zod
                             .string()
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax)
-                            .describe('Human-readable name for the action node.'),
+                            .describe('Display name.'),
                         description: zod
                             .string()
                             .default(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemDescriptionDefault)
-                            .describe('Optional description of what this action does.'),
+                            .describe('Optional description.'),
                         on_error: zod
                             .union([
                                 zod
@@ -1292,20 +1069,10 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             ])
                             .optional()
                             .describe(
-                                'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                                'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                             ),
-                        created_at: zod
-                            .number()
-                            .optional()
-                            .describe(
-                                'Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'
-                            ),
-                        updated_at: zod
-                            .number()
-                            .optional()
-                            .describe(
-                                'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                            ),
+                        created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                        updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                         filters: zod
                             .union([
                                 zod.object({
@@ -1329,66 +1096,47 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 zod.null(),
                             ])
                             .optional()
-                            .describe('Property filters that gate execution of this action.'),
+                            .describe('Property filters gating this action.'),
                         type: zod
                             .string()
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemTypeMax)
                             .describe(
-                                'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                                'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                             ),
                         config: zod
                             .unknown()
                             .describe(
-                                'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                             ),
                         output_variable: zod
                             .unknown()
                             .optional()
-                            .describe(
-                                "Variable definition to store this action's output for use by downstream actions."
-                            ),
+                            .describe('Output variable definition for downstream actions.'),
                     })
                 )
-                .describe(
-                    "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-                ),
+                .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
             abort_action: zod.string().nullable(),
             variables: zod
                 .array(
                     zod
                         .record(zod.string(), zod.string())
-                        .describe(
-                            "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                        )
+                        .describe('Variable: {key, type: string|number|boolean, default}.')
                 )
                 .optional()
-                .describe(
-                    'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-                ),
+                .describe('Workflow vars (key, type, default). Total <5KB.'),
             billable_action_types: zod.unknown(),
         })
         .optional()
-        .describe(
-            'Optional workflow configuration override for the test run. If omitted, uses the saved workflow definition. Pass this only to test an unsaved edit.'
-        ),
+        .describe('Optional override; omit to use saved definition.'),
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe(
-            'Test event data to trigger the workflow with. Object shape matches the trigger payload — typically {event: {...}, person: {...}, groups: {...}}.'
-        ),
+        .describe('Test trigger payload, typically {event, person, groups}.'),
     mock_async_functions: zod
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
-        .describe(
-            'When true (default), async actions (HTTP requests, emails, SMS) are simulated rather than executed. Set false to actually fire side effects — use with caution.'
-        ),
-    current_action_id: zod
-        .string()
-        .optional()
-        .describe(
-            'Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions.'
-        ),
+        .describe('True (default) mocks HTTP\/email\/SMS. False fires real side effects.'),
+    current_action_id: zod.string().optional().describe('Start from this action ID instead of the trigger.'),
 })
 
 export const hogFlowsSchedulesCreateBodyNameMax = 400
@@ -1404,21 +1152,14 @@ export const hogFlowsSchedulesCreateBodyActionsItemFiltersOneSourceDefault = `ev
 export const hogFlowsSchedulesCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(hogFlowsSchedulesCreateBodyNameMax)
-        .nullish()
-        .describe('Human-readable name for the workflow.'),
-    description: zod
-        .string()
-        .default(hogFlowsSchedulesCreateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+    name: zod.string().max(hogFlowsSchedulesCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsSchedulesCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -1428,71 +1169,52 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsSchedulesCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsSchedulesCreateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsSchedulesCreateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsSchedulesCreateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -1504,18 +1226,10 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -1537,39 +1251,31 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsSchedulesCreateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsSchedulesPartialUpdateBodyNameMax = 400
@@ -1585,21 +1291,17 @@ export const hogFlowsSchedulesPartialUpdateBodyActionsItemFiltersOneSourceDefaul
 export const hogFlowsSchedulesPartialUpdateBodyActionsItemTypeMax = 100
 
 export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(hogFlowsSchedulesPartialUpdateBodyNameMax)
-        .nullish()
-        .describe('Human-readable name for the workflow.'),
+    name: zod.string().max(hogFlowsSchedulesPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
     description: zod
         .string()
         .default(hogFlowsSchedulesPartialUpdateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+        .describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -1609,71 +1311,52 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsSchedulesPartialUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsSchedulesPartialUpdateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsSchedulesPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsSchedulesPartialUpdateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -1685,18 +1368,10 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -1718,40 +1393,32 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsSchedulesPartialUpdateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
         .optional()
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
@@ -1767,21 +1434,14 @@ export const hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault = `e
 export const hogFlowsBulkDeleteCreateBodyActionsItemTypeMax = 100
 
 export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(hogFlowsBulkDeleteCreateBodyNameMax)
-        .nullish()
-        .describe('Human-readable name for the workflow.'),
-    description: zod
-        .string()
-        .default(hogFlowsBulkDeleteCreateBodyDescriptionDefault)
-        .describe("Optional description of the workflow's purpose."),
+    name: zod.string().max(hogFlowsBulkDeleteCreateBodyNameMax).nullish().describe('Workflow name.'),
+    description: zod.string().default(hogFlowsBulkDeleteCreateBodyDescriptionDefault).describe('Optional description.'),
     status: zod
         .enum(['draft', 'active', 'archived'])
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
         .optional()
         .describe(
-            'Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
         ),
     trigger_masking: zod
         .union([
@@ -1791,71 +1451,52 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Time-to-live in seconds for the masking hash. Min 60s, max 3 years.'),
-                threshold: zod
-                    .number()
-                    .nullish()
-                    .describe(
-                        'Minimum number of matching events before the workflow triggers (k-anonymity threshold).'
-                    ),
-                hash: zod
-                    .string()
-                    .describe("HogQL template expression used as the masking key (e.g. '{person.properties.email}')."),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe(
-                        'Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.'
-                    ),
+                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
+                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
         ),
     conversion: zod
         .unknown()
         .optional()
         .describe(
-            'Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. \'filters\' is an array of property conditions; each condition is {key, value, operator, type} where type is \'event\' | \'person\' | \'group\'. Example: {\"filters\": [{\"key\": \"plan\", \"value\": \"paid\", \"operator\": \"exact\", \"type\": \"person\"}], \"window_minutes\": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. \'bytecode\' is compiled server-side from \'filters\' — do not set it.'
+            'Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
-        .union([
-            zod
-                .enum([
-                    'exit_on_conversion',
-                    'exit_on_trigger_not_matched',
-                    'exit_on_trigger_not_matched_or_conversion',
-                    'exit_only_at_end',
-                ])
-                .describe(
-                    '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
-                ),
-            zod.null(),
+        .enum([
+            'exit_on_conversion',
+            'exit_on_trigger_not_matched',
+            'exit_on_trigger_not_matched_or_conversion',
+            'exit_only_at_end',
         ])
+        .describe(
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+        )
         .optional()
         .describe(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
         ),
     edges: zod
         .unknown()
         .optional()
         .describe(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default\/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch \/ wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch \/ wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise)."
         ),
     actions: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique identifier for this action node within the workflow graph.'),
-                name: zod
-                    .string()
-                    .max(hogFlowsBulkDeleteCreateBodyActionsItemNameMax)
-                    .describe('Human-readable name for the action node.'),
+                id: zod.string().describe('Unique node ID within the workflow.'),
+                name: zod.string().max(hogFlowsBulkDeleteCreateBodyActionsItemNameMax).describe('Display name.'),
                 description: zod
                     .string()
                     .default(hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault)
-                    .describe('Optional description of what this action does.'),
+                    .describe('Optional description.'),
                 on_error: zod
                     .union([
                         zod
@@ -1867,18 +1508,10 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     ])
                     .optional()
                     .describe(
-                        'Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                     ),
-                created_at: zod
-                    .number()
-                    .optional()
-                    .describe('Unix epoch milliseconds when the action was added. Auto-managed by the frontend.'),
-                updated_at: zod
-                    .number()
-                    .optional()
-                    .describe(
-                        'Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.'
-                    ),
+                created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
+                updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
                 filters: zod
                     .union([
                         zod.object({
@@ -1900,39 +1533,31 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Property filters that gate execution of this action.'),
+                    .describe('Property filters gating this action.'),
                 type: zod
                     .string()
                     .max(hogFlowsBulkDeleteCreateBodyActionsItemTypeMax)
                     .describe(
-                        'Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.'
+                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Type-specific configuration. For triggers: {type: \'event\'|\'webhook\'|\'manual\'|\'batch\'|\'schedule\'|\'tracking_pixel\', filters?}. filters is an object: {events: [{id, name, type: \'events\', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: \'event\'|\'person\'|\'group\'}. Example: {\"type\": \"event\", \"filters\": {\"events\": [{\"id\": \"$pageview\", \"name\": \"$pageview\", \"type\": \"events\", \"properties\": [{\"key\": \"$current_url\", \"value\": \"\/pricing\", \"operator\": \"icontains\", \"type\": \"event\"}]}]}}. For function\*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is \'<number><unit>\' where unit is one of m|h|d (minutes, hours, days), e.g. \'30m\', \'1.5h\', \'2d\'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. \'0.5m\' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition\'s array position determines which \'branch\' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}.'
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
                     .optional()
-                    .describe("Variable definition to store this action's output for use by downstream actions."),
+                    .describe('Output variable definition for downstream actions.'),
             })
         )
-        .describe(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'."
-        ),
+        .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
     variables: zod
         .array(
-            zod
-                .record(zod.string(), zod.string())
-                .describe(
-                    "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string)."
-                )
+            zod.record(zod.string(), zod.string()).describe('Variable: {key, type: string|number|boolean, default}.')
         )
         .optional()
-        .describe(
-            'Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB.'
-        ),
+        .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({

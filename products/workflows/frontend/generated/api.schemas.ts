@@ -22,20 +22,20 @@ export const HogFlowTemplateScopeEnumApi = {
 
 export interface HogFlowMaskingApi {
     /**
-     * Time-to-live in seconds for the masking hash. Min 60s, max 3 years.
+     * Hash TTL in seconds (60 to ~94M / 3y).
      * @minimum 60
      * @maximum 94608000
      * @nullable
      */
     ttl?: number | null
     /**
-     * Minimum number of matching events before the workflow triggers (k-anonymity threshold).
+     * Min matching events before triggering (k-anonymity).
      * @nullable
      */
     threshold?: number | null
-    /** HogQL template expression used as the masking key (e.g. '{person.properties.email}'). */
+    /** HogQL template, e.g. '{person.properties.email}'. */
     hash: string
-    /** Compiled bytecode for the hash template. Auto-generated server-side from the hash expression. */
+    /** Auto-compiled from hash. Do not set. */
     bytecode?: unknown
 }
 
@@ -128,7 +128,7 @@ export interface HogFlowTemplateActionApi {
 export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 /**
- * Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string).
+ * Variable: {key, type: string|number|boolean, default}.
  */
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -181,7 +181,7 @@ export interface PaginatedHogFlowTemplateListApi {
 export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 /**
- * Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string).
+ * Variable: {key, type: string|number|boolean, default}.
  */
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -319,56 +319,56 @@ export interface PaginatedHogFlowMinimalListApi {
 }
 
 /**
- * Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string).
+ * Variable: {key, type: string|number|boolean, default}.
  */
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
 export interface HogFlowActionApi {
-    /** Unique identifier for this action node within the workflow graph. */
+    /** Unique node ID within the workflow. */
     id: string
     /**
-     * Human-readable name for the action node.
+     * Display name.
      * @maxLength 400
      */
     name: string
-    /** Optional description of what this action does. */
+    /** Optional description. */
     description?: string
-    /** Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).
+    /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
 
   * `continue` - continue
   * `abort` - abort
   * `complete` - complete
   * `branch` - branch */
     on_error?: OnErrorEnumApi | null
-    /** Unix epoch milliseconds when the action was added. Auto-managed by the frontend. */
+    /** Created at (epoch ms). Frontend-managed. */
     created_at?: number
-    /** Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend. */
+    /** Updated at (epoch ms). Frontend-managed. */
     updated_at?: number
-    /** Property filters that gate execution of this action. */
+    /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
     /**
-     * Action type. One of: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit.
+     * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
      * @maxLength 100
      */
     type: string
-    /** Type-specific configuration. For triggers: {type: 'event'|'webhook'|'manual'|'batch'|'schedule'|'tracking_pixel', filters?}. filters is an object: {events: [{id, name, type: 'events', properties: [<property condition>]}], properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property condition is {key, value, operator, type: 'event'|'person'|'group'}. Example: {"type": "event", "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "properties": [{"key": "$current_url", "value": "/pricing", "operator": "icontains", "type": "event"}]}]}}. For function*: {template_id, inputs}. For delay: {delay_duration: <string>} — duration format is '<number><unit>' where unit is one of m|h|d (minutes, hours, days), e.g. '30m', '1.5h', '2d'. Fractions allowed — for sub-minute delays use a fraction of a minute (e.g. '0.5m' = 30 seconds); seconds are not supported. Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition's array position determines which 'branch' edge fires when it matches (condition at index 0 -> edge with index:0). For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — same duration format and clamping rules as delay. For exit: {reason: <string>}. */
+    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs}. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
     config: unknown
-    /** Variable definition to store this action's output for use by downstream actions. */
+    /** Output variable definition for downstream actions. */
     output_variable?: unknown
 }
 
 export interface HogFlowApi {
     readonly id: string
     /**
-     * Human-readable name for the workflow.
+     * Workflow name.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
-    /** Optional description of the workflow's purpose. */
+    /** Optional description. */
     description?: string
     readonly version: number
-    /** Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).
+    /** draft (no execution), active (live), archived (disabled).
 
   * `draft` - Draft
   * `active` - Active
@@ -378,45 +378,45 @@ export interface HogFlowApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     readonly trigger: unknown
-    /** Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication. */
+    /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. 'filters' is an array of property conditions; each condition is {key, value, operator, type} where type is 'event' | 'person' | 'group'. Example: {"filters": [{"key": "plan", "value": "paid", "operator": "exact", "type": "person"}], "window_minutes": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. 'bytecode' is compiled server-side from 'filters' — do not set it. */
+    /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: unknown
-    /** When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
 
   * `exit_on_conversion` - Conversion
   * `exit_on_trigger_not_matched` - Trigger Not Matched
   * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
   * `exit_only_at_end` - Only At End */
-    exit_condition?: ExitConditionEnumApi | null
-    /** Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch / wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'. */
+    exit_condition?: ExitConditionEnumApi
+    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
     edges?: unknown
-    /** Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'. */
+    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
     actions: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action: string | null
-    /** Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB. */
+    /** Workflow vars (key, type, default). Total <5KB. */
     variables?: HogFlowApiVariablesItem[]
     readonly billable_action_types: unknown
 }
 
 /**
- * Variable definition. Keys: 'key' (unique identifier used in templating), 'type' (string|number|boolean), 'default' (initial value as a string).
+ * Variable: {key, type: string|number|boolean, default}.
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
 export interface PatchedHogFlowApi {
     readonly id?: string
     /**
-     * Human-readable name for the workflow.
+     * Workflow name.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
-    /** Optional description of the workflow's purpose. */
+    /** Optional description. */
     description?: string
     readonly version?: number
-    /** Workflow state: draft (editing, no live execution), active (processing events live), or archived (soft-deleted, no execution).
+    /** draft (no execution), active (live), archived (disabled).
 
   * `draft` - Draft
   * `active` - Active
@@ -426,41 +426,41 @@ export interface PatchedHogFlowApi {
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
     readonly trigger?: unknown
-    /** Optional deduplication config that prevents the same entity from entering the workflow multiple times within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, 60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from 'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication. */
+    /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. 'filters' is an array of property conditions; each condition is {key, value, operator, type} where type is 'event' | 'person' | 'group'. Example: {"filters": [{"key": "plan", "value": "paid", "operator": "exact", "type": "person"}], "window_minutes": 60}. Empty array means any event in the window counts. Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. 'bytecode' is compiled server-side from 'filters' — do not set it. */
+    /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: unknown
-    /** When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES 'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: both of the above — also requires 'conversion' to be set.
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
 
   * `exit_on_conversion` - Conversion
   * `exit_on_trigger_not_matched` - Trigger Not Matched
   * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
   * `exit_only_at_end` - Only At End */
-    exit_condition?: ExitConditionEnumApi | null
-    /** Graph edges connecting action nodes. Array of {from, to, type, index?} objects. type='continue' is the default/fall-through edge — followed when an action does not select a specific branch (sequential nodes, the no-match path of a conditional_branch). type='branch' requires an integer 'index' field — followed when a conditional_branch / wait_until_condition action matches the condition at that index in its config.conditions array. Example for a conditional_branch with one condition: {from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND {from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with 'No next action found'. */
+    exit_condition?: ExitConditionEnumApi
+    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
     edges?: unknown
-    /** Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. Typically also includes one action with type='exit'. */
+    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
     actions?: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action?: string | null
-    /** Workflow-level variables that persist across actions. Each variable has key, type, and default. Total serialized size must be under 5KB. */
+    /** Workflow vars (key, type, default). Total <5KB. */
     variables?: PatchedHogFlowApiVariablesItem[]
     readonly billable_action_types?: unknown
 }
 
 /**
- * Test event data to trigger the workflow with. Object shape matches the trigger payload — typically {event: {...}, person: {...}, groups: {...}}.
+ * Test trigger payload, typically {event, person, groups}.
  */
 export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
 
 export interface HogFlowInvocationApi {
-    /** Optional workflow configuration override for the test run. If omitted, uses the saved workflow definition. Pass this only to test an unsaved edit. */
+    /** Optional override; omit to use saved definition. */
     configuration?: HogFlowApi
-    /** Test event data to trigger the workflow with. Object shape matches the trigger payload — typically {event: {...}, person: {...}, groups: {...}}. */
+    /** Test trigger payload, typically {event, person, groups}. */
     globals?: HogFlowInvocationApiGlobals
-    /** When true (default), async actions (HTTP requests, emails, SMS) are simulated rather than executed. Set false to actually fire side effects — use with caution. */
+    /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
     mock_async_functions?: boolean
-    /** Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions. */
+    /** Start from this action ID instead of the trigger. */
     current_action_id?: string
 }
 

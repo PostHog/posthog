@@ -2,12 +2,12 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "current_action_id": {
-            "description": "Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions.",
+            "description": "Start from this action ID instead of the trigger.",
             "type": "string"
         },
         "globals": {
             "additionalProperties": {},
-            "description": "Test event data to trigger the workflow with. Object shape matches the trigger payload — typically {event: {...}, person: {...}, groups: {...}}.",
+            "description": "Test trigger payload, typically {event, person, groups}.",
             "propertyNames": {
                 "type": "string"
             },
@@ -19,7 +19,7 @@
         },
         "mock_async_functions": {
             "default": true,
-            "description": "When true (default), async actions (HTTP requests, emails, SMS) are simulated rather than executed. Set false to actually fire side effects — use with caution.",
+            "description": "True (default) mocks HTTP/email/SMS. False fires real side effects.",
             "type": "boolean"
         }
     },

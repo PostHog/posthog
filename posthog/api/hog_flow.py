@@ -76,67 +76,45 @@ class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
 
 
 class HogFlowActionSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Unique identifier for this action node within the workflow graph.")
-    name = serializers.CharField(max_length=400, help_text="Human-readable name for the action node.")
-    description = serializers.CharField(
-        allow_blank=True, default="", help_text="Optional description of what this action does."
-    )
+    id = serializers.CharField(help_text="Unique node ID within the workflow.")
+    name = serializers.CharField(max_length=400, help_text="Display name.")
+    description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
     on_error = serializers.ChoiceField(
         choices=["continue", "abort", "complete", "branch"],
         required=False,
         allow_null=True,
-        help_text=(
-            "Behavior when this action fails: continue (skip and proceed), abort (stop workflow), "
-            "complete (mark as done), or branch (follow error edge)."
-        ),
+        help_text="On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).",
     )
-    created_at = serializers.IntegerField(
-        required=False, help_text="Unix epoch milliseconds when the action was added. Auto-managed by the frontend."
-    )
-    updated_at = serializers.IntegerField(
-        required=False,
-        help_text="Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.",
-    )
+    created_at = serializers.IntegerField(required=False, help_text="Created at (epoch ms). Frontend-managed.")
+    updated_at = serializers.IntegerField(required=False, help_text="Updated at (epoch ms). Frontend-managed.")
     filters = HogFunctionFiltersSerializer(
-        required=False,
-        default=None,
-        allow_null=True,
-        help_text="Property filters that gate execution of this action.",
+        required=False, default=None, allow_null=True, help_text="Property filters gating this action."
     )
     type = serializers.CharField(
         max_length=100,
         help_text=(
-            "Action type. One of: trigger, function, function_email, function_sms, function_push, delay, "
-            "conditional_branch, wait_until_condition, wait_until_time_window, random_cohort_branch, exit."
+            "trigger | function | function_email | function_sms | function_push | delay | "
+            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
         ),
     )
     config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. "
-            "For triggers: {type: 'event'|'webhook'|'manual'|'batch'|'schedule'|'tracking_pixel', filters?}. "
-            "filters is an object: {events: [{id, name, type: 'events', properties: [<property condition>]}], "
-            "properties: [<property condition>], actions: [...], filter_test_accounts: <bool>}. Each property "
-            "condition is {key, value, operator, type: 'event'|'person'|'group'}. "
-            'Example: {"type": "event", "filters": {"events": [{"id": "$pageview", "name": '
-            '"$pageview", "type": "events", "properties": [{"key": "$current_url", "value": '
-            '"/pricing", "operator": "icontains", "type": "event"}]}]}}. '
-            "For function*: {template_id, inputs}. "
-            "For delay: {delay_duration: <string>} — duration format is '<number><unit>' where unit is one of "
-            "m|h|d (minutes, hours, days), e.g. '30m', '1.5h', '2d'. Fractions allowed — for sub-minute delays "
-            "use a fraction of a minute (e.g. '0.5m' = 30 seconds); seconds are not supported. "
-            "Per-unit max enforced by executor: m<=60, h<=24, d<=30; values above these are SILENTLY "
-            "CLAMPED — to wait >24h use days, etc. Max effective duration is 30d. "
-            "For conditional_branch: {conditions: [{filters: {...}}, ...]} — each condition's array position "
-            "determines which 'branch' edge fires when it matches (condition at index 0 -> edge with index:0). "
-            "For wait_until_condition: {condition: {filters: {...}}, max_wait_duration: <duration string>} — "
-            "same duration format and clamping rules as delay. "
-            "For exit: {reason: <string>}."
+            "Type-specific config keyed by action type. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. "
+            "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
+            "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
+            "type: event|person|group}. "
+            "function*: {template_id, inputs}. "
+            "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
+            "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
+            "Max 30d. "
+            "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
+            "wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). "
+            "exit: {reason}."
         ),
     )
     output_variable = serializers.JSONField(
-        required=False,
-        allow_null=True,
-        help_text="Variable definition to store this action's output for use by downstream actions.",
+        required=False, allow_null=True, help_text="Output variable definition for downstream actions."
     )
 
     def to_internal_value(self, data):
@@ -252,10 +230,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 class HogFlowVariableSerializer(serializers.ListSerializer):
     child = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
-        help_text=(
-            "Variable definition. Keys: 'key' (unique identifier used in templating), 'type' "
-            "(string|number|boolean), 'default' (initial value as a string)."
-        ),
+        help_text="Variable: {key, type: string|number|boolean, default}.",
     )
 
     def validate(self, attrs):
@@ -280,22 +255,13 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         min_value=60,
         max_value=60 * 60 * 24 * 365 * 3,
         allow_null=True,
-        help_text="Time-to-live in seconds for the masking hash. Min 60s, max 3 years.",
+        help_text="Hash TTL in seconds (60 to ~94M / 3y).",
     )
     threshold = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Minimum number of matching events before the workflow triggers (k-anonymity threshold).",
+        required=False, allow_null=True, help_text="Min matching events before triggering (k-anonymity)."
     )
-    hash = serializers.CharField(
-        required=True,
-        help_text="HogQL template expression used as the masking key (e.g. '{person.properties.email}').",
-    )
-    bytecode = serializers.JSONField(
-        required=False,
-        allow_null=True,
-        help_text="Compiled bytecode for the hash template. Auto-generated server-side from the hash expression.",
-    )
+    hash = serializers.CharField(required=True, help_text="HogQL template, e.g. '{person.properties.email}'.")
+    bytecode = serializers.JSONField(required=False, allow_null=True, help_text="Auto-compiled from hash. Do not set.")
 
     def validate(self, attrs):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
@@ -389,91 +355,56 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
     name = serializers.CharField(
-        max_length=400,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Human-readable name for the workflow.",
+        max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
-    description = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="Optional description of the workflow's purpose.",
-    )
+    description = serializers.CharField(required=False, allow_blank=True, default="", help_text="Optional description.")
     status = serializers.ChoiceField(
         choices=HogFlow.State.choices,
         required=False,
-        help_text=(
-            "Workflow state: draft (editing, no live execution), active (processing events live), or "
-            "archived (soft-deleted, no execution)."
-        ),
+        help_text="draft (no execution), active (live), archived (disabled).",
     )
     trigger_masking = HogFlowMaskingSerializer(
         required=False,
         allow_null=True,
         help_text=(
-            "Optional deduplication config that prevents the same entity from entering the workflow multiple times "
-            "within a TTL window. Shape: {hash: <HogQL template, e.g. '{person.properties.email}'>, ttl: <seconds, "
-            "60-94608000>, threshold?: <int, min matches before triggering>}. The server compiles 'bytecode' from "
-            "'hash' automatically — do not set bytecode yourself. Omit entirely to disable deduplication."
+            "Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. "
+            "Server compiles bytecode from hash. Omit to disable."
         ),
     )
     conversion = serializers.JSONField(
         required=False,
         allow_null=True,
         help_text=(
-            "Conversion goal. Shape: {filters: [<property condition>, ...], window_minutes: <int>}. "
-            "'filters' is an array of property conditions; each condition is "
-            "{key, value, operator, type} where type is 'event' | 'person' | 'group'. "
-            'Example: {"filters": [{"key": "plan", "value": "paid", "operator": "exact", '
-            '"type": "person"}], "window_minutes": 60}. Empty array means any event in the window counts. '
-            "Required when exit_condition is exit_on_conversion or exit_on_trigger_not_matched_or_conversion. "
-            "'bytecode' is compiled server-side from 'filters' — do not set it."
+            "Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, "
+            "type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / "
+            "exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
         ),
     )
     exit_condition = serializers.ChoiceField(
         choices=HogFlow.ExitCondition.choices,
         required=False,
-        allow_null=True,
         help_text=(
-            "When a person exits the workflow. exit_only_at_end (default): only exits at an explicit exit node. "
-            "exit_on_conversion: also exits early if a conversion event fires anywhere mid-workflow — REQUIRES "
-            "'conversion' to be set, otherwise this is a silent no-op. exit_on_trigger_not_matched: exits early "
-            "if the trigger filter stops matching for that person. exit_on_trigger_not_matched_or_conversion: "
-            "both of the above — also requires 'conversion' to be set."
+            "exit_only_at_end: only at exit node (default). "
+            "exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). "
+            "exit_on_trigger_not_matched: also when trigger filter stops matching. "
+            "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
         ),
     )
     edges = serializers.JSONField(
         required=False,
         help_text=(
-            "Graph edges connecting action nodes. Array of {from, to, type, index?} objects. "
-            "type='continue' is the default/fall-through edge — followed when an action does not select a "
-            "specific branch (sequential nodes, the no-match path of a conditional_branch). "
-            "type='branch' requires an integer 'index' field — followed when a conditional_branch / "
-            "wait_until_condition action matches the condition at that index in its config.conditions array. "
-            "Example for a conditional_branch with one condition: "
-            "{from: 'cond', to: 'matched_node', type: 'branch', index: 0} for the matched path AND "
-            "{from: 'cond', to: 'else_node', type: 'continue'} for the no-match path. "
-            "Every non-exit action needs a reachable next action — orphan paths cause the runtime to error with "
-            "'No next action found'."
+            "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through "
+            "(sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches "
+            "config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action "
+            "needs a reachable next action ('No next action found' otherwise)."
         ),
     )
     actions = serializers.ListField(
         child=HogFlowActionSerializer(),
         required=True,
-        help_text=(
-            "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. "
-            "Typically also includes one action with type='exit'."
-        ),
+        help_text="Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too.",
     )
-    variables = HogFlowVariableSerializer(
-        required=False,
-        help_text=(
-            "Workflow-level variables that persist across actions. Each variable has key, type, and default. "
-            "Total serialized size must be under 5KB."
-        ),
-    )
+    variables = HogFlowVariableSerializer(required=False, help_text="Workflow vars (key, type, default). Total <5KB.")
 
     def to_internal_value(self, data):
         status = data.get("status")
@@ -575,33 +506,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
 class HogFlowInvocationSerializer(serializers.Serializer):
     configuration = HogFlowSerializer(
-        write_only=True,
-        required=False,
-        help_text=(
-            "Optional workflow configuration override for the test run. If omitted, uses the saved workflow "
-            "definition. Pass this only to test an unsaved edit."
-        ),
+        write_only=True, required=False, help_text="Optional override; omit to use saved definition."
     )
     globals = serializers.DictField(
-        write_only=True,
-        required=False,
-        help_text=(
-            "Test event data to trigger the workflow with. Object shape matches the trigger payload — typically "
-            "{event: {...}, person: {...}, groups: {...}}."
-        ),
+        write_only=True, required=False, help_text="Test trigger payload, typically {event, person, groups}."
     )
     mock_async_functions = serializers.BooleanField(
         default=True,
         write_only=True,
-        help_text=(
-            "When true (default), async actions (HTTP requests, emails, SMS) are simulated rather than executed. "
-            "Set false to actually fire side effects — use with caution."
-        ),
+        help_text="True (default) mocks HTTP/email/SMS. False fires real side effects.",
     )
     current_action_id = serializers.CharField(
-        write_only=True,
-        required=False,
-        help_text="Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions.",
+        write_only=True, required=False, help_text="Start from this action ID instead of the trigger."
     )
 
 
