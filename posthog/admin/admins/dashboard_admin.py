@@ -11,10 +11,11 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 class DashboardTileInline(admin.TabularInline):
     extra = 0
     model = DashboardTile
-    autocomplete_fields = ("insight", "text")
+    autocomplete_fields = ("insight", "text", "team")
     readonly_fields = ("filters_hash",)
 
 
+@admin.register(Dashboard)
 class DashboardAdmin(admin.ModelAdmin):
     list_display = (
         "id",

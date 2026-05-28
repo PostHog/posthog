@@ -74,11 +74,10 @@ class ProductFeature(TypedDict):
 def _enterprise_only_feature_keys() -> frozenset[str]:
     """Enterprise-plan-only feature keys, computed once per process.
 
-    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`, plus `ACCESS_CONTROL`
-    (the successor to `ADVANCED_PERMISSIONS` per the `AvailableFeature` enum) which
-    isn't reflected in `License.ENTERPRISE_FEATURES` yet but should classify the same way.
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`. Returns an empty
+    set when the ee package isn't importable.
     """
-    keys: set[str] = {str(AvailableFeature.ACCESS_CONTROL)}
+    keys: set[str] = set()
     try:
         from ee.models.license import License
 
@@ -94,6 +93,8 @@ class OrganizationManager(models.Manager):
         # Set default_anonymize_ips based on deployment if not explicitly provided
         if "default_anonymize_ips" not in kwargs:
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
+        if "is_ai_training_opted_in" not in kwargs:
+            kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -110,6 +111,8 @@ class OrganizationManager(models.Manager):
             # Set default_anonymize_ips based on deployment if not explicitly provided
             if "default_anonymize_ips" not in kwargs:
                 kwargs["default_anonymize_ips"] = default_anonymize_ips()
+            if "is_ai_training_opted_in" not in kwargs:
+                kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
@@ -133,6 +136,11 @@ class OrganizationManager(models.Manager):
 def default_anonymize_ips():
     """Default to True for EU cloud deployments to comply with stricter privacy requirements"""
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
+
+
+def default_is_ai_training_opted_in():
+    """Default to False (opted out) for EU cloud deployments to comply with stricter privacy requirements"""
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
 class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
@@ -203,7 +211,25 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     is_member_join_email_enabled = models.BooleanField(
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=False)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+    is_ai_training_opted_in = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, this organization allows its data to be used to train PostHog AI models.",
+    )
+    is_ai_training_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, the AI training opt-out setting cannot be modified through the UI or API.",
+    )
+    is_ai_training_cta_shown = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, in-app callouts inviting members to enable AI training are shown.",
+    )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
@@ -220,12 +246,12 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
+        choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=DefaultExperimentStatsMethod.choices,
+        choices=DefaultExperimentStatsMethod,
         default=DefaultExperimentStatsMethod.BAYESIAN,
         help_text="Default statistical method for new experiments in this organization.",
         null=True,
@@ -346,12 +372,10 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """Best-effort plan tier derived from `available_product_features`.
 
         "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
-        minus `SCALE_FEATURES`, plus `access_control` — the successor to `advanced_permissions`
-        per `AvailableFeature` in constants.py — which is not yet reflected in `License`).
-        "paid" if any feature is present, otherwise "free". Paid uses "any feature present"
-        rather than an allow-list because the billing service grants features (alerts,
-        surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an allow-list
-        silently downgrades those orgs to free.
+        minus `SCALE_FEATURES`). "paid" if any feature is present, otherwise "free". Paid uses
+        "any feature present" rather than an allow-list because the billing service grants
+        features (alerts, surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an
+        allow-list silently downgrades those orgs to free.
         """
         available_keys = {
             feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
@@ -548,7 +572,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
@@ -685,11 +709,11 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from posthog.models.alert import AlertSubscription
+    from products.alerts.backend.models.alert import AlertSubscription
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
-        alert_configuration__team__organization=instance.organization,
+        alert_configuration__team__organization_id=instance.organization_id,
     ).delete()
 
     if deleted_count > 0:

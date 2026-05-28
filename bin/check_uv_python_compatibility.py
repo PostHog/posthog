@@ -3,20 +3,34 @@
 """
 Validate uv configuration for local development and CI.
 
-Performs three checks:
-1. Verify the uv version from pyproject.toml can download the required Python
-   (critical for local development and CI)
-2. Verify all CI workflow version pins match pyproject.toml
-   Pins are required: without them, setup-uv queries the GitHub API on every
-   job to resolve the required-version range, exhausting the installation
-   token rate limit under concurrent load.
-3. Verify flox manifest uv version is compatible with pyproject.toml
+The shape we enforce:
+
+- pyproject.toml [tool.uv].required-version is a FLOOR (e.g. ">=0.10.2"). It is
+  the lowest uv version that can read this repo's config and lockfile. Bumping
+  CI to a newer uv does NOT raise this floor — that keeps stale branches from
+  breaking the moment master ships a new pin. Raise the floor only when the
+  code on master genuinely requires a newer uv feature.
+
+- .github/workflows/*.yml use setup-uv with an explicit exact version literal
+  (e.g. `version: '0.11.14'`). Every workflow pins the SAME exact version so
+  CI is deterministic across jobs. The pin must satisfy the pyproject floor.
+  An exact literal also avoids the historical GH API rate-limit issue caused
+  by range resolution (astral-sh/setup-uv#325).
+
+- .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
+  CI. Comparison is on major.minor to allow patch drift.
+
+Performs four checks:
+1. Workflow pins are present, exact literals, and identical across all files.
+2. Workflow pin satisfies pyproject's required-version floor.
+3. Workflow pin can download the required Python version.
+4. Flox manifest uv version matches the workflow pin on major.minor.
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
 Exit codes:
     0: All checks passed
-    1: uv cannot download required Python, config error, or workflow pins missing/mismatched
+    1: any check failed
 """
 
 import re
@@ -30,6 +44,17 @@ except ImportError:
     import tomli as tomllib  # type: ignore
 
 
+Version = tuple[int, int, int]
+
+
+def parse_version(s: str) -> Version:
+    """Parse 'X.Y.Z' into a tuple. Extra suffixes are ignored."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", s)
+    if not match:
+        raise ValueError(f"Cannot parse version: {s}")
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
 def get_python_version_from_pyproject() -> str:
     """Extract the required Python version from pyproject.toml."""
     pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
@@ -38,7 +63,6 @@ def get_python_version_from_pyproject() -> str:
         data = tomllib.load(f)
 
     requires_python = data.get("project", {}).get("requires-python", "")
-    # Extract version from format like "==3.12.11" or ">=3.12.11"
     match = re.search(r"(\d+\.\d+\.\d+)", requires_python)
     if not match:
         raise ValueError(f"Could not parse Python version from: {requires_python}")
@@ -46,10 +70,10 @@ def get_python_version_from_pyproject() -> str:
     return match.group(1)
 
 
-def get_uv_version_from_pyproject() -> str | None:
-    """Extract the base uv version from pyproject.toml required-version.
+def get_uv_floor_from_pyproject() -> str | None:
+    """Extract the uv floor version from pyproject.toml [tool.uv].required-version.
 
-    Strips PEP 440 operators (~=, ==, >=, ^, etc.) to get the base version.
+    Expects a `>=X.Y.Z` form. Returns the X.Y.Z literal, or None if absent.
     """
     pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
 
@@ -65,10 +89,7 @@ def get_uv_version_from_pyproject() -> str | None:
 
 
 def get_uv_version_from_flox() -> str | None:
-    """Extract the base uv version from flox manifest.
-
-    Strips semver operators (^, >=, etc.) to get the base version.
-    """
+    """Extract the uv version literal from the flox manifest."""
     flox_manifest = Path(__file__).parent.parent / ".flox" / "env" / "manifest.toml"
 
     if not flox_manifest.exists():
@@ -89,10 +110,9 @@ def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
     """Find all setup-uv usages in CI workflows and their version pins.
 
     Returns a dict mapping workflow filename to list of version strings (or None
-    if a usage has no pin). Every usage must be pinned to the pyproject.toml
-    version — without a pin, setup-uv queries the GitHub API on every job to
-    resolve the required-version range, exhausting the installation token rate
-    limit under concurrent load.
+    if a usage has no pin). Every usage must be pinned with an exact literal —
+    unpinned setup-uv would resolve via GitHub API on every job and hit rate
+    limits under concurrent load (see astral-sh/setup-uv#325).
     """
     workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
     uv_usages: dict[str, list[str | None]] = {}
@@ -103,10 +123,9 @@ def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
             if "setup-uv@" not in line:
                 continue
             version: str | None = None
-            # Check the next few lines for a version: key within the same with: block
             for lookahead in lines[i + 1 : i + 6]:
                 if re.match(r"^\s+-\s+name:", lookahead):
-                    break  # next step, stop looking
+                    break
                 m = re.match(r"^\s+version:\s*['\"]?([0-9.]+)['\"]?", lookahead)
                 if m:
                     version = m.group(1)
@@ -117,17 +136,8 @@ def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
 
 
 def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple[bool, str]:
-    """
-    Check if a given uv version can download the specified Python version.
-
-    Uses `uvx --from uv@{version} uv python list --only-downloads` to test
-    the specific uv version's ability to download the Python version.
-
-    Returns:
-        tuple: (is_compatible, message)
-    """
+    """Check if the given uv version can download the specified Python version."""
     try:
-        # Use uvx to run the specific uv version
         result = subprocess.run(
             [
                 "uvx",
@@ -143,12 +153,9 @@ def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple
             text=True,
             timeout=30,
         )
-
         if result.returncode == 0 and result.stdout.strip():
             return True, "verified via uv python list"
-        else:
-            return False, f"Python {python_version} not available for uv {uv_version}"
-
+        return False, f"Python {python_version} not available for uv {uv_version}"
     except subprocess.TimeoutExpired:
         return True, "uv command timed out, assuming compatible"
     except FileNotFoundError:
@@ -162,7 +169,6 @@ def main() -> int:
     print("Validating uv configuration...")
     print()
 
-    # Get Python version from pyproject.toml
     try:
         python_version = get_python_version_from_pyproject()
         print(f"Python version required: {python_version}")
@@ -170,123 +176,146 @@ def main() -> int:
         print(f"✗ Error reading Python version: {e}")
         return 1
 
-    # Get uv version from pyproject.toml (single source of truth)
-    uv_version = None
-    try:
-        uv_version = get_uv_version_from_pyproject()
-        if uv_version:
-            print(f"uv version (pyproject.toml): {uv_version}")
-    except Exception as e:
-        print(f"⚠ Warning: Could not read pyproject.toml: {e}")
+    floor = get_uv_floor_from_pyproject()
+    print(f"uv floor (pyproject.toml): >={floor}" if floor else "uv floor: not set")
 
     print()
     print("=" * 60)
     print()
 
-    # Check 1: Can uv download the required Python version?
-    print("Check 1: uv Python compatibility")
-    print("-" * 60)
-
-    if not uv_version:
-        print("⚠ Skipped: No uv version found in pyproject.toml")
-        uv_compatible = True
-    else:
-        compatible, message = check_uv_python_compatibility(uv_version, python_version)
-        if compatible:
-            print(f"✓ uv {uv_version} can download Python {python_version}")
-            print(f"  {message}")
-            uv_compatible = True
-        else:
-            print(f"✗ uv {uv_version} cannot download Python {python_version}")
-            print(f"  {message}")
-            print()
-            print("  To fix: Update required-version in pyproject.toml [tool.uv]")
-            print("  See: https://github.com/astral-sh/uv/releases")
-            uv_compatible = False
-
-    print()
-    print("=" * 60)
-    print()
-
-    # Check 2: All workflow pins present and match pyproject.toml
-    print("Check 2: CI workflow uv version pins")
+    # Check 1: workflow pins present, exact, and identical
+    print("Check 1: CI workflow uv version pins")
     print("-" * 60)
 
     workflow_usages = get_uv_versions_from_workflows()
     missing_pins: list[str] = []
-    wrong_pins: list[str] = []
+    distinct_pins: set[str] = set()
+    pin_locations: dict[str, list[str]] = {}
 
     for workflow_name, versions in sorted(workflow_usages.items()):
         for i, version in enumerate(versions):
             usage = f"{workflow_name} (usage {i + 1})" if len(versions) > 1 else workflow_name
             if version is None:
                 missing_pins.append(usage)
-            elif uv_version and version != uv_version:
-                wrong_pins.append(f"{usage}: {version} (expected {uv_version})")
+            else:
+                distinct_pins.add(version)
+                pin_locations.setdefault(version, []).append(usage)
 
-    if not missing_pins and not wrong_pins:
-        print(f"✓ All setup-uv usages pinned to {uv_version}")
-        pins_ok = True
-    else:
-        if missing_pins:
-            print("✗ setup-uv usages missing version pin (add version: 'x.y.z'):")
-            for name in missing_pins:
-                print(f"  - {name}")
-            print()
-            print("  Without a pin, setup-uv queries the GitHub API on every job")
-            print("  to resolve the required-version range, which exhausts the")
-            print("  installation token rate limit under concurrent load.")
-        if wrong_pins:
-            print(f"✗ setup-uv usages with wrong version (expected {uv_version}):")
-            for name in wrong_pins:
-                print(f"  - {name}")
+    workflow_pin: str | None = None
+    pins_ok = True
+
+    if missing_pins:
+        print("✗ setup-uv usages missing version pin (add `version: 'x.y.z'`):")
+        for name in missing_pins:
+            print(f"  - {name}")
+        print()
+        print("  Without an exact pin, setup-uv may resolve via GitHub API and")
+        print("  hit rate limits under concurrent load (astral-sh/setup-uv#325).")
         pins_ok = False
+
+    if len(distinct_pins) > 1:
+        print("✗ setup-uv usages pinned to different versions (must all match):")
+        for pin in sorted(distinct_pins):
+            print(f"  {pin}:")
+            for loc in pin_locations[pin]:
+                print(f"    - {loc}")
+        pins_ok = False
+    elif len(distinct_pins) == 1:
+        workflow_pin = next(iter(distinct_pins))
+        if not missing_pins:
+            print(f"✓ All {sum(len(v) for v in workflow_usages.values())} setup-uv usages pinned to {workflow_pin}")
+    elif not missing_pins:
+        print("⚠ No setup-uv usages found in workflows")
 
     print()
     print("=" * 60)
     print()
 
-    # Check 3: Flox manifest compatible with pyproject.toml
-    print("Check 3: Flox manifest uv version alignment")
+    # Check 2: workflow pin satisfies pyproject floor
+    print("Check 2: Workflow pin satisfies pyproject floor")
+    print("-" * 60)
+
+    floor_ok = True
+    if floor and workflow_pin:
+        try:
+            if parse_version(workflow_pin) >= parse_version(floor):
+                print(f"✓ Workflow pin {workflow_pin} >= pyproject floor {floor}")
+            else:
+                print(f"✗ Workflow pin {workflow_pin} is below pyproject floor {floor}")
+                print("  Either raise the workflow pin or lower the floor.")
+                floor_ok = False
+        except ValueError as e:
+            print(f"⚠ Skipped: {e}")
+    else:
+        print("⚠ Skipped: missing workflow pin or pyproject floor")
+
+    print()
+    print("=" * 60)
+    print()
+
+    # Check 3: workflow pin can download required Python
+    print("Check 3: uv Python compatibility")
+    print("-" * 60)
+
+    python_ok = True
+    if workflow_pin:
+        compatible, message = check_uv_python_compatibility(workflow_pin, python_version)
+        if compatible:
+            print(f"✓ uv {workflow_pin} can download Python {python_version}")
+            print(f"  {message}")
+        else:
+            print(f"✗ uv {workflow_pin} cannot download Python {python_version}")
+            print(f"  {message}")
+            print()
+            print("  To fix: pick a uv version whose `uv python list X.Y.Z --only-downloads` succeeds.")
+            print("  See: https://github.com/astral-sh/uv/releases")
+            python_ok = False
+    else:
+        print("⚠ Skipped: no workflow pin to test")
+
+    print()
+    print("=" * 60)
+    print()
+
+    # Check 4: flox matches workflow pin on major.minor
+    print("Check 4: Flox manifest uv version alignment")
     print("-" * 60)
 
     flox_uv = get_uv_version_from_flox()
+    flox_ok = True
     if not flox_uv:
         print("⚠ Skipped: No flox manifest or uv version found")
-        flox_aligned = True
-    elif not uv_version:
-        print("⚠ Skipped: No pyproject.toml uv version to compare against")
-        flox_aligned = True
+    elif not workflow_pin:
+        print("⚠ Skipped: No workflow pin to compare against")
     else:
-        # Compare major.minor — flox uses a compat range so patch can differ
-        pyproject_minor = ".".join(uv_version.split(".")[:2])
-        flox_minor = ".".join(flox_uv.split(".")[:2])
-        if pyproject_minor == flox_minor:
-            print(f"✓ Flox uv {flox_uv} is compatible with pyproject.toml {uv_version}")
-            flox_aligned = True
+        flox_mm = ".".join(flox_uv.split(".")[:2])
+        pin_mm = ".".join(workflow_pin.split(".")[:2])
+        if flox_mm == pin_mm:
+            print(f"✓ Flox uv {flox_uv} matches workflow pin {workflow_pin} on major.minor")
         else:
-            print(f"✗ Flox uv base version {flox_uv} diverges from pyproject.toml {uv_version}")
-            print("  Update .flox/env/manifest.toml to match")
-            flox_aligned = False
+            print(f"✗ Flox uv {flox_uv} diverges from workflow pin {workflow_pin}")
+            print("  Update .flox/env/manifest.toml to match the workflow pin.")
+            flox_ok = False
 
     print()
     print("=" * 60)
     print()
 
-    # Summary
-    if uv_compatible and pins_ok and flox_aligned:
+    if pins_ok and floor_ok and python_ok and flox_ok:
         print("✓ All checks passed")
         return 0
-    else:
-        failures = []
-        if not uv_compatible:
-            failures.append("uv cannot download required Python version")
-        if not pins_ok:
-            failures.append("workflow uv version pins missing or mismatched")
-        if not flox_aligned:
-            failures.append("flox uv version diverges from pyproject.toml")
-        print(f"✗ Failed: {'; '.join(failures)}")
-        return 1
+
+    failures = []
+    if not pins_ok:
+        failures.append("workflow uv pins missing, mismatched, or not exact")
+    if not floor_ok:
+        failures.append("workflow pin below pyproject floor")
+    if not python_ok:
+        failures.append("workflow uv cannot download required Python")
+    if not flox_ok:
+        failures.append("flox uv diverges from workflow pin")
+    print(f"✗ Failed: {'; '.join(failures)}")
+    return 1
 
 
 if __name__ == "__main__":

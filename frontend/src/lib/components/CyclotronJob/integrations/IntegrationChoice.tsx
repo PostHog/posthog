@@ -32,7 +32,7 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
+    const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const kind = integration
@@ -84,17 +84,31 @@ export function IntegrationChoice({
         closeNewIntegrationModal()
     }
 
+    // Stripe sandboxes have a separate client_id from live installs. The Stripe app
+    // forwards is_sandbox=true on the URL it sends users to, so we forward it through
+    // to the authorize endpoint when it's present.
+    const isSandbox = new URLSearchParams(window.location.search).get('is_sandbox') === 'true'
+
     const setupDef = getIntegrationSetup(kind)
+    // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
+    // 400s with "Kind not configured". Send users to the settings page instead.
+    const oauthUnavailable = kind === 'slack' && !slackAvailable
     const setupMenuItem = setupDef
         ? setupDef.menuItem({ kind, openModal: openNewIntegrationModal, uploadKey })
-        : {
-              to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
-              disableClientSideRouting: true,
-              onClick: beforeRedirect,
-              label: integrationsOfKind?.length
-                  ? `Connect to a different integration for ${kindName}`
-                  : `Connect to ${kindName}`,
-          }
+        : oauthUnavailable
+          ? {
+                to: urls.settings('project-integrations'),
+                sideIcon: <IconExternal />,
+                label: `${kindName} is not configured on this instance`,
+            }
+          : {
+                to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
+                disableClientSideRouting: true,
+                onClick: beforeRedirect,
+                label: integrationsOfKind?.length
+                    ? `Connect to a different integration for ${kindName}`
+                    : `Connect to ${kindName}`,
+            }
 
     const button = (
         <LemonMenu

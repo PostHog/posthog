@@ -1,7 +1,9 @@
 import dataclasses
+from collections.abc import Callable, Sequence
 from typing import Any, Literal, Optional, cast
 
-from django.db.models import Prefetch, Q, QuerySet
+from django.db import models
+from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import response, serializers, status, viewsets
@@ -69,8 +71,10 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
         if hasattr(obj, "prefetched_tags"):
             ret["tags"] = [p.tag.name for p in obj.prefetched_tags]
-        else:
+        elif obj.pk:
             ret["tags"] = list(obj.tagged_items.values_list("tag__name", flat=True)) if obj.tagged_items else []
+        else:
+            ret["tags"] = []
         return ret
 
     def create(self, validated_data):
@@ -125,8 +129,34 @@ class BulkUpdateTagsResponseSerializer(serializers.Serializer):
     skipped = BulkUpdateTagsErrorSerializer(many=True)
 
 
+def _prefetch_tags_for_instances(instances: Sequence) -> None:
+    """Manually prefetch tagged_items for a list of model instances.
+
+    Handles RawQuerySet results that may have NULL PKs (e.g., from FULL OUTER JOINs)
+    by only prefetching for instances with valid PKs and setting empty tags on the rest.
+    Django 5 raises ValueError when unsaved instances are passed to related filters.
+    """
+    valid_instances = [obj for obj in instances if obj.pk is not None]
+    null_pk_instances = [obj for obj in instances if obj.pk is None]
+
+    if valid_instances:
+        prefetch_related_objects(
+            valid_instances,
+            Prefetch(
+                "tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            ),
+        )
+
+    for obj in null_pk_instances:
+        obj.prefetched_tags = []
+
+
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
-    def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
+    def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
+        if isinstance(queryset, models.query.RawQuerySet):
+            return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
         return queryset.prefetch_related(
             Prefetch(
                 "tagged_items",
@@ -139,6 +169,12 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         queryset = super().filter_queryset(queryset)
         return self.prefetch_tagged_items_if_available(queryset)
 
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
+        if page is not None and isinstance(queryset, models.query.RawQuerySet):
+            _prefetch_tags_for_instances(page)
+        return page
+
     @extend_schema(
         request=BulkUpdateTagsRequestSerializer,
         responses={200: BulkUpdateTagsResponseSerializer},
@@ -147,6 +183,14 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     def bulk_update_tags(self, request, **kwargs):
         """
         Bulk update tags on multiple objects.
+
+        PAT access: this action has no ``required_scopes=`` on the decorator —
+        inheriting viewsets must add ``"bulk_update_tags"`` to their
+        ``scope_object_write_actions`` list to accept personal API keys.
+        Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+        "This action does not support personal API key access". Done per-viewset
+        so granting ``<scope>:write`` for one resource doesn't leak access to
+        sibling resources that share this mixin.
 
         Accepts:
         - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -286,6 +330,31 @@ def handle_tag_change(sender, scope, before_update, after_update, activity, user
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class RelatedObjectActivityLogger:
+    """How to mirror a TaggedItem activity onto a related object's activity stream.
+
+    `scope` is used as both the `log_activity(scope=...)` and `Change.type` value.
+    `resolve_name` derives the display name for the activity row; the default
+    just returns the precomputed `related_object_name`.
+    """
+
+    scope: str
+    resolve_name: Callable[[TaggedItem, Optional[str]], Optional[str]] = lambda tagged_item, default_name: default_name
+
+
+RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
+    "ticket": RelatedObjectActivityLogger(
+        scope="Ticket",
+        resolve_name=lambda tagged_item, default_name: (
+            f"Ticket #{tagged_item.ticket.ticket_number}" if tagged_item.ticket else default_name
+        ),
+    ),
+    "account": RelatedObjectActivityLogger(scope="Account"),
+    "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
+}
+
+
 @mutable_receiver(model_activity_signal, sender=TaggedItem)
 def handle_tagged_item_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -293,58 +362,62 @@ def handle_tagged_item_change(
     # Use after_update for create/update, before_update for delete
     tagged_item = after_update or before_update
 
-    if tagged_item and tagged_item.tag:
-        related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
+    if not tagged_item or not tagged_item.tag:
+        return
 
-        context = TaggedItemContext(
-            tag_name=tagged_item.tag.name,
-            tag_id=str(tagged_item.tag.id),
-            team_id=tagged_item.tag.team_id,
-            related_object_type=related_object_type,
-            related_object_id=related_object_id,
-            related_object_name=related_object_name,
-        )
+    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
 
+    context = TaggedItemContext(
+        tag_name=tagged_item.tag.name,
+        tag_id=str(tagged_item.tag.id),
+        team_id=tagged_item.tag.team_id,
+        related_object_type=related_object_type,
+        related_object_id=related_object_id,
+        related_object_name=related_object_name,
+    )
+
+    team = tagged_item.tag.team
+    organization_id = team.organization_id if team else None
+    team_id = tagged_item.tag.team_id
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=tagged_item.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=tagged_item.tag.name,
+            context=context,
+        ),
+    )
+
+    # Mirror the tag change onto the related object's own activity stream
+    # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
+    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
+    if related_logger and related_object_id:
+        tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
         log_activity(
-            organization_id=tagged_item.tag.team.organization_id if tagged_item.tag and tagged_item.tag.team else None,
-            team_id=tagged_item.tag.team_id if tagged_item.tag else None,
+            organization_id=organization_id,
+            team_id=team_id,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=tagged_item.id,
-            scope=scope,
-            activity=activity,
+            item_id=related_object_id,
+            scope=related_logger.scope,
+            activity="updated",
             detail=Detail(
-                changes=changes_between(scope, previous=before_update, current=after_update),
-                name=tagged_item.tag.name if tagged_item.tag else None,
-                context=context,
+                name=related_logger.resolve_name(tagged_item, related_object_name),
+                changes=[
+                    Change(
+                        type=related_logger.scope,
+                        field="tag",
+                        action=tag_action,
+                        after=tagged_item.tag.name if activity == "created" else None,
+                        before=tagged_item.tag.name if activity == "deleted" else None,
+                    )
+                ],
             ),
         )
-
-        # Also log to the related object's activity stream for Ticket
-        if related_object_type == "ticket" and related_object_id:
-            ticket = tagged_item.ticket
-            ticket_name = f"Ticket #{ticket.ticket_number}" if ticket else related_object_name
-            tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
-            log_activity(
-                organization_id=tagged_item.tag.team.organization_id
-                if tagged_item.tag and tagged_item.tag.team
-                else None,
-                team_id=tagged_item.tag.team_id if tagged_item.tag else None,
-                user=user,
-                was_impersonated=was_impersonated,
-                item_id=related_object_id,
-                scope="Ticket",
-                activity="updated",
-                detail=Detail(
-                    name=ticket_name,
-                    changes=[
-                        Change(
-                            type="Ticket",
-                            field="tag",
-                            action=tag_action,
-                            after=tagged_item.tag.name if activity == "created" else None,
-                            before=tagged_item.tag.name if activity == "deleted" else None,
-                        )
-                    ],
-                ),
-            )

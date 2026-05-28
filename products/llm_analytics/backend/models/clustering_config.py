@@ -2,7 +2,7 @@ from django.db import models
 
 
 class ClusteringConfig(models.Model):
-    """Team-level configuration for LLM analytics clustering filters."""
+    """Team-level configuration for AI observability clustering filters."""
 
     team = models.OneToOneField(
         "posthog.Team",

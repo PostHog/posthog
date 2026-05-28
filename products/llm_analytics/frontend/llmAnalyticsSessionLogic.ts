@@ -116,7 +116,7 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
                 return [
                     {
                         key: 'LLMAnalytics',
-                        name: 'LLM analytics',
+                        name: 'AI observability',
                         path: urls.llmAnalyticsDashboard(),
                         iconType: 'llm_analytics',
                     },

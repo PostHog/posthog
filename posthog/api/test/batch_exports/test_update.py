@@ -33,6 +33,23 @@ pytestmark = [
 ]
 
 
+@pytest.fixture
+def bigquery_integration(team, user):
+    """Create a Google Cloud Service Account integration for BigQuery."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id="test-bigquery-service-account",
+        config={"project_id": "test", "service_account_email": "email"},
+        sensitive_config={
+            "private_key": "pkey",
+            "private_key_id": "pkey_id",
+            "token_uri": "token",
+        },
+        created_by=user,
+    )
+
+
 def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     destination_data: dict[str, t.Any] = {
         "type": "S3",
@@ -525,6 +542,81 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, 
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
     assert args.get("invalid_key", None) is None
+
+
+def test_patch_different_type_resets_config(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    bigquery_integration,
+):
+    """Assert patching a config with a different type resets it.
+
+    We confirm no previous values are present in Temporal or in the database.
+    """
+    interval = "hour"
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "interval": interval,
+    }
+
+    client.force_login(user)
+
+    destination = BatchExportDestination(**destination_data)
+    batch_export = BatchExport(team=team, destination=destination, **batch_export_data)
+
+    sync_batch_export(batch_export, created=True)
+
+    destination.save()
+    batch_export.save()
+
+    new_destination_data = {
+        "type": "BigQuery",
+        "integration_id": bigquery_integration.id,
+        "config": {
+            "table_id": "test",
+            "dataset_id": "test",
+        },
+    }
+
+    new_batch_export_data = {
+        "name": "my-production-bigquery-destination",
+        "destination": new_destination_data,
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    batch_export_data = get_batch_export_ok(client, team.pk, batch_export.id)
+    assert batch_export_data["interval"] == interval
+    assert batch_export_data["destination"]["config"].get("bucket_name") is None
+    assert batch_export_data["destination"]["config"].get("aws_secret_access_key") is None
+    assert batch_export_data["destination"]["config"]["dataset_id"] == "test"
+    assert batch_export_data["destination"]["config"]["table_id"] == "test"
+    assert batch_export_data["destination"]["integration"] == bigquery_integration.id
+
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export_data["id"])
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["table_id"] == "test"
+    assert args.get("aws_access_key_id") is None
+    assert args.get("bucket_name") is None
+    assert args.get("aws_secret_access_key") is None
 
 
 def test_can_patch_hogql_query(client: HttpClient, temporal, organization, team, user):

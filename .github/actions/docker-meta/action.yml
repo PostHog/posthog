@@ -49,17 +49,17 @@ runs:
     using: 'composite'
     steps:
         - name: Configure AWS credentials
-          uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+          uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
           with:
               role-to-assume: ${{ inputs.aws-role-to-assume }}
               aws-region: us-east-1
 
         - name: Login to Amazon ECR
           id: aws-ecr
-          uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+          uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
         - name: Login to ghcr.io
-          uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+          uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
           with:
               registry: ghcr.io
               username: ${{ github.actor }}
@@ -67,7 +67,7 @@ runs:
               logout: false
 
         - name: Login to DockerHub
-          uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+          uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
           with:
               username: ${{ inputs.dockerhub-username }}
               password: ${{ inputs.dockerhub-password }}
@@ -101,7 +101,7 @@ runs:
 
         - name: Docker meta
           id: meta
-          uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+          uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
           with:
               images: ${{ steps.images.outputs.list }}
               tags: |

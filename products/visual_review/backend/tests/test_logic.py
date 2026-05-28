@@ -319,7 +319,7 @@ class TestRunOperations:
             pr_number=None,
             snapshots=[],
         )
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         with pytest.raises(ValueError, match="pending"):
             logic.add_snapshots_to_run(
@@ -375,7 +375,7 @@ class TestRunOperations:
             snapshots=[{"identifier": "btn", "content_hash": "h1"}],
             purpose="observe",
         )
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         with pytest.raises(ValueError, match="Observational"):
             logic.approve_run(
@@ -422,7 +422,7 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.PROCESSING
 
-    def test_finalize_run_success(self, repo, mocker):
+    def test_finish_processing_success(self, repo, mocker):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -446,8 +446,8 @@ class TestRunOperations:
         logic.complete_run(run.id)
 
         # complete_run leaves the run in PROCESSING when there are changes;
-        # finalize_run finalizes it
-        updated = logic.finalize_run(run.id)
+        # finish_processing completes it
+        updated = logic.finish_processing(run.id)
 
         assert updated.status == RunStatus.COMPLETED
         assert updated.completed_at is not None
@@ -455,7 +455,7 @@ class TestRunOperations:
         assert updated.new_count == 1
         assert updated.error_message == ""
 
-    def test_finalize_run_with_error(self, repo):
+    def test_finish_processing_with_error(self, repo):
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -467,7 +467,7 @@ class TestRunOperations:
             baseline_hashes={},
         )
 
-        updated = logic.finalize_run(run.id, error_message="Something failed")
+        updated = logic.finish_processing(run.id, error_message="Something failed")
 
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
@@ -535,7 +535,7 @@ class TestApproveRun:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         updated = logic.approve_run(
             run_id=run.id,
@@ -581,7 +581,7 @@ class TestApproveSnapshots:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         updated = logic.approve_snapshots(
             run_id=run.id,
@@ -625,7 +625,7 @@ class TestToleratedHashes:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
         return run
 
     def test_mark_snapshot_as_tolerated(self, repo, user, mocker):
@@ -661,7 +661,7 @@ class TestToleratedHashes:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         snapshot = run.snapshots.first()
         assert snapshot is not None
@@ -849,7 +849,7 @@ class TestCommitStatusChecks:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         statuses = mock_github_api.status_checks
         # VR is the gate — unapproved changes post failure
@@ -879,7 +879,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.finalize_run(run1.id)
+        logic.finish_processing(run1.id)
 
         run2, _ = logic.create_run(
             repo_id=github_repo.id,
@@ -891,7 +891,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
             baseline_hashes={"changed": "old_h"},
         )
-        logic.finalize_run(run2.id)
+        logic.finish_processing(run2.id)
 
         created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
         updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
@@ -914,8 +914,8 @@ class TestCommitStatusChecks:
             baseline_hashes={"changed": "old_h"},
         )
 
-        logic.finalize_run(run.id)
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
+        logic.finish_processing(run.id)
 
         assert len(mock_github_api.issue_comments) == 1
 
@@ -970,7 +970,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.finalize_run(run.id, error_message="Diff processing failed")
+        logic.finish_processing(run.id, error_message="Diff processing failed")
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "error"
@@ -1016,7 +1016,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
     def test_no_status_without_repo_full_name(self, team, mock_github_integration, mock_github_api):
         """Status checks are silently skipped when repo has no repo_full_name."""
@@ -1037,7 +1037,7 @@ class TestCommitStatusChecks:
             baseline_hashes={},
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         assert len(mock_github_api.status_checks) == 0
 
@@ -1061,7 +1061,7 @@ class TestRunSupersession:
             snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
             baseline_hashes={},
         )
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
         run.refresh_from_db()
         return run
 
@@ -1251,7 +1251,7 @@ class TestQuarantineStamping:
         logic.complete_run(run.id)
         return run
 
-    def test_finalize_run_stamps_quarantined_snapshots(self, repo, team, mocker):
+    def test_finish_processing_stamps_quarantined_snapshots(self, repo, team, mocker):
         from products.visual_review.backend.models import QuarantinedIdentifier
 
         run = self._create_completed_run(
@@ -1274,7 +1274,7 @@ class TestQuarantineStamping:
             reason="flaky",
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
 
         snapshots = {s.identifier: s for s in run.snapshots.all()}
         assert snapshots["Button-primary"].is_quarantined is True
@@ -1301,7 +1301,7 @@ class TestQuarantineStamping:
             baseline={"Button-primary": "old1"},
         )
 
-        logic.finalize_run(run.id)
+        logic.finish_processing(run.id)
         snapshot = run.snapshots.get(identifier="Button-primary")
         assert snapshot.is_quarantined is True
 
@@ -1344,12 +1344,251 @@ class TestQuarantineStamping:
             baseline={"Button-primary": "old1", "Button-secondary": "old2"},
         )
 
-        finalized = logic.finalize_run(run.id)
+        processed = logic.finish_processing(run.id)
 
         # Button-primary is quarantined — should not count toward changed
         # Button-secondary is changed (not quarantined), Card-new is new (not quarantined)
-        assert finalized.changed_count == 1  # only Button-secondary
-        assert finalized.new_count == 1  # only Card-new
+        assert processed.changed_count == 1  # only Button-secondary
+        assert processed.new_count == 1  # only Card-new
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestQuarantineIdentifier:
+    """Coverage for `logic.quarantine_identifier` — especially the new
+    `source_run_id` behavior (valid run is stored, foreign run is dropped)."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/test-source-run")
+
+    def _mk_run(self, repo: Repo, branch: str = "main") -> Run:
+        return Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch=branch,
+            commit_sha="abc123",
+            status=RunStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
+    def test_stores_valid_source_run(self, repo, team, user):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._mk_run(repo)
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            source_run_id=run.id,
+        )
+        # Returned row points at the source run …
+        assert entry.source_run_id == run.id
+        # … and the persisted row agrees.
+        persisted = QuarantinedIdentifier.objects.get(id=entry.id)
+        assert persisted.source_run_id == run.id
+
+    def test_drops_source_run_from_another_team(self, repo, team, user):
+        """A `source_run_id` from a run that doesn't belong to this team/repo
+        is silently dropped — the quarantine still gets created, just without
+        the cross-team pointer."""
+        from posthog.models.team.team import Team
+
+        # Sibling team in the same org with its own repo + run.
+        other_team = Team.objects.create(organization=team.organization, name="other")
+        other_repo = logic.create_repo(team_id=other_team.id, repo_external_id=12121, repo_full_name="org/other-repo")
+        foreign_run = Run.objects.create(
+            team_id=other_team.id,
+            repo=other_repo,
+            run_type=RunType.STORYBOOK,
+            branch="main",
+            commit_sha="xyz789",
+            status=RunStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            source_run_id=foreign_run.id,
+        )
+        assert entry.source_run_id is None
+
+    def test_omitting_source_run_leaves_it_null(self, repo, team, user):
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+        )
+        assert entry.source_run_id is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRecomputeRun:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/test-repo")
+
+    def _create_completed_run(self, repo, mocker, identifiers_and_hashes, baseline=None, metadata=None):
+        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="my-branch",
+            pr_number=1,
+            snapshots=snapshots,
+            metadata=metadata or {},
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=(baseline or {}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        mocker.patch("products.visual_review.backend.logic._post_commit_status")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+        run.refresh_from_db()
+        return run
+
+    def test_recompute_run_updates_counts_after_quarantine(self, repo, team, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1"), ("Card", "h2")],
+            baseline={"Button": "old1", "Card": "old2"},
+        )
+        assert run.changed_count == 2
+
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+        QuarantinedIdentifier.objects.create(
+            repo=repo,
+            team_id=team.id,
+            identifier="Card",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["counts_changed"] is True
+        run.refresh_from_db()
+        assert run.changed_count == 0
+
+    def test_recompute_run_no_change_without_quarantine(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["counts_changed"] is False
+        assert "CI job ID not available" in result["ci_rerun_error"]
+
+    def test_recompute_run_rejects_non_completed_run(self, repo, team, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=1,
+            snapshots=[],
+        )
+
+        with pytest.raises(ValueError, match="Can only recompute completed runs"):
+            logic.recompute_run(run.id, team_id=team.id)
+
+    def test_recompute_run_rejects_approved_run(self, repo, team, user, mocker):
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "Button", "new_hash": "h1"}],
+            commit_to_github=False,
+        )
+
+        with pytest.raises(ValueError, match="already approved"):
+            logic.recompute_run(run.id, team_id=team.id)
+
+    def test_recompute_run_reports_missing_ci_metadata(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is False
+        assert "CI job ID not available" in result["ci_rerun_error"]
+
+    def test_recompute_run_triggers_ci_rerun(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+            metadata={"github_check_run_id": "72855643533"},
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._rerun_github_job",
+            return_value=(True, None),
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is True
+        assert result["ci_rerun_error"] is None
+
+    def test_recompute_run_handles_ci_rerun_failure(self, repo, team, mocker):
+        run = self._create_completed_run(
+            repo,
+            mocker,
+            identifiers_and_hashes=[("Button", "h1")],
+            baseline={"Button": "old1"},
+            metadata={"github_check_run_id": "72855643533"},
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._rerun_github_job",
+            return_value=(False, "GitHub API returned 403 when rerunning job"),
+        )
+
+        result = logic.recompute_run(run.id, team_id=team.id)
+
+        assert result["ci_rerun_triggered"] is False
+        assert "403" in result["ci_rerun_error"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1673,3 +1912,305 @@ class TestMergeBaseBaselineHealing:
 
         assert "story-x" not in merged
         assert healed == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestVerifyUploadsAndCreateArtifacts:
+    """Server-side hash integrity for uploaded PNGs."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=42424, repo_full_name="org/vr")
+
+    def _png(self, color: tuple[int, int, int, int]) -> bytes:
+        import io as _io
+
+        from PIL import Image as _Image
+
+        img = _Image.new("RGBA", (8, 8), color)
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_creates_artifact_with_server_computed_hash(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        png = self._png((10, 20, 30, 255))
+        server_hash = hash_image(png)
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "Card", "content_hash": server_hash}],
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            return_value=png,
+        )
+
+        created = logic.verify_uploads_and_create_artifacts(run.id)
+
+        assert created == 1
+        artifact = logic.get_artifact(repo.id, server_hash)
+        assert artifact is not None
+        assert artifact.content_hash == server_hash
+        assert artifact.size_bytes == len(png)
+
+    def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
+        # Two snapshots: first verifies cleanly, second has a mismatched claim.
+        # The two-pass split must prevent the first artifact from being written
+        # before the second is checked.
+        from products.visual_review.backend.hashing import hash_image
+
+        png_a = self._png((255, 0, 0, 255))
+        png_b = self._png((0, 0, 255, 255))
+        good_hash = hash_image(png_a)
+        bad_claim = "f" * 64  # nothing hashes to this
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha",
+            branch="main",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "Good", "content_hash": good_hash},
+                {"identifier": "Bad", "content_hash": bad_claim},
+            ],
+        )
+
+        def _read(self, content_hash):
+            return {good_hash: png_a, bad_claim: png_b}.get(content_hash)
+
+        mocker.patch("products.visual_review.backend.storage.ArtifactStorage.read", autospec=True, side_effect=_read)
+
+        with pytest.raises(logic.HashIntegrityError):
+            logic.verify_uploads_and_create_artifacts(run.id)
+
+        assert logic.get_artifact(repo.id, good_hash) is None
+        assert logic.get_artifact(repo.id, bad_claim) is None
+
+    def test_corrupt_png_raises_hash_integrity_error(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "Card", "content_hash": "a" * 64}],
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            return_value=b"not a png",
+        )
+
+        with pytest.raises(logic.HashIntegrityError):
+            logic.verify_uploads_and_create_artifacts(run.id)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestVerifyBaselineHashes:
+    """Bootstrap-window guard: unsigned baselines must not be honored."""
+
+    def test_drops_all_entries_when_no_signing_keys(self, team):
+        repo = Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=77777,
+            repo_full_name="org/no-keys",
+            signing_keys={},
+        )
+
+        result = logic._verify_baseline_hashes(repo, {"snap-a": "v1.k1.deadbeef.fake"})
+
+        assert result == {}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestApprovalComment:
+    """Tests for the post-approval PR comment summary."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=66666,
+            repo_full_name="test-org/approval-repo",
+            enable_pr_comments=True,
+        )
+
+    @pytest.fixture
+    def run_with_snapshots(self, repo):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="deadbeef",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            metadata={"github_comment_id": 9001, "baseline_commit_sha": "abc1234567"},
+        )
+
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Login/Form",
+            current_hash="curr_a",
+            baseline_hash="base_a",
+            result=SnapshotResult.CHANGED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Settings/Tab",
+            current_hash="curr_b",
+            baseline_hash="",
+            result=SnapshotResult.NEW,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Old/Component",
+            current_hash="",
+            baseline_hash="base_c",
+            result=SnapshotResult.REMOVED,
+        )
+
+        return run
+
+    def test_build_approval_comment_body_summarizes_changes(self, repo, run_with_snapshots):
+        approver = logic._Approver(label="alice", is_github_login=True)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver)
+
+        assert "✅ **Visual changes approved** by @alice" in body
+        assert "abc1234" in body  # baseline SHA prefix
+        assert f"/visual_review/runs/{run_with_snapshots.id}" in body
+        assert "1 changed, 1 new, 1 removed." in body
+        assert "<img" not in body
+        assert "<table" not in body
+        assert "/api/visual_review/public/" not in body
+
+    def test_build_approval_comment_body_falls_back_to_a_reviewer(self, repo, run_with_snapshots):
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, None)
+
+        assert "by a reviewer" in body
+
+    def test_build_approval_comment_body_escapes_non_github_approver(self, repo, run_with_snapshots):
+        # email local-part / first_name fallbacks are user-controlled — must be escaped
+        approver = logic._Approver(label="alice[evil](http://attacker)", is_github_login=False)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver)
+
+        # No raw `@` mention (which would render as a GitHub user link)
+        assert "by @alice" not in body
+        # Markdown control chars in the label must be backslash-escaped
+        assert "\\[evil\\]" in body
+        assert "\\(http://attacker\\)" in body
+
+    def test_build_approval_comment_body_no_actionable_snapshots(self, repo):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="empty",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        approver = logic._Approver(label="bob", is_github_login=True)
+        body = logic._build_approval_comment_body(run, repo, approver)
+        assert "✅ **Visual changes approved**" in body
+        # No counts line when there's nothing to summarize
+        assert "changed" not in body
+        assert "new" not in body
+        assert "removed" not in body
+
+    def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
+        repo.enable_pr_comments = False
+        repo.save(update_fields=["enable_pr_comments"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_when_no_pr_number(self, repo, run_with_snapshots, mocker):
+        run_with_snapshots.pr_number = None
+        run_with_snapshots.save(update_fields=["pr_number"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_for_non_human_decision(self, repo, run_with_snapshots, mocker):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run_with_snapshots.review_decision = ReviewDecision.AUTO_APPROVED
+        run_with_snapshots.save(update_fields=["review_decision"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_when_no_existing_comment_id(self, repo, run_with_snapshots, mocker):
+        run_with_snapshots.metadata = {}
+        run_with_snapshots.save(update_fields=["metadata"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_patches_existing_comment(self, repo, run_with_snapshots, mocker):
+        class FakeResp:
+            status_code = 200
+            text = ""
+
+        spy = mocker.patch.object(logic, "_github_api_request", return_value=FakeResp())
+
+        logic._post_approval_comment(run_with_snapshots, repo)
+
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        assert kwargs["method"] == "PATCH"
+        assert kwargs["path"] == "issues/comments/9001"
+        assert "✅ **Visual changes approved**" in kwargs["json"]["body"]
+
+    def test_post_approval_comment_falls_back_to_post_on_404(self, repo, run_with_snapshots, mocker):
+        class PatchResp:
+            status_code = 404
+            text = "Not Found"
+
+        class PostResp:
+            status_code = 201
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"id": 9999}
+
+        spy = mocker.patch.object(logic, "_github_api_request", side_effect=[PatchResp(), PostResp()])
+
+        logic._post_approval_comment(run_with_snapshots, repo)
+
+        assert spy.call_count == 2
+        first_call = spy.call_args_list[0].kwargs
+        second_call = spy.call_args_list[1].kwargs
+        assert first_call["method"] == "PATCH"
+        assert second_call["method"] == "POST"
+        assert second_call["path"] == "issues/42/comments"
+
+        run_with_snapshots.refresh_from_db()
+        assert run_with_snapshots.metadata["github_comment_id"] == 9999
+
+    def test_post_approval_comment_swallows_exceptions(self, repo, run_with_snapshots, mocker):
+        mocker.patch.object(logic, "_github_api_request", side_effect=RuntimeError("boom"))
+        # Must not raise
+        logic._post_approval_comment(run_with_snapshots, repo)

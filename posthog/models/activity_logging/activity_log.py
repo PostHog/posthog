@@ -76,17 +76,28 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "Evaluation",
     "LLMTrace",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "LogsExclusionRule",
     "ProductTour",
     "Ticket",
+    "InstanceSetting",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
 ]
+
+# Internal-only scope key. Used by `field_exclusions` and `changes_between` to address
+# through-tables and other internal models that are never exposed as a top-level
+# `scope` in stored activity logs. Keeping these out of `ActivityScope` prevents them
+# from leaking into the generated `ActivityLogListScope` API enum, where filtering by
+# them would always return zero results.
+InternalActivityScope = Literal["ExperimentToSavedMetric",]
+AuditableScope = Union[ActivityScope, InternalActivityScope]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -131,7 +142,7 @@ class ActivityLog(UUIDTModel):
         constraints = [
             models.CheckConstraint(
                 name="must_have_team_or_organization_id",
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+                condition=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
         indexes = [
@@ -217,7 +228,7 @@ common_field_exclusions = [
 ]
 
 
-field_with_masked_contents: dict[ActivityScope, list[str]] = {
+field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
     ],
@@ -248,7 +259,7 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
 }
 
-field_name_overrides: dict[ActivityScope, dict[str, str]] = {
+field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -342,9 +353,17 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Instance-setting changes are staff-only operations and must not leak into the
+        # org-scoped activity log endpoints, which are visible to organization admins.
+        "scope": "InstanceSetting",
+        "activities": ["updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
-field_exclusions: dict[ActivityScope, list[str]] = {
+field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
@@ -382,6 +401,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "ExperimentSavedMetric": [
         "experiments",
         "experimenttosavedmetric_set",
+    ],
+    "ExperimentToSavedMetric": [
+        "experiment",
+        "saved_metric",
     ],
     "ProjectSecretAPIKey": [
         "secure_value",
@@ -457,7 +480,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "external_tables",
         "last_run_at",
         "latest_error",
-        "sync_frequency_interval",
         "deleted_name",
     ],
     "Endpoint": [
@@ -517,9 +539,16 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         # ForeignKey fields
         "current_organization",
         "current_team",
+        # The onboarding delegation FK is excluded here because the generic field-diffing
+        # path tries to serialize the related invite during the signal, which races the
+        # same transaction that created the invite. Forensic visibility for delegation
+        # state transitions is handled via explicit structlog entries from
+        # `set_delegated_state` / `clear_delegation_state` / the pre_delete receiver.
+        "onboarding_delegated_to_invite",
         # With _id suffix for direct attribute access
         "current_organization_id",
         "current_team_id",
+        "onboarding_delegated_to_invite_id",
         # System/internal fields
         "distinct_id",
         "partial_notification_settings",
@@ -581,6 +610,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+    ],
+    "Evaluation": [
+        # Reverse relations — auto-managed by FK creates, not user intent.
+        "reports",
     ],
 }
 
@@ -651,7 +684,7 @@ def safely_get_field_value(instance: models.Model | None, field: str):
 
 
 def changes_between(
-    model_type: ActivityScope,
+    model_type: AuditableScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
@@ -719,7 +752,7 @@ def changes_between(
 
 
 def dict_changes_between(
-    model_type: ActivityScope,
+    model_type: AuditableScope,
     previous: dict[Any, Any],
     new: dict[Any, Any],
     use_field_exclusions: bool = False,

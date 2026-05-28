@@ -13,11 +13,12 @@ from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Insight, InsightCachingState
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +39,7 @@ CACHE_UPDATE_FAILED_COUNTER = Counter(
 CACHE_UPDATE_SHARED_GAUGE = Gauge(
     "insight_cache_state_update_rows_updated",
     "Number of rows updated during insight cache refresh. A single cache key can be shared by more than one insight/tile.",
+    multiprocess_mode="livesum",
 )
 
 

@@ -16,11 +16,13 @@ export type APIScope = {
 export const API_SCOPES: APIScope[] = [
     { key: 'action', objectName: 'Action', objectPlural: 'actions' },
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
+    { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
@@ -28,17 +30,29 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
+    { key: 'deployment', objectName: 'Deployment', objectPlural: 'deployments' },
     { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
+    { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
+    {
+        key: 'file_system',
+        objectName: 'File system',
+        objectPlural: 'file system items',
+        // Read-only for now: the file-system delete path cascades into the backing
+        // object (dashboard, insight, cohort, feature flag, hog function, ...), so a
+        // `file_system:write` token would bypass the more specific resource scopes.
+        disabledActions: ['write'],
+    },
+    { key: 'file_system_shortcut', objectName: 'File system shortcut', objectPlural: 'file system shortcuts' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
@@ -48,11 +62,14 @@ export const API_SCOPES: APIScope[] = [
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
-    { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
+    { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
+    { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
+    { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
+    { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {
@@ -77,6 +94,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
+    { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
@@ -90,6 +108,9 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
+    // `query_performance` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
+    { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
+    { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
     {
         key: 'session_recording_playlist',
@@ -100,7 +121,9 @@ export const API_SCOPES: APIScope[] = [
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
+    { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
     {
         key: 'user',
         objectName: 'User',
@@ -126,10 +149,13 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
+    { key: 'web_analytics', objectName: 'Web analytics', objectPlural: 'web analytics' },
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
+
+export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -170,6 +196,11 @@ export const API_KEY_SCOPE_PRESETS: {
                 : `${key}:read`
         ),
         access_type: 'all',
+    },
+    {
+        value: 'read_only_access',
+        label: 'Read-only access',
+        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -215,6 +246,7 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'event_definition:write',
     'error_tracking:read',
     'logs:read',
+    'tracing:read',
 ]
 
 export const getScopeDescription = (scope: string): string | undefined => {
@@ -245,9 +277,13 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     const scopeObject = API_SCOPES.find((s) => s.key === object)
+    if (!scopeObject) {
+        // Unknown / hidden scope — call sites .filter(Boolean) the result.
+        return undefined
+    }
     const actionWord = action === 'write' ? 'Write' : 'Read'
 
-    return `${actionWord} access to ${scopeObject?.objectPlural ?? scope}`
+    return `${actionWord} access to ${scopeObject.objectPlural}`
 }
 
 export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {

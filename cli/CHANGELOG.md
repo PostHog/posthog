@@ -1,5 +1,19 @@
 # posthog-cli
 
+# 0.7.13
+
+- chore: bump `cargo-dist` to 0.32.0; the new npm installer drops the bundled transitive deps that were carrying open CVEs (`axios`, `follow-redirects`, `minimatch`, `brace-expansion`)
+
+# 0.7.12
+
+- feat: add `--skip-on-conflict` to symbol upload commands for keeping existing symbol sets when content differs
+- feat: add `--force` to sourcemap, Hermes, and ProGuard uploads for explicit content overwrites
+
+# 0.7.11
+
+- fix: resolve release once in `process` command to avoid race condition when multiple workers run in parallel
+- fix: skip synthetic Swift CU names (e.g. `<swift-imported-modules>`) before joining with `comp_dir` so they no longer dominate the project-root prefix and reject real source files
+
 # 0.7.10
 
 - feat: add `symbol-sets download` command to download symbol sets by ID or ref

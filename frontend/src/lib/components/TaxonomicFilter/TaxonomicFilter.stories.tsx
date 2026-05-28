@@ -11,6 +11,7 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
 import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
@@ -276,14 +277,14 @@ function SeedRecents({ count }: { count: number }): null {
     useOnMountEffect(() => {
         recentTaxonomicFiltersLogic.actions.clearRecentFilters()
         for (const recent of RECENT_ITEMS.slice(0, count)) {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                recent.groupType,
-                recent.groupName,
-                recent.value,
-                recent.item,
-                MOCK_TEAM_ID,
-                recent.propertyFilter
-            )
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: recent.groupType,
+                groupName: recent.groupName,
+                value: recent.value,
+                item: recent.item,
+                teamId: MOCK_TEAM_ID,
+                propertyFilter: recent.propertyFilter,
+            })
         }
     })
 
@@ -502,15 +503,37 @@ export const CategoryDropdownPill: Story = {
     },
 }
 
-export const CategoryDropdownIcon: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="icon" />,
-    args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
+export const EmptyEventsWithStaleToggle: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('my_ancient_event'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-stale-toggle',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+        }),
+    ],
     parameters: {
-        ...CATEGORY_DROPDOWN_PARAMETERS,
+        testOptions: { waitForSelector: '[data-attr="taxonomic-include-stale-events"]' },
         docs: {
             description: {
-                story: 'Test variant "icon": left-hand Categories column is hidden; a generic filter icon in the right-hand suffix opens the category dropdown.',
+                story: 'When a search on the Events tab returns no results (all matches are stale), an "Include stale events" button appears so users can opt in to seeing events older than 30 days.',
             },
         },
     },

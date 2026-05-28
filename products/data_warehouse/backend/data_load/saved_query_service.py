@@ -14,6 +14,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -31,7 +32,7 @@ from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import build_schedule_spec
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:
@@ -58,13 +59,13 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
+                maximum_attempts=2,
                 non_retryable_error_types=["NondeterminismError", "CancelledError"],
             ),
         ),
         spec=spec,
         state=ScheduleState(note=f"Schedule for saved query: {saved_query.pk}"),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.CANCEL_OTHER),
     )
 
 
@@ -127,8 +128,32 @@ def unpause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None
     # reset the automatic sync interval for rev analytics
     viewset = saved_query.managed_viewset
     if viewset and viewset.kind == "revenue_analytics":
-        saved_query.sync_frequency_interval = timedelta(hours=12)
+        previous_interval = saved_query.sync_frequency_interval
+        new_interval = timedelta(hours=12)
+        saved_query.sync_frequency_interval = new_interval
         saved_query.save()
+        if previous_interval != new_interval:
+            log_activity(
+                organization_id=saved_query.team.organization_id,
+                team_id=saved_query.team_id,
+                user=None,
+                was_impersonated=False,
+                item_id=saved_query.id,
+                scope="DataWarehouseSavedQuery",
+                activity="sync_frequency_reset",
+                detail=Detail(
+                    name=saved_query.name,
+                    changes=[
+                        Change(
+                            field="sync_frequency_interval",
+                            action="changed",
+                            type="DataWarehouseSavedQuery",
+                            before=str(previous_interval) if previous_interval else None,
+                            after=str(new_interval),
+                        ),
+                    ],
+                ),
+            )
 
 
 def saved_query_workflow_exists(saved_query: "DataWarehouseSavedQuery") -> bool:

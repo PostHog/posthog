@@ -24,7 +24,7 @@ class HogFlowSchedule(RootTeamMixin, UUIDTModel):
     starts_at = models.DateTimeField()
     timezone = models.CharField(max_length=64, default="UTC")
     variables = models.JSONField(default=dict)  # {key: value} overrides, merged with HogFlow defaults at execution
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

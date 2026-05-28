@@ -8,13 +8,13 @@ declare namespace Cloudflare {
 	}
 	interface Env {
 		MCP_APPS_BASE_URL: "https://mcp.posthog.com";
-		INKEEP_API_KEY: string;
 		POSTHOG_API_BASE_URL: string;
 		POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: string;
 		POSTHOG_UI_APPS_TOKEN: string;
 		POSTHOG_ANALYTICS_API_KEY: string;
 		POSTHOG_ANALYTICS_HOST: string;
 		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MCP>;
+		ASSETS: Fetcher;
 	}
 }
 interface Env extends Cloudflare.Env {}

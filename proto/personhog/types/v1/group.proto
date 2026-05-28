@@ -42,6 +42,30 @@ message GroupTypeMappingsByKey {
   repeated GroupTypeMapping mappings = 2;
 }
 
+// ListGroupsRequest returns groups for a team with filtering and keyset pagination.
+// Used by the groups list API endpoint.
+message ListGroupsRequest {
+  int64 team_id = 1;
+  int32 group_type_index = 2;
+  // Substring match on group_key (case-insensitive). Empty means no filter.
+  string group_key_contains = 3;
+  // Substring search across group_properties JSON and exact match on group_key.
+  // Empty means no search filter.
+  string search = 4;
+  // Keyset pagination cursor: pass the created_at millis + id from the last
+  // result of the previous page. First page: cursor_created_at_ms = 0, cursor_id = 0.
+  int64 cursor_created_at_ms = 5;
+  int64 cursor_id = 6;
+  int32 limit = 7;
+  ReadOptions read_options = 8;
+}
+
+message ListGroupsResponse {
+  repeated Group groups = 1;
+  // True when more results exist beyond this page.
+  bool has_more = 2;
+}
+
 message GetGroupRequest {
   int64 team_id = 1;
   int32 group_type_index = 2;
@@ -99,4 +123,94 @@ message GroupTypeMappingsResponse {
 
 message GroupTypeMappingsBatchResponse {
   repeated GroupTypeMappingsByKey results = 1;
+}
+
+// ============================================================
+// Group write operations
+// ============================================================
+
+message CreateGroupRequest {
+  int64 team_id = 1;
+  int32 group_type_index = 2;
+  string group_key = 3;
+  bytes group_properties = 4;
+  optional int64 created_at = 5;
+}
+
+message CreateGroupResponse {
+  Group group = 1;
+}
+
+message UpdateGroupRequest {
+  int64 team_id = 1;
+  int32 group_type_index = 2;
+  string group_key = 3;
+  // Only fields listed in update_mask are written.
+  // Valid paths: "group_properties", "properties_last_updated_at", "properties_last_operation", "created_at"
+  // version is always auto-incremented on any update.
+  repeated string update_mask = 4;
+  optional bytes group_properties = 5;
+  optional bytes properties_last_updated_at = 6;
+  optional bytes properties_last_operation = 7;
+  optional int64 created_at = 8;
+}
+
+message UpdateGroupResponse {
+  Group group = 1;
+  bool updated = 2;
+}
+
+message DeleteGroupsBatchForTeamRequest {
+  int64 team_id = 1;
+  int64 batch_size = 2;
+}
+
+message DeleteGroupsBatchForTeamResponse {
+  int64 deleted_count = 1;
+}
+
+// ============================================================
+// GroupTypeMapping write operations
+// ============================================================
+
+message UpdateGroupTypeMappingRequest {
+  int64 project_id = 1;
+  int32 group_type_index = 2;
+  repeated string update_mask = 3;
+  optional string name_singular = 4;
+  optional string name_plural = 5;
+  optional int64 detail_dashboard_id = 6;
+  optional bytes default_columns = 7;
+}
+
+message UpdateGroupTypeMappingResponse {
+  GroupTypeMapping mapping = 1;
+}
+
+message GetGroupTypeMappingByDashboardIdRequest {
+  int64 team_id = 1;
+  int64 dashboard_id = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetGroupTypeMappingByDashboardIdResponse {
+  optional GroupTypeMapping mapping = 1;
+}
+
+message DeleteGroupTypeMappingRequest {
+  int64 project_id = 1;
+  int32 group_type_index = 2;
+}
+
+message DeleteGroupTypeMappingResponse {
+  bool deleted = 1;
+}
+
+message DeleteGroupTypeMappingsBatchForTeamRequest {
+  int64 team_id = 1;
+  int64 batch_size = 2;
+}
+
+message DeleteGroupTypeMappingsBatchForTeamResponse {
+  int64 deleted_count = 1;
 }

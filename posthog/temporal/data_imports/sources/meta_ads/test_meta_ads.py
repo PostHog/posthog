@@ -85,7 +85,8 @@ class TestSimplePagination:
             _mock_response(200, {"data": [{"id": "3"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             batches = list(
                 _iter_simple_pagination(
                     self.INITIAL_URL,
@@ -97,13 +98,13 @@ class TestSimplePagination:
 
         assert batches == [[{"id": "1"}, {"id": "2"}], [{"id": "3"}]]
         # First call: initial URL + params.
-        assert mock_get.call_args_list[0].args[0] == self.INITIAL_URL
-        assert mock_get.call_args_list[0].kwargs["params"] == self.INITIAL_PARAMS
+        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == self.INITIAL_PARAMS
         # Second call: the saved (token-stripped) URL plus access_token supplied via params.
         # Using the stripped URL for the fetch too prevents `requests` from sending duplicate
         # `access_token` query parameters.
-        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?cursor=abc"
-        assert mock_get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?cursor=abc"
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
         # Saved state: access_token stripped from the saved URL.
         manager.save_state.assert_called_once_with(
@@ -119,7 +120,8 @@ class TestSimplePagination:
             _mock_response(200, {"data": [{"id": "5"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             batches = list(
                 _iter_simple_pagination(
                     self.INITIAL_URL,
@@ -130,10 +132,10 @@ class TestSimplePagination:
             )
 
         assert batches == [[{"id": "5"}]]
-        assert mock_get.call_count == 1
-        assert mock_get.call_args_list[0].args[0] == saved_url
+        assert mock_get.return_value.get.call_count == 1
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_url
         # access_token is supplied via params (from config), NOT embedded in the saved URL.
-        assert mock_get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
         # No more pages, no save call needed.
         manager.save_state.assert_not_called()
 
@@ -144,7 +146,10 @@ class TestSimplePagination:
             _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as _mock_session_factory:
+            _mock_session_factory.return_value.get.side_effect = responses
             batches = list(
                 _iter_simple_pagination(
                     self.INITIAL_URL,
@@ -169,7 +174,8 @@ class TestSimplePagination:
 
         responses = [_mock_response(200, {"data": [], "paging": {}})]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             list(
                 _iter_simple_pagination(
                     self.INITIAL_URL,
@@ -180,8 +186,8 @@ class TestSimplePagination:
             )
 
         # Initial request should be the original URL with params, not the stale next_url.
-        assert mock_get.call_args_list[0].args[0] == self.INITIAL_URL
-        assert mock_get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
 
 
 class TestTimeRangePagination:
@@ -202,7 +208,8 @@ class TestTimeRangePagination:
             _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             batches = list(
                 _iter_time_range_pagination(
                     self.URL,
@@ -227,10 +234,12 @@ class TestTimeRangePagination:
         assert final.chunk_since == "2026-04-22"
         assert final.chunk_next_url is None
 
-        # Second request uses the stripped URL with an explicit ``limit`` override
-        # (default 500 here) plus access_token via params — no duplicate token.
-        assert mock_get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/act_1/insights?after=abc&limit=500"
-        assert mock_get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
+        # Second request uses the stripped URL plus access_token via params (no duplicate token).
+        assert (
+            mock_get.return_value.get.call_args_list[1].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=abc&limit=500"
+        )
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
     def test_fresh_run_saves_chunk_boundary_between_chunks(self) -> None:
         manager = _build_manager()
@@ -240,7 +249,10 @@ class TestTimeRangePagination:
             _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as _mock_session_factory:
+            _mock_session_factory.return_value.get.side_effect = responses
             batches = list(
                 _iter_time_range_pagination(
                     self.URL,
@@ -272,7 +284,10 @@ class TestTimeRangePagination:
         manager = _build_manager()
         responses = [_mock_response(200, {"data": [{"ad_id": "only"}], "paging": {}})]
 
-        with mock.patch("requests.get", side_effect=responses):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as _mock_session_factory:
+            _mock_session_factory.return_value.get.side_effect = responses
             list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
@@ -296,7 +311,7 @@ class TestTimeRangePagination:
         )
         manager = _build_manager(can_resume=True, state=state)
 
-        with mock.patch("requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
             batches = list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-04-10", "until": "2026-04-21"}, state, manager
@@ -319,7 +334,8 @@ class TestTimeRangePagination:
 
         responses = [_mock_response(200, {"data": [{"ad_id": "c"}], "paging": {}})]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             batches = list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-01-01", "until": "2026-04-16"}, state, manager
@@ -329,12 +345,10 @@ class TestTimeRangePagination:
         assert batches == [[{"ad_id": "c"}]]
         # Two requests: the resumed mid-chunk URL, then nothing more to fetch within this chunk.
         # (There is a final "past end_date" save_state, but no additional HTTP call is made.)
-        assert mock_get.call_count == 1
-        # The saved URL has the current limit override appended — default 500 here
-        # since chunk_limit was not set in the resume state.
-        assert mock_get.call_args_list[0].args[0] == saved_next + "&limit=500"
+        assert mock_get.return_value.get.call_count == 1
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_next + "&limit=500"
         # access_token is injected fresh — never served from the saved URL.
-        assert mock_get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
 
     def test_resume_at_chunk_boundary_issues_fresh_initial_request(self) -> None:
         state = MetaAdsResumeConfig(
@@ -350,7 +364,8 @@ class TestTimeRangePagination:
             _mock_response(200, {"data": [], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-01-01", "until": "2026-04-21"}, state, manager
@@ -358,7 +373,7 @@ class TestTimeRangePagination:
             )
 
         # First request must be a fresh initial with params embedding the chunk time_range.
-        first_call = mock_get.call_args_list[0]
+        first_call = mock_get.return_value.get.call_args_list[0]
         assert first_call.args[0] == self.URL
         sent_params = first_call.kwargs["params"]
         assert sent_params["access_token"] == "tok"
@@ -373,7 +388,10 @@ class TestTimeRangePagination:
             _mock_response(200, {"data": [{"ad_id": "x"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses):
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as _mock_session_factory:
+            _mock_session_factory.return_value.get.side_effect = responses
             batches = list(
                 _iter_time_range_pagination(
                     self.URL,
@@ -401,7 +419,8 @@ class TestTimeRangePagination:
             _mock_response(200, {"data": [{"ad_id": "5"}], "paging": {}}),
         ]
 
-        with mock.patch("requests.get", side_effect=responses) as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
             batches = list(
                 _iter_time_range_pagination(
                     self.URL, self.PARAMS, {"since": "2026-03-01", "until": "2026-03-30"}, None, manager
@@ -414,7 +433,7 @@ class TestTimeRangePagination:
             saved: MetaAdsResumeConfig = call.args[0]
             assert saved.chunk_size_days == 7
         # The first successful request was for a 7-day chunk.
-        tr = json.loads(mock_get.call_args_list[1].kwargs["params"]["time_range"])
+        tr = json.loads(mock_get.return_value.get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
 
 

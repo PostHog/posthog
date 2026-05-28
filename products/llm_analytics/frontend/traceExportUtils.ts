@@ -1,10 +1,11 @@
+import { downloadFile, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
 import { CompatMessage } from './types'
-import { formatLLMEventTitle, normalizeMessages } from './utils'
+import { formatLLMEventTitle, normalizeMessages, readAiOutput } from './utils'
 
 interface EventMetrics {
     latency?: number
@@ -67,10 +68,7 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
     if (isGeneration) {
         // For generations, normalize messages without tools
         const inputMessages: CompatMessage[] = normalizeMessages(event.properties.$ai_input, 'user')
-        const outputMessages: CompatMessage[] = normalizeMessages(
-            event.properties.$ai_output_choices ?? event.properties.$ai_output,
-            'assistant'
-        )
+        const outputMessages: CompatMessage[] = normalizeMessages(readAiOutput(event.properties), 'assistant')
 
         const messages: CompatMessage[] = []
         if (inputMessages.length > 0) {
@@ -158,9 +156,16 @@ export function buildMinimalTraceJSON(trace: LLMTrace, tree: EnrichedTraceTreeNo
     return result
 }
 
-export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): Promise<void> {
-    const exportData = buildMinimalTraceJSON(trace, tree)
-    const jsonString = JSON.stringify(exportData, null, 2)
+function buildTraceJSONString(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): string {
+    return JSON.stringify(buildMinimalTraceJSON(trace, tree), null, 2)
+}
 
-    await copyToClipboard(jsonString, 'trace data')
+export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): Promise<void> {
+    await copyToClipboard(buildTraceJSONString(trace, tree), 'trace data')
+}
+
+export function exportTraceToFile(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): void {
+    const filename = `${slugify(trace.id || 'trace')}.trace.json`
+    const file = new File([buildTraceJSONString(trace, tree)], filename, { type: 'application/json' })
+    downloadFile(file)
 }

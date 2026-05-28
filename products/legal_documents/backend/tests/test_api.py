@@ -92,6 +92,15 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("company_address", response.json()["attr"])
 
+    def test_create_msa_is_rejected_from_public_api(self) -> None:
+        # MSAs only exist via Django admin upload — the public serializer's
+        # ChoiceField does not list MSA, so a POST should 400 on document_type.
+        payload = {**DPA_PAYLOAD, "document_type": "MSA"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("document_type", response.json()["attr"])
+        self.assertFalse(LegalDocument.objects.exists())
+
     def test_list_is_scoped_to_current_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
         LegalDocument.objects.create(
@@ -306,6 +315,20 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_staff_user_without_membership_can_download(self) -> None:
+        # PostHog staff need to fetch signed PDFs from the Django admin without
+        # joining the customer's org first. Drop the membership entirely and
+        # flip is_staff — the request should still 302 to the presigned URL.
+        self.organization_membership.delete()
+        self.user.is_staff = True
+        self.user.save()
+        with patch(
+            "products.legal_documents.backend.logic.object_storage.get_presigned_url",
+            return_value="https://s3.example/signed-url?token=abc",
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
 
 @override_settings(CLOUD_DEPLOYMENT="US")
 class TestLegalDocumentPandaDocWebhook(APIBaseTest):
@@ -453,20 +476,18 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
-    def test_draft_event_dispatches_send_and_fires_slack(self) -> None:
+    def test_draft_event_dispatches_send(self) -> None:
         body = json.dumps(self._draft_payload()).encode("utf-8")
         with (
             self._override(),
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
-        slack_mock.assert_called_once()
 
-    def test_draft_event_skips_slack_if_pandadoc_send_fails(self) -> None:
+    def test_draft_event_swallows_pandadoc_send_failure(self) -> None:
         from products.legal_documents.backend.logic import pandadoc as pandadoc_client
 
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -476,12 +497,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document",
                 side_effect=pandadoc_client.PandaDocError("boom"),
             ),
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        # Endpoint still 2xx (we don't want PandaDoc to retry) but Slack is skipped.
+        # Endpoint still 2xx — we don't want PandaDoc to retry.
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        slack_mock.assert_not_called()
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
@@ -491,12 +510,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with (
             self._override(),
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         send_mock.assert_not_called()
-        slack_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
         # Completed event with BAA template id for what's actually a DPA row in the DB
@@ -534,8 +551,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
 
-        # Replay: must not re-stream the PDF, re-upload, or re-fire Slack /
-        # analytics. PandaDoc retries / cross-instance fan-out both land here.
+        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
+        # PandaDoc retries / cross-instance fan-out both land here.
         replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
@@ -543,22 +560,113 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
             ) as stream_spy,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
-            patch("products.legal_documents.backend.logic.notify_slack_on_signed") as slack_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
-        slack_spy.assert_not_called()
         event_spy.assert_not_called()
+
+    def _swap_to_baa_document(self) -> None:
+        """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""
+        self.document.document_type = "BAA"
+        self.document.save(update_fields=["document_type"])
+
+    @contextmanager
+    def _fake_pdf_pipeline(self):
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
+            yield
+
+    def test_signed_baa_opts_organization_out_of_ai_data_processing(self) -> None:
+        self._swap_to_baa_document()
+        # New orgs default to True now — explicitly set so this isn't accidentally testing the default.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_dpa_does_not_change_ai_flag(self) -> None:
+        # Default fixture is a DPA, so don't swap.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_baa_emails_org_owners(self) -> None:
+        self._swap_to_baa_document()
+        # Promote the test user to OWNER so the email path has a recipient.
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.OWNER
+        membership.save(update_fields=["level"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_called_once()
+        kwargs = email_cls.call_args.kwargs
+        self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
+        self.assertTrue(kwargs["use_http"])
+        self.assertEqual(kwargs["template_context"]["organization_name"], self.organization.name)
+        self.assertIn("organization-ai-consent", kwargs["template_context"]["ai_settings_url"])
+        instance = email_cls.return_value
+        instance.add_user_recipient.assert_called_once_with(self.user)
+        instance.send.assert_called_once_with(send_async=True)
+
+    def test_signed_baa_skips_email_when_no_owner(self) -> None:
+        self._swap_to_baa_document()
+        # Default APIBaseTest membership is MEMBER, not OWNER — so no recipients.
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_not_called()
+        self.organization.refresh_from_db()
+        # Opt-out still happens even when there are no owners to notify.
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
 
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
 class TestLegalDocumentsSelfHostedGate(APIBaseTest):
     """
-    Self-hosted instances must never hit the PandaDoc / Slack integrations. The
-    API should 404 regardless of auth, and the PandaDoc webhook should 404 even
+    Self-hosted instances must never hit the PandaDoc integration. The API
+    should 404 regardless of auth, and the PandaDoc webhook should 404 even
     with a valid signature.
     """
 

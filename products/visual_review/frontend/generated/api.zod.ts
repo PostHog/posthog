@@ -33,9 +33,46 @@ export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
 export const visualReviewReposQuarantineCreateBodyReasonMax = 255
 
 export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
-    identifier: zod.string().max(visualReviewReposQuarantineCreateBodyIdentifierMax),
-    reason: zod.string().max(visualReviewReposQuarantineCreateBodyReasonMax),
-    expires_at: zod.iso.datetime({}).nullish(),
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    source_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
+})
+
+/**
+ * Expire all active quarantine entries for an identifier.
+ */
+export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
+
+export const visualReviewReposQuarantineExpireCreateBodyReasonMax = 255
+
+export const VisualReviewReposQuarantineExpireCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    source_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
@@ -85,58 +122,46 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
 With approve_all=true, approves all changed+new snapshots and returns
 signed baseline YAML. With specific snapshots, approves only those.
  */
+export const visualReviewRunsApproveCreateBodyApproveAllDefault = false
+export const visualReviewRunsApproveCreateBodyCommitToGithubDefault = true
+
 export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     snapshots: zod
         .array(
             zod.object({
-                identifier: zod.string(),
-                new_hash: zod.string(),
+                identifier: zod
+                    .string()
+                    .describe('The snapshot identifier to approve (e.g. Storybook story id plus theme).'),
+                new_hash: zod
+                    .string()
+                    .describe('The content hash of the new baseline image to record for this identifier.'),
             })
         )
-        .optional(),
-    approve_all: zod.boolean().optional(),
-    commit_to_github: zod.boolean().optional(),
-})
-
-/**
- * Complete a run: detect removals, verify uploads, trigger diff processing.
- */
-export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
-    approved_by: zod
-        .object({
-            id: zod.number(),
-            first_name: zod.string(),
-            email: zod.string(),
-        })
-        .nullish(),
-    id: zod.uuid(),
-    repo_id: zod.uuid(),
-    status: zod.string(),
-    run_type: zod.string(),
-    commit_sha: zod.string(),
-    branch: zod.string(),
-    pr_number: zod.number().nullable(),
-    approved: zod.boolean(),
-    approved_at: zod.iso.datetime({}).nullable(),
-    summary: zod.object({
-        total: zod.number(),
-        changed: zod.number(),
-        new: zod.number(),
-        removed: zod.number(),
-        unchanged: zod.number(),
-        tolerated_matched: zod.number().optional(),
-    }),
-    error_message: zod.string().nullable(),
-    created_at: zod.iso.datetime({}),
-    completed_at: zod.iso.datetime({}).nullable(),
-    is_stale: zod.boolean().optional(),
-    superseded_by_id: zod.uuid().nullish(),
-    metadata: zod.record(zod.string(), zod.unknown()).optional(),
+        .optional()
+        .describe(
+            'Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true.'
+        ),
+    approve_all: zod
+        .boolean()
+        .default(visualReviewRunsApproveCreateBodyApproveAllDefault)
+        .describe(
+            'Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other.'
+        ),
+    commit_to_github: zod
+        .boolean()
+        .default(visualReviewRunsApproveCreateBodyCommitToGithubDefault)
+        .describe(
+            'Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit.'
+        ),
 })
 
 /**
  * Mark a changed snapshot as a known tolerated alternate.
  */
 export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
-    snapshot_id: zod.uuid(),
+    snapshot_id: zod
+        .uuid()
+        .describe(
+            'UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes.'
+        ),
 })

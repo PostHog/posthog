@@ -4,6 +4,7 @@ from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
 
+from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
@@ -19,9 +20,10 @@ from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.entity import MathType
-from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+
+from products.feature_flags.backend.types import PropertyFilterType
 
 # Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
 # therefore cannot be derived from any model field.  We pre-supply their
@@ -32,6 +34,40 @@ _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
     "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
 }
+
+
+# Canonical parameter component definitions for the highest-frequency path params. drf-spectacular
+# inlines these into every operation that uses them — ``project_id`` alone shows up ~1100 times in
+# the spec, with byte-identical schema and description each time. Hoisting them into
+# ``components.parameters`` and ``$ref``-ing them eliminates the repetition (smaller spec, single
+# source of truth, kills vacuum's ``description-duplication`` for these names) without changing
+# what downstream codegen produces.
+_SHARED_PATH_PARAMS: dict[str, dict[str, Any]] = {
+    "ProjectIdPath": {
+        "in": "path",
+        "name": "project_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/.",
+    },
+    "EnvironmentIdPath": {
+        "in": "path",
+        "name": "environment_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Deprecated. Use /api/projects/{project_id}/ instead.",
+    },
+    "OrganizationIdPath": {
+        "in": "path",
+        "name": "organization_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/.",
+    },
+}
+
+# Reverse lookup keyed by the inlined parameter name.
+_SHARED_PATH_PARAM_REFS: dict[str, str] = {p["name"]: name for name, p in _SHARED_PATH_PARAMS.items()}
 
 
 class _FallbackSerializer(serializers.Serializer):
@@ -638,6 +674,9 @@ _PROJECTS_PREFIX_RE = re.compile(r"^/api/projects/\{parent_lookup_\w+\}/")
 _ENVIRONMENTS_PREFIX_RE = re.compile(r"^/api/environments/\{parent_lookup_\w+\}/")
 _ORG_PREFIX_RE = re.compile(r"^/api/organizations/\{parent_lookup_\w+\}/")
 
+_OPERATION_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
+
 # Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
 _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
 _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
@@ -736,54 +775,121 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     return result
 
 
+def _strip_null_from_path_param(param: dict) -> dict:
+    """Path parameters can never be ``null`` — they're URL segments. drf-spectacular
+    propagates the underlying model field's ``null=True`` into the parameter schema,
+    which in 3.1 surfaces as ``type: ["X", "null"]`` and makes generated TS clients
+    accept ``null`` for required path IDs (e.g. ``insightId: number | null``).  Strip
+    the null branch from any path-param schema so callers can't pass ``null`` and
+    build URLs like ``/insights/null/sharing/``.
+    """
+    schema = param.get("schema")
+    if not isinstance(schema, dict):
+        return param
+
+    # Common case: type-array form ``type: ["integer", "null"]`` → ``type: "integer"``
+    schema_type = schema.get("type")
+    if isinstance(schema_type, list) and "null" in schema_type:
+        non_null = [t for t in schema_type if t != "null"]
+        new_schema = dict(schema)
+        new_schema["type"] = non_null[0] if len(non_null) == 1 else non_null
+        return {**param, "schema": new_schema}
+
+    # ``anyOf`` form: drop the null branch.
+    if isinstance(schema.get("anyOf"), list):
+        non_null = [s for s in schema["anyOf"] if not (isinstance(s, dict) and s.get("type") == "null")]
+        if len(non_null) != len(schema["anyOf"]):
+            new_schema = dict(schema)
+            if len(non_null) == 1:
+                # Single non-null branch — inline it, dropping the combinator.
+                new_schema.pop("anyOf")
+                new_schema.update(non_null[0])
+            else:
+                new_schema["anyOf"] = non_null
+            return {**param, "schema": new_schema}
+
+    return param
+
+
 def _fix_pydantic_schema_for_openapi(schema):
     """
-    Recursively convert Pydantic v2 JSON Schema to OpenAPI 3.0 compatible schema.
+    Recursively clean up Pydantic v2 JSON Schema for OpenAPI 3.1.
 
-    Pydantic v2 generates valid JSON Schema but not valid OpenAPI 3.0:
-    - anyOf with {"type": "null"} -> nullable: true
-    - const: "value" -> enum: ["value"]
+    Pydantic v2 generates JSON Schema 2020-12, which is the base dialect for OpenAPI 3.1, so
+    most constructs (``anyOf`` with ``{"type": "null"}``, ``const``, ``$ref`` siblings) are
+    already valid and need no transformation. This function only handles the remaining edge
+    cases:
+
+    - ``additionalProperties: {}`` → ``true`` — an empty object schema means "any type" but
+      trips vacuum's ``oas-missing-type`` rule since the inner object lacks a ``type`` key.
+      Boolean ``true`` is the spec-blessed equivalent.
+    - Collapses ``oneOf: [{}, {"type": "null"}]`` (and the ``anyOf`` variant) to just ``{}``
+      — drf-spectacular's ``append_meta`` emits this for bare-nullable JSONFields in 3.1 mode
+      (the equivalent of 3.0's ``nullable: true`` on a typeless schema). Empty ``{}`` already
+      matches any value including ``null`` in JSON Schema, so the combinator is redundant —
+      and Orval translates the verbose form to ``zod.union([zod.unknown(), zod.null()])``
+      instead of the cleaner ``zod.unknown()``.
+    - Strips vestigial numeric bounds (``minimum``/``maximum`` etc.) from schemas whose only
+      content is ref-only combinators — drf-spectacular emits these for ``IntegerChoices``
+      fields and nullable enums; the ref'd components already encode the allowed values so the
+      bounds are redundant and vacuum flags them.
+    - Collapses ``{"allOf": [{"$ref": "..."}]}`` to just the ``$ref`` — drf-spectacular's
+      ``safe_ref()`` wraps refs in single-entry ``allOf`` for safety; once siblings are
+      stripped the wrapping is unnecessary and vacuum's ``no-unnecessary-combinator`` flags it.
+    - Converts any leftover ``"nullable": true`` to the 3.1 idiom. drf-spectacular runs this
+      transform itself (in ``append_meta``) for schemas it builds from DRF fields, but it
+      doesn't re-process schemas that come from external sources — DRF's
+      ``get_paginated_response_schema()`` hard-codes ``nullable: true`` on its
+      ``next``/``previous`` URLs, and hand-written ``@extend_schema_field`` annotations using
+      the old 3.0 spelling slip through the same gap.  We normalise both here so vacuum's
+      ``oas3-schema`` rule stops firing on the 3.1 spec.
     """
     if not isinstance(schema, dict):
         return schema
 
     schema = dict(schema)
 
-    # Handle anyOf with null type (Pydantic's Optional fields)
-    if "anyOf" in schema:
-        any_of = schema["anyOf"]
-        non_null_schemas = [s for s in any_of if not (isinstance(s, dict) and s.get("type") == "null")]
-        has_null = any(isinstance(s, dict) and s.get("type") == "null" for s in any_of)
+    # Collapse the bare-nullable-any pattern drf-spectacular emits for nullable JSONFields:
+    # {"oneOf": [{}, {"type": "null"}]} → {}.  Must run before the recursive walks below so
+    # the cleanup also catches nested occurrences.
+    for combinator in ("oneOf", "anyOf"):
+        entries = schema.get(combinator)
+        if entries == [{}, {"type": "null"}] or entries == [{"type": "null"}, {}]:
+            schema.pop(combinator)
 
-        if has_null and non_null_schemas:
-            del schema["anyOf"]
-            if len(non_null_schemas) == 1:
-                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
-                schema["nullable"] = True
-            else:
-                schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
-                schema["nullable"] = True
-        elif non_null_schemas:
-            if len(non_null_schemas) == 1:
-                del schema["anyOf"]
-                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
-            else:
-                schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
-        else:  # all schemas in anyOf are null types
-            schema.clear()
-            schema.update({"type": "null", "nullable": True})
-
-    # Literals should be enums in OpenAPI 3.0
-    if "const" in schema:
-        const_value = schema.pop("const")
-        schema["enum"] = [const_value]
+    # Normalise leftover ``"nullable": true`` to OpenAPI 3.1 form. Mirrors the conversion
+    # drf-spectacular's ``append_meta`` performs for its own output; needed here because
+    # DRF pagination and hand-written ``@extend_schema_field`` schemas bypass that path.
+    if schema.pop("nullable", None) is True:
+        if isinstance(schema.get("type"), str):
+            schema["type"] = [schema["type"], "null"]
+        elif isinstance(schema.get("type"), list):
+            if "null" not in schema["type"]:
+                schema["type"] = [*schema["type"], "null"]
+        elif "$ref" in schema:
+            ref = schema.pop("$ref")
+            schema["oneOf"] = [{"$ref": ref}, {"type": "null"}]
+        elif isinstance(schema.get("oneOf"), list):
+            if not any(isinstance(e, dict) and e.get("type") == "null" for e in schema["oneOf"]):
+                schema["oneOf"] = [*schema["oneOf"], {"type": "null"}]
+        elif isinstance(schema.get("anyOf"), list):
+            if not any(isinstance(e, dict) and e.get("type") == "null" for e in schema["anyOf"]):
+                schema["anyOf"] = [*schema["anyOf"], {"type": "null"}]
+        # Bare ``{"nullable": true}`` (no type, no combinator) means "any value or null", which
+        # an empty schema already expresses — nothing to add.
 
     # Recursively fix nested schemas
+    if "anyOf" in schema:
+        schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["anyOf"]]
+
     if "properties" in schema:
         schema["properties"] = {k: _fix_pydantic_schema_for_openapi(v) for k, v in schema["properties"].items()}
 
     if "additionalProperties" in schema and isinstance(schema["additionalProperties"], dict):
-        schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
+        if schema["additionalProperties"] == {}:
+            schema["additionalProperties"] = True
+        else:
+            schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
 
     if "items" in schema:
         if isinstance(schema["items"], dict):
@@ -797,7 +903,165 @@ def _fix_pydantic_schema_for_openapi(schema):
     if "oneOf" in schema:
         schema["oneOf"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["oneOf"]]
 
+    # Strip vestigial numeric bounds from ref-only combinator schemas (no ``type`` present).
+    # The ref'd components already encode the allowed values; bounds here are meaningless.
+    if "type" not in schema:
+        ref_only_combinators = [
+            schema[k]
+            for k in ("allOf", "oneOf", "anyOf")
+            if isinstance(schema.get(k), list) and all(isinstance(s, dict) and "$ref" in s for s in schema[k])
+        ]
+        if ref_only_combinators:
+            for vestigial in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+                schema.pop(vestigial, None)
+
+    # Collapse ``{"allOf": [{"$ref": "..."}]}`` to just the ``$ref``.
+    if (
+        list(schema.keys()) == ["allOf"]
+        and isinstance(schema["allOf"], list)
+        and len(schema["allOf"]) == 1
+        and isinstance(schema["allOf"][0], dict)
+    ):
+        return schema["allOf"][0]
+
     return schema
+
+
+def lint_spec_consistency_hook(result, generator, request, public):
+    """Postprocessing hook that emits drf-spectacular warnings for spec self-inconsistencies.
+
+    Runs as a regular postprocessing hook so the warnings flow through ``GENERATOR_STATS``
+    and are picked up by ``--fail-on-warn`` in CI. Catches the kind of bug where the spec
+    is internally syntactically valid but logically contradictory — e.g. a field declares
+    ``default="days"`` while its ``enum`` lists ``["DAY", ...]``. drf-spectacular itself
+    doesn't cross-validate these, and DRF doesn't either, so the inconsistency silently
+    propagates into the generated TypeScript / MCP definitions until something downstream
+    chokes on it.
+
+    Currently checks:
+
+    * ``default`` is a member of ``enum`` (when both are present, including across
+      ``$ref`` and ``allOf`` — the enum often lives in the referenced component).
+    * Every name in ``required`` is declared in ``properties`` — but only on flat
+      object schemas. Skipped when combinators (``allOf``/``oneOf``/``anyOf``) are
+      present, since composed schemas can satisfy ``required`` from a referenced
+      branch and a flat check would false-positive.
+    """
+
+    components_schemas = (result.get("components") or {}).get("schemas") or {}
+
+    def resolve_ref(ref: str) -> dict[str, Any] | None:
+        if not isinstance(ref, str) or not ref.startswith("#/components/schemas/"):
+            return None
+        return components_schemas.get(ref.replace("#/components/schemas/", ""))
+
+    def collect_enum(node: Any, seen: set[int] | None = None) -> list[Any] | None:
+        """Walk ``$ref`` and ``allOf`` branches looking for an ``enum``. Returns the first
+        enum found (refs and allOf branches in nested schemas almost always share the
+        same enum) or None. ``seen`` guards against cycles.
+        """
+        if not isinstance(node, dict):
+            return None
+        node_id = id(node)
+        if seen is None:
+            seen = set()
+        if node_id in seen:
+            return None
+        seen.add(node_id)
+        if isinstance(node.get("enum"), list):
+            return node["enum"]
+        if isinstance(node.get("$ref"), str):
+            target = resolve_ref(node["$ref"])
+            if target is not None:
+                found = collect_enum(target, seen)
+                if found is not None:
+                    return found
+        if isinstance(node.get("allOf"), list):
+            for branch in node["allOf"]:
+                found = collect_enum(branch, seen)
+                if found is not None:
+                    return found
+        return None
+
+    def emit(message: str, location: str) -> None:
+        spectacular_warn(f"spec consistency: {message} at {location}")
+
+    def is_effectively_nullable(node: dict[str, Any]) -> bool:
+        """``default: null`` is fine on a nullable schema even if ``null`` isn't in the enum.
+
+        In OpenAPI 3.1 a schema is nullable when it uses ``type: ["X", "null"]``,
+        ``oneOf/anyOf: [..., {"type": "null"}]``, or ``oneOf: [..., NullEnum]`` (the
+        component drf-spectacular emits for explicit null enum members). All three forms
+        should suppress the ``default`` membership check.
+        """
+        type_field = node.get("type")
+        if isinstance(type_field, list) and "null" in type_field:
+            return True
+        for combinator in ("oneOf", "anyOf"):
+            entries = node.get(combinator)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                ref = entry.get("$ref")
+                if isinstance(ref, str) and ref.endswith("NullEnum"):
+                    return True
+                if entry.get("type") == "null":
+                    return True
+        return False
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            if "default" in node:
+                # Look for enum locally, then through $ref/allOf — drf-spectacular's
+                # enum components sit behind a ref-or-allOf wrapper for nullable enums.
+                enum_values = collect_enum(node)
+                if enum_values is not None and node["default"] not in enum_values:
+                    if not (node["default"] is None and is_effectively_nullable(node)):
+                        emit(
+                            f"default={node['default']!r} is not a member of enum={enum_values!r}",
+                            path,
+                        )
+            if isinstance(node.get("required"), list) and isinstance(node.get("properties"), dict):
+                # Only check on flat object schemas. If the schema also uses allOf/oneOf/anyOf
+                # the required field may be satisfied by a referenced branch; a flat lookup
+                # would emit a false positive.
+                if not any(k in node for k in ("allOf", "oneOf", "anyOf")):
+                    missing = [r for r in node["required"] if r not in node["properties"]]
+                    if missing:
+                        emit(f"required field(s) {missing!r} not declared in properties", path)
+            for k, v in node.items():
+                walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{path}[{i}]")
+
+    walk(result, "$")
+
+    # operationId must be a valid identifier — drf-spectacular auto-derives it from the
+    # URL path, so segments like `@me` produce `..._@me_..._list` which (a) breaks the
+    # MCP YAML scaffolder, whose keys can't contain `@`, and (b) is rejected by any
+    # OpenAPI-typed-client codegen that maps it to a function name. The fix is to set
+    # `operation_id="..."` explicitly on `@extend_schema` — surface it here so CI catches
+    # it the same day it lands instead of breaking the MCP build downstream.
+    paths = result.get("paths") or {}
+    for url_path, methods in paths.items():
+        if not isinstance(methods, dict):
+            continue
+        for method, op in methods.items():
+            if method not in _HTTP_METHODS or not isinstance(op, dict):
+                continue
+            op_id = op.get("operationId")
+            if isinstance(op_id, str) and not _OPERATION_ID_RE.match(op_id):
+                spectacular_warn(
+                    f"spec consistency: operationId {op_id!r} contains non-identifier "
+                    f"characters (must match {_OPERATION_ID_RE.pattern}) at "
+                    f"{method.upper()} {url_path}. Set `operation_id=` explicitly on "
+                    f"`@extend_schema(...)` to override the URL-derived default."
+                )
+
+    return result
 
 
 def custom_postprocessing_hook(result, generator, request, public):
@@ -882,36 +1146,60 @@ def custom_postprocessing_hook(result, generator, request, public):
 
             if "parameters" in definition:
                 definition["parameters"] = [
-                    {
-                        "in": "path",
-                        "name": "project_id",
-                        "required": True,
-                        "schema": {"type": "string"},
-                        "description": "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/.",
-                    }
-                    if param["name"] == "project_id"
-                    else {
-                        "in": "path",
-                        "name": "environment_id",
-                        "required": True,
-                        "schema": {"type": "string"},
-                        "description": "Deprecated. Use /api/projects/{project_id}/ instead.",
-                    }
-                    if param["name"] == "environment_id"
+                    {"$ref": f"#/components/parameters/{_SHARED_PATH_PARAM_REFS[param['name']]}"}
+                    if param.get("name") in _SHARED_PATH_PARAM_REFS and param.get("in") == "path"
+                    else _strip_null_from_path_param(param)
+                    if param.get("in") == "path"
                     else param
                     for param in definition["parameters"]
                 ]
             paths[path][method] = definition
 
-    # Fix type schemas to be OpenAPI 3.0 compatible in a postprocessing hook
+    # Apply OpenAPI 3.1 schema cleanup to all component schemas.
     if "components" in result and "schemas" in result["components"]:
         result["components"]["schemas"] = {
             name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
         }
 
+    # Apply the same cleanup to parameter, requestBody, and response schemas at the operation
+    # level — single-entry allOf wrappers and vestigial bounds also surface there.  Today
+    # every response schema we emit is a ``$ref`` to a component, so the response walk is a
+    # defensive guarantee — if someone adds an inline response schema later it gets cleaned
+    # up proactively instead of failing the consistency lint downstream.
+    def _fix_media_types(content: Any) -> None:
+        if not isinstance(content, dict):
+            return
+        for media_type in content.values():
+            if isinstance(media_type, dict) and isinstance(media_type.get("schema"), dict):
+                media_type["schema"] = _fix_pydantic_schema_for_openapi(media_type["schema"])
+
+    for path_methods in paths.values():
+        for definition in path_methods.values():
+            for parameter in definition.get("parameters", []):
+                if isinstance(parameter, dict) and isinstance(parameter.get("schema"), dict):
+                    parameter["schema"] = _fix_pydantic_schema_for_openapi(parameter["schema"])
+            request_body = definition.get("requestBody")
+            if isinstance(request_body, dict):
+                _fix_media_types(request_body.get("content"))
+            for response in (definition.get("responses") or {}).values():
+                if isinstance(response, dict):
+                    _fix_media_types(response.get("content"))
+
+    # Emit a root-level ``tags`` array listing every tag any operation references. Vacuum's
+    # ``operation-tag-defined`` rule requires this — operations that use undeclared tags
+    # produce a finding per (operation, tag) pair (was 2962 findings for us).
+    sorted_tags = sorted(set(all_tags))
+
+    # Hoist shared path parameter definitions into ``components.parameters`` so the per-operation
+    # ``$ref``s emitted earlier resolve correctly.
+    components = dict(result.get("components") or {})
+    components["parameters"] = {**(components.get("parameters") or {}), **_SHARED_PATH_PARAMS}
+
     return {
         **result,
         "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
-        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(set(all_tags))}],
+        "components": components,
+        "tags": [{"name": tag} for tag in sorted_tags],
+        "x-tagGroups": [{"name": "All endpoints", "tags": sorted_tags}],
     }

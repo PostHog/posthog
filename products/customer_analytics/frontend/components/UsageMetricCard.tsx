@@ -1,7 +1,6 @@
 import { IconTrending } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { getColorVar } from 'lib/colors'
 import { Sparkline } from 'lib/components/Sparkline'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
@@ -9,8 +8,8 @@ import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, huma
 import { UsageMetric } from '~/queries/schema/schema-general'
 
 export type TrendInfo = {
-    icon: React.ComponentType<{ color?: string }>
-    color: string
+    icon: React.ComponentType<{ className?: string }>
+    colorClass: string
     tooltip: string | null
 }
 
@@ -21,20 +20,20 @@ export const getTrendFromPercentageChange = (changeFromPreviousPct: number | nul
     if (changeFromPreviousPct === 0) {
         return {
             icon: IconTrendingFlat,
-            color: getColorVar('muted'),
+            colorClass: 'text-muted',
             tooltip: 'unchanged',
         }
     }
     if (changeFromPreviousPct > 0) {
         return {
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: `increased by ${formatPercentage(Math.abs(changeFromPreviousPct))}`,
         }
     }
     return {
         icon: IconTrendingDown,
-        color: getColorVar('danger'),
+        colorClass: 'text-danger',
         tooltip: `decreased by ${formatPercentage(Math.abs(changeFromPreviousPct))}`,
     }
 }
@@ -53,19 +52,15 @@ const formatValue = (metric: UsageMetric): string => {
     return humanFriendlyLargeNumber(metric.value)
 }
 
-const TrendIndicator = ({ metric }: { metric: UsageMetric }): JSX.Element | null => {
-    const changePct = metric.change_from_previous_pct
-    if (changePct === null) {
-        return null
-    }
-    const trend = getTrendFromPercentageChange(changePct)
-    if (!trend) {
+const DeltaIndicator = ({ pct }: { pct: number | null }): JSX.Element | null => {
+    const trend = getTrendFromPercentageChange(pct)
+    if (pct === null || !trend) {
         return null
     }
     return (
-        <span className="inline-flex items-center gap-0.5" style={{ color: trend.color }}>
-            <trend.icon color={trend.color} />
-            {formatPercentage(changePct)}
+        <span className={`inline-flex items-center gap-1 text-xs font-semibold tabular-nums ${trend.colorClass}`}>
+            <trend.icon className="w-3.5 h-3.5" />
+            {formatPercentage(pct)}
         </span>
     )
 }
@@ -74,52 +69,34 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
     const trend = getTrendFromPercentageChange(metric.change_from_previous_pct)
     const tooltip = getMetricTooltip(metric, trend)
 
-    if (metric.display === 'sparkline' && metric.timeseries) {
-        return (
-            <Tooltip title={tooltip}>
-                <div>
-                    <LemonCard hoverEffect={false} className="p-4 flex flex-col flex-1 justify-between max-w-80 h-36">
-                        <div className="flex items-baseline gap-2 mb-1">
-                            <div className="text-sm font-semibold text-muted-alt truncate min-w-0">{metric.name}</div>
-                            <span className="text-xs text-muted ml-auto whitespace-nowrap shrink-0">
-                                Last {metric.interval} days
-                            </span>
-                        </div>
-                        <div className="flex-1 min-h-0">
+    return (
+        <Tooltip title={tooltip}>
+            <div>
+                <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-2 max-w-80 h-40">
+                    <div className="text-sm font-semibold text-primary truncate">{metric.name}</div>
+                    <div className="text-3xl font-bold text-primary tabular-nums tracking-tight leading-none truncate">
+                        {formatValue(metric)}
+                    </div>
+                    {metric.display === 'sparkline' && metric.timeseries && (
+                        <div className="h-10 min-h-0">
                             <Sparkline
                                 data={metric.timeseries}
                                 labels={metric.timeseries_labels}
                                 type="bar"
                                 maximumIndicator={false}
+                                color="muted"
                                 className="w-full h-full"
                                 withXScale={(x) => ({ ...x, display: false })}
+                                withYScale={(y) => ({ ...y, display: false })}
                             />
                         </div>
-                        <div className="flex items-center gap-2 text-sm">
-                            <span className="font-semibold">{formatValue(metric)}</span>
-                            <TrendIndicator metric={metric} />
-                        </div>
-                    </LemonCard>
-                </div>
-            </Tooltip>
-        )
-    }
-
-    return (
-        <Tooltip title={tooltip}>
-            <div>
-                <LemonCard hoverEffect={false} className="p-4 flex flex-col flex-1 justify-between max-w-80 h-36">
-                    <div>
-                        <div className="text-sm font-semibold text-muted-alt mb-1">{metric.name}</div>
-                        <div className="text-3xl font-bold text-primary my-2 truncate">{formatValue(metric)}</div>
-                    </div>
-                    {trend && metric?.change_from_previous_pct !== null && (
-                        <div style={{ color: trend.color }}>
-                            <trend.icon color={trend.color} />
-                            {formatPercentage(metric.change_from_previous_pct)}
-                        </div>
                     )}
-                    <div className="text-xs text-muted">Last {metric.interval} days</div>
+                    <div className="flex items-center justify-between mt-auto">
+                        <DeltaIndicator pct={metric.change_from_previous_pct} />
+                        <span className="text-xs text-muted whitespace-nowrap ml-auto">
+                            Last {metric.interval} days
+                        </span>
+                    </div>
                 </LemonCard>
             </div>
         </Tooltip>
@@ -130,7 +107,7 @@ export const UsageMetricCardSkeleton = (): JSX.Element => (
     <div className="@container">
         <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
             {[1, 2, 3].map((i) => (
-                <LemonCard key={i} className="p-4 h-36">
+                <LemonCard key={i} className="p-4 h-40">
                     <LemonSkeleton className="h-4 bg-border rounded w-24 mb-2" />
                     <LemonSkeleton className="h-8 bg-border rounded w-32 my-2" />
                     <LemonSkeleton className="h-3 bg-border rounded w-20" />

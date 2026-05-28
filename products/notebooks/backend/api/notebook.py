@@ -1,7 +1,7 @@
 import math
 import hashlib
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -11,7 +11,13 @@ from django.utils.timezone import now
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
@@ -35,13 +41,15 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend.collab import initialize_collab_session, submit_steps
+from products.notebooks.backend import collab
+from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.tasks.backend.services.sandbox import SandboxStatus
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
+from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
@@ -88,6 +96,21 @@ _NOTEBOOK_FIELD_HELP_TEXTS = {
     "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
 }
 
+_PARENT_RESOURCE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "description": (
+        "Parent resource this notebook is attached to, if any. Used by the notebook scene "
+        "to render context-aware breadcrumbs (e.g. account notebooks link back to the "
+        "Customer analytics accounts list)."
+    ),
+    "properties": {
+        "type": {"type": "string", "enum": ["account"]},
+        "id": {"type": "string", "format": "uuid"},
+    },
+    "required": ["type", "id"],
+}
+
 
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
@@ -113,6 +136,14 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    parent_resource = serializers.SerializerMethodField(
+        help_text=(
+            "Parent resource this notebook is attached to, or `null`. Returns "
+            "`{type: 'account', id: <uuid>}` for account-linked notebooks; used by the "
+            "frontend to route breadcrumbs back to the resource's list."
+        ),
+    )
+
     class Meta:
         model = Notebook
         fields = [
@@ -128,6 +159,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -138,6 +170,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
@@ -147,6 +180,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
+    def get_parent_resource(self, obj: Notebook) -> dict | None:
+        # Group parents are skipped: ResourceNotebook stores group PK but personhog has no get-by-pk RPC.
+        link = obj.resources.filter(account_id__isnull=False).only("account_id").first()
+        if link is None:
+            return None
+        return {"type": "account", "id": str(link.account_id)}
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
@@ -290,8 +331,14 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
         help_text="List of ProseMirror step JSON objects to apply.",
     )
     content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
-    text_content = serializers.CharField(required=False, default="", help_text="Plain text for search indexing.")
-    title = serializers.CharField(required=False, help_text="Updated notebook title.")
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
+    cursor_head = serializers.IntegerField(
+        required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
+    )
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -742,7 +789,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         notebook = self.get_object()
 
-        initialize_collab_session(notebook.team_id, str(notebook.short_id), notebook.version)
+        user = cast(User, request.user)
+        user_name = user.get_full_name() or "Wandering Hog"
 
         result = submit_steps(
             team_id=notebook.team_id,
@@ -750,10 +798,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             client_id=data["client_id"],
             steps_json=data["steps"],
             last_seen_version=data["version"],
+            last_saved_version=notebook.version,
+            user_id=user.pk,
+            user_name=user_name,
+            cursor_head=data.get("cursor_head"),
         )
 
-        if result.accepted:
-            content = data["content"]
+        content = data["content"]
+
+        if result.status == "accepted":
+            notebook_before = Notebook.objects.get(pk=notebook.pk)
             Notebook.objects.filter(pk=notebook.pk).update(
                 content=annotate_python_nodes(content) if isinstance(content, dict) else content,
                 text_content=data.get("text_content", ""),
@@ -763,14 +817,46 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 last_modified_by=request.user,
             )
             notebook.refresh_from_db()
-            return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
-        if result.steps_since is None:
-            return Response(
-                {"code": "conflict_stale", "detail": "Reload the notebook."},
-                status=410,
+            # Snapshot diffs into the activity logs for history
+            changes = changes_between("Notebook", previous=notebook_before, current=notebook)
+            log_notebook_activity(
+                activity="updated",
+                notebook=notebook,
+                organization_id=cast(UUIDT, user.current_organization_id),
+                team_id=notebook.team_id,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                changes=changes,
             )
 
+            return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
+
+        # Snapshot the rejected save attempt so user has a recovery path
+        log_notebook_activity(
+            activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
+            notebook=notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="Notebook",
+                    field="content",
+                    action="changed",
+                    before=notebook.content,
+                    after=content,
+                ),
+            ],
+        )
+
+        if result.status == "stale":
+            # Stream was trimmed (MAXLEN/TTL).
+            return Response({"code": "conflict_stale"}, status=410)
+
+        # Carries the missed steps so the client can reconcile without depending on SSE
+        assert result.steps_since is not None  # status == "conflict" guarantees this
         return Response(
             {
                 "code": "conflict",
@@ -780,6 +866,34 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             },
             status=409,
         )
+
+    @action(
+        methods=["GET"],
+        url_path="collab/stream",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+        required_scopes=["notebook:read"],
+    )
+    def collab_stream(self, request: Request, **kwargs):
+        """SSE stream of accepted prosemirror-collab steps for this notebook."""
+        notebook = self.get_object()
+        team_id = notebook.team_id
+        notebook_id = str(notebook.short_id)
+        last_event_id = request.headers.get("Last-Event-ID")
+
+        # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
+        # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
+        response = StreamingHttpResponse(
+            streaming_content=(
+                collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                if SERVER_GATEWAY_INTERFACE == "ASGI"
+                else async_to_sync(lambda: collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id))
+            ),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):

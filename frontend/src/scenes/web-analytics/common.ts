@@ -1,5 +1,7 @@
 import { BreakPointFunction } from 'kea'
 
+import { LemonMenuItem } from '@posthog/lemon-ui'
+
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 
@@ -23,11 +25,15 @@ export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
+    colSpanClassName?:
+        | `md:col-span-${number}`
+        | 'md:col-span-full'
+        | `md:col-span-${number} 2xl:col-span-${number}`
+        | `md:col-span-${number} 2xl:col-span-full`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     rowSpanClassName?: `md:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `xxl:order-${number}`
+    orderWhenLargeClassName?: `2xl:order-${number}`
     className?: string
 }
 
@@ -90,6 +96,7 @@ export enum TileId {
     BOT_SOURCES = 'BOT_SOURCES',
     BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
     BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
+    BOT_CRAWLERS = 'BOT_CRAWLERS',
 }
 
 export enum ProductTab {
@@ -100,12 +107,10 @@ export enum ProductTab {
     MARKETING = 'marketing',
     HEALTH = 'health',
     LIVE = 'live',
-    BOT_ANALYTICS = 'bot-analytics',
+    BOT_ANALYTICS = 'bots',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
-
-export type BotTrafficFilter = 'regular' | 'bot' | 'all'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
@@ -174,6 +179,7 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.BOT_SOURCES]: 4,
     [TileId.BOT_AI_REFERRALS]: 5,
     [TileId.BOT_AI_ENGAGEMENT]: 6,
+    [TileId.BOT_CRAWLERS]: 7,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -245,6 +251,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.BOT_SOURCES]: 'Bot referrer domains',
     [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
     [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
+    [TileId.BOT_CRAWLERS]: 'Crawlers',
 }
 
 export interface BaseTile {
@@ -268,6 +275,7 @@ export interface QueryTile extends BaseTile {
     insightProps: InsightLogicProps
     canOpenModal?: boolean
     canOpenInsight?: boolean
+    extraMenuItems?: LemonMenuItem[]
 }
 
 export interface TabsTileTab {
@@ -281,6 +289,7 @@ export interface TabsTileTab {
     canOpenModal?: boolean
     canOpenInsight?: boolean
     docs?: Docs
+    extraMenuItems?: LemonMenuItem[]
 }
 
 export interface TabsTile extends BaseTile {
@@ -481,6 +490,9 @@ export const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
 export const INITIAL_DATE_FROM = '-7d' as string | null
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+
+/** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
+export const BOT_ANALYTICS_EVENTS = ['$pageview', '$screen', '$http_log']
 
 export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.WEB_ANALYTICS,

@@ -46,11 +46,11 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -60,12 +60,17 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
-def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
     metadata = context.direct_postgres_connection_metadata
     if metadata is None and context.database is not None:
         metadata = getattr(context.database, "_direct_connection_metadata", None)
 
-    if not isinstance(metadata, dict):
+    return metadata if isinstance(metadata, dict) else None
+
+
+def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
         return []
 
     available_functions = metadata.get("available_functions")
@@ -80,6 +85,18 @@ def get_available_functions(language: str, context: HogQLContext) -> list[str]:
         return sorted(set(ALL_EXPOSED_FUNCTION_NAMES) | set(get_connection_supported_functions(context)))
 
     return ALL_HOG_FUNCTIONS
+
+
+def get_direct_table_function_names(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
+        return []
+
+    available_table_functions = metadata.get("available_table_functions")
+    if not isinstance(available_table_functions, list):
+        return []
+
+    return sorted({name for name in available_table_functions if isinstance(name, str)})
 
 
 def append_function_suggestions(
@@ -225,8 +242,11 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
                         constant_field = constant_type_to_database_field(field.type, name)
                         new_fields[name] = constant_field
                         continue
-                    elif isinstance(field, ast.FieldType):
-                        underlying_field_name = field.name
+                    # `field` is already narrowed to FieldAliasType, so this elif is
+                    # provably dead — `FieldAliasType` and `FieldType` are sibling Type
+                    # subclasses. Kept as a defensive runtime guard; suppress for mypy.
+                    elif isinstance(field, ast.FieldType):  # type: ignore[unreachable]
+                        underlying_field_name = field.name  # type: ignore[unreachable]
                     else:
                         underlying_field_name = name
                 elif isinstance(field, ast.FieldType):
@@ -725,6 +745,15 @@ def get_hogql_autocomplete(
                             kind=AutocompleteCompletionItemKind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
+                        table_function_names = get_direct_table_function_names(context)
+                        if table_function_names:
+                            extend_responses(
+                                keys=table_function_names,
+                                suggestions=response.suggestions,
+                                kind=AutocompleteCompletionItemKind.FUNCTION,
+                                insert_text=lambda key: f"{key}()",
+                                details=["Table function"] * len(table_function_names),
+                            )
                     elif node.chain[0] in posthog_table_names:
                         pass
                     else:

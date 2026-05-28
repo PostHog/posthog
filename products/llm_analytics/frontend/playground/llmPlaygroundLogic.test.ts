@@ -1,12 +1,15 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic } from './llmPlaygroundRunLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
@@ -601,6 +604,60 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.updateMessage(10, { content: 'Should not update' })
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
+        })
+
+        it('should append a result as an assistant message and start the next user turn', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Hello' }])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Hi there!')
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+                { role: 'user', content: '' },
+            ])
+        })
+
+        it('should append a result to the targeted prompt without changing other prompt columns', () => {
+            llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+                createPromptConfig({
+                    id: 'prompt-one',
+                    messages: [{ role: 'user', content: 'First prompt' }],
+                }),
+                createPromptConfig({
+                    id: 'prompt-two',
+                    messages: [{ role: 'user', content: 'Second prompt' }],
+                }),
+            ])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', 'prompt-two')
+
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toMatchObject([
+                {
+                    id: 'prompt-one',
+                    messages: [{ role: 'user', content: 'First prompt' }],
+                },
+                {
+                    id: 'prompt-two',
+                    messages: [
+                        { role: 'user', content: 'Second prompt' },
+                        { role: 'assistant', content: 'Second response' },
+                        { role: 'user', content: '' },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            ['empty string', ''],
+            ['whitespace only', '   \n  '],
+        ])('should ignore %s responses so the action cannot add blank assistant turns', (_, response) => {
+            const original = [{ role: 'user' as const, content: 'Hello' }]
+            llmPlaygroundPromptsLogic.actions.setMessages(original)
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation(response)
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(original)
         })
     })
 
@@ -1270,6 +1327,59 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.model).toBe('claude-3-opus')
         })
+
+        it('should populate playground from Gemini OTel parts-shaped input', () => {
+            // Matches what opentelemetry-instrumentation-google-generativeai emits in gen_ai.input.messages.
+            const input = [
+                { role: 'user', parts: [{ type: 'text', content: 'What is the capital of France?' }] },
+                { role: 'model', parts: [{ type: 'text', content: 'The capital of France is Paris.' }] },
+                { role: 'user', parts: [{ type: 'text', content: 'And of Spain?' }] },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'What is the capital of France?' },
+                { role: 'assistant', content: 'The capital of France is Paris.' },
+                { role: 'user', content: 'And of Spain?' },
+            ])
+        })
+
+        it('should populate system prompt + conversation from a Gemini OTel trace shape', () => {
+            // After Fix A (ingestion) prepends the system message synthesized from gen_ai.system_instructions,
+            // the playground sees a mix of standard `{role, content}` and OTel parts-shaped items.
+            const input = [
+                { role: 'system', content: 'You are a concise assistant.' },
+                { role: 'user', parts: [{ type: 'text', content: 'Tell me about Paris.' }] },
+                { role: 'model', parts: [{ type: 'text', content: 'Paris is the capital of France.' }] },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You are a concise assistant.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Tell me about Paris.' },
+                { role: 'assistant', content: 'Paris is the capital of France.' },
+            ])
+        })
+
+        it('should join multi-part text content for OTel parts messages', () => {
+            const input = [
+                {
+                    role: 'user',
+                    parts: [
+                        { type: 'text', content: 'First chunk.' },
+                        { type: 'text', content: 'Second chunk.' },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const message = llmPlaygroundPromptsLogic.values.messages[0]
+            expect(message.role).toBe('user')
+            expect(message.content).toBe('First chunk.\n\nSecond chunk.')
+        })
     })
 
     describe('Multi-prompt state management', () => {
@@ -1588,6 +1698,81 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             expect(llmPlaygroundPromptsLogic.values.sourceSetupLoading).toBe(false)
+        })
+
+        it('syncs source param via replace, not push (regression for pageview loop)', async () => {
+            // Previously `finishSourceSetup` used `router.actions.push`, which adds a history
+            // entry and fires a `$pageview` on every setup. If `urlToAction` re-entered the
+            // setup path (e.g. because multiple keyed logic instances were mounted), each
+            // iteration pushed another history entry, producing thousands of pageviews per
+            // minute on the AI observability playground. Switching to `replace` keeps history
+            // bounded so a single missed dedup cannot snowball.
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-1',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate.' },
+                    },
+                },
+            })
+
+            const initialHistoryLength = window.history.length
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-1',
+            })
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-1')
+            expect(window.history.length).toBe(initialHistoryLength)
+        })
+
+        it('urlToAction skips setup for non-active-tab instances (regression for default-instance fall-through)', async () => {
+            // Before the fix, the guard `if (props.tabId && ...)` short-circuited to false
+            // when `props.tabId` was undefined, so the unkeyed `'default'` instance also
+            // ran URL-driven setup alongside the active tab. Multiple instances each
+            // dispatching `setupPlaygroundFromEvent` + `finishSourceSetup` writing back
+            // to the URL is what turned a missed dedup into a runaway pageview loop.
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-2',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate.' },
+                    },
+                },
+            })
+
+            const findMountedSpy = jest.spyOn(sceneLogic, 'findMounted').mockReturnValue({
+                values: { activeTabId: 'tab-A', tabs: [] },
+            } as any)
+
+            const activeInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-A' })
+            activeInstance.mount()
+            const inactiveInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-B' })
+            inactiveInstance.mount()
+
+            try {
+                router.actions.push(`${urls.llmAnalyticsPlayground()}?source_evaluation_id=eval-2&_=${Date.now()}`)
+                await expectLogic(activeInstance).toFinishAllListeners()
+                await expectLogic(inactiveInstance).toFinishAllListeners()
+                await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+                expect(activeInstance.values.linkedSource).toMatchObject({
+                    type: 'evaluation',
+                    evaluationId: 'eval-2',
+                })
+                expect(inactiveInstance.values.linkedSource.type).toBeNull()
+                expect(llmPlaygroundPromptsLogic.values.linkedSource.type).toBeNull()
+            } finally {
+                activeInstance.unmount()
+                inactiveInstance.unmount()
+                findMountedSpy.mockRestore()
+            }
         })
     })
 

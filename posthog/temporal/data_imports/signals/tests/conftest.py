@@ -19,6 +19,11 @@ MOCK_GITHUB_ISSUE_RECORD: dict = {
 }
 
 
+@pytest.fixture
+def github_issue_record() -> dict:
+    return {**MOCK_GITHUB_ISSUE_RECORD}
+
+
 MOCK_ZENDESK_TICKET_RECORD: dict = {
     "id": 42,
     "url": "https://testcorp.zendesk.com/api/v2/tickets/42.json",
@@ -61,6 +66,11 @@ MOCK_ZENDESK_TICKET_RECORD: dict = {
 }
 
 
+@pytest.fixture
+def zendesk_ticket_record() -> dict:
+    return {**MOCK_ZENDESK_TICKET_RECORD}
+
+
 MOCK_LINEAR_ISSUE_RECORD: dict = {
     "id": "abc-123-def",
     "identifier": "ENG-42",
@@ -87,13 +97,31 @@ MOCK_LINEAR_ISSUE_RECORD: dict = {
 
 
 @pytest.fixture
-def github_issue_record() -> dict:
-    return {**MOCK_GITHUB_ISSUE_RECORD}
+def linear_issue_record() -> dict:
+    return {**MOCK_LINEAR_ISSUE_RECORD}
+
+
+MOCK_PGANALYZE_ISSUE_RECORD: dict = {
+    "id": "issue_abc123",
+    "database_id": "db_xyz789",
+    "description": (
+        "Index 'users_email_idx' on table 'users' is unused over the last 14 days "
+        "(0 scans, 240KB storage). Consider dropping it to reduce write overhead."
+    ),
+    "severity": "warning",
+    "references": (
+        '[{"kind": "Index", "name": "users_email_idx", '
+        '"url": "https://app.pganalyze.com/servers/prod-1/databases/main/indexes/users_email_idx"}]'
+    ),
+    "server_human_id": "prod-1",
+    "server_name": "production-primary",
+    "synced_at": "2026-04-20T12:00:00+00:00",
+}
 
 
 @pytest.fixture
-def zendesk_ticket_record() -> dict:
-    return {**MOCK_ZENDESK_TICKET_RECORD}
+def pganalyze_issue_record() -> dict:
+    return {**MOCK_PGANALYZE_ISSUE_RECORD}
 
 
 MOCK_CONVERSATIONS_TICKET_RECORD: dict = {
@@ -117,11 +145,6 @@ MOCK_CONVERSATIONS_TICKET_RECORD: dict = {
         ),
     ],
 }
-
-
-@pytest.fixture
-def linear_issue_record() -> dict:
-    return {**MOCK_LINEAR_ISSUE_RECORD}
 
 
 @pytest.fixture
