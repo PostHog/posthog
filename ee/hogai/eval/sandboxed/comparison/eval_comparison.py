@@ -3,7 +3,7 @@
 Runs each task against all three arms, collects tokens / time / success, and writes
 a markdown + JSON report. Reuses the sandboxed eval fixtures for setup.
 
-    pytest ee/hogai/eval/sandboxed/comparison/run_comparison.py --mcp-mode tools -s
+    pytest ee/hogai/eval/sandboxed/comparison/eval_comparison.py --mcp-mode tools -s
 
 Output: ee/hogai/eval/sandboxed/comparison/out/comparison.{md,json}
 (override dir with COMPARISON_OUT, repetitions with COMPARISON_REPS).
@@ -158,9 +158,10 @@ async def _run_one(arm: Arm, task: ComparisonTask, rep: int, sandboxed_demo_data
     )
 
 
-async def test_cli_vs_mcp_comparison(sandboxed_demo_data, mcp_mode, pytestconfig):
+async def eval_cli_vs_mcp(sandboxed_demo_data, mcp_mode, pytestconfig):
     """Benchmark entry point. Not an assertion test — it writes a report and never fails
-    on scores (it's a measurement, not a gate)."""
+    on scores (it's a measurement, not a gate). Named ``eval_*`` so the eval pytest.ini
+    (python_files=eval_*.py, python_functions=eval_*) collects it."""
     # The autouse _apply_mcp_mode parametrizes this across modes; only run the benchmark
     # once. The per-arm loop sets the mode itself.
     if mcp_mode != "tools":
