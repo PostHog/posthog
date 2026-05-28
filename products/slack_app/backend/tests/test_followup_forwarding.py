@@ -181,6 +181,10 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["interaction_origin"] == "slack"
         assert task.latest_run.state["pr_authorship_mode"] == "bot"
 
+        # Mention-dispatch debug pointer persisted on the new run.
+        # No explicit envelope event_id → falls back to "<channel>:<ts>".
+        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:C123:1234.5678"
+
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
         assert call_kwargs["task_id"] == str(task.id)
@@ -193,6 +197,36 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_persists_explicit_event_id_in_workflow_id(self, mock_slack_cls, mock_execute_workflow):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event={"channel": "C123", "ts": "1234.5678", "user": "U_ALICE", "text": "<@BOT> hi"},
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+            slack_event_id="Ev01234567",
+        )
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "hi"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:Ev01234567"
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
@@ -543,6 +577,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("pending_user_message") == "do something"
         assert new_run.state.get("pending_user_message_ts") == "1234.5679"
         assert new_run.state.get("initial_prompt_override") == "do something"
+
+        # Resume path also annotates the new run with the mention-dispatch pointer.
+        assert new_run.state.get("slack_mention_workflow_id") == "posthog-code-mention-T_SLACK:C123:1234.5678"
 
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
