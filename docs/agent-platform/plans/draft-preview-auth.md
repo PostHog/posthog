@@ -2,11 +2,11 @@
 
 **Status:** draft. **Owner:** ben.
 
-> Confirmed PoC: today an `auth.mode: 'public'` draft is invokable
-> anonymously via `?revision_id=<uuid>` or the `<slug>-<prefix>`
-> form. A live revision can be locked down with `auth.mode: 'pat'`
-> and the draft still answers anyone who knows (or guesses) its
-> UUID prefix.
+> Confirmed PoC: an `auth.mode: 'public'` draft is invokable
+> anonymously via the `<slug>-<prefix>` form (path mode) or the
+> subdomain form (`<hex>.<slug>.agents.posthog.com`, prod). A live
+> revision can be locked down with `auth.mode: 'pat'` and the draft
+> still answers anyone who knows (or guesses) its UUID prefix.
 
 ## 1. Problem
 
@@ -48,12 +48,13 @@ secret never leaves the Django ↔ ingress server-server boundary.
    MCP / UI / teammate
           │
           │  POST  /api/projects/X/agent_applications/<app>/preview-proxy/run
+          │        ?revision_id=<draft-uuid>
           │  (authenticated as a Django user)
           ▼
         Django proxy
           │
           │  mints JWT{ aud, app, rev, exp=60s, sub=user-id }
-          │  POST  /agents/<slug>/run?revision_id=<uuid>
+          │  POST  /agents/<slug>-<rev-hex>/run
           │  x-agent-preview-token: <jwt>
           ▼
         Ingress  ─►  verify HS256 sig + aud + exp + app+rev claims  →  enqueue
@@ -89,8 +90,10 @@ Routes:
   invocation has its own public ingress URL; the proxy is
   draft-only by contract. Forces a hard separation between
   "production traffic" and "preview traffic" in metrics and logs.
-- Forward to `INGRESS_URL/agents/<slug>/<rest>?revision_id=<uuid>`,
-  attaching:
+- Forward to `INGRESS_URL/agents/<slug>-<rev-hex>/<rest>`, where
+  `<rev-hex>` is the full 32-char UUID hex (dashes stripped). Single
+  resolver code path on the ingress — no separate `?revision_id=`
+  query handling. Attaches:
   - `x-agent-preview-token: <jwt>` — short-lived HS256 token,
     `aud=posthog:agent_preview`, claims `{ app, rev, sub=user-id,
 exp=now+60s }`. The ingress verifies signature + claim-binding.
@@ -299,10 +302,10 @@ code; the `INTERNAL_SECRET` reuse means no new env wiring.
 
 **Composes with:**
 
-- [`revision-routing.md`](revision-routing.md) — the proxy still
-  resolves drafts via the same `?revision_id` mechanism. The
-  subdomain / suffix forms remain as the _public_ surface for live
-  agents; drafts move to the proxy URL.
+- [`revision-routing.md`](revision-routing.md) — the proxy hits the
+  ingress via the suffix form (`<slug>-<rev-hex>`), same code path
+  that resolves the production subdomain shape. Single resolver
+  branch for non-live invokes; the live path stays untouched.
 - [`per-session-access-elevation.md`](per-session-access-elevation.md)
   §8 — activity-log integration captures `preview_issuer`.
 - [`agent-authoring-flow.md`](agent-authoring-flow.md) — the

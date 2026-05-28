@@ -225,11 +225,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         ingress_base = os.environ.get("AGENT_INGRESS_URL", "http://localhost:3030").rstrip("/")
-        # Hand-build the query string so we forward the caller's existing
-        # params alongside the revision_id pin.
+        # Single URL contract for revision routing: `<slug>-<rev-hex>` in path
+        # mode (dev), `<rev-hex>.<slug>.<suffix>` in domain mode (prod). Django
+        # proxies via the path form using the full UUID hex (32 chars) so the
+        # ingress prefix lookup is unambiguous. See revision-routing.md.
+        rev_hex = revision.id.hex
         forwarded_query = {k: v for k, v in request.query_params.items() if k != "revision_id"}
-        forwarded_query["revision_id"] = str(revision.id)
-        upstream_url = f"{ingress_base}/agents/{application.slug}/{rest}?{urlencode(forwarded_query)}"
+        query_string = f"?{urlencode(forwarded_query)}" if forwarded_query else ""
+        upstream_url = f"{ingress_base}/agents/{application.slug}-{rev_hex}/{rest}{query_string}"
 
         # Header set kept tight — caller's Authorization / Cookie / Host
         # identify the *Django* caller, not the agent's caller. Don't leak.

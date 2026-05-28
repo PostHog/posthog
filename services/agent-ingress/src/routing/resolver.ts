@@ -1,9 +1,22 @@
 /**
- * Map an inbound request to an AgentApplication + its live revision.
+ * Map an inbound request to an AgentApplication + a revision.
  *
- * Two routing modes:
- *   - "domain": resolve by Host header (`<slug>.agents.posthog.com`)
- *   - "path"  : resolve by path prefix (`/agents/<slug>/...`)
+ * Live invokes never carry revision info; the resolver looks up the
+ * application's `live_revision_id`.
+ *
+ * Non-live ("preview") invokes carry the revision-id-hex as part of the URL
+ * (NOT as a query param or header — those were dropped in favor of a single
+ * URL-only contract):
+ *
+ *   - "domain" (prod): `<rev-hex-prefix>.<slug>.agents.posthog.com`
+ *     For example `019e6f25.weekly-digest.agents.posthog.com`.
+ *   - "path"   (dev) : `/agents/<slug>-<rev-hex-prefix>/...`
+ *     For example `/agents/weekly-digest-019e6f25/run`.
+ *
+ * The prefix can be 8–32 hex chars (no dashes). 32 = the full UUID with
+ * dashes stripped, which is what the Django preview-proxy uses for
+ * unambiguous addressing. 8 is the ergonomic short form for human-shared
+ * URLs.
  */
 
 import { jwtVerify } from 'jose'
@@ -78,24 +91,25 @@ export interface ResolverOpts {
 export class RevisionResolver {
     constructor(private readonly opts: ResolverOpts) {}
 
-    async resolveFromHostAndPath(host: string | undefined, path: string): Promise<ResolvedAgent | null> {
-        let slug: string | null = null
+    async resolveFromHostAndPath(
+        host: string | undefined,
+        path: string,
+        opts?: { providedToken?: string }
+    ): Promise<ResolvedAgent | null> {
+        let rawSlug: string | null = null
         if (this.opts.mode === 'domain' && host) {
-            slug = this.extractSlugFromHost(host)
+            rawSlug = this.extractSlugFromHost(host)
         } else if (this.opts.mode === 'path') {
-            slug = this.extractSlugFromPath(path)
+            rawSlug = this.extractSlugFromPath(path)
         }
-        if (!slug) {
+        if (!rawSlug) {
             return null
         }
-        return this.resolveBySlug(slug)
+        return this.resolveBySlug(rawSlug, opts)
     }
 
-    async resolveBySlug(
-        rawSlug: string,
-        opts?: { revisionId?: string; providedToken?: string }
-    ): Promise<ResolvedAgent | null> {
-        const resolved = await this.resolveBySlugInner(rawSlug, opts?.revisionId)
+    async resolveBySlug(rawSlug: string, opts?: { providedToken?: string }): Promise<ResolvedAgent | null> {
+        const resolved = await this.resolveBySlugInner(rawSlug)
         if (!resolved) {
             return null
         }
@@ -103,20 +117,15 @@ export class RevisionResolver {
         return resolved
     }
 
-    private async resolveBySlugInner(rawSlug: string, revisionId?: string): Promise<ResolvedAgent | null> {
-        // Explicit ?revision_id=<uuid> wins over everything. Look up the
-        // verbatim slug + verify ownership.
-        if (revisionId) {
-            const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, rawSlug)
-            if (!application || application.archived) {
-                return null
-            }
-            return this.resolveWithExplicitRevision(application, revisionId)
-        }
-
+    /**
+     * Single resolution path. If `rawSlug` carries a `<slug>-<hex>` suffix,
+     * the suffix selects a non-live revision via prefix-match; otherwise we
+     * resolve to `application.live_revision`.
+     */
+    private async resolveBySlugInner(rawSlug: string): Promise<ResolvedAgent | null> {
         // Try `<slug>-<8..32 hex>` first. The prefix must be ≥ 8 hex chars to
         // avoid colliding with normal slugs that contain trailing hex (the
-        // serializer already forbids trailing `-` so `slug-` followed by 8
+        // serializer already forbids trailing `-`, so `slug-` followed by ≥ 8
         // hex chars is unambiguous if `<slug>` resolves to an application).
         const suffixMatch = rawSlug.match(/^(.+)-([0-9a-f]{8,32})$/i)
         if (suffixMatch) {
@@ -149,17 +158,6 @@ export class RevisionResolver {
             return null
         }
         return { application, revision }
-    }
-
-    private async resolveWithExplicitRevision(
-        application: AgentApplication,
-        revisionId: string
-    ): Promise<ResolvedAgent | null> {
-        const override = await this.opts.revisions.getRevision(revisionId)
-        if (!override || override.application_id !== application.id || override.state === 'archived') {
-            return null
-        }
-        return { application, revision: override }
     }
 
     /**
@@ -200,11 +198,27 @@ export class RevisionResolver {
         }
     }
 
+    /**
+     * Returns the canonical "raw slug" form that `resolveBySlugInner` consumes.
+     *
+     * For a single-label host (`<slug>.agents.posthog.com`) → `<slug>`.
+     * For a two-label host (`<hex>.<slug>.agents.posthog.com`) → `<slug>-<hex>`
+     * so the suffix matcher inside `resolveBySlugInner` picks up the revision
+     * prefix. Production and dev share one resolution code path; only the
+     * extractor differs.
+     */
     extractSlugFromHost(host: string): string | null {
         const hostNoPort = host.split(':')[0]
         const suffix = this.opts.domainSuffix
-        if (suffix && hostNoPort.endsWith(suffix)) {
-            return hostNoPort.slice(0, -suffix.length) || null
+        if (!suffix || !hostNoPort.endsWith(suffix)) {
+            return null
+        }
+        const labels = hostNoPort.slice(0, -suffix.length).split('.').filter(Boolean)
+        if (labels.length === 1) {
+            return labels[0] || null
+        }
+        if (labels.length === 2 && /^[0-9a-f]{8,32}$/i.test(labels[0])) {
+            return `${labels[1]}-${labels[0]}`
         }
         return null
     }

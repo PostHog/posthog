@@ -23,13 +23,6 @@ export async function resolveAgent(
     req: Request,
     res: Response
 ): Promise<ResolvedAgent | null> {
-    // Optional override that lets authoring flows invoke a specific revision
-    // (draft / ready) instead of whatever's currently live. Accepted as either
-    // a query param (?revision_id=...) or a header (x-agent-revision: ...).
-    const revQuery = typeof req.query?.revision_id === 'string' ? req.query.revision_id : null
-    const revHeader = req.headers['x-agent-revision']
-    const revisionId = revQuery || (typeof revHeader === 'string' ? revHeader : null) || undefined
-
     // Short-lived JWT that Django mints per preview-proxy hop. The resolver
     // verifies it on non-live resolutions. Live calls don't need it. See
     // docs/agent-platform/plans/draft-preview-auth.md.
@@ -39,15 +32,14 @@ export async function resolveAgent(
     const slug = typeof req.params?.slug === 'string' ? req.params.slug : null
     try {
         if (slug) {
-            return await resolver.resolveBySlug(slug, { revisionId, providedToken })
+            // In path mode the express mount captured `:slug` — that's already
+            // the full `<slug>` or `<slug>-<rev-hex>` form. Resolver handles
+            // both shapes.
+            return await resolver.resolveBySlug(slug, { providedToken })
         }
-        if (revisionId) {
-            // Domain-mode + revision-override is ambiguous: there's no slug in the
-            // path so we can't bound the override to a single application. Refuse
-            // rather than silently picking the wrong agent.
-            return null
-        }
-        return await resolver.resolveFromHostAndPath(req.headers.host, req.originalUrl || req.url || req.path)
+        return await resolver.resolveFromHostAndPath(req.headers.host, req.originalUrl || req.url || req.path, {
+            providedToken,
+        })
     } catch (err) {
         if (err instanceof AmbiguousRevisionError) {
             res.status(400).json({
