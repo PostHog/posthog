@@ -4,6 +4,7 @@ import { capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
 import {
     Fragment,
+    type MutableRefObject,
     type ReactNode,
     type RefObject,
     createContext,
@@ -222,6 +223,7 @@ interface SearchContextValue {
     handleItemClick: (item: SearchItem) => void
     showAskAiLink: boolean
     onAskAiClick?: () => void
+    highlightedItemRef: MutableRefObject<SearchItem | null>
 }
 
 const SearchContext = createContext<SearchContextValue | null>(null)
@@ -411,6 +413,7 @@ function SearchRoot({
 
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
+    const highlightedItemRef = useRef<SearchItem | null>(null)
 
     const allItems = useMemo(() => {
         const items: SearchItem[] = []
@@ -597,6 +600,7 @@ function SearchRoot({
             handleItemClick,
             showAskAiLink,
             onAskAiClick,
+            highlightedItemRef,
         }),
         [
             logicKey,
@@ -643,7 +647,8 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick } = useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef, showAskAiLink, onAskAiClick } =
+        useSearchContext()
 
     const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -656,13 +661,21 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 
     const handleInputKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' && e.shiftKey) {
+                e.preventDefault()
+                e.stopPropagation()
+                const item = highlightedItemRef.current
+                if (item?.href) {
+                    window.open(item.href, '_blank', 'noopener,noreferrer')
+                }
+            }
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
                 e.preventDefault()
                 onAskAiClick?.()
                 router.actions.push(urls.ai(undefined, searchValue.trim()))
             }
         },
-        [showAskAiLink, searchValue, onAskAiClick]
+        [highlightedItemRef, showAskAiLink, searchValue, onAskAiClick]
     )
 
     useEffect(() => {
@@ -799,7 +812,7 @@ function SearchResults({
     listClassName?: string
     groupLabelClassName?: string
 }): JSX.Element {
-    const { groupedItems, handleItemClick, isSearching, searchValue } = useSearchContext()
+    const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -870,6 +883,13 @@ function SearchResults({
                                                                 handleItemClick(item)
                                                             }}
                                                             render={(props) => {
+                                                                const isHighlighted =
+                                                                    (props as Record<string, unknown>)[
+                                                                        'data-highlighted'
+                                                                    ] === ''
+                                                                if (isHighlighted) {
+                                                                    highlightedItemRef.current = item
+                                                                }
                                                                 return (
                                                                     <div className="px-2">
                                                                         <Link
@@ -978,6 +998,9 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     )}
                     <span>
                         <KeyboardShortcut enter /> to activate
+                    </span>
+                    <span>
+                        <KeyboardShortcut shift enter /> to open in new browser tab
                     </span>
                     {searchValue.trim() && (
                         <span>
