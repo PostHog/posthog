@@ -156,7 +156,7 @@ ALL_SCOPES: frozenset[str] = frozenset(
 # Filtered out of partner-facing self-serve registration (CIMD, DCR per
 # RFC 7591), so a partner cannot programmatically grant themselves
 # `llm_gateway:read`.
-PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read"})
+PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
 
 # String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
 # advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
@@ -235,15 +235,13 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Excludes scopes in `OAUTH_HIDDEN_SCOPE_OBJECTS` so OAuth-based clients
-    (MCP, third-party apps) don't discover scopes intended only for manually
-    issued personal API keys. PAT validation uses `get_scope_descriptions()`
-    directly and is unaffected.
+    Excludes `OAUTH_HIDDEN_SCOPES` so OAuth-based clients (MCP, third-party
+    apps) don't discover scopes intended only for manually issued personal
+    API keys. PAT validation uses `get_scope_descriptions()` directly and is
+    unaffected.
     """
-    visible = (
-        f"{obj}:{action}"
-        for obj in API_SCOPE_OBJECTS
-        if obj not in INTERNAL_API_SCOPE_OBJECTS and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
-        for action in API_SCOPE_ACTIONS
-    )
-    return list(OIDC_SCOPES) + list(visible)
+    visible = ALL_SCOPES - OAUTH_HIDDEN_SCOPES
+    ordered = [
+        f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
+    ]
+    return list(OIDC_SCOPES) + ordered

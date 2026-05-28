@@ -73,14 +73,20 @@ class TestScopeSets(BaseTest):
     def test_all_scopes_matches_scope_descriptions_keys(self) -> None:
         self.assertEqual(ALL_SCOPES, frozenset(get_scope_descriptions().keys()))
 
-    def test_all_scopes_contains_known_strings(self) -> None:
-        for scope in ("insight:read", "insight:write", "llm_gateway:read", "llm_gateway:write"):
-            self.assertIn(scope, ALL_SCOPES)
+    @parameterized.expand(
+        [
+            ("insight:read",),
+            ("insight:write",),
+            ("llm_gateway:read",),
+            ("llm_gateway:write",),
+        ]
+    )
+    def test_all_scopes_contains_known_string(self, scope: str) -> None:
+        self.assertIn(scope, ALL_SCOPES)
 
-    def test_all_scopes_excludes_internal(self) -> None:
-        for obj in INTERNAL_API_SCOPE_OBJECTS:
-            self.assertNotIn(f"{obj}:read", ALL_SCOPES)
-            self.assertNotIn(f"{obj}:write", ALL_SCOPES)
+    @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
+    def test_all_scopes_excludes_internal_scope(self, scope: str) -> None:
+        self.assertNotIn(scope, ALL_SCOPES)
 
     def test_privileged_scopes_subset_of_all_scopes(self) -> None:
         self.assertTrue(PRIVILEGED_SCOPES.issubset(ALL_SCOPES))
@@ -103,21 +109,20 @@ class TestScopeSets(BaseTest):
     def test_unprivileged_scopes_subset_of_all_scopes(self) -> None:
         self.assertTrue(UNPRIVILEGED_SCOPES.issubset(ALL_SCOPES))
 
-    def test_unprivileged_scopes_excludes_oidc(self) -> None:
+    @parameterized.expand([("openid",), ("profile",), ("email",)])
+    def test_unprivileged_scopes_excludes_oidc(self, oidc: str) -> None:
         # OIDC scopes are accepted at /authorize independently of application.scopes;
         # they are not part of the UNPRIVILEGED broad-default set.
-        for oidc in ("openid", "profile", "email"):
-            self.assertNotIn(oidc, UNPRIVILEGED_SCOPES)
+        self.assertNotIn(oidc, UNPRIVILEGED_SCOPES)
 
-    def test_unprivileged_scopes_excludes_internal(self) -> None:
-        for obj in INTERNAL_API_SCOPE_OBJECTS:
-            self.assertNotIn(f"{obj}:read", UNPRIVILEGED_SCOPES)
-            self.assertNotIn(f"{obj}:write", UNPRIVILEGED_SCOPES)
+    @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
+    def test_unprivileged_scopes_excludes_internal_scope(self, scope: str) -> None:
+        self.assertNotIn(scope, UNPRIVILEGED_SCOPES)
 
-    def test_unprivileged_scopes_covers_known_public_scopes(self) -> None:
-        # Spot-check: public scopes a generic OAuth client should be able to request.
-        for scope in ("insight:read", "dashboard:write", "query:read"):
-            self.assertIn(scope, UNPRIVILEGED_SCOPES)
+    @parameterized.expand([("insight:read",), ("dashboard:write",), ("query:read",)])
+    def test_unprivileged_scopes_covers_known_public_scope(self, scope: str) -> None:
+        # Spot-check: a generic OAuth client should be able to request these.
+        self.assertIn(scope, UNPRIVILEGED_SCOPES)
 
     def test_scopes_module_loadable_via_runpy_like_mcp_codegen(self) -> None:
         # MCP scope codegen at bin/build-mcp-oauth-scopes.py loads this module via
