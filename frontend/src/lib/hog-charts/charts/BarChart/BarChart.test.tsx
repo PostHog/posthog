@@ -340,6 +340,48 @@ describe('BarChart', () => {
             expect(tooltipEl?.textContent ?? '').toBe('')
         })
 
+        describe('sparse-stacked horizontal (overlap layout)', () => {
+            // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
+            // its own dataIndex, every label is the same band. Smallest bar paints on top, so
+            // its colour wins at x=0..20, then mid at 20..50, then big at 50..100.
+            const SPARSE_LABELS = ['band', 'band', 'band']
+            const SPARSE_SERIES: Series[] = [
+                // DESC, matching how `trendsDataLogic` sorts ActionsBarValue results.
+                { key: 'big', label: 'Big', data: [100, 0, 0] },
+                { key: 'mid', label: 'Mid', data: [0, 50, 0] },
+                { key: 'small', label: 'Small', data: [0, 0, 20] },
+            ]
+            const HORIZONTAL_STACKED: BarChartConfig = { barLayout: 'stacked', axisOrientation: 'horizontal' }
+            // Value scale `[0, 100]` (already nice).
+            const xForValue = (value: number): number => dimensions.plotLeft + (value / 100) * dimensions.plotWidth
+            const yMidBand = dimensions.plotTop + dimensions.plotHeight / 2
+
+            it.each<[string, number, string, number]>([
+                ['small slice (0 < x < 20)', 10, 'small', 20],
+                ['mid slice (20 < x < 50)', 30, 'mid', 50],
+                ['big slice (50 < x < 100)', 75, 'big', 100],
+            ])(
+                'tooltip narrows to the visible segment with its own value for cursor in the %s',
+                async (_name, valueAtCursor, key, expectedValue) => {
+                    const { chart } = renderHogChart(
+                        <BarChart
+                            series={SPARSE_SERIES}
+                            labels={SPARSE_LABELS}
+                            theme={THEME}
+                            config={HORIZONTAL_STACKED}
+                        />
+                    )
+                    fireEvent.mouseMove(chart.element, {
+                        clientX: xForValue(valueAtCursor),
+                        clientY: yMidBand,
+                    })
+                    const tooltip = await chart.waitForTooltip()
+                    expect(tooltip.seriesData[0].series.key).toBe(key)
+                    expect(tooltip.seriesData[0].value).toBe(expectedValue)
+                }
+            )
+        })
+
         it('grouped layout still narrows when the cursor is above every bar (value-axis miss)', async () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />

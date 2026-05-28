@@ -45,9 +45,9 @@ import { BarTooltip } from './BarTooltip'
 import {
     type BarLayout,
     type BarsAtCursorArgs,
-    barContainsPoint,
     barContainsPointOnBandAxis,
     cursorOutsideBarFillExtent,
+    findVisibleStackedSegment,
     iterBarsAtCursor,
     isStackedLayout,
     resolveBarsAtCursor,
@@ -132,12 +132,9 @@ function BarChartInner<Meta = unknown>({
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
-    // Horizontal charts crush their row labels into an unreadable strip once the band count
-    // grows past what the parent's height can fit. Force a minimum px-per-row so each row
-    // has space for its tick label plus a little breathing room; the wrapper grows and the
-    // outer scene scrolls instead of squashing.
-    // Reserve ~64px for top + bottom margins (axis labels, plot padding) — matches the
-    // DEFAULT_MARGINS + axis-title floor in useChartMargins.
+    // Force a minimum px-per-row so horizontal rows don't crush below their tick labels;
+    // the wrapper grows and the outer scene scrolls. Margin matches DEFAULT_MARGINS + axis
+    // title floor in useChartMargins.
     const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
     const HORIZONTAL_CHART_MARGIN_PX = 64
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
@@ -399,38 +396,89 @@ function BarChartInner<Meta = unknown>({
             type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
             const items: DrawItem[] = []
             let composition = ''
-            // Stacked/percent layouts: every segment in a band shares the same band-axis
-            // extent, so a band-axis-only hit-test picks every overlapping series at once and
-            // the last-drawn bar (the largest) ends up painting the highlight color over the
-            // whole row. Use full-rect containment so only the segment under the cursor is
-            // highlighted. Grouped keeps the band-axis check so cursor-above-bar still picks
-            // the correct sub-band.
+            // Stacked: clip the highlight to the visible slice so hover only changes shade,
+            // never z-order. Grouped keeps band-axis containment for cursor-above-bar.
             const stackedHighlight = isStackedLayout(barLayout)
-            for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
-                series: coloredSeries,
-                label: hoveredLabel,
-                dataIndex: hoverIndex,
-                scales: d3Scales,
-                layout: barLayout,
-                isHorizontal,
-                stackedData,
-                topStackedKeyByAxis,
-            })) {
-                if (hoverPosition) {
-                    const contained = stackedHighlight
-                        ? barContainsPoint(bar, hoverPosition)
-                        : barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)
-                    if (!contained) {
+            if (stackedHighlight && hoverPosition) {
+                const visible = findVisibleStackedSegment({
+                    series: coloredSeries,
+                    labels: drawLabels,
+                    hoveredLabel,
+                    cursor: hoverPosition,
+                    scales: d3Scales,
+                    layout: barLayout,
+                    isHorizontal,
+                    stackedData,
+                    topStackedKeyByAxis,
+                })
+                if (visible) {
+                    const visibleExtent = isHorizontal ? visible.bar.width : visible.bar.height
+                    // Largest extent strictly smaller than `visible` — its far edge is the
+                    // inner boundary of `visible`'s slice.
+                    let nextSmallerExtent = 0
+                    for (let i = 0; i < drawLabels.length; i++) {
+                        if (drawLabels[i] !== hoveredLabel || i === visible.dataIndex) {
+                            continue
+                        }
+                        for (const { bar } of iterBarsAtCursor<ResolvedSeries>({
+                            series: coloredSeries,
+                            label: drawLabels[i],
+                            dataIndex: i,
+                            scales: d3Scales,
+                            layout: barLayout,
+                            isHorizontal,
+                            stackedData,
+                            topStackedKeyByAxis,
+                        })) {
+                            const ext = isHorizontal ? bar.width : bar.height
+                            if (ext > 0 && ext < visibleExtent && ext > nextSmallerExtent) {
+                                nextSmallerExtent = ext
+                            }
+                        }
+                    }
+                    const baselinePx = isHorizontal ? visible.bar.x : visible.bar.y + visible.bar.height
+                    const clipped: BarRect = isHorizontal
+                        ? {
+                              x: baselinePx + nextSmallerExtent,
+                              y: visible.bar.y,
+                              width: Math.max(0, visibleExtent - nextSmallerExtent),
+                              height: visible.bar.height,
+                              corners: visible.bar.corners,
+                              dataIndex: visible.bar.dataIndex,
+                          }
+                        : {
+                              x: visible.bar.x,
+                              y: baselinePx - visibleExtent,
+                              width: visible.bar.width,
+                              height: Math.max(0, visibleExtent - nextSmallerExtent),
+                              corners: visible.bar.corners,
+                              dataIndex: visible.bar.dataIndex,
+                          }
+                    items.push({ series: visible.series, bar: clipped, isTrackHighlight: false })
+                    composition += 'b'
+                }
+            } else {
+                for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
+                    series: coloredSeries,
+                    label: hoveredLabel,
+                    dataIndex: hoverIndex,
+                    scales: d3Scales,
+                    layout: barLayout,
+                    isHorizontal,
+                    stackedData,
+                    topStackedKeyByAxis,
+                })) {
+                    if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
                         continue
                     }
+                    const isTrackHighlight =
+                        barTrack === true &&
+                        barLayout === 'grouped' &&
+                        hoverPosition != null &&
+                        cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
+                    items.push({ series: s, bar, isTrackHighlight })
+                    composition += isTrackHighlight ? 't' : 'b'
                 }
-                const isTrackHighlight =
-                    barTrack === true &&
-                    barLayout === 'grouped' &&
-                    hoverPosition != null &&
-                    cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
-                items.push({ series: s, bar, isTrackHighlight })
-                composition += isTrackHighlight ? 't' : 'b'
             }
             if (items.length === 0) {
                 lastHoverKeyRef.current = null

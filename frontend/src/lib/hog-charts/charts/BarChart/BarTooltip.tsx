@@ -5,7 +5,12 @@ import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
 import type { TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
-import { type BarLayout, isStackedLayout, resolveBarsAtCursor } from './utils/bars-under-cursor'
+import {
+    type BarLayout,
+    findVisibleStackedSegment,
+    isStackedLayout,
+    resolveBarsAtCursor,
+} from './utils/bars-under-cursor'
 
 export interface BarTooltipProps<Meta> {
     ctx: TooltipContext<Meta>
@@ -24,10 +29,18 @@ export function BarTooltip<Meta>({
     layout,
     isHorizontal,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
-    const { scales } = useChartLayout()
+    const { scales, labels } = useChartLayout()
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
-        const narrowed = narrowSeriesByCursor(ctx, d3Scales, layout, isHorizontal, stackedData, topStackedKeyByAxis)
+        const narrowed = narrowSeriesByCursor(
+            ctx,
+            d3Scales,
+            layout,
+            isHorizontal,
+            stackedData,
+            topStackedKeyByAxis,
+            labels
+        )
         if (!narrowed) {
             return null
         }
@@ -36,21 +49,23 @@ export function BarTooltip<Meta>({
     return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
 }
 
-/** Stacked/percent: cursor-resolved segment is moved to seriesData[0]. */
+/** Moves the cursor-resolved segment to seriesData[0] and (for sparse-stacked overlap)
+ *  re-reads its value at its own dataIndex so it isn't a zero from a band-collapsed cell. */
 function narrowSeriesByCursor<Meta>(
     ctx: TooltipContext<Meta>,
     scales: BarScaleSet,
     layout: BarLayout,
     isHorizontal: boolean,
     stackedData: Map<string, StackedBand> | undefined,
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: Map<string, string>,
+    labels: string[]
 ): TooltipContext<Meta> | null {
     const cursor = ctx.hoverPosition
     if (!cursor) {
         return ctx
     }
     const seriesList = ctx.seriesData.map((entry) => entry.series)
-    const { hits, strictHit } = resolveBarsAtCursor({
+    const { hits } = resolveBarsAtCursor({
         series: seriesList,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
@@ -64,12 +79,43 @@ function narrowSeriesByCursor<Meta>(
     if (hits.size === 0) {
         return null
     }
+    let visibleKey: string | null = null
+    let visibleDataIndex: number | null = null
+    if (isStackedLayout(layout)) {
+        const visible = findVisibleStackedSegment({
+            series: seriesList,
+            labels,
+            hoveredLabel: ctx.label,
+            cursor,
+            scales,
+            layout,
+            isHorizontal,
+            stackedData,
+            topStackedKeyByAxis,
+        })
+        if (visible) {
+            visibleKey = visible.series.key
+            visibleDataIndex = visible.dataIndex
+        }
+    }
     let filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
-    if (isStackedLayout(layout) && filtered.length > 1 && strictHit) {
-        const idx = filtered.findIndex((entry) => entry.series.key === strictHit)
+    if (isStackedLayout(layout) && filtered.length > 1 && visibleKey) {
+        const idx = filtered.findIndex((entry) => entry.series.key === visibleKey)
         if (idx > 0) {
             filtered = [filtered[idx], ...filtered.filter((_, i) => i !== idx)]
         }
+    }
+    // `entry.value` was resolved at ctx.dataIndex, which for sparse-stacked overlap is a
+    // zero cell for the visible series. Re-read from its own dataIndex.
+    if (visibleKey != null && visibleDataIndex != null && visibleDataIndex !== ctx.dataIndex) {
+        filtered = filtered.map((entry) => {
+            if (entry.series.key !== visibleKey) {
+                return entry
+            }
+            const raw = entry.series.data[visibleDataIndex!]
+            const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : entry.value
+            return { ...entry, value }
+        })
     }
     return { ...ctx, seriesData: filtered }
 }
