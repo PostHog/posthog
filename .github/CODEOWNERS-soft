@@ -156,11 +156,6 @@ services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
 # LLM Gateway - owned by @PostHog/team-ai-gateway
-# The costs/ tree is co-owned by AIO + ai-gateway, except providers/ which is the
-# target of the automated cost-update workflow and is ai-gateway-only. Listed as
-# explicit sub-patterns because the soft-codeowners assigner accumulates owners
-# across all matching rules instead of last-match-wins, so a broader rule plus a
-# narrower override would still tag both teams on providers/ changes.
 nodejs/src/ingestion/ai/costs/*.ts @PostHog/team-ai-observability @PostHog/team-ai-gateway
 nodejs/src/ingestion/ai/costs/scripts/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
 nodejs/src/ingestion/ai/costs/providers/ @PostHog/team-ai-gateway
