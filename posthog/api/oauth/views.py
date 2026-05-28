@@ -47,7 +47,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, is_imp
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
+from posthog.scopes import OIDC_SCOPES, UNPRIVILEGED_SCOPES, downgrade_scopes_to_read_only, get_oauth_scopes_supported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -275,6 +275,44 @@ class OAuthValidator(OAuth2Validator):
             return request.client.redirect_uri_allowed(portless)
 
         return False
+
+    # OIDC + introspection are accepted independently of the per-app ceiling.
+    # They are identity / token-management scopes, not resource permissions.
+    _ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
+
+    def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
+        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+
+        Resolution:
+        - empty / omitted `scope=` -> grant the effective ceiling (mutate
+          `request.scopes` so oauthlib's default-resolution doesn't fall back
+          to just ["openid"] from DEFAULT_SCOPES).
+        - any subset of `effective_scopes` plus the always-allowed (OIDC,
+          introspection) -> grant as requested.
+        - any value outside that union (including `*` when the app has an
+          explicit ceiling) -> reject. oauthlib turns the False return into
+          `InvalidScopeError` / RFC 6749 `error=invalid_scope`.
+
+        Empty `application.scopes` resolves to UNPRIVILEGED_SCOPES (the broad
+        default), and `*` is accepted in that mode so existing clients (the
+        PostHog Code CLI today) keep working until wildcard retirement.
+        """
+        app_scopes = getattr(client, "scopes", None) or []
+        has_ceiling = bool(app_scopes)
+        effective = frozenset(app_scopes) if has_ceiling else UNPRIVILEGED_SCOPES
+
+        requested = set(scopes or [])
+        if not requested:
+            request.scopes = sorted(effective | self._ALWAYS_ALLOWED_SCOPES)
+            return True
+
+        to_check = requested - self._ALWAYS_ALLOWED_SCOPES
+        if not to_check:
+            return True
+
+        if has_ceiling:
+            return "*" not in to_check and to_check.issubset(effective)
+        return to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
 
     def rotate_refresh_token(self, request) -> bool:
         """
