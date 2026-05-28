@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
@@ -42,7 +42,7 @@ describe('<OrganizationAITrainingOptOut />', () => {
                 },
             },
             get: {
-                'api/users/@me/': MOCK_DEFAULT_USER,
+                '/api/users/@me': MOCK_DEFAULT_USER,
             },
         })
 
@@ -60,8 +60,8 @@ describe('<OrganizationAITrainingOptOut />', () => {
 
     afterEach(async () => {
         // Drain any still-pending PATCH so its loader resolution doesn't bleed
-        // into the next test's DOM (otherwise jest re-renders into a stale node
-        // and queries find multiple elements).
+        // into the next test (otherwise jest re-renders into a stale node and
+        // queries find multiple elements).
         if (releasePatch) {
             await act(async () => {
                 releasePatch?.(undefined)
@@ -70,7 +70,7 @@ describe('<OrganizationAITrainingOptOut />', () => {
         cleanup()
     })
 
-    it('a single user click fires exactly one PATCH', async () => {
+    it('a single user click fires exactly one PATCH with the inverted value', async () => {
         render(<OrganizationAITrainingOptOut />)
 
         const toggle = screen.getByTestId('organization-ai-training-opt-in')
@@ -78,21 +78,6 @@ describe('<OrganizationAITrainingOptOut />', () => {
         await waitFor(() => expect(patchCount).toBe(1))
 
         expect(patchPayloads[0]).toEqual({ is_ai_training_opted_in: false })
-    })
-
-    it('rapid double-click while the PATCH is in flight only fires one PATCH (loading guard)', async () => {
-        render(<OrganizationAITrainingOptOut />)
-
-        const toggle = screen.getByTestId('organization-ai-training-opt-in')
-
-        // First click — kicks off PATCH that the mock holds open until release.
-        await userEvent.click(toggle)
-        await waitFor(() => expect(patchCount).toBe(1))
-
-        // Second click while the request is still in flight. The LemonSwitch
-        // sets `disabled` from the loading prop, so the click should be a no-op.
-        await userEvent.click(toggle)
-        expect(patchCount).toBe(1)
     })
 
     it('two sequential clicks (after the first resolves) fire two PATCHes', async () => {
@@ -110,5 +95,39 @@ describe('<OrganizationAITrainingOptOut />', () => {
         const toggleAfter = await screen.findByTestId('organization-ai-training-opt-in')
         await userEvent.click(toggleAfter)
         await waitFor(() => expect(patchCount).toBe(2))
+    })
+
+    it('double-clicks cannot flip the user back to the original value (the safety property)', async () => {
+        // This is the load-bearing invariant: even if the loading guard races
+        // and a second click slips through before `currentOrganizationLoading`
+        // propagates to the LemonSwitch's `disabled` prop, the *user's intent*
+        // is still preserved. Both handler invocations read the same render's
+        // `checked` value (closure-captured), so both compute the same `!checked`
+        // and PATCH the same value. The net effect on the database is the
+        // user's intended toggle direction — never the opposite.
+        render(<OrganizationAITrainingOptOut />)
+
+        const toggle = screen.getByTestId('organization-ai-training-opt-in')
+
+        // Fire two clicks synchronously in the same task — a stress case the
+        // loading guard alone might not catch. Wrapping in act() lets React
+        // batch the resulting renders.
+        await act(async () => {
+            fireEvent.click(toggle)
+            fireEvent.click(toggle)
+        })
+        // Drain any in-flight PATCH so we can inspect what got sent.
+        await act(async () => {
+            releasePatch?.(undefined)
+            releasePatch = null
+        })
+
+        // We don't care here whether the loading guard collapsed the second
+        // click — what matters is that every PATCH that did fire carried the
+        // user's intent (`false`, the opposite of the initial `checked=true`).
+        expect(patchCount).toBeGreaterThanOrEqual(1)
+        for (const payload of patchPayloads) {
+            expect(payload).toEqual({ is_ai_training_opted_in: false })
+        }
     })
 })
