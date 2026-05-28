@@ -16,25 +16,16 @@ export interface EventFiltersBatchContext {
  * BeforeBatch step that creates an EventFiltersBatchAppMetrics instance
  * and attaches it to the batch context and each element.
  */
-export function createEventFiltersBatchAppMetricsBeforeBatchStep<TInput, CInput>(
+export function createEventFiltersBatchAppMetricsBeforeBatchStep<TInput, CInput, CBatch>(
     outputs: IngestionOutputs<AppMetricsOutput>
-): BeforeBatchStep<TInput, CInput, EventFiltersBatchContext> {
+): BeforeBatchStep<TInput, CInput, CBatch, CBatch & EventFiltersBatchContext> {
     return function eventFiltersBatchAppMetricsBeforeBatchStep(input) {
         const eventFiltersBatchAppMetrics = new EventFiltersBatchAppMetrics(outputs)
-        const batchContext: EventFiltersBatchContext & { batchId: number } = {
+        const batchContext = {
             ...input.batchContext,
             eventFiltersBatchAppMetrics,
         }
-
-        const elements = input.elements.map((element) => ({
-            result: {
-                ...element.result,
-                value: { ...element.result.value, ...batchContext },
-            },
-            context: element.context,
-        }))
-
-        return Promise.resolve(ok({ elements, batchContext }))
+        return Promise.resolve(ok({ elements: input.elements, batchContext }))
     }
 }
 

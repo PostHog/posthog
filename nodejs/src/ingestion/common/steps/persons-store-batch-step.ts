@@ -1,11 +1,9 @@
 import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
-import { BeforeBatchInput, BeforeBatchOutput } from '../../pipelines/batching-pipeline'
-import { OkResultWithContext } from '../../pipelines/pipeline.interface'
-import { PipelineResult, ok } from '../../pipelines/results'
-import { EventFiltersBatchContext } from './event-filters-steps'
+import { BeforeBatchStep } from '../../pipelines/batching-pipeline'
+import { ok } from '../../pipelines/results'
 
-export interface IngestionBatchContext extends EventFiltersBatchContext {
+export interface PersonsStoreBatchContext {
     personsStoreForBatch: PersonsStoreForBatch
 }
 
@@ -16,25 +14,15 @@ export interface IngestionBatchContext extends EventFiltersBatchContext {
  * Must run after createEventFiltersBatchAppMetricsBeforeBatchStep so that
  * EventFiltersBatchContext is already present on elements and batchContext.
  */
-export function createPersonsStoreBeforeBatchStep(personsStore: PersonsStore) {
-    return function personsStoreBeforeBatchStep<TInput extends EventFiltersBatchContext, CInput>(
-        input: BeforeBatchInput<TInput, CInput>
-    ): Promise<PipelineResult<BeforeBatchOutput<TInput, CInput, IngestionBatchContext>>> {
+export function createPersonsStoreBeforeBatchStep<TInput, CInput, CBatch>(
+    personsStore: PersonsStore
+): BeforeBatchStep<TInput, CInput, CBatch, CBatch & PersonsStoreBatchContext> {
+    return async function personsStoreBeforeBatchStep(input) {
         const personsStoreForBatch: PersonsStoreForBatch = new BatchBoundPersonsStore(
             personsStore,
             input.batchContext.batchId
         )
-        const batchContext = { ...input.batchContext, personsStoreForBatch } as IngestionBatchContext & {
-            batchId: number
-        }
-        const elements = input.elements.map((element) => ({
-            result: {
-                ...element.result,
-                value: { ...element.result.value, personsStoreForBatch },
-            },
-            context: element.context,
-        })) as OkResultWithContext<TInput & IngestionBatchContext, CInput>[]
-
-        return Promise.resolve(ok({ elements, batchContext }))
+        const batchContext = { ...input.batchContext, personsStoreForBatch }
+        return Promise.resolve(ok({ elements: input.elements, batchContext }))
     }
 }

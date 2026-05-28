@@ -12,10 +12,11 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import {
+    EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
-import { IngestionBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
+import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
@@ -92,6 +93,8 @@ export interface JoinedIngestionPipelineDeps {
     groupTypeManager: GroupTypeManager
     topHog: TopHogRegistry
 }
+
+type IngestionBatchContext = EventFiltersBatchContext & PersonsStoreBatchContext
 
 export interface JoinedIngestionPipelineInput {
     message: Message
