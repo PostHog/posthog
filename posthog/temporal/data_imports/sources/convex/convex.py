@@ -24,7 +24,7 @@ class ConvexResumeConfig:
     snapshot: int | None = None
 
 
-_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
+_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)?\.convex\.cloud$")
 
 
 class InvalidDeployUrlError(Exception):
@@ -48,7 +48,9 @@ def validate_deploy_url(deploy_url: str) -> str:
 
     host = (parsed.hostname or "").lower()
     if not host or not _CONVEX_CLOUD_HOST_RE.match(host):
-        raise InvalidDeployUrlError(f"Deployment URL host must match <deployment-name>.convex.cloud, got: {host!r}.")
+        raise InvalidDeployUrlError(
+            f"Deployment URL host must match <deployment-name>.convex.cloud or <deployment-name>.<region>.convex.cloud, got: {host!r}."
+        )
 
     if parsed.query:
         raise InvalidDeployUrlError("Deployment URL must not contain query parameters.")

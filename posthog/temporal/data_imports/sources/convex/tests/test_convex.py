@@ -43,13 +43,31 @@ class TestValidateDeployUrl:
             ("uppercase", "HTTPS://Swift-Lemur-123.CONVEX.CLOUD", "https://swift-lemur-123.convex.cloud"),
             ("leading_space", "  https://swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
             ("with_path", "https://swift-lemur-123.convex.cloud/some/path", "https://swift-lemur-123.convex.cloud"),
+            # regional deployments — Convex EU and any future region puts a region label between deployment and convex.cloud
+            (
+                "eu_west_1_region",
+                "https://acoustic-tapir-45.eu-west-1.convex.cloud",
+                "https://acoustic-tapir-45.eu-west-1.convex.cloud",
+            ),
+            (
+                "uppercase_region",
+                "HTTPS://Acoustic-Tapir-45.EU-WEST-1.CONVEX.CLOUD",
+                "https://acoustic-tapir-45.eu-west-1.convex.cloud",
+            ),
+            (
+                "region_with_path",
+                "https://acoustic-tapir-45.eu-west-1.convex.cloud/some/path",
+                "https://acoustic-tapir-45.eu-west-1.convex.cloud",
+            ),
             # invalid — should raise
             ("http", "http://swift-lemur-123.convex.cloud", None),
             ("ftp", "ftp://swift-lemur-123.convex.cloud", None),
             ("no_scheme", "swift-lemur-123.convex.cloud", None),
             ("wrong_tld", "https://swift-lemur-123.convex.io", None),
-            ("extra_subdomain", "https://extra.swift-lemur-123.convex.cloud", None),
+            # three or more labels before .convex.cloud is still rejected — keeps the bound tight
+            ("three_subdomains", "https://a.b.swift-lemur-123.convex.cloud", None),
             ("lookalike", "https://convex.cloud.evil.com", None),
+            ("lookalike_with_region", "https://evil.swift-lemur-123.convex.cloud.attacker.com", None),
             ("bare_domain", "https://convex.cloud", None),
             ("ip_literal", "https://1.2.3.4", None),
             ("localhost", "https://localhost", None),
@@ -57,6 +75,7 @@ class TestValidateDeployUrl:
             ("internal_domain", "https://swift-lemur-123.convex.cloud.internal", None),
             ("query_params", "https://swift-lemur-123.convex.cloud?evil=1", None),
             ("fragment", "https://swift-lemur-123.convex.cloud#section", None),
+            ("region_query_params", "https://acoustic-tapir-45.eu-west-1.convex.cloud?evil=1", None),
         ]
     )
     def test_validate_deploy_url(self, _name, url, expected):
