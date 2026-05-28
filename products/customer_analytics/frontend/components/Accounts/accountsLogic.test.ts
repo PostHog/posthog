@@ -220,6 +220,18 @@ describe('accountsLogic', () => {
             expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(account_executive, 2)'])
         })
 
+        it('account_owner sort uses the tupleElement expression', () => {
+            logic.actions.toggleSort('account_owner')
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(account_owner, 2)'])
+        })
+
+        it('arbitrary column sorts by its alias directly', () => {
+            logic.actions.toggleSort('name')
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['name'])
+            logic.actions.toggleSort('name')
+            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['name DESC'])
+        })
+
         it('toggleSort resets pagination to page 1', async () => {
             logic.actions.setCurrentPage(3)
             logic.actions.toggleSort('notebook_count')

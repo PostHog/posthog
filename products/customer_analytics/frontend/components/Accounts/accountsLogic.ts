@@ -214,20 +214,28 @@ export type AccountsView = 'endpoint' | 'hogql'
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
-export type AccountSortableColumn = 'notebook_count' | 'csm' | 'account_executive'
+// `column` matches the visible column name (alias-stripped) so any selected
+// column can drive the sort.
+export type AccountSortableColumn = string
 
 export type AccountSortDirection = 'asc' | 'desc'
 
 export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
 
-// Maps a sortable column key to the HogQL expression to use in ORDER BY.
-// `notebook_count` is the aliased integer count from the SELECT.
-// `csm` and `account_executive` are tuples — sorting by `tupleElement(t, 2)` orders
-// by the `email` field so the result matches what the user sees on screen.
-export const ACCOUNTS_HOGQL_SORT_EXPRS: Record<AccountSortableColumn, string> = {
-    notebook_count: 'notebook_count',
-    csm: 'tupleElement(csm, 2)',
-    account_executive: 'tupleElement(account_executive, 2)',
+// Columns that are HogQL `Tuple(id, email)` — sort by the `email` element so the
+// order matches what the user sees on screen rather than the opaque user id.
+const TUPLE_SORT_COLUMNS = new Set<string>(['csm', 'account_executive', 'account_owner'])
+
+// Resolve the HogQL expression to use in ORDER BY for a sortable column.
+// HogQL ORDER BY resolves SELECT aliases by name, so the visible column name
+// (which is the alias for aliased entries, or the bare expression otherwise)
+// works directly — except for tuple-shaped role columns, where we sort by
+// the email element so the visual order matches the rendered cell.
+export function deriveAccountsOrderByExpr(column: string): string {
+    if (TUPLE_SORT_COLUMNS.has(column)) {
+        return `tupleElement(${column}, 2)`
+    }
+    return column
 }
 
 const ROLE_LABELS: Record<AccountRoleKey, string> = {
@@ -538,7 +546,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     source.accountOwner = accountOwnerFilter
                 }
                 if (sortOrder) {
-                    const expr = ACCOUNTS_HOGQL_SORT_EXPRS[sortOrder.column]
+                    const expr = deriveAccountsOrderByExpr(sortOrder.column)
                     source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
                 }
                 return {

@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
@@ -11,16 +12,11 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import {
-    ACCOUNTS_HOGQL_DATA_NODE_KEY,
-    AccountRoleKey,
-    AccountSortableColumn,
-    accountsLogic,
-} from './accountsLogic'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
 
@@ -166,13 +162,7 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
 
 const HIDDEN_COLUMN: QueryContextColumn = { hidden: true }
 
-function SortableColumnHeader({
-    column,
-    label,
-}: {
-    column: AccountSortableColumn
-    label: string
-}): JSX.Element {
+function SortableColumnHeader({ column, label }: { column: string; label: string }): JSX.Element {
     const { sortOrder } = useValues(accountsLogic)
     const { toggleSort } = useActions(accountsLogic)
     const order = sortOrder?.column === column ? (sortOrder.direction === 'asc' ? 1 : -1) : null
@@ -196,51 +186,77 @@ function SortableColumnHeader({
     )
 }
 
-const CONTEXT: QueryContext<DataTableNode> = {
-    columns: {
-        id: HIDDEN_COLUMN,
-        external_id: HIDDEN_COLUMN,
-        name: {
-            title: 'Account',
-            width: COLUMN_WIDTHS.name,
-            render: ({ record }) => <NameCell record={record} />,
-        },
-        tag_names: {
-            title: 'Tags',
-            width: COLUMN_WIDTHS.tag_names,
-            render: ({ record }) => <TagsCell record={record} />,
-        },
-        notebook_count: {
-            renderTitle: () => <SortableColumnHeader column="notebook_count" label="Notes" />,
-            width: COLUMN_WIDTHS.notebook_count,
-            render: ({ record }) => <NotebookCountCell record={record} />,
-        },
-        csm: {
-            renderTitle: () => <SortableColumnHeader column="csm" label={ROLE_LABELS.csm} />,
-            width: COLUMN_WIDTHS.csm,
-            render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
-        },
-        account_executive: {
-            renderTitle: () => (
-                <SortableColumnHeader column="account_executive" label={ROLE_LABELS.account_executive} />
-            ),
-            width: COLUMN_WIDTHS.account_executive,
-            render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
-        },
-        account_owner: {
-            title: ROLE_LABELS.account_owner,
-            width: COLUMN_WIDTHS.account_owner,
-            render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
-        },
+// Per-column overrides for known visible columns. The `label` becomes the
+// header text (rendered inside `SortableColumnHeader`), `width` pins the
+// column width, and `render` provides the cell renderer. Any visible column
+// not in this map falls back to a sortable header with the raw column name
+// and DataTable's default cell rendering.
+type KnownColumnTemplate = {
+    label?: string
+    width?: string
+    render?: QueryContextColumnComponent
+}
+
+const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
+    name: {
+        label: 'Account',
+        width: COLUMN_WIDTHS.name,
+        render: ({ record }) => <NameCell record={record} />,
     },
-    expandable: {
-        noIndent: true,
-        // id is the first pinned column in ACCOUNTS_HOGQL_PINNED_SELECT, so it's
-        // always at position 0 in the row tuple regardless of user column choices.
-        expandedRowRender: ({ result }) => {
-            const accountId = Array.isArray(result) ? String(result[0] ?? '') : ''
-            return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
-        },
+    tag_names: {
+        label: 'Tags',
+        width: COLUMN_WIDTHS.tag_names,
+        render: ({ record }) => <TagsCell record={record} />,
+    },
+    notebook_count: {
+        label: 'Notes',
+        width: COLUMN_WIDTHS.notebook_count,
+        render: ({ record }) => <NotebookCountCell record={record} />,
+    },
+    csm: {
+        label: ROLE_LABELS.csm,
+        width: COLUMN_WIDTHS.csm,
+        render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
+    },
+    account_executive: {
+        label: ROLE_LABELS.account_executive,
+        width: COLUMN_WIDTHS.account_executive,
+        render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
+    },
+    account_owner: {
+        label: ROLE_LABELS.account_owner,
+        width: COLUMN_WIDTHS.account_owner,
+        render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
+    },
+}
+
+function useContextColumns(): Record<string, QueryContextColumn> {
+    const { visibleColumnNames } = useValues(accountsLogic)
+    return useMemo(() => {
+        const columns: Record<string, QueryContextColumn> = {
+            id: HIDDEN_COLUMN,
+            external_id: HIDDEN_COLUMN,
+        }
+        for (const key of visibleColumnNames) {
+            const template = KNOWN_COLUMN_TEMPLATES[key]
+            const label = template?.label ?? key
+            columns[key] = {
+                renderTitle: () => <SortableColumnHeader column={key} label={label} />,
+                width: template?.width,
+                render: template?.render,
+            }
+        }
+        return columns
+    }, [visibleColumnNames])
+}
+
+const EXPANDABLE: QueryContext<DataTableNode>['expandable'] = {
+    noIndent: true,
+    // id is the first pinned column in ACCOUNTS_HOGQL_PINNED_SELECT, so it's
+    // always at position 0 in the row tuple regardless of user column choices.
+    expandedRowRender: ({ result }) => {
+        const accountId = Array.isArray(result) ? String(result[0] ?? '') : ''
+        return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
     },
 }
 
@@ -302,6 +318,7 @@ function AccountsHogQLSkeleton(): JSX.Element {
 
 function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Element {
     const { responseLoading, response } = useValues(dataNodeLogic)
+    const contextColumns = useContextColumns()
     if (responseLoading && !response) {
         return <AccountsHogQLSkeleton />
     }
@@ -312,7 +329,11 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
             setQuery={() => {
                 // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
             }}
-            context={{ ...CONTEXT, dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY }}
+            context={{
+                columns: contextColumns,
+                expandable: EXPANDABLE,
+                dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+            }}
             readOnly
         />
     )
