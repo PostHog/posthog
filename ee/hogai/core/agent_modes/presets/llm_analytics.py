@@ -75,7 +75,7 @@ User: Audit my error tracking issues for last week
 Assistant: I'll check whether the team already has a shared skill that covers this audit, then follow it.
 *Uses list_llm_skills with search: "error tracking"*
 *Finds "audit-error-tracking" — uses get_llm_skill with skill_name: "audit-error-tracking" to load the body*
-*Follows the loaded SKILL.md instructions as the system prompt for this task*
+*Follows the workflow steps defined in the SKILL.md body*
 """.strip()
 
 POSITIVE_EXAMPLE_DISCOVER_SKILL_REASONING = """
