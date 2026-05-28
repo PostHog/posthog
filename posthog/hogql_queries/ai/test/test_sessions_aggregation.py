@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _cre
 
 from posthog.hogql.query import execute_hogql_query
 
-from products.llm_analytics.backend.queries import get_sessions_query
+from products.ai_observability.backend.queries import get_sessions_query
 
 
 def _create_ai_trace_event(

@@ -252,6 +252,28 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
     return result
 
 
+# Fields whose change could redirect the database connection to a different server
+# (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
+_SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
+
+
+def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
+    """True if the SSH tunnel's connection target (enabled/host/port) changed.
+
+    Scalars are coerced to strings to ignore type drift between stored values
+    (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
+    — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
+    making stored "False" falsely diverge from JSON `false`.
+    """
+    existing = existing if isinstance(existing, dict) else {}
+    incoming = incoming if isinstance(incoming, dict) else {}
+
+    def _coerce(value: Any) -> str:
+        return "" if value is None else str(value)
+
+    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+
+
 def get_direct_postgres_connection_metadata(
     *,
     source_impl: Any,
@@ -688,11 +710,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
             "host"
         ] != existing_job_inputs.get("host")
-        if connection_host_changed:
+
+        # If the SSH tunnel's connection target changed, also require credentials. Without this an
+        # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled
+        # server, exfiltrating the stored database credentials (VERIA-311).
+        ssh_tunnel_changed = "ssh_tunnel" in incoming_job_inputs and ssh_tunnel_connection_changed(
+            existing_job_inputs.get("ssh_tunnel"),
+            incoming_job_inputs.get("ssh_tunnel"),
+        )
+
+        if connection_host_changed or ssh_tunnel_changed:
             missing_credentials = [
                 key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
             ]
             if missing_credentials:
+                if ssh_tunnel_changed:
+                    raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 raise ValidationError("Changing the connection host requires re-entering your credentials.")
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
@@ -1186,23 +1219,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         default_schema=default_source_schema,
                     )
                 )
-                resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
-                    get_postgres_source_location(
-                        schema_name=schema_name,
-                        schema_metadata={
-                            "source_catalog": source_schema.source_catalog if source_schema else None,
-                            "source_schema": source_schema.source_schema if source_schema else None,
-                            "source_table_name": source_schema.source_table_name if source_schema else None,
-                        },
-                        default_schema=default_source_schema,
-                    )
-                )
             else:
                 resolved_source_catalog = source_schema.source_catalog if source_schema else None
                 resolved_source_schema = source_schema.source_schema if source_schema else None
                 resolved_source_table_name = source_schema.source_table_name if source_schema else None
 
-            # Source-type-gated rather than `isinstance(source, SQLSource)` because tests mock `SourceRegistry.get_source`.
             schema_metadata = (
                 sql_schema_metadata(
                     source_schema.columns if source_schema else [],
@@ -1671,7 +1692,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Postgres direct call (not via hook): tests mocking `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,

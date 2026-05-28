@@ -37,6 +37,7 @@
 ## Docs update
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
+<!-- Add the `skip-migration-service-check` label if every migration here is DB-noop (e.g. `SeparateDatabaseAndState` with empty `database_operations`, or pure `RunPython`) and it's safe to ship alongside service code. -->
 
 ## 🤖 Agent context
 

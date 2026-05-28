@@ -9,7 +9,7 @@ Telemetry is **disabled** unless an API key is configured via the
 framework never emit events to PostHog's project by default.
 
 Opt-out precedence:
-    CI=* -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false -> no api_key
+    CI (any common provider) -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false -> no api_key
 
 Config file: ~/.config/posthog/hogli_telemetry.json
 """
@@ -32,6 +32,20 @@ import requests
 from hogli.manifest import get_manifest
 
 _DEFAULT_HOST = "https://us.i.posthog.com"
+
+# Environment variables set by common CI providers. Presence of any one means
+# we're in CI: telemetry is disabled, and (where enabled) the `is_ci` event
+# property is set from this same list so the gate and the label never diverge.
+# Depot CI runners are drop-in GitHub Actions runners and set CI/GITHUB_ACTIONS,
+# so they're already covered. Depot sandboxes expose no stable CI marker, and
+# DEPOT_TOKEN also lives on developer laptops, so gating on it would wrongly
+# suppress real local signal -- deliberately not listed here.
+_CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
+
+
+def is_ci() -> bool:
+    """True when any common CI provider's environment variable is present."""
+    return any(os.environ.get(v) for v in _CI_ENV_VARS)
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +114,7 @@ class TelemetryClient:
         return self._telemetry_config.get("api_key", "")
 
     def is_enabled(self) -> bool:
-        if os.environ.get("CI"):
+        if is_ci():
             return False
         if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
             return False

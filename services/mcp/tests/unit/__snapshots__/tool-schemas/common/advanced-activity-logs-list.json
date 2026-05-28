@@ -31,6 +31,14 @@
             "description": "Reserved for future HogQL-based filtering.",
             "type": "string"
         },
+        "ip_addresses": {
+            "default": [],
+            "description": "Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "is_system": {
             "anyOf": [
                 {
