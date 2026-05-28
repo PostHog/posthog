@@ -486,8 +486,6 @@ class TestAnthropicMessagesEndpoint:
         authenticated_client: TestClient,
         provider_mock_response: dict,
     ) -> None:
-        from llm_gateway.cloudflare import make_cloudflare_anthropic_call
-
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
@@ -952,6 +950,21 @@ class TestAnthropicCountTokensEndpoint:
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
         assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
+
+    def test_cloudflare_provider_rejected(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "cloudflare" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,

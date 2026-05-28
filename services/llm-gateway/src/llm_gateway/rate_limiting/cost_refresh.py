@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import litellm
 import structlog
@@ -17,6 +18,23 @@ CACHE_TTL_SECONDS = 300
 COST_ALIASES: dict[str, str] = {
     "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
 }
+
+
+def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
+    """Mutate model_cost to add alias keys for non-canonical provider routings.
+
+    Every writer to `litellm.model_cost` must call this — otherwise alias-routed
+    models fall back to default cost in the rate-limiting callback. A missing
+    canonical is logged so cost map regressions surface in alerting instead of
+    silently routing requests through the default fallback cost.
+    """
+    for alias, canonical in COST_ALIASES.items():
+        if alias in model_cost:
+            continue
+        if canonical in model_cost:
+            model_cost[alias] = model_cost[canonical]
+        else:
+            logger.warning("cost_alias_canonical_missing", alias=alias, canonical=canonical)
 
 
 class CostRefreshService:
@@ -45,9 +63,7 @@ class CostRefreshService:
     def refresh(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
-            for alias, canonical in COST_ALIASES.items():
-                if canonical in model_cost and alias not in model_cost:
-                    model_cost[alias] = model_cost[canonical]
+            apply_cost_aliases(model_cost)
             litellm.model_cost = model_cost
             self._last_refresh = time.monotonic()
             logger.info("model_cost_refreshed", model_count=len(model_cost))

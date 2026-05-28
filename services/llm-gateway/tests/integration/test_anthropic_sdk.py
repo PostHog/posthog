@@ -15,9 +15,9 @@ from urllib.request import urlopen
 
 import pytest
 from anthropic import Anthropic, BadRequestError
-from anthropic.types import TextBlock, ThinkingBlock, ToolParam, ToolUseBlock
+from anthropic.types import TextBlock, ToolParam, ToolUseBlock
 
-from .conftest import BEDROCK_REGION, CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID, TEST_POSTHOG_API_KEY
+from .conftest import BEDROCK_REGION, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY, TEST_POSTHOG_API_KEY
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 CLOUDFLARE_CONFIGURED = bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID)

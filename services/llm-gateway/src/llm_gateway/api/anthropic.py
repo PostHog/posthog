@@ -9,10 +9,16 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, CLOUDFLARE_CONFIG, _sanitize_request_data, handle_llm_request
+from llm_gateway.api.handler import (
+    ANTHROPIC_CONFIG,
+    BEDROCK_CONFIG,
+    CLOUDFLARE_CONFIG,
+    _sanitize_request_data,
+    handle_llm_request,
+)
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
-from llm_gateway.cloudflare import ensure_cloudflare_configured, make_cloudflare_anthropic_call
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+from llm_gateway.cloudflare import ensure_cloudflare_configured, make_cloudflare_anthropic_call
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
@@ -283,6 +289,18 @@ async def _handle_count_tokens(
     data = _sanitize_request_data(body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS))
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
+
+    if provider == "cloudflare":
+        # Cloudflare has no token-counting endpoint; falling back to Anthropic would silently use the wrong tokenizer.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": "count_tokens is not supported for the cloudflare provider",
+                    "type": "invalid_request_error",
+                }
+            },
+        )
 
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)

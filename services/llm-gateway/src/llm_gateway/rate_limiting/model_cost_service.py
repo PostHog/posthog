@@ -8,6 +8,8 @@ import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
+from llm_gateway.rate_limiting.cost_refresh import apply_cost_aliases
+
 logger = structlog.get_logger(__name__)
 
 TARGET_LIMIT_COST_PER_HOUR: Final[float] = 60.0
@@ -73,6 +75,7 @@ class ModelCostService:
     def _refresh_cache(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
+            apply_cost_aliases(model_cost)
             litellm.model_cost = model_cost
             self._costs = cast(dict[str, ModelCost], model_cost)
             new_limits: dict[str, ModelLimits] = {}

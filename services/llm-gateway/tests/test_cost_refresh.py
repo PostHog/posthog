@@ -1,11 +1,67 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import litellm
 import pytest
 
-from llm_gateway.rate_limiting.cost_refresh import CostRefreshService
+from llm_gateway.rate_limiting.cost_refresh import CostRefreshService, apply_cost_aliases
+from llm_gateway.rate_limiting.model_cost_service import ModelCostService
+
+
+class TestApplyCostAliases:
+    def test_adds_alias_when_canonical_present(self) -> None:
+        cost: dict[str, Any] = {
+            "moonshot/kimi-k2.6": {"input_cost_per_token": 0.001, "output_cost_per_token": 0.002},
+        }
+        apply_cost_aliases(cost)
+        assert cost["openai/@cf/moonshotai/kimi-k2.6"] == cost["moonshot/kimi-k2.6"]
+
+    def test_does_not_overwrite_existing_alias(self) -> None:
+        cost: dict[str, Any] = {
+            "moonshot/kimi-k2.6": {"input_cost_per_token": 0.001},
+            "openai/@cf/moonshotai/kimi-k2.6": {"input_cost_per_token": 0.999},
+        }
+        apply_cost_aliases(cost)
+        assert cost["openai/@cf/moonshotai/kimi-k2.6"]["input_cost_per_token"] == 0.999
+
+    @patch("llm_gateway.rate_limiting.cost_refresh.logger")
+    def test_warns_when_canonical_missing(self, mock_logger: MagicMock) -> None:
+        cost: dict[str, Any] = {"gpt-4o": {}}
+        apply_cost_aliases(cost)
+        assert "openai/@cf/moonshotai/kimi-k2.6" not in cost
+        mock_logger.warning.assert_called_once_with(
+            "cost_alias_canonical_missing",
+            alias="openai/@cf/moonshotai/kimi-k2.6",
+            canonical="moonshot/kimi-k2.6",
+        )
+
+    @patch("llm_gateway.rate_limiting.cost_refresh.logger")
+    def test_does_not_warn_when_alias_already_present(self, mock_logger: MagicMock) -> None:
+        cost: dict[str, Any] = {"openai/@cf/moonshotai/kimi-k2.6": {"input_cost_per_token": 0.999}}
+        apply_cost_aliases(cost)
+        mock_logger.warning.assert_not_called()
+
+
+class TestModelCostServiceAliases:
+    @pytest.fixture(autouse=True)
+    def reset_singleton(self) -> Iterator[None]:
+        ModelCostService.reset_instance()
+        yield
+        ModelCostService.reset_instance()
+
+    @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
+    def test_refresh_cache_applies_cost_aliases(self, mock_get_cost_map: MagicMock) -> None:
+        mock_get_cost_map.return_value = {
+            "moonshot/kimi-k2.6": {"input_cost_per_token": 0.001, "output_cost_per_token": 0.002},
+        }
+        service = ModelCostService.get_instance()
+        cost_for_alias = service.get_costs("openai/@cf/moonshotai/kimi-k2.6")
+
+        assert cost_for_alias == {"input_cost_per_token": 0.001, "output_cost_per_token": 0.002}
+        assert "openai/@cf/moonshotai/kimi-k2.6" in litellm.model_cost
 
 
 class TestCostRefreshService:
@@ -28,8 +84,6 @@ class TestCostRefreshService:
 
     @patch("llm_gateway.rate_limiting.cost_refresh.get_model_cost_map")
     def test_refresh_updates_litellm_model_cost(self, mock_get_cost_map: MagicMock) -> None:
-        import litellm
-
         mock_costs = {
             "gpt-4": {"input_cost_per_token": 0.00003, "output_cost_per_token": 0.00006},
             "claude-3-opus": {"input_cost_per_token": 0.000015, "output_cost_per_token": 0.000075},
