@@ -9,6 +9,8 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
 import posthoganalytics
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
 AUTORESEARCH_FLAG = "autoresearch"
 
 
@@ -36,8 +38,6 @@ def has_autoresearch_access(user: AbstractBaseUser | AnonymousUser | None, *, te
 
 
 def _local_flag_enabled(*, team_id: int | None) -> bool:
-    from posthog.models.feature_flag.feature_flag import FeatureFlag
-
     qs = FeatureFlag.objects.filter(key=AUTORESEARCH_FLAG, active=True)
     if team_id is not None:
         qs = qs.filter(team_id=team_id)

@@ -625,6 +625,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         qs = self.safely_get_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = AutoresearchSuggestionSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = AutoresearchSuggestionSerializer(qs, many=True)
         return Response(serializer.data)
 
