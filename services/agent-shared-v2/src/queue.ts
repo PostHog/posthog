@@ -25,9 +25,16 @@ export interface SessionQueue {
     /**
      * Re-queue sessions stuck in 'running' beyond the TTL (their worker
      * probably crashed). The session's conversation is preserved; a sibling
-     * worker picks it up via the normal claim path. Returns the count reaped.
+     * worker picks it up via the normal claim path.
+     *
+     * Poison-pill semantics: increments `retry_count` on every reap. Sessions
+     * whose retry_count would exceed `maxRetries` are marked `failed` instead
+     * of re-queued — a genuinely broken job (e.g. consistently crashes the
+     * worker) won't loop forever.
+     *
+     * Returns `{ requeued, poisoned }` so the janitor can report both.
      */
-    reapStuckRunning(thresholdMs: number): Promise<number>
+    reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }>
 }
 
 /** In-memory test impl. Not thread-safe across processes. */
@@ -93,22 +100,33 @@ export class MemorySessionQueue implements SessionQueue {
         return null
     }
 
-    async reapStuckRunning(thresholdMs: number): Promise<number> {
+    async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
         const cutoff = Date.now() - thresholdMs
-        let n = 0
+        let requeued = 0
+        let poisoned = 0
         for (const s of this.sessions.values()) {
             if (s.state !== 'running') {
                 continue
             }
             const updated = Date.parse(s.updated_at)
-            if (Number.isFinite(updated) && updated < cutoff) {
-                s.state = 'queued'
-                s.updated_at = new Date().toISOString()
-                this.waiting.push(s.id)
-                n++
+            if (!Number.isFinite(updated) || updated >= cutoff) {
+                continue
             }
+            const nextRetry = (s.retry_count ?? 0) + 1
+            if (nextRetry > maxRetries) {
+                s.state = 'failed'
+                s.retry_count = nextRetry
+                s.updated_at = new Date().toISOString()
+                poisoned++
+                continue
+            }
+            s.state = 'queued'
+            s.retry_count = nextRetry
+            s.updated_at = new Date().toISOString()
+            this.waiting.push(s.id)
+            requeued++
         }
-        return n
+        return { requeued, poisoned }
     }
 
     /** Test helper. */

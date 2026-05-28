@@ -133,6 +133,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 conversation: [{ role: 'user', content: 'go', timestamp: Date.now() }],
                 pending_inputs: [],
                 principal: null,
+                retry_count: 0,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })

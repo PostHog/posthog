@@ -13,6 +13,7 @@ function session(id: string, state: AgentSession['state'], updatedAt: string): A
         conversation: [],
         pending_inputs: [],
         principal: null,
+        retry_count: 0,
         created_at: updatedAt,
         updated_at: updatedAt,
     }
@@ -60,5 +61,39 @@ describe('sweepOnce', () => {
         await queue.enqueue(done)
         const result = await sweepOnce({ queue, stuckRunningThresholdMs: 1, listWaitingCandidates: async () => [done] })
         expect(result.requeued + result.failed).toBe(0)
+    })
+
+    it('poison-pills a stuck running session after maxRetries re-queues', async () => {
+        const queue = new MemorySessionQueue()
+        const stuck = session('p', 'running', new Date(Date.now() - 60 * 60_000).toISOString())
+        await queue.enqueue(stuck)
+        const opts = { queue, stuckRunningThresholdMs: 60_000, maxRetries: 2 }
+
+        // Reap 1 → retry_count: 0 → 1, requeued.
+        // Helper to put the session back in 'running' with a stale updated_at
+        // so the next sweep sees it again.
+        const setStale = async (): Promise<void> => {
+            await queue.update('p', { state: 'running' })
+            const s = await queue.get('p')
+            // Force a stale updated_at — MemorySessionQueue uses updated_at as
+            // the staleness signal (PG uses claimed_at; same shape).
+            ;(s as AgentSession).updated_at = new Date(Date.now() - 60 * 60_000).toISOString()
+        }
+
+        let r = await sweepOnce(opts)
+        expect(r).toEqual({ requeued: 1, poisoned: 0, failed: 0 })
+        expect((await queue.get('p'))!.retry_count).toBe(1)
+
+        await setStale()
+        r = await sweepOnce(opts)
+        expect(r).toEqual({ requeued: 1, poisoned: 0, failed: 0 })
+        expect((await queue.get('p'))!.retry_count).toBe(2)
+
+        // Third reap: retry_count would go to 3, exceeds maxRetries=2 → poisoned.
+        await setStale()
+        r = await sweepOnce(opts)
+        expect(r).toEqual({ requeued: 0, poisoned: 1, failed: 0 })
+        expect((await queue.get('p'))!.state).toBe('failed')
+        expect((await queue.get('p'))!.retry_count).toBe(3)
     })
 })

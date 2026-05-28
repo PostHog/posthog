@@ -53,6 +53,46 @@ describe('janitor: real e2e', () => {
     it('POST /sweep returns counts', async () => {
         const res = await request(c.janitor).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ requeued: 0, failed: 0 })
+        expect(res.body).toEqual({ requeued: 0, poisoned: 0, failed: 0 })
+    })
+
+    it('sweep re-queues stuck-running, then poison-pills after maxRetries', async () => {
+        c.setScript([fauxText('done')])
+        await c.deployAgent({ slug: 'pp', spec: {} })
+        const create = await request(c.ingress).post('/agents/pp/run').send({ message: 'hi' })
+        const sid = create.body.session_id
+
+        // Simulate a stuck worker: pin the row in 'running' with a stale
+        // claimed_at so the reaper picks it up. Drive the sweep directly via
+        // janitor HTTP — we want to test the full path (HTTP → sweep → PG SQL).
+        const goStale = async (): Promise<void> => {
+            await c.pool.query(
+                `UPDATE agent_session_v2 SET state='running', claimed_at=NOW() - interval '1 hour' WHERE id=$1`,
+                [sid]
+            )
+        }
+        const sweep = async (maxRetries: number): Promise<{ requeued: number; poisoned: number; failed: number }> => {
+            // Override the default 3 via direct sweep invocation. The HTTP
+            // sweep endpoint uses whatever the janitor was configured with,
+            // so for this test we hit the sweep helper through the cluster
+            // pool. (Simpler than wiring an env-knob into the harness janitor.)
+            const { sweepOnce } = await import('@posthog/agent-janitor-v2')
+            return sweepOnce({ queue: c.queue, stuckRunningThresholdMs: 1, maxRetries })
+        }
+
+        await goStale()
+        const r1 = await sweep(2)
+        expect(r1).toEqual({ requeued: 1, poisoned: 0, failed: 0 })
+        expect((await c.queue.get(sid))!.retry_count).toBe(1)
+
+        await goStale()
+        const r2 = await sweep(2)
+        expect(r2).toEqual({ requeued: 1, poisoned: 0, failed: 0 })
+        expect((await c.queue.get(sid))!.retry_count).toBe(2)
+
+        await goStale()
+        const r3 = await sweep(2)
+        expect(r3).toEqual({ requeued: 0, poisoned: 1, failed: 0 })
+        expect((await c.queue.get(sid))!.state).toBe('failed')
     })
 })

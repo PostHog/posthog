@@ -132,6 +132,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 conversation: [{ role: 'user', content: `msg ${i}`, timestamp: Date.now() }],
                 pending_inputs: [],
                 principal: null,
+                retry_count: 0,
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -170,6 +171,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             conversation: [{ role: 'user', content: 'first', timestamp: Date.now() }],
             pending_inputs: [],
             principal: null,
+            retry_count: 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -207,6 +209,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             conversation: [],
             pending_inputs: [],
             principal: null,
+            retry_count: 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -214,5 +217,64 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(found!.id).toBe('22222222-2222-2222-2222-222222222222')
         const missing = await queue.findByExternalKey(app.id, 'nope')
         expect(missing).toBeNull()
+    })
+
+    it('PgSessionQueue.reapStuckRunning bumps retry_count and poison-pills past threshold', async () => {
+        if (!reachable) {
+            return
+        }
+        const queue = new PgSessionQueue(pool)
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'reap', name: 'R', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by: 'u',
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const id = '33333333-3333-3333-3333-333333333333'
+        await queue.enqueue({
+            id,
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            state: 'queued',
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+        // Move into running with a backdated claimed_at so the reaper sees it.
+        await pool.query(
+            `UPDATE agent_session_v2 SET state='running', claimed_at=NOW() - interval '1 hour' WHERE id=$1`,
+            [id]
+        )
+
+        // First reap: re-queue, retry_count → 1.
+        let r = await queue.reapStuckRunning(60_000, 2)
+        expect(r).toEqual({ requeued: 1, poisoned: 0 })
+        expect((await queue.get(id))!.retry_count).toBe(1)
+
+        // Move back into running with stale claimed_at and reap again → retry_count → 2.
+        await pool.query(
+            `UPDATE agent_session_v2 SET state='running', claimed_at=NOW() - interval '1 hour' WHERE id=$1`,
+            [id]
+        )
+        r = await queue.reapStuckRunning(60_000, 2)
+        expect(r).toEqual({ requeued: 1, poisoned: 0 })
+        expect((await queue.get(id))!.retry_count).toBe(2)
+
+        // Once retry_count >= maxRetries the next stuck-running reap fails it.
+        await pool.query(
+            `UPDATE agent_session_v2 SET state='running', claimed_at=NOW() - interval '1 hour' WHERE id=$1`,
+            [id]
+        )
+        r = await queue.reapStuckRunning(60_000, 2)
+        expect(r).toEqual({ requeued: 0, poisoned: 1 })
+        expect((await queue.get(id))!.state).toBe('failed')
     })
 })

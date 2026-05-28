@@ -69,15 +69,12 @@ Tests:
 - Real-inference variant: model with a "research" skill chooses to call
   `load_skill` when relevant and ignores it otherwise.
 
-### B2. Wire provider routing through PostHog's llm-gateway
+### B2. Wire provider routing through PostHog's llm-gateway — DEFERRED
 
-Production model traffic goes through `services/llm-gateway` — one PostHog
-gateway key per deployment, not per-team API keys. `AGENT_USE_LLM_GATEWAY=1`
-already flips the runner to route every spec.model through
-`posthogLlmGatewayModel()`. Default this on for staging+prod; keep direct
-provider calls available for local dev / real-inference tests via the
-ANTHROPIC_API_KEY / OPENAI_API_KEY paths. No per-team key resolution
-needed — gateway handles tenancy.
+`services/llm-gateway` doesn't exist yet, so there's nothing to default to.
+The runner already accepts the override (`AGENT_USE_LLM_GATEWAY=1` →
+`posthogLlmGatewayModel()`), keep that available. Revisit and flip the
+default once the gateway is live.
 
 ### B3. Real Docker sandbox host image
 
@@ -125,18 +122,26 @@ Where: vendor `EncryptedFields` into `agent-shared-v2/src/encryption.ts`
 the worker's `resolveSecrets()` resolver when reading from the real
 Django table.
 
-### B8. Prior session log loading from ClickHouse on resume
+### B8. Prior session log loading from ClickHouse on resume — DEFERRED, needs design
 
-NEITHER v1 nor v2 currently does this — the Kafka sink only writes. On
-resume today both versions rebuild from `pending_inputs` + the session
-state row, not from the durable `log_entries` audit. Now that the v2
-KafkaLogSink lands, the read side becomes feasible: query `log_entries`
-for the session at turn start and rehydrate prior tool calls / assistant
-text into the pi-ai message stream.
+Neither v1 nor v2 currently does this. The Kafka sink we have writes the
+audit log; the read side (rehydrating a resumed session's prior tool
+calls + assistant text from `log_entries` into the pi-ai message stream)
+is unbuilt. **This needs proper thought before we pick an approach** —
+key questions:
 
-Where: new helper in `agent-runner-v2` (or `agent-shared-v2`) that runs a
-parameterised CH query (instance_id = session.id, ordered by timestamp)
-and emits a `Message[]` for pi-ai. Behind a feature flag while we tune.
+1. Source of truth: today the session row's `conversation` JSONB is the
+   source of truth on resume. If CH becomes a second source we need a
+   clear rule for when each wins (and how to handle divergence).
+2. Compression / windowing: full audit replay is the wrong default for
+   long-running sessions — we'll need a window or a summarization step.
+3. Schema fit: `log_entries` is event-shaped, the runner wants
+   `Message[]`. The mapping is lossy in both directions — we either pin
+   richer schema in the events, or accept the loss.
+4. Trigger semantics: do we replay on every resume, or only when the
+   session row was lost / truncated? What does the user perceive?
+
+Don't implement before agreeing on the answers above.
 
 ### B9. Durable sandbox-instances tracking
 

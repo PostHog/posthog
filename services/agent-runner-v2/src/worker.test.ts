@@ -49,6 +49,7 @@ describe('Worker', () => {
             conversation: [{ role: 'user', content: 'hello', timestamp: Date.now() }],
             pending_inputs: [],
             principal: null,
+            retry_count: 0,
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -106,6 +107,7 @@ describe('Worker', () => {
             conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
             pending_inputs: [],
             principal: null,
+            retry_count: 0,
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -156,6 +158,7 @@ describe('Worker', () => {
             conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
             pending_inputs: [],
             principal: null,
+            retry_count: 0,
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }

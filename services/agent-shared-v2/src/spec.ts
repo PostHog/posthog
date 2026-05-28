@@ -179,6 +179,12 @@ export interface AgentSession {
      * conversation list. See docs/native-refactor.md (queued-followups).
      */
     pending_inputs: ConversationMessage[]
+    /**
+     * Times the janitor has re-queued this session after a stuck-running
+     * detection. Past the configured threshold the session is failed instead
+     * (poison-pill handling). 0 for fresh sessions.
+     */
+    retry_count: number
     created_at: string
     updated_at: string
 }

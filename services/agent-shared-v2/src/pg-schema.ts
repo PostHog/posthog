@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS agent_session_v2 (
     pending_inputs  JSONB NOT NULL DEFAULT '[]'::jsonb,
     principal       JSONB,
     claimed_at      TIMESTAMPTZ,
+    -- Number of times the janitor has re-queued this session after a stuck-
+    -- running detection. Bounded by sweep policy (poison-pill threshold) —
+    -- past the limit the session is marked failed instead of re-queued.
+    retry_count     INT NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

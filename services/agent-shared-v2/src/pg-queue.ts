@@ -14,7 +14,7 @@ import { SessionQueue } from './queue'
 import { AgentSession, ConversationMessage } from './spec'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
-                     conversation, pending_inputs, principal, created_at, updated_at`
+                     conversation, pending_inputs, principal, retry_count, created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -23,8 +23,8 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(
             `INSERT INTO agent_session_v2
                 (id, application_id, revision_id, team_id, external_key, state,
-                 conversation, pending_inputs, principal, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11)
+                 conversation, pending_inputs, principal, retry_count, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -40,6 +40,7 @@ export class PgSessionQueue implements SessionQueue {
                 JSON.stringify(session.conversation),
                 JSON.stringify(session.pending_inputs),
                 session.principal ? JSON.stringify(session.principal) : null,
+                session.retry_count,
                 session.created_at,
                 session.updated_at,
             ]
@@ -156,19 +157,43 @@ export class PgSessionQueue implements SessionQueue {
         return rowToSession(r.rows[0])
     }
 
-    async reapStuckRunning(thresholdMs: number): Promise<number> {
-        // Re-queue sessions stuck in 'running' beyond the TTL. claimed_at is
-        // set at claim() time; if a worker crashes mid-turn the row stays
-        // in 'running' indefinitely without this reaper.
-        const r = await this.pool.query(
-            `UPDATE agent_session_v2
-             SET state = 'queued', updated_at = NOW()
-             WHERE state = 'running'
-               AND claimed_at IS NOT NULL
-               AND claimed_at < NOW() - ($1 || ' milliseconds')::interval`,
-            [String(thresholdMs)]
-        )
-        return r.rowCount ?? 0
+    async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
+        // Two-step: re-queue stuck sessions that still have retries left,
+        // then poison-pill those that don't. Single transaction so a session
+        // can't slip through both states in a concurrent run.
+        const client: PoolClient = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+            const requeue = await client.query(
+                `UPDATE agent_session_v2
+                 SET state = 'queued',
+                     retry_count = retry_count + 1,
+                     updated_at = NOW()
+                 WHERE state = 'running'
+                   AND claimed_at IS NOT NULL
+                   AND claimed_at < NOW() - ($1 || ' milliseconds')::interval
+                   AND retry_count < $2`,
+                [String(thresholdMs), maxRetries]
+            )
+            const poison = await client.query(
+                `UPDATE agent_session_v2
+                 SET state = 'failed',
+                     retry_count = retry_count + 1,
+                     updated_at = NOW()
+                 WHERE state = 'running'
+                   AND claimed_at IS NOT NULL
+                   AND claimed_at < NOW() - ($1 || ' milliseconds')::interval
+                   AND retry_count >= $2`,
+                [String(thresholdMs), maxRetries]
+            )
+            await client.query('COMMIT')
+            return { requeued: requeue.rowCount ?? 0, poisoned: poison.rowCount ?? 0 }
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw err
+        } finally {
+            client.release()
+        }
     }
 
     /** Test helper — list all sessions for a given application. */
@@ -194,6 +219,7 @@ interface DbRow {
     conversation: unknown
     pending_inputs: unknown
     principal: unknown
+    retry_count: number
     created_at: Date
     updated_at: Date
 }
@@ -209,6 +235,7 @@ function rowToSession(row: DbRow): AgentSession {
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],
+        retry_count: row.retry_count,
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }

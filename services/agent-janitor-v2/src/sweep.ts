@@ -23,6 +23,12 @@ export interface SweepDeps {
     /** waiting sessions older than this are marked failed. Default 24h. */
     stuckWaitingThresholdMs?: number
     /**
+     * Poison-pill threshold: a stuck-running session that has been re-queued
+     * this many times is failed instead. Catches sessions that consistently
+     * crash the worker. Default 3 (matches v1's `maxTouchCount`).
+     */
+    maxRetries?: number
+    /**
      * Candidate lister for the `waiting` policy. Production passes a function
      * that selects waiting sessions older than the threshold from PG. Tests
      * inject any AgentSession[].
@@ -33,6 +39,9 @@ export interface SweepDeps {
 
 export interface SweepResult {
     requeued: number
+    /** Stuck running sessions that exceeded the retry threshold and were failed. */
+    poisoned: number
+    /** Stuck waiting sessions that aged out past `stuckWaitingThresholdMs`. */
     failed: number
 }
 
@@ -40,11 +49,12 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
     const now = (deps.now ?? (() => new Date()))()
     const runningTtl = deps.stuckRunningThresholdMs ?? 5 * 60_000
     const waitingTtl = deps.stuckWaitingThresholdMs ?? 24 * 60 * 60_000
+    const maxRetries = deps.maxRetries ?? 3
 
-    // Policy 1: re-queue stuck running.
-    const requeued = await deps.queue.reapStuckRunning(runningTtl)
+    // Policy 1: re-queue stuck running OR poison-pill if past retry budget.
+    const { requeued, poisoned } = await deps.queue.reapStuckRunning(runningTtl, maxRetries)
 
-    // Policy 2: fail stuck waiting.
+    // Policy 2: fail stuck waiting (unanswered user prompts).
     let failed = 0
     if (deps.listWaitingCandidates) {
         const candidates = await deps.listWaitingCandidates()
@@ -59,5 +69,5 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
             }
         }
     }
-    return { requeued, failed }
+    return { requeued, poisoned, failed }
 }

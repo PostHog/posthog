@@ -25,6 +25,7 @@ async function main(): Promise<void> {
         queue,
         stuckRunningThresholdMs: parseInt(process.env.STUCK_RUNNING_MS ?? `${5 * 60_000}`, 10),
         stuckWaitingThresholdMs: parseInt(process.env.STUCK_WAITING_MS ?? `${24 * 60 * 60_000}`, 10),
+        maxRetries: parseInt(process.env.MAX_RETRIES ?? '3', 10),
     }
     const app = buildJanitorApp({ queue, sweep, internalSecret: process.env.INTERNAL_SECRET })
     app.listen(port, () => {
