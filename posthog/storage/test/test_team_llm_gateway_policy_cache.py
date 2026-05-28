@@ -164,19 +164,42 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
-    def test_non_token_save_does_not_clear_old_token_cache(
-        self, mock_delay, mock_clear, mock_settings, mock_transaction
-    ):
-        """A save that does not touch api_token must not trigger the clear path."""
+    def test_unrelated_save_does_not_clear_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
+        """A save that touches neither api_token nor llm_gateway_revoked_at must
+        not invalidate the cache; the async task still refreshes the blob."""
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
+        self.team.name = "Renamed"
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
         mock_clear.assert_not_called()
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_setting_revoked_at_clears_current_token_cache_on_commit(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Setting llm_gateway_revoked_at must invalidate the current token's
+        cache entry synchronously on commit. The async refresh task can lag,
+        so without a synchronous clear, the stale active policy stays usable
+        for the full cache TTL and a holder of the token keeps hitting the
+        gateway as if the team were active.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
