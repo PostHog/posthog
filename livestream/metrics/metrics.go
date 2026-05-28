@@ -29,10 +29,6 @@ var (
 		Name: "livestream_events_dropped_no_token_total",
 		Help: "Events dropped after parsing because no token could be extracted",
 	})
-	StatsChanFull = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "livestream_stats_chan_full_total",
-		Help: "Times the stats channel was full and a CountEvent was dropped",
-	})
 	NotificationErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "livestream_notification_errors_total",

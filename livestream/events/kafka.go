@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -138,6 +139,10 @@ type PostHogKafkaConsumer struct {
 	statsChan      chan CountEvent
 	parallel       int
 	Broker         *RedisEventBroker
+	// Shared across all runParsing goroutines so the log cadence is global,
+	// not per-worker. The Prometheus counter is already global; this keeps
+	// the log line consistent with it.
+	droppedNoToken atomic.Uint64
 }
 
 func NewPostHogKafkaConsumer(
@@ -224,7 +229,6 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 }
 
 func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
-	var droppedNoToken uint64
 	for {
 		value, ok := <-c.incoming
 		if !ok {
@@ -232,17 +236,22 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 		}
 		phEvent := parse(c.geolocator, c.botClassifier, value)
 		if phEvent.Token == "" {
-			droppedNoToken++
 			metrics.EventsDroppedNoToken.Inc()
-			if droppedNoToken <= 5 || droppedNoToken%10000 == 0 {
-				log.Printf("Events dropped (no token): count=%d", droppedNoToken)
+			n := c.droppedNoToken.Add(1)
+			if n <= 5 || n%10000 == 0 {
+				log.Printf("Events dropped (no token): count=%d", n)
 			}
 			continue
 		}
+		// Blocking send: matches session_recording_consumer's policy so
+		// stats stay in sync with delivered events. statsChan is buffered
+		// at 10K (see main.go); a sustained full channel signals a real
+		// problem with the stats keeper that we want to back-pressure on,
+		// not silently swallow.
 		select {
 		case c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}:
-		default:
-			metrics.StatsChanFull.Inc()
+		case <-ctx.Done():
+			return
 		}
 		if c.Broker != nil {
 			c.Broker.Publish(ctx, phEvent)
