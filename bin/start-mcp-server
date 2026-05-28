@@ -15,15 +15,5 @@ else
     if [ ! -f .dev.vars ]; then
         cp .dev.vars.example .dev.vars
     fi
-
-    # POSTHOG_API_BASE_URL is left at localhost on devboxes too: it's the only
-    # host that satisfies both OAuth legs at once. The metadata advertised at
-    # /.well-known/oauth-protected-resource is fetched unauthenticated by the
-    # MCP client and must return JSON, while the /oauth/authorize URL handed
-    # to the browser must be reachable from the laptop. The Coder per-workspace
-    # subdomain fails the first leg (its auth proxy 303s machine requests to
-    # an HTML login page, breaking JSON discovery), so we keep localhost and
-    # rely on SSH LocalForward (wired in by hogli devbox setup) to tunnel
-    # laptop localhost:8010 to the devbox.
     exec pnpm run dev
 fi

@@ -176,7 +176,7 @@ devbox:
         description: Show devbox status
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
-        description: Forward PostHog UI to localhost
+        description: Forward a devbox port to localhost
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)

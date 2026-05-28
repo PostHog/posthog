@@ -1494,9 +1494,13 @@ def devbox_forward(workspace: str | None, port: int, remote: int) -> None:
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     if not _local_port_is_available(port):
+        # Preserve --remote in the retry hint so a non-default tunnel
+        # (e.g. --remote 8787 for the MCP server) doesn't silently revert
+        # to the UI port when the dev follows the suggestion verbatim.
+        remote_flag = "" if remote == 8010 else f" --remote {remote}"
         _fail(
             f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
+            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}{remote_flag}`."
         )
 
     click.echo(f"Forwarding {name}:{remote} -> localhost:{port}")

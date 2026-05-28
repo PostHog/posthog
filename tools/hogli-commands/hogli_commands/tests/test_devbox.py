@@ -1481,6 +1481,21 @@ class TestDevboxCommands:
         assert result.exit_code == 1
         assert "Local port 8010 is already in use." in result.output
         assert "hogli devbox:forward --port 8011" in result.output
+        # No --remote in the retry hint when the user used the default; otherwise we'd
+        # suggest a noisier command than necessary.
+        assert "--remote" not in result.output
+
+    def test_devbox_forward_collision_hint_preserves_remote(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Regression: the retry suggestion used to drop --remote, silently switching
+        # a non-default tunnel (e.g. the MCP server on 8787) back to the UI port.
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
+
+        result = runner.invoke(cli, ["devbox:forward", "--port", "8787", "--remote", "8787"])
+
+        assert result.exit_code == 1
+        assert "hogli devbox:forward --port 8788 --remote 8787" in result.output
 
 
 @pytest.fixture
