@@ -30122,7 +30122,8 @@ export namespace Schemas {
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token?: string | null;
-      readonly updated_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
       readonly uuid?: string;
       readonly api_token?: string;
       app_urls?: (string | null)[];
@@ -33156,7 +33157,8 @@ export namespace Schemas {
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
       readonly live_events_token: string | null;
-      readonly updated_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
       readonly uuid: string;
       readonly api_token: string;
       app_urls?: (string | null)[];
