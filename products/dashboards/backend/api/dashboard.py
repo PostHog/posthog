@@ -55,7 +55,9 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -938,6 +940,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if insight_ids_to_delete:
                 # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
+                # Bulk update bypasses signals, so the FileSystemSyncMixin can't prune the
+                # corresponding FileSystem rows. Without this, stale entries linger in the
+                # Recents sidebar and clicking them lands on an "Insight not found" page.
+                DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
@@ -950,6 +956,37 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile.insight.deleted = False
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+        # bulk_update also bypasses signals — re-sync FileSystem so restored insights reappear.
+        if insights_to_undelete:
+            DashboardSerializer._sync_filesystem_for_insights(
+                [insight.id for insight in insights_to_undelete], instance.team_id
+            )
+
+    @staticmethod
+    def _sync_filesystem_for_insights(insight_ids: list[int], team_id: int) -> None:
+        """Re-run FileSystem sync for insights whose ``deleted`` flag was changed via bulk update."""
+        # nosemgrep: idor-lookup-without-team (caller passed a team-scoped id list)
+        insights = Insight.objects.filter(id__in=insight_ids, team_id=team_id).select_related("team")
+        for insight in insights:
+            fs_data = insight.get_file_system_representation()
+            try:
+                if fs_data.should_delete:
+                    delete_file(team=insight.team, file_type=fs_data.type, ref=fs_data.ref)
+                else:
+                    create_or_update_file(
+                        team=insight.team,
+                        base_folder=fs_data.base_folder,
+                        name=fs_data.name,
+                        file_type=fs_data.type,
+                        ref=fs_data.ref,
+                        href=fs_data.href,
+                        meta=fs_data.meta,
+                        created_at=fs_data.meta.get("created_at") or insight.created_at,
+                        created_by_id=fs_data.meta.get("created_by") or insight.created_by_id,
+                    )
+            except Exception as exc:
+                # Mirror the signal-handler stance: never raise from sync, but surface it.
+                capture_exception(exc, additional_properties={"insight_id": insight.id, "team_id": team_id})
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
