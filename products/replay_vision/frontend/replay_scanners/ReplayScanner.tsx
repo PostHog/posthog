@@ -57,6 +57,16 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
     }
 
     const tabs: (LemonTab<EditorTab> | false)[] = [
+        !isNew && {
+            key: 'observations' as EditorTab,
+            label: 'Observations',
+            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
+        },
+        {
+            key: 'triggers',
+            label: 'Triggers',
+            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
+        },
         {
             key: 'configuration',
             label: 'Configuration',
@@ -110,26 +120,13 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                                 <LemonSwitch checked={!!value} onChange={onChange} />
                                 <div>
                                     <div className="text-sm font-medium">Emit PostHog Signals</div>
-                                    <div className="text-xs text-muted">
-                                        When on, the model also identifies actionable issues that feed into PostHog
-                                        Signals.
-                                    </div>
+                                    <div className="text-xs text-muted">Also flags actionable issues as Signals.</div>
                                 </div>
                             </div>
                         )}
                     </Field>
                 </div>
             ),
-        },
-        {
-            key: 'triggers',
-            label: 'Triggers',
-            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
-        },
-        !isNew && {
-            key: 'observations' as EditorTab,
-            label: 'Observations',
-            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
         },
     ]
 

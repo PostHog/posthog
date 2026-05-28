@@ -380,7 +380,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         coordinator_start_time = temporalio.workflow.time()
         percentile_bucket = get_percentile_bucket_label(inputs.duration_percentile_min, inputs.duration_percentile_max)
 
-        workflow_logger = temporalio.workflow.logger
+        workflow_logger = LOGGER.bind()
         workflow_logger.info("Starting realtime cohort calculation coordinator", parallelism=inputs.parallelism)
         workflow_logger.info(
             "Cohort selection config", team_ids=inputs.team_ids, global_percentage=inputs.global_percentage

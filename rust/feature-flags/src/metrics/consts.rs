@@ -70,6 +70,12 @@ pub const FLAG_RATE_LIMIT_CHECK_TIME_MS: &str = "flags_rate_limit_check_ms";
 // raw body). Pathological large bodies are the suspected outlier driver.
 pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
 
+// Counter of FLAGS_LOG_BODIES_TEAMS refresh attempts. Labeled by
+// `result="success"|"failure"`. Emit absence-of-success alerts on this
+// (e.g., `rate(flags_body_log_refresh_total{result="success"}[10m]) == 0`)
+// to detect a stuck cache while DB or parse errors keep firing.
+pub const FLAG_BODY_LOG_REFRESH_TOTAL: &str = "flags_body_log_refresh_total";
+
 // Permit-acquisition wait time on the tower `ConcurrencyLimitLayer`.
 // Populated by Phase F; emitted only when populated. No `team_id` label
 // because permit wait is a property of pod-level load, not of any one team.

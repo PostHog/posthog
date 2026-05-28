@@ -1277,6 +1277,14 @@ class ClickHousePrinter(BasePrinter):
         elif node.op == ast.CompareOperationOp.In:
             return op
         elif node.op == ast.CompareOperationOp.NotIn:
+            # With transform_null_in=1, ClickHouse rewrites notIn() to notNullIn().
+            # In Distributed aggregate plans this can make the coordinator expect
+            # a pre-rewrite aggregate column name while shards return the rewritten
+            # one, e.g. minIf(..., notIn(...)) vs minIf(..., notNullIn(...)).
+            # Wrapping nullable NOT IN matches the existing nullable materialized
+            # column path and preserves transform_null_in=1 semantics.
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             pass

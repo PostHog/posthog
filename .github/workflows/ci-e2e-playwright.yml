@@ -6,9 +6,6 @@
 name: E2E CI Playwright
 on:
     pull_request:
-        # `labeled` lets developers opt in via the `run-playwright` label.
-        # Unrelated label changes are filtered out in the `changes` job.
-        types: [opened, synchronize, reopened, labeled]
     workflow_dispatch:
     push:
         branches:
@@ -66,20 +63,14 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run on master push, manual dispatch, and on internal-repo PRs. Skip the
-        # entire workflow when the only thing that changed is some other label (avoids
-        # noisy runs on every label add/remove unrelated to Playwright).
+        # Run on master push, manual dispatch, and on internal-repo PRs.
         if: |
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            (
-              github.event.pull_request.head.repo.full_name == github.repository &&
-              (github.event.action != 'labeled' || github.event.label.name == 'run-playwright')
-            )
+            github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
-            shouldSuggest: ${{ steps.changes.outputs.shouldSuggest }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
@@ -101,24 +92,14 @@ jobs:
 
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: changes
-              # Skip the path filter when the `run-playwright` label is set or on master push —
-              # both already imply we want to run.
-              if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'run-playwright')
+              if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      mustRun:
-                        # Real triggers — only this workflow runs Playwright tests, so changes
-                        # to the tests, page models, utils, snapshots, or this workflow itself
-                        # need to validate before merge.
+                      shouldRun:
+                        # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
                         - .github/workflows/ci-e2e-playwright.yml
-                      shouldSuggest:
-                        # Wider net — code that *could* affect E2E behavior. We don't auto-run
-                        # Playwright on these (most failures are flakes, real bugs are caught
-                        # elsewhere or fix-forward from master). Instead the `suggest-label` job
-                        # nudges the author to add the `run-playwright` label if they want a
-                        # full sweep before merging.
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
@@ -135,10 +116,9 @@ jobs:
               env:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
-                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
-                  MUST_RUN: ${{ steps.changes.outputs.mustRun }}
+                  SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$HAS_LABEL" == "true" || "$MUST_RUN" == "true" ]]; then
+                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
@@ -179,76 +159,6 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                   fi
 
-    # Nudge the author to add the `run-playwright` label when their PR touches code
-    # that *could* affect E2E behavior but doesn't trigger a real run on its own.
-    # Also handles cleanup: if the PR later qualifies for a real run (label added,
-    # narrow paths matched), remove the suggestion comment so it doesn't linger.
-    suggest-label:
-        name: Suggest run-playwright label
-        needs: [changes]
-        if: |
-            github.event_name == 'pull_request' && (
-              needs.changes.outputs.shouldSuggest == 'true' ||
-              needs.changes.outputs.shouldRun == 'true'
-            )
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        permissions:
-            pull-requests: write
-        steps:
-            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-              env:
-                  SHOULD_RUN: ${{ needs.changes.outputs.shouldRun }}
-                  SHOULD_SUGGEST: ${{ needs.changes.outputs.shouldSuggest }}
-                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const marker = '<!-- playwright-suggest-label -->';
-                      const shouldRun = process.env.SHOULD_RUN === 'true';
-                      const shouldSuggest = process.env.SHOULD_SUGGEST === 'true';
-                      const hasLabel = process.env.HAS_LABEL === 'true';
-                      const wantSuggestion = !shouldRun && shouldSuggest && !hasLabel;
-
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-
-                      if (wantSuggestion) {
-                          const body = [
-                              marker,
-                              "🎭 **Playwright didn't run on this PR** — your changes touch code that *could* affect E2E behavior, but Playwright is opt-in via label now to keep CI cost down.",
-                              "",
-                              "Add the **`run-playwright`** label if you want an E2E sweep before merging — CI will pick it up automatically.",
-                              "",
-                              "_Most PRs don't need this. Real regressions still get caught on master and fix-forward._",
-                          ].join('\n');
-                          if (existing) {
-                              await github.rest.issues.updateComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                                  body,
-                              });
-                          } else {
-                              await github.rest.issues.createComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  issue_number: context.issue.number,
-                                  body,
-                              });
-                          }
-                      } else if (existing) {
-                          await github.rest.issues.deleteComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                          });
-                      }
-
     playwright:
         name: Playwright E2E tests
         needs: [changes]
@@ -258,6 +168,9 @@ jobs:
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
+        permissions:
+            contents: read
+            pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
@@ -266,6 +179,10 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   clean: false
+                  # PR-controlled code runs in this job (pnpm installs, Playwright tests). Don't leave
+                  # GITHUB_TOKEN in .git/config where that code could read it — the comment step
+                  # below receives the token explicitly via its `github-token:` input instead.
+                  persist-credentials: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -471,7 +388,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
               # Cache key is the merge-base SHA — produced by ci-backend on master push.

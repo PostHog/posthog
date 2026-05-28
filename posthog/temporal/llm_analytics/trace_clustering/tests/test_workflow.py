@@ -1,22 +1,31 @@
 """Tests for trace clustering workflow."""
 
+import uuid
+
 import pytest
 
 import numpy as np
+from temporalio import activity
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.llm_analytics.trace_clustering.clustering import perform_kmeans_with_optimal_k
 from posthog.temporal.llm_analytics.trace_clustering.constants import DEFAULT_MAX_SAMPLES
 from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusterAggregateMetrics,
     ClusteringActivityInputs,
     ClusteringComputeResult,
+    ClusteringResult,
     ClusteringWorkflowInputs,
     ClusterItem,
     ClusterLabel,
+    ComputeAggregatesActivityInputs,
     EmitEventsActivityInputs,
     GenerateLabelsActivityInputs,
     GenerateLabelsActivityOutputs,
     TraceLabelingMetadata,
 )
+from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
 
 @pytest.fixture
@@ -262,3 +271,74 @@ class TestActivityInputOutputModels:
         assert len(inputs.centroid_coords_2d) == 2
         assert inputs.job_id == ""
         assert inputs.job_name == ""
+
+
+class TestEmptyComputeResultShortCircuit:
+    """Empty compute results must not trigger labeling/aggregates/emission.
+
+    Emitting an empty $ai_*_clusters event would re-enroll the team in
+    discovery for the next 30 days (see fix #1 in the loop bug analysis).
+    """
+
+    @staticmethod
+    def _build_short_circuit_activities() -> dict[str, list[str]]:
+        return {"calls": []}
+
+    @pytest.mark.asyncio
+    async def test_empty_compute_skips_label_aggregates_and_emit(self):
+        calls: list[str] = []
+
+        @activity.defn(name="perform_clustering_compute_activity")
+        async def mock_compute(inputs: ClusteringActivityInputs) -> ClusteringComputeResult:
+            calls.append("compute")
+            return ClusteringComputeResult(
+                clustering_run_id="run-empty",
+                items=[],
+                labels=[],
+                centroids=[],
+                distances=[],
+                coords_2d=[],
+                centroid_coords_2d=[],
+                probabilities=[],
+                analysis_level=inputs.analysis_level,
+                num_noise_points=0,
+                batch_run_ids={},
+            )
+
+        @activity.defn(name="generate_cluster_labels_activity")
+        async def mock_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
+            calls.append("labels")
+            return GenerateLabelsActivityOutputs(cluster_labels={})
+
+        @activity.defn(name="compute_cluster_aggregates_activity")
+        async def mock_aggregates(inputs: ComputeAggregatesActivityInputs) -> dict[int, ClusterAggregateMetrics]:
+            calls.append("aggregates")
+            return {}
+
+        @activity.defn(name="emit_cluster_events_activity")
+        async def mock_emit(inputs: EmitEventsActivityInputs) -> ClusteringResult:
+            calls.append("emit")
+            raise AssertionError("emit must not be called when compute returns no items")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[DailyTraceClusteringWorkflow],
+                activities=[mock_compute, mock_labels, mock_aggregates, mock_emit],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: ClusteringResult = await env.client.execute_workflow(
+                    DailyTraceClusteringWorkflow.run,
+                    ClusteringWorkflowInputs(team_id=1, lookback_days=7),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == ["compute"]
+        assert result.metrics.total_items_analyzed == 0
+        assert result.metrics.num_clusters == 0
+        assert result.clusters == []
+        assert result.clustering_run_id == "run-empty"
+        assert result.team_id == 1

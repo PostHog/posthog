@@ -1504,6 +1504,7 @@ export namespace Schemas {
     export const ParserMode = {
       CppOnly: 'cpp_only',
       CppWithRustShadow: 'cpp_with_rust_shadow',
+      CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
       RustWithCppShadow: 'rust_with_cpp_shadow',
       RustOnly: 'rust_only',
       RustPyOnly: 'rust_py_only',
@@ -1580,7 +1581,7 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
-      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+      /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -20430,6 +20431,27 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
     } as const;
 
+    /**
+     * Typed output for view set `list`.
+     */
+    export interface ListOutput {
+      /** ID of the file download batch export run. */
+      id: string;
+      /** Current status of the file download batch export run.
+
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `FailedBilling` - Failed Billing
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
+      status: BatchExportRunStatusEnum;
+    }
+
     export interface LiveDebuggerBreakpoint {
       readonly id: string;
       /** @nullable */
@@ -21611,6 +21633,15 @@ export namespace Schemas {
       readonly sync_interval: string | null;
     }
 
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    export type NotebookParentResource = {
+      readonly type: 'account';
+      readonly id: string;
+    } | null;
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -21646,6 +21677,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+         * @nullable
+         */
+      readonly parent_resource: NotebookParentResource;
       _create_in_folder?: string;
     }
 
@@ -23027,6 +23063,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedListOutputList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ListOutput[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
@@ -28856,6 +28901,15 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
     }
 
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    export type PatchedNotebookParentResource = {
+      readonly type: 'account';
+      readonly id: string;
+    } | null;
+
     export interface PatchedNotebook {
       /** UUID of the notebook. */
       readonly id?: string;
@@ -28891,6 +28945,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /**
+         * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+         * @nullable
+         */
+      readonly parent_resource?: PatchedNotebookParentResource;
       _create_in_folder?: string;
     }
 
@@ -38814,6 +38873,10 @@ export namespace Schemas {
     event?: string;
     format?: EnvironmentsEventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -38849,6 +38912,10 @@ export namespace Schemas {
 
     export type EnvironmentsEventsRetrieveParams = {
     format?: EnvironmentsEventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EnvironmentsEventsRetrieveFormat = typeof EnvironmentsEventsRetrieveFormat[keyof typeof EnvironmentsEventsRetrieveFormat];
@@ -38949,6 +39016,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsFileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
@@ -43892,6 +43970,10 @@ export namespace Schemas {
     event?: string;
     format?: EventsListFormat;
     /**
+     * Include person details for each event. Default: false.
+     */
+    include_person?: boolean;
+    /**
      * The maximum number of results to return
      */
     limit?: number;
@@ -43927,6 +44009,10 @@ export namespace Schemas {
 
     export type EventsRetrieveParams = {
     format?: EventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EventsRetrieveFormat = typeof EventsRetrieveFormat[keyof typeof EventsRetrieveFormat];
@@ -44243,6 +44329,17 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type FileDownloadBatchExportsLogsRetrieveParams = {
@@ -46849,6 +46946,11 @@ export namespace Schemas {
      * Filter to a single workflow (e.g. 'onboarding').
      */
     workflow_id?: string;
+    };
+
+    export type WizardSessionsStreamRetrieveParams = {
+    skill_id?: string;
+    workflow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
