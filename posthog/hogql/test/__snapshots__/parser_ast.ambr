@@ -1298,6 +1298,26 @@
   }
   '''
 # ---
+# name: test_byte_order_mark_does_not_break_parse[let_x_1-bccdb443]
+  '''
+  {
+    declarations: [
+      {
+        end: 10
+        expr: {
+          end: 10
+          start: 9
+          value: 1
+        }
+        name: "x"
+        start: 0
+      }
+    ]
+    end: 10
+    start: 0
+  }
+  '''
+# ---
 # name: test_call_arg_select_releases_when_followed_by_keyword_infix[f_SELECT_1-bc5c7d75]
   '''
   {

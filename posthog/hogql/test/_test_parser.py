@@ -366,7 +366,11 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr(f"1{space}+{space}2"), self._expr("1 + 2"))
 
         def test_byte_order_mark_does_not_break_parse(self):
-            # A file saved with a leading UTF-8 byte-order mark still parses.
+            # A file saved with a leading UTF-8 byte-order mark still parses, AND the BOM is zero-width to cpp's
+            # ANTLR lexer: every char offset is reckoned from the char AFTER the BOM. `_assert_ast` pins the exact
+            # span (via the cross-backend snapshot) so a parser that counts the BOM as 1 char (rust's natural
+            # `byte_to_char_index` behaviour, before the leading-BOM adjustment) fails here.
+            self._assert_ast("﻿let x := 1", "program")
             self.assertEqual(self._program("﻿let x := 1"), self._program("let x := 1"))
 
         def test_booleans(self):

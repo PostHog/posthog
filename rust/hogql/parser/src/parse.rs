@@ -320,6 +320,12 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// `start=None` (e.g. an injected database `ExpressionField`) carries no
     /// meaningful source spans, so cpp emits none and we must match.
     pub(crate) suppress_pos: bool,
+    /// UTF-8 byte length of a leading BOM (3) or 0 if none. cpp's ANTLR
+    /// lexer treats a leading `U+FEFF` as zero-width: every emitted char
+    /// offset is reckoned from the char AFTER the BOM, so `let` at byte 3
+    /// gets char offset 0 (not 1). `pos_obj` subtracts this width past the
+    /// BOM so rust matches.
+    pub(crate) leading_bom_bytes: usize,
     /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,
 }
@@ -360,6 +366,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             is_ascii_src,
             recursion_depth: 0,
             suppress_pos: false,
+            leading_bom_bytes: if src.starts_with('\u{FEFF}') { 3 } else { 0 },
             emit,
         })
     }
@@ -495,15 +502,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if self.is_ascii_src {
             return self.emit.position(line, byte_col, byte_offset);
         }
-        let char_offset = self.byte_to_char_index(byte_offset);
+        let mut char_offset = self.byte_to_char_index(byte_offset);
         // Column needs to be characters-in-line, not bytes-in-line. For
         // lines with multi-byte chars we count chars between the line
         // start and the offset.
-        let column = if byte_col == 0 {
+        let mut column = if byte_col == 0 {
             0
         } else {
             self.src[line_start_byte..byte_offset].chars().count() as u32
         };
+        // cpp's ANTLR lexer treats a leading UTF-8 BOM (`U+FEFF`, 3 bytes / 1 char) as zero-width: every char offset
+        // it reports is reckoned from the char AFTER the BOM, and the BOM contributes no column on line 1. Mirror
+        // that here past the BOM byte boundary — without this, every offset is `+1` and a BOM-prefixed source
+        // diverges from cpp at every node.
+        if self.leading_bom_bytes > 0 && byte_offset >= self.leading_bom_bytes {
+            char_offset = char_offset.saturating_sub(1);
+            if line == 1 {
+                column = column.saturating_sub(1);
+            }
+        }
         self.emit.position(line, column, char_offset)
     }
 
