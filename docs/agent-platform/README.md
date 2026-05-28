@@ -13,6 +13,10 @@ the "open questions" section once they're answered by the implementation).
 
 ## docs/ (what exists)
 
+- [`local-dev.md`](docs/local-dev.md) — bringing the stack up locally, the
+  three paths to drive it (`bin/run-agent`, `bin/seed-agent-session`, local
+  MCP), the e2e test harness in `services/agent-tests`, the
+  vital-feature-needs-a-case rule, debugging recipes.
 - [`deploy-runbook.md`](docs/deploy-runbook.md) — env vars + smoke tests for the
   three node services (ingress, runner, janitor) and Django, the two-DB
   topology, what to set per environment.
@@ -26,11 +30,8 @@ layer lands._
 
 Start with [`_ROADMAP.md`](plans/_ROADMAP.md) for the sequenced view across
 all plans and the shared cross-cuts between them. [`_TODO.md`](plans/_TODO.md)
-is the queue of features waiting for a plan (currently empty — every bullet
-has a design doc).
+is the queue of features waiting for a plan.
 
-- [`outstanding-work.md`](plans/outstanding-work.md) — the running TODO across the
-  v2 packages. Authoritative index of in-flight / deferred items.
 - [`agent-authoring-flow.md`](plans/agent-authoring-flow.md) — speculative
   end-to-end design for an MCP-driven authoring AI: discovery → spec → secrets
   punch-out → bundle authoring → test runs with assertions → self-evaluation
