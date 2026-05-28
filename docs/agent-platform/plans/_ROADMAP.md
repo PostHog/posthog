@@ -42,7 +42,30 @@ Higher layers depend on lower ones. We can build laterally within a
 layer; we shouldn't reach down across layers without the foundation
 in place.
 
-## A. Lifecycle foundation
+## Ownership
+
+Staffed across three parallel workstreams for a team of 2 engineers +
+1 UI loaner. The detailed sequencing/capacity view lives in the
+team note; this is the at-a-glance map.
+
+- **W1 — Lifecycle & Trust (Dyl):** the serial spine. B.1 security
+  patch → A → B.1 → B.2 → B.3. One owner because it's all the same
+  state-machine + spec surface.
+- **W2 — Capabilities & Concierge (Danilo):** the spine-independent
+  backend, parallel from day one. per-turn-cost → streaming → runtime-mcps → revision-routing / draft-preview-auth → cron (after A) → C.1 sandboxed (after B.2).
+- **W3 — Human surfaces & Observability (Ben):** console + `@posthog/agent-chat`
+  as the long pole, plus just-in-time UI tabs (elevation, approvals,
+  proposals, session log, preview-URL) that land as each W1/W2 backend
+  merges. `ai_events` emission. make UI useful and build an agent from the app.
+
+Two cross-stream contracts to lock early: the **activity-log helper**
+(W1 B.1, reused by B.2/B.3/C.1) and the **SSE delta shapes** (W2
+streaming, consumed by the W3 chat package + session viewer).
+
+Owner tags appear inline on each plan below as **Dylan** / **Danilo** /
+**Ben**.
+
+## A. Lifecycle foundation — **Dylan**
 
 The keystone. Every plan above this depends on the state machine and
 spec shape it introduces.
@@ -61,12 +84,12 @@ spec shape it introduces.
 - Janitor extension: `compactAged`, `wakeFromSuspended` policies.
 - `external_key_reuse` policy on the trigger ingress.
 
-## B. Trust & control
+## B. Trust & control — **Dylan**
 
 Three plans that, together, establish "who can do what" on a session.
 Implementation order within this layer matters.
 
-### B.1 [`per-session-access-elevation.md`](per-session-access-elevation.md)
+### B.1 [`per-session-access-elevation.md`](per-session-access-elevation.md) — **Dylan** (UI panel **Ben**)
 
 **Sequence first.** This plan closes a **real security gap today**:
 Slack thread replies bypass the strict-principal check that chat /
@@ -77,7 +100,7 @@ any UX work.
 It also introduces the **activity-log integration** for the agent
 platform — a shared dependency the next two plans rely on.
 
-### B.2 [`approval-gated-tools.md`](approval-gated-tools.md)
+### B.2 [`approval-gated-tools.md`](approval-gated-tools.md) — **Dylan** (approvals tab **Ben**)
 
 Per-tool `requires_approval` flag on `AgentSpec`; runner intercepts
 the call before dispatch; `PendingApproval` table; UI + MCP approval
@@ -86,7 +109,7 @@ surfaces. Composes with the elevation plan's principal model — the
 the same `SessionPrincipal` shape, and elevation grants automatically
 widen who's eligible to approve when `approvers` includes scopes.
 
-### B.3 [`rate-limiting-sessions.md`](rate-limiting-sessions.md)
+### B.3 [`rate-limiting-sessions.md`](rate-limiting-sessions.md) — **Dylan**
 
 Per-agent caps in spec; per-team platform safety net; two-stage
 admission (ingress depth check + claim concurrent check); open-ask
@@ -106,7 +129,7 @@ in this layer because it observes/measures both of them.
 Once trust + control exists, capability extensions become safe to
 build on top.
 
-### C.1 [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md)
+### C.1 [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md) — **Danilo** (after B.2)
 
 Trust profiles (`none` → `frozen` → `repo-readonly` → `repo-write` →
 `repo-pr`); promotes the existing `sandbox-modal.ts` stub to
@@ -115,25 +138,25 @@ channel for non-inline output. Hard-depends on **B.2** (every
 `repo-pr` tool is mandatorily approval-gated) and **B.1** (high-trust
 agents need strict principal enforcement).
 
-### C.2 [`runtime-mcps.md`](runtime-mcps.md)
+### C.2 [`runtime-mcps.md`](runtime-mcps.md) — **Danilo**
 
 `spec.mcps[]` runtime support for agents that consume third-party
 MCP servers (TODO C6). Independent of **C.1**; can ship in parallel.
 
-### C.3 [`skill-templates.md`](skill-templates.md)
+### C.3 [`skill-templates.md`](skill-templates.md) — **Danilo** / next epoch (library UI **Ben**)
 
 `SkillTemplate` + `CustomToolTemplate` library design (TODO C5).
 Independent of **C.1** and **C.2**; can ship in parallel. Useful
 input for the authoring layer.
 
-### C.4 [`resumable-conversations.md`](resumable-conversations.md)
+### C.4 [`resumable-conversations.md`](resumable-conversations.md) — **Danilo** / next epoch (log rendering **Ben**)
 
 The read side of long-running sessions — loading prior session logs
 from ClickHouse on resume / display (TODO B8). Depends on **A** for
 the source-of-truth contract (conversation JSONB is canonical for
 live state; ClickHouse is the audit log for display).
 
-### C.5 [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md)
+### C.5 [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md) — **Danilo** (after A)
 
 Wakes `cron`-trigger agents from the janitor. Small platform piece
 sitting under C because it's a capability extension; depends on **A**
@@ -146,11 +169,13 @@ coalesce into one long-running session. Required for **D.2** v3.
   "tool result is too big to inline → artifact handle" path exists,
   every other tool can return artifacts.
 
-## D. Authoring & self-improvement
+## D. Authoring & self-improvement — **Danilo**
 
-The top layer: agents that operate on agents.
+The top layer: agents that operate on agents. Deferred to the next
+planning cycle — except the `ai_events` emission carve-out below, which
+**W2** ships now because it's independent and unlocks observability today.
 
-### D.1 [`agent-authoring-flow.md`](agent-authoring-flow.md)
+### D.1 [`agent-authoring-flow.md`](agent-authoring-flow.md) — next epoch
 
 Speculative end-to-end design for an MCP-driven authoring AI:
 discovery → spec → secrets punch-out → bundle authoring → test runs
@@ -161,7 +186,7 @@ build, and embeds the reference authoring skill.
 Foundational for **D.2** — the `agent_test_session` infrastructure +
 judge skill defined here are reused verbatim.
 
-### D.2 [`self-healing-agents.md`](self-healing-agents.md)
+### D.2 [`self-healing-agents.md`](self-healing-agents.md) — §11 v0 **Danilo** now; rest next epoch
 
 An agent that introspects its own historical sessions via LLM
 analytics (`ai_events`, not `agent_session` JSONB), stratified-samples
@@ -177,7 +202,7 @@ judge infrastructure, and lands a draft for human review.
   `$agent_application_id` + `$agent_revision_id`. This is the
   single biggest pre-D.2 piece of work.
 
-## E. Human surfaces
+## E. Human surfaces — **Ben**
 
 The console. Read-mostly UI for the broader human audience —
 reviewers, operators, and authors who don't drive the MCP directly.
