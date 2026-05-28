@@ -201,9 +201,9 @@ function parseOwners(owners) {
 async function getReviewersForChangedFiles() {
     const codeownersPath = '.github/CODEOWNERS-soft'
     // products/<name>/product.yaml is the source of truth for product team
-    // ownership; we layer those rules on top of CODEOWNERS-soft so the file
-    // only needs to carry sub-folder overrides and secondary reviewers.
-    const rules = [...parseCodeowners(codeownersPath), ...loadProductYamlRules()]
+    // ownership; CODEOWNERS-soft is layered on top so sub-folder overrides and
+    // secondary reviewers in that file win under the last-match-wins logic below.
+    const rules = [...loadProductYamlRules(), ...parseCodeowners(codeownersPath)]
     const changedFiles = await getChangedFiles()
 
     console.info(`Found ${changedFiles.length} changed files:`)
@@ -213,37 +213,31 @@ async function getReviewersForChangedFiles() {
     const allTeams = new Set()
     const allUsers = new Set()
 
-    console.info('Processing CODEOWNERS rules...')
+    // Match GitHub's CODEOWNERS semantics: for each file, only the LAST matching
+    // rule applies. This lets a narrow sub-folder rule override a broader parent
+    // by listing it later — and CODEOWNERS-soft, loaded after product.yaml, can
+    // override the broad product-level ownership for specific paths.
+    console.info('Resolving CODEOWNERS rules (last match wins per file)...')
 
-    for (const rule of rules) {
-        const { pattern, owners } = rule
-        console.info(`Checking pattern: ${pattern}`)
+    for (const file of changedFiles) {
+        let matchedRule = null
 
-        let patternMatches = false
-
-        for (const file of changedFiles) {
-            if (fileMatchesPattern(file, pattern)) {
-                console.info(`  ✓ File ${file} matches pattern ${pattern}`)
-                patternMatches = true
-                break
+        for (const rule of rules) {
+            if (fileMatchesPattern(file, rule.pattern)) {
+                matchedRule = rule
             }
         }
 
-        if (patternMatches) {
-            const { teams, users } = parseOwners(owners)
-
-            console.info(`  Adding owners: ${owners.join(', ')}`)
-
-            teams.forEach((team) => {
-                allTeams.add(team)
-                console.info(`    Team: ${team}`)
-            })
-
-            users.forEach((user) => {
-                allUsers.add(user)
-                console.info(`    User: ${user}`)
-            })
+        if (!matchedRule) {
+            console.info(`  - ${file}: no matching rule`)
+            continue
         }
+
+        console.info(`  ✓ ${file} → ${matchedRule.pattern} → ${matchedRule.owners.join(', ')}`)
+
+        const { teams, users } = parseOwners(matchedRule.owners)
+        teams.forEach((team) => allTeams.add(team))
+        users.forEach((user) => allUsers.add(user))
     }
 
     return {
