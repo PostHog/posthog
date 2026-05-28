@@ -6,7 +6,7 @@
 
 import { Request, Response } from 'express'
 
-import { AmbiguousRevisionError, ResolvedAgent, RevisionResolver } from '../routing/resolver'
+import { AmbiguousRevisionError, MissingPreviewSecretError, ResolvedAgent, RevisionResolver } from '../routing/resolver'
 
 /**
  * Resolve the agent for a request, writing a 400 to `res` and returning null
@@ -23,25 +23,23 @@ export async function resolveAgent(
     req: Request,
     res: Response
 ): Promise<ResolvedAgent | null> {
-    // Optional override that lets authoring flows invoke a specific revision
-    // (draft / ready) instead of whatever's currently live. Accepted as either
-    // a query param (?revision_id=...) or a header (x-agent-revision: ...).
-    const revQuery = typeof req.query?.revision_id === 'string' ? req.query.revision_id : null
-    const revHeader = req.headers['x-agent-revision']
-    const revisionId = revQuery || (typeof revHeader === 'string' ? revHeader : null) || undefined
+    // Short-lived JWT that Django mints per preview-proxy hop. The resolver
+    // verifies it on non-live resolutions. Live calls don't need it. See
+    // docs/agent-platform/plans/draft-preview-auth.md.
+    const previewHeader = req.headers['x-agent-preview-token']
+    const providedToken = typeof previewHeader === 'string' ? previewHeader : undefined
 
     const slug = typeof req.params?.slug === 'string' ? req.params.slug : null
     try {
         if (slug) {
-            return await resolver.resolveBySlug(slug, { revisionId })
+            // In path mode the express mount captured `:slug` — that's already
+            // the full `<slug>` or `<slug>-<rev-hex>` form. Resolver handles
+            // both shapes.
+            return await resolver.resolveBySlug(slug, { providedToken })
         }
-        if (revisionId) {
-            // Domain-mode + revision-override is ambiguous: there's no slug in the
-            // path so we can't bound the override to a single application. Refuse
-            // rather than silently picking the wrong agent.
-            return null
-        }
-        return await resolver.resolveFromHostAndPath(req.headers.host, req.originalUrl || req.url || req.path)
+        return await resolver.resolveFromHostAndPath(req.headers.host, req.originalUrl || req.url || req.path, {
+            providedToken,
+        })
     } catch (err) {
         if (err instanceof AmbiguousRevisionError) {
             res.status(400).json({
@@ -49,7 +47,15 @@ export async function resolveAgent(
                 prefix: err.prefix,
                 application_id: err.applicationId,
                 candidates: err.candidates,
-                detail: 'Multiple revisions match this prefix; re-issue with a longer prefix or pass ?revision_id.',
+                detail: 'Multiple revisions match this prefix; re-issue with a longer prefix (up to the full 32-char revision hex).',
+            })
+            return null
+        }
+        if (err instanceof MissingPreviewSecretError) {
+            res.status(401).json({
+                error: 'preview_token_required',
+                reason: err.reason,
+                detail: 'Non-live revision invokes must come through the Django preview-proxy. Use POST /api/projects/<team>/agent_applications/<app>/preview-proxy/...',
             })
             return null
         }

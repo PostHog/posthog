@@ -70,3 +70,15 @@ is the queue of features waiting for a plan.
   for agents that consume third-party MCP servers (TODO C6).
 - [`resumable-conversations.md`](plans/resumable-conversations.md) — design
   for loading prior session logs from ClickHouse on resume / display (TODO B8).
+- [`agent-console-website.md`](plans/agent-console-website.md) — standalone
+  Next.js app under `services/agent-console/`, styled with `@posthog/quill`,
+  logging in via PostHog OAuth. Read-mostly UI over the existing REST API
+  (spec, bundle, revisions, sessions, logs); editing happens through a chat
+  dock with a concierge agent (the authoring AI given a UI). The chat dock
+  itself lives in a new sibling package `@posthog/agent-chat` so it can
+  later be embedded in `app.posthog.com` or a customer React SDK without a
+  fork. Introduces a general **client-fulfilled tools** protocol on the
+  runner: the spec declares `kind: "client"` tools, the client opts in to
+  the subset it can handle, the runner surfaces only the intersection to
+  the model. Flagship well-known tool is `@posthog/ui/focus`, which
+  navigates the read panel to whatever the agent is currently working on.

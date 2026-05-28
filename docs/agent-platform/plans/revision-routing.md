@@ -2,20 +2,14 @@
 
 **Status:** draft. **Owner:** ben.
 
-Today draft / ready revisions are reachable for testing via
-`?revision_id=<full-uuid>` on the chat trigger (added in
-[`per-turn-cost-capture.md`](per-turn-cost-capture.md)'s sibling commit,
-shipped in [services/agent-ingress/src/routing/resolver.ts]). That
-works but it's ugly:
+There is one way to address a non-live revision: with a hex prefix
+attached to the slug. Two transport shapes — subdomain for prod,
+path-suffix for local dev — that both fold into the same internal
+slug-with-suffix form before resolution. The earlier `?revision_id=`
+query param and `x-agent-revision` header were dropped to keep the
+contract single-shaped.
 
-- Sharing a draft link to a teammate means pasting a 36-character UUID.
-- Slack mentions, webhook URLs, and emails don't render UUIDs nicely.
-- The override is invisible in the URL path — easy to miss in logs.
-
-This plan adds two ergonomic alternatives that resolve to the same
-codepath.
-
-## 1. Two forms, one resolver
+## 1. Two transports, one canonical form
 
 ### 1.1 Production: subdomain
 
@@ -55,12 +49,21 @@ on one ingress port (3030) with `ROUTING_MODE=path` — no wildcard
 DNS, no subdomain matching. The suffix collapses the same routing
 information into a single path segment.
 
-### 1.3 Existing `?revision_id` override
+### 1.3 Internal (Django proxy) — full UUID hex in the suffix
 
-Still works in both modes for callers that have the full UUID and
-don't want to think about prefixes. UUID wins if both forms are
-present (subdomain says one revision but `?revision_id=` says
-another → the query param's revision is used).
+The preview-proxy in Django talks to the ingress over an internal URL
+in path mode regardless of public deployment shape. It uses the
+**full** 32-char UUID hex in the suffix
+(`/agents/<slug>-<32hex>/<rest>`) so the resolver's prefix lookup is
+collision-free by construction (a 32-char hex match is effectively
+a UUID-PK lookup, just via the dash-stripped form). The same code
+path handles all three callers — users see short prefixes; the proxy
+sends full hex; the resolver doesn't care.
+
+The earlier `?revision_id=` query param and `x-agent-revision`
+header are gone. They predated the suffix form, became redundant
+the moment it landed, and made the resolver carry two interchangeable
+override paths. Single-shaped contract is cleaner.
 
 ## 2. Prefix length + ambiguity
 
@@ -87,45 +90,58 @@ prefix length 8–32 is accepted.
 Order of resolution in `routing/resolver.ts`:
 
 ```typescript
-async resolveBySlug(rawSlug: string, opts?: { revisionId?: string }): Promise<ResolvedAgent | null> {
-    // 1. Explicit override always wins.
-    if (opts?.revisionId) {
-        return this.resolveExplicitRevision(rawSlug, opts.revisionId)
-    }
-
-    // 2. Try suffix split: <slug>-<8-32 hex> ?
-    const splitMatch = rawSlug.match(/^(.+)-([0-9a-f]{8,32})$/)
+async resolveBySlug(
+    rawSlug: string,
+    opts?: { providedToken?: string }
+): Promise<ResolvedAgent | null> {
+    // 1. Try suffix split: <slug>-<8..32 hex> ?
+    const splitMatch = rawSlug.match(/^(.+)-([0-9a-f]{8,32})$/i)
     if (splitMatch) {
         const [, baseSlug, prefix] = splitMatch
-        // 2a. Does <baseSlug> resolve to an application?
-        const baseApp = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, baseSlug)
+        // 1a. Does <baseSlug> resolve to an application?
+        const baseApp = await this.opts.revisions.getApplicationBySlug(
+            this.opts.teamId,
+            baseSlug
+        )
         if (baseApp) {
-            // Match revisions on this app whose id starts with the prefix.
-            const candidates = await this.opts.revisions.listRevisionsByIdPrefix(baseApp.id, prefix)
-            if (candidates.length === 1) {
-                return this.ownershipCheck(baseApp, candidates[0])
+            // Match non-archived revisions whose id starts with the prefix.
+            const candidates = await this.opts.revisions.listRevisionsByIdPrefix(
+                baseApp.id,
+                prefix
+            )
+            const live = candidates.filter((c) => c.state !== 'archived')
+            if (live.length === 1) {
+                return this.gate(baseApp, live[0], opts?.providedToken)
             }
-            if (candidates.length > 1) {
-                throw new AmbiguousRevisionError(baseApp.id, prefix, candidates.map((c) => c.id))
+            if (live.length > 1) {
+                throw new AmbiguousRevisionError(
+                    baseApp.id,
+                    prefix,
+                    live.map((c) => c.id)
+                )
             }
-            // No candidate — fall through and try the slug verbatim. This is
-            // important: a slug "my-agent-abcdefab" might legitimately exist
-            // as a top-level slug ending in 8 hex chars.
+            // No prefix match — fall through. A legitimate slug like
+            // "my-agent-abcdefab" ending in 8 hex chars should still
+            // resolve as a top-level slug.
         }
     }
 
-    // 3. Verbatim slug lookup (today's path).
-    const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, rawSlug)
+    // 2. Verbatim slug lookup → application's live revision.
+    const application = await this.opts.revisions.getApplicationBySlug(
+        this.opts.teamId,
+        rawSlug
+    )
     if (!application || application.archived || !application.live_revision_id) {
         return null
     }
     const revision = await this.opts.revisions.getRevision(application.live_revision_id)
-    if (!revision) {
-        return null
-    }
-    return { application, revision }
+    return revision ? { application, revision } : null
 }
 ```
+
+The preview-token gate (see `draft-preview-auth.md`) fires inside
+the suffix branch on non-live resolutions. The verbatim-slug branch
+always resolves live, so the gate is a no-op.
 
 Two extension points required on `RevisionStore`:
 
@@ -137,33 +153,36 @@ Promise<AgentRevision[]>` — backed by `id::text LIKE $prefix || '%'`
 
 ## 4. Resolver logic (domain mode)
 
-Domain-mode `extractSlugFromHost` already strips `.agents.posthog.com`
-and treats the remainder as the slug. Today that means a single label.
-
-After:
+`extractSlugFromHost` returns the same `<slug>` or `<slug>-<hex>`
+string that path mode produces, so the resolver only has one
+suffix-matching code path. The extractor collapses the two-label
+host shape into the canonical form:
 
 ```typescript
-extractSlugAndRevisionFromHost(host: string): { slug: string; revisionPrefix?: string } | null {
+extractSlugFromHost(host: string): string | null {
     const hostNoPort = host.split(':')[0]
     const suffix = this.opts.domainSuffix
     if (!suffix || !hostNoPort.endsWith(suffix)) {
         return null
     }
-    const labels = hostNoPort.slice(0, -suffix.length).split('.')
-    // <revision>.<slug>.agents.posthog.com → labels = ['<revision>', '<slug>']
-    // <slug>.agents.posthog.com            → labels = ['<slug>']
-    if (labels.length === 2 && /^[0-9a-f]{8,32}$/.test(labels[0])) {
-        return { slug: labels[1], revisionPrefix: labels[0] }
+    const labels = hostNoPort
+        .slice(0, -suffix.length)
+        .split('.')
+        .filter(Boolean)
+    // <slug>.agents.posthog.com            → 'slug'
+    // <hex>.<slug>.agents.posthog.com      → 'slug-hex'
+    if (labels.length === 1) {
+        return labels[0] || null
     }
-    if (labels.length === 1 && labels[0].length > 0) {
-        return { slug: labels[0] }
+    if (labels.length === 2 && /^[0-9a-f]{8,32}$/i.test(labels[0])) {
+        return `${labels[1]}-${labels[0]}`
     }
-    return null  // 3+ labels or unrecognized shape → reject
+    return null
 }
 ```
 
-The resolver then takes that shape, applies the same prefix lookup
-as path mode if `revisionPrefix` is present.
+The host-mode and path-mode entrypoints both call `resolveBySlug`
+with the same string shape — one resolver branch, two transports.
 
 ## 5. Production deploy: wildcard cert + ingress
 

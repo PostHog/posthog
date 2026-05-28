@@ -52,7 +52,7 @@ file (and out of this list) once the design lands.
       [`streaming-and-reasoning.md`](streaming-and-reasoning.md).
       `PiClient.stream()` alongside `invoke()`; new event kinds for
       text/thinking/toolcall deltas; `spec.reasoning?: 'low' | 'medium'
-  | 'high'` plumbed through `InvokeOpts`. Two features in one plan
+| 'high'` plumbed through `InvokeOpts`. Two features in one plan
       because they share the pi-ai stream surface.
 
 - [x] ~~**Per-turn cost capture on the session row**~~ — see
@@ -181,3 +181,25 @@ file (and out of this list) once the design lands.
       attaches a signed `INTERNAL_SECRET`-style header; ingress
       refuses non-live invokes without it. Draft's own
       `spec.auth.mode` is unchanged — this is a layer above it.
+
+- [x] ~~**Agent console website**~~ — see
+      [`agent-console-website.md`](agent-console-website.md). A
+      standalone read-mostly Next.js app under
+      `services/agent-console/` styled with `@posthog/quill`. Logs
+      in via PostHog OAuth, renders spec / bundle / revisions /
+      sessions / logs against the existing REST API, and folds
+      editing into a chat dock with a concierge agent (the
+      `agent-authoring-flow` AI given a UI). The chat dock itself
+      lives in a new sibling package `@posthog/agent-chat`
+      (`packages/agent-chat/`) — the console embeds
+      `<AgentChat />`, and the same component drops into a future
+      `app.posthog.com` native dock or customer React SDK without a
+      fork. Introduces a general **client-fulfilled tools**
+      protocol on the runner: the spec declares `kind: "client"`
+      tools (referencing well-known `@posthog/ui/*` contracts or
+      bespoke ids), and a connecting client lists which ones it can
+      fulfill via `client.handles[]`; the runner surfaces only the
+      intersection to the model. First well-known tools are
+      `@posthog/ui/focus` (navigate the read panel to whatever the
+      agent is working on) and `@posthog/ui/toast`. User can toggle
+      "Follow the agent" off without losing the agent's narration.

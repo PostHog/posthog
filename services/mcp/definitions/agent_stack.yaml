@@ -63,6 +63,26 @@ tools:
         description: >
             Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create`
             (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.
+    agent-applications-preview-proxy:
+        operation: agent_applications_preview_proxy
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Invoke a draft revision via the Django preview-proxy
+        description: >
+            Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public
+            ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to
+            (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path
+            `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it),
+            `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this
+            application. See docs/agent-platform/plans/draft-preview-auth.md.
+    agent-applications-preview-proxy-get:
+        operation: agent_applications_preview_proxy_get
+        enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true
@@ -298,10 +318,10 @@ tools:
             idempotent: true
         title: Validate a revision's bundle + spec
         description: >
-            Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown
-            native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the
-            bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a
-            draft before calling `agent-applications-revisions-freeze-create`.
+            Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file,
+            unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in
+            the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this
+            on a draft before calling `agent-applications-revisions-freeze-create`.
     agent-applications-sessions-list:
         operation: agent_applications_sessions_list
         enabled: true
@@ -313,13 +333,13 @@ tools:
             idempotent: true
         title: List sessions for an agent
         description: >
-            Newest-first list of sessions for this agent across all revisions. Each summary carries id, state
-            (queued / running / waiting / completed / failed), revision_id, principal, turn count, retry count,
-            timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost
-            aggregated over the whole conversation). The transcript body is omitted — use
-            `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g.
-            `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging
-            via `limit` (default 100, capped at 500) + `offset`. Filters AND together.
+            Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued /
+            running / waiting / completed / failed), revision_id, principal, turn count, retry count, timestamps, a
+            `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the
+            whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that.
+            Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID),
+            `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) +
+            `offset`. Filters AND together.
     agent-applications-sessions-retrieve:
         operation: agent_applications_sessions_retrieve
         enabled: true
@@ -333,10 +353,10 @@ tools:
         description: >
             Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages),
             pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated
-            over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages —
-            useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus
-            `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the
-            full untrimmed conversation so cost reporting stays accurate.
+            over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for
+            long sessions where you only care about the tail; `conversation_trimmed: true` plus
+            `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
+            untrimmed conversation so cost reporting stays accurate.
     agent-applications-set-env-create:
         operation: agent_applications_set_env_create
         enabled: true

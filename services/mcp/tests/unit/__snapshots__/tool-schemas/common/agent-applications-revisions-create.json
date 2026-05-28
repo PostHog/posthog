@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "bundle_uri": {
+            "default": "",
+            "type": "string"
+        },
+        "parent_revision": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "spec": {
+            "description": "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec."
+        }
+    },
+    "required": ["application_id"],
+    "type": "object"
+}

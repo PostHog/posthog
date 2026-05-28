@@ -4,11 +4,18 @@
         "application_id": {
             "type": "string"
         },
+        "content": {
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this agent revision.",
             "type": "string"
+        },
+        "path": {
+            "description": "Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.",
+            "type": "string"
         }
     },
-    "required": ["application_id", "id"],
+    "required": ["application_id", "id", "path", "content"],
     "type": "object"
 }

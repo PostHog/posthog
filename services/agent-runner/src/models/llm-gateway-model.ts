@@ -6,15 +6,18 @@
  * Auth: a PostHog gateway PAT (`phx_...`) passed as the bearer token.
  *
  * Usage:
- *   const model = posthogLlmGatewayModel({ modelId: 'gpt-4.1-mini' })
- *   const client = new PiAiClient(model, process.env.POSTHOG_LLM_GATEWAY_KEY)
+ *   const model = posthogLlmGatewayModel({ modelId: 'gpt-4.1-mini', baseUrl: cfg.llmGatewayUrl })
+ *   const client = new PiAiClient(cfg.posthogLlmGatewayKey)
+ *
+ * The `baseUrl` default matches the in-cluster service name; dev / prod
+ * override it through the runner's `AgentRunnerConfig`.
  */
 
 import type { Model } from '@earendil-works/pi-ai'
 
 export interface LlmGatewayModelOpts {
     modelId: string
-    /** Defaults to `http://llm-gateway/v1` — set in prod to the in-cluster URL. */
+    /** Defaults to `http://llm-gateway/v1` — set in prod / dev to the appropriate URL via runner config. */
     baseUrl?: string
     /** Display name shown in logs. */
     displayName?: string
@@ -28,7 +31,7 @@ export function posthogLlmGatewayModel(opts: LlmGatewayModelOpts): Model<'openai
         name: opts.displayName ?? `${opts.modelId} (PostHog llm-gateway)`,
         api: 'openai-completions',
         provider: 'posthog-llm-gateway',
-        baseUrl: opts.baseUrl ?? process.env.POSTHOG_LLM_GATEWAY_URL ?? 'http://llm-gateway/v1',
+        baseUrl: opts.baseUrl ?? 'http://llm-gateway/v1',
         reasoning: false,
         input: ['text'],
         // Gateway tracks usage server-side; client-side cost is purely informational.

@@ -1,7 +1,7 @@
 import { AgentSpecSchema, MemoryRevisionStore } from '@posthog/agent-shared'
 import { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 
-import { AmbiguousRevisionError, RevisionResolver } from './resolver'
+import { AmbiguousRevisionError, MissingPreviewSecretError, RevisionResolver } from './resolver'
 
 async function seedApp(
     store: MemoryRevisionStore,
@@ -54,65 +54,6 @@ describe('RevisionResolver', () => {
         await store.archiveApplication(app.id)
         const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
         expect(await resolver.resolveFromHostAndPath(undefined, '/agents/abandoned/x')).toBeNull()
-    })
-
-    describe('revisionId override (draft invoke)', () => {
-        it('resolves to the override revision even when the app has no live_revision', async () => {
-            const store = new MemoryRevisionStore()
-            // Bypass seedApp because it sets a live revision; we want a slug → app with a draft only.
-            const app = await store.createApplication({ team_id: 1, slug: 'wip', name: 'wip', description: '' })
-            const draft = await store.createRevision({
-                application_id: app.id,
-                parent_revision_id: null,
-                created_by_id: null,
-                bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
-            })
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
-            const out = await resolver.resolveBySlug('wip', { revisionId: draft.id })
-            expect(out!.revision.id).toBe(draft.id)
-            expect(out!.revision.state).toBe('draft')
-        })
-
-        it('refuses a revisionId that belongs to a different application', async () => {
-            const store = new MemoryRevisionStore()
-            const { app: foreignApp } = await seedApp(store, 'other')
-            // Make a draft revision under a different application.
-            const foreignDraft = await store.createRevision({
-                application_id: foreignApp.id,
-                parent_revision_id: null,
-                created_by_id: null,
-                bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
-            })
-            await seedApp(store, 'mine')
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
-            expect(await resolver.resolveBySlug('mine', { revisionId: foreignDraft.id })).toBeNull()
-        })
-
-        it('refuses an archived revisionId', async () => {
-            const store = new MemoryRevisionStore()
-            const app = await store.createApplication({ team_id: 1, slug: 'archived-rev', name: 'x', description: '' })
-            const archived = await store.createRevision({
-                application_id: app.id,
-                parent_revision_id: null,
-                created_by_id: null,
-                bundle_uri: 's3://x/',
-                spec: AgentSpecSchema.parse({ model: 'x' }),
-            })
-            await store.setRevisionState(archived.id, 'archived')
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
-            expect(await resolver.resolveBySlug('archived-rev', { revisionId: archived.id })).toBeNull()
-        })
-
-        it('returns null when the override revision id does not exist', async () => {
-            const store = new MemoryRevisionStore()
-            await seedApp(store, 'present')
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
-            expect(
-                await resolver.resolveBySlug('present', { revisionId: '00000000-0000-0000-0000-000000000000' })
-            ).toBeNull()
-        })
     })
 
     describe('slug-with-revision-suffix (local-dev form)', () => {
@@ -215,6 +156,193 @@ describe('RevisionResolver', () => {
             const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
             // Falls through to verbatim slug, which has no live_revision → null.
             expect(await resolver.resolveBySlug('with-archived-019e6f25')).toBeNull()
+        })
+    })
+
+    describe('preview-token gate (non-live revision invokes)', () => {
+        const SECRET = 'matching-shared-secret'
+        const DRAFT_UUID = '019e6fa3-0000-0000-0000-aaaaaaaaaaaa'
+        const DRAFT_PREFIX = '019e6fa3'
+
+        function rebrand(store: MemoryRevisionStore, oldId: string, newId: string): void {
+            const map = (store as unknown as { revs: Map<string, AgentRevision> }).revs
+            const rev = map.get(oldId)
+            if (!rev) {
+                throw new Error(`revision ${oldId} not found`)
+            }
+            rev.id = newId
+            map.delete(oldId)
+            map.set(newId, rev)
+        }
+
+        async function seedAppAndDraft(
+            store: MemoryRevisionStore,
+            slug: string
+        ): Promise<{ app: AgentApplication; draft: AgentRevision }> {
+            const app = await store.createApplication({ team_id: 1, slug, name: slug, description: '' })
+            const live = await store.createRevision({
+                application_id: app.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 's3://x/',
+                spec: AgentSpecSchema.parse({ model: 'x' }),
+            })
+            await store.setRevisionState(live.id, 'live')
+            await store.setLiveRevision(app.id, live.id)
+            const draftSeed = await store.createRevision({
+                application_id: app.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 's3://x/',
+                spec: AgentSpecSchema.parse({ model: 'x' }),
+            })
+            // Stamp a UUID-shaped id so the resolver's `<slug>-<8..32 hex>`
+            // matcher fires. The memory store's default ids look like `rev_2`
+            // which the regex rejects.
+            rebrand(store, draftSeed.id, DRAFT_UUID)
+            return { app, draft: { ...draftSeed, id: DRAFT_UUID } }
+        }
+
+        async function mintToken(
+            secret: string,
+            claims: { app: string; rev: string; ttlSec?: number; audience?: string }
+        ): Promise<string> {
+            const { SignJWT } = await import('jose')
+            const keyBytes = new TextEncoder().encode(secret)
+            return new SignJWT({ app: claims.app, rev: claims.rev })
+                .setProtectedHeader({ alg: 'HS256' })
+                .setIssuedAt()
+                .setAudience(claims.audience ?? 'posthog:agent_preview')
+                .setExpirationTime(`${claims.ttlSec ?? 60}s`)
+                .sign(keyBytes)
+        }
+
+        function mkResolver(store: MemoryRevisionStore, opts: { previewSecret?: string } = {}): RevisionResolver {
+            return new RevisionResolver({
+                revisions: store,
+                mode: 'path',
+                pathPrefix: '/agents',
+                teamId: 1,
+                previewSecret: opts.previewSecret,
+            })
+        }
+
+        it('lets live invokes through without a token even when one is configured', async () => {
+            const store = new MemoryRevisionStore()
+            await seedAppAndDraft(store, 'gated')
+            const out = await mkResolver(store, { previewSecret: SECRET }).resolveBySlug('gated')
+            expect(out!.revision.state).toBe('live')
+        })
+
+        it('refuses a suffix-form draft invoke without any token', async () => {
+            const store = new MemoryRevisionStore()
+            await seedAppAndDraft(store, 'gated')
+            await expect(
+                mkResolver(store, { previewSecret: SECRET }).resolveBySlug(`gated-${DRAFT_PREFIX}`)
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token signed with the wrong secret', async () => {
+            const store = new MemoryRevisionStore()
+            const { app } = await seedAppAndDraft(store, 'gated')
+            const badToken = await mintToken('different-secret', { app: app.id, rev: DRAFT_UUID })
+            await expect(
+                mkResolver(store, { previewSecret: SECRET }).resolveBySlug(`gated-${DRAFT_PREFIX}`, {
+                    providedToken: badToken,
+                })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token whose `app` claim points at a different application', async () => {
+            const store = new MemoryRevisionStore()
+            await seedAppAndDraft(store, 'gated')
+            const otherAppToken = await mintToken(SECRET, { app: 'app-other', rev: DRAFT_UUID })
+            await expect(
+                mkResolver(store, { previewSecret: SECRET }).resolveBySlug(`gated-${DRAFT_PREFIX}`, {
+                    providedToken: otherAppToken,
+                })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token whose `rev` claim points at a different revision', async () => {
+            const store = new MemoryRevisionStore()
+            const { app } = await seedAppAndDraft(store, 'gated')
+            const otherRevToken = await mintToken(SECRET, { app: app.id, rev: 'some-other-rev' })
+            await expect(
+                mkResolver(store, { previewSecret: SECRET }).resolveBySlug(`gated-${DRAFT_PREFIX}`, {
+                    providedToken: otherRevToken,
+                })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('refuses a token with the wrong audience', async () => {
+            const store = new MemoryRevisionStore()
+            const { app } = await seedAppAndDraft(store, 'gated')
+            const wrongAud = await mintToken(SECRET, { app: app.id, rev: DRAFT_UUID, audience: 'posthog:unsubscribe' })
+            await expect(
+                mkResolver(store, { previewSecret: SECRET }).resolveBySlug(`gated-${DRAFT_PREFIX}`, {
+                    providedToken: wrongAud,
+                })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('admits a suffix-form draft invoke with a valid bound token', async () => {
+            const store = new MemoryRevisionStore()
+            const { app } = await seedAppAndDraft(store, 'gated')
+            const goodToken = await mintToken(SECRET, { app: app.id, rev: DRAFT_UUID })
+            const out = await mkResolver(store, { previewSecret: SECRET }).resolveBySlug(`gated-${DRAFT_PREFIX}`, {
+                providedToken: goodToken,
+            })
+            expect(out!.revision.id).toBe(DRAFT_UUID)
+            expect(out!.revision.state).toBe('draft')
+        })
+
+        it('bypasses the gate when previewSecret is unset (dev / harness path)', async () => {
+            const store = new MemoryRevisionStore()
+            await seedAppAndDraft(store, 'gated')
+            const out = await mkResolver(store).resolveBySlug(`gated-${DRAFT_PREFIX}`)
+            expect(out!.revision.id).toBe(DRAFT_UUID)
+        })
+    })
+
+    describe('extractSlugFromHost (domain mode)', () => {
+        function mkResolver(): RevisionResolver {
+            return new RevisionResolver({
+                revisions: new MemoryRevisionStore(),
+                mode: 'domain',
+                domainSuffix: '.agents.posthog.com',
+                teamId: 1,
+            })
+        }
+
+        it('returns the bare slug for a single-label host', () => {
+            expect(mkResolver().extractSlugFromHost('weekly-digest.agents.posthog.com')).toBe('weekly-digest')
+        })
+
+        it('collapses `<hex>.<slug>` two-label form into the canonical `<slug>-<hex>` shape', () => {
+            // Production preview URL form. Reuses the same suffix-matcher the
+            // path-mode resolver uses for dev URLs.
+            expect(mkResolver().extractSlugFromHost('019e6f25.weekly-digest.agents.posthog.com')).toBe(
+                'weekly-digest-019e6f25'
+            )
+        })
+
+        it('strips the port when present', () => {
+            expect(mkResolver().extractSlugFromHost('weekly-digest.agents.posthog.com:8080')).toBe('weekly-digest')
+        })
+
+        it('rejects three-label hosts (not a valid shape)', () => {
+            expect(mkResolver().extractSlugFromHost('foo.bar.weekly-digest.agents.posthog.com')).toBeNull()
+        })
+
+        it('rejects a leading label that is not 8..32 hex', () => {
+            // "notahex" doesn't match the prefix shape; refuse rather than
+            // silently picking the wrong agent.
+            expect(mkResolver().extractSlugFromHost('notahex.weekly-digest.agents.posthog.com')).toBeNull()
+        })
+
+        it('returns null for hosts that do not match the suffix', () => {
+            expect(mkResolver().extractSlugFromHost('weekly-digest.example.com')).toBeNull()
         })
     })
 })

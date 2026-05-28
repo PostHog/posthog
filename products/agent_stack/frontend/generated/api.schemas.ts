@@ -525,6 +525,20 @@ export type AgentApplicationsRevisionsFileDestroyParams = {
     path: string
 }
 
+export type AgentApplicationsPreviewProxyGetParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
+export type AgentApplicationsPreviewProxyParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
 export type AgentApplicationsSessionsListParams = {
     /**
      * ISO datetime — return sessions with created_at >= this.

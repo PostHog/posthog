@@ -44,6 +44,12 @@ export interface BuildAppOpts {
     authProvider?: AuthProvider
     /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
     identities?: IdentityStore
+    /**
+     * Shared secret with Django for the preview-proxy gate on non-live
+     * revision invokes. When unset, the gate is bypassed (dev / harness).
+     * See docs/agent-platform/plans/draft-preview-auth.md.
+     */
+    previewSecret?: string
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -55,6 +61,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         domainSuffix: opts.domainSuffix,
         pathPrefix: opts.pathPrefix,
         teamId: opts.teamId,
+        previewSecret: opts.previewSecret,
     })
     app.use(
         express.json({

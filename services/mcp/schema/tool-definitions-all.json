@@ -323,6 +323,21 @@
             "readOnlyHint": false
         }
     },
+    "agent-applications-preview-proxy": {
+        "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application. See docs/agent-platform/plans/draft-preview-auth.md.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Invoke a draft revision via the Django preview-proxy",
+        "title": "Invoke a draft revision via the Django preview-proxy",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "agent-applications-retrieve": {
         "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.",
         "category": "Agent stack",

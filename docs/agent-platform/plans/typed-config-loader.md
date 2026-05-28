@@ -212,28 +212,39 @@ Drift between runbook and code becomes impossible.
 
 ## 9. Rollout
 
-**v0 — one schema, one service.**
+**v0 — one schema, one service.** ✅ shipped.
 
-- Pick agent-janitor (smallest surface, ~6 env vars).
-- `src/config.ts` + `loadAgentJanitorConfig`.
-- `src/index.ts` calls `loadAgentJanitorConfig()` once; everything
-  downstream receives the typed `Config`.
-- CI lint rule blocks `process.env.*` outside `config.ts` for this
-  package only.
+- Pilots on agent-janitor (smallest surface, ~10 env vars).
+- `src/config.ts` + `loadAgentJanitorConfig` + tests.
+- `src/index.ts` calls the loader once; everything downstream
+  receives the typed `Config`.
+- semgrep `agent-janitor-no-process-env` rule (devex-rules dir,
+  runs in the existing `semgrep-devex` CI job).
 
-**v1 — sweep to all four services.**
+**v1 — sweep to all three services.** ✅ shipped.
 
-- Same shape for ingress, runner, shared-defaults.
-- `PlatformConfigSchema` for the cross-service slice.
-- Lint rule extended to all four packages.
+- `services/agent-shared/src/config/platform.ts` —
+  `PlatformConfigSchema` for cross-service vars (`POSTHOG_DB_URL`,
+  `AGENT_DB_URL`, `AGENT_BUNDLE_ROOT`, `REDIS_URL`,
+  `ENCRYPTION_SALT_KEYS`, `LOG_LEVEL`) plus a typed
+  `extendEnvKeyMap()` + generic `loadConfigFromEnv()` helper.
+- agent-janitor refactored to `PlatformConfigSchema.extend({ … })`.
+- New `services/agent-ingress/src/config.ts` and
+  `services/agent-runner/src/config.ts`, same pattern.
+- Each service's `index.ts` reads a single typed `Config`. All
+  `parseInt(process.env.PORT ?? '...')`-style reads are gone from
+  the runner / ingress / janitor entrypoints.
+- Three semgrep rules (`agent-{janitor,ingress,runner}-no-process-env`)
+  ban `process.env.*` outside `config.ts` + tests across the three
+  service packages.
 
-**v2 — generated runbook.**
+**v2 — generated runbook.** Not yet built.
 
 - `hogli build:agent-runbook` reads all schemas, writes
   `docs/agent-platform/docs/deploy-runbook.md`.
 - CI step runs the generator and fails on diff.
 
-**v3 — Django side.**
+**v3 — Django side.** Not yet built.
 
 - `posthog.settings.agent_stack` module owns the few env reads
   inside `products/agent_stack/backend/`.

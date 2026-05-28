@@ -7,8 +7,11 @@
         "id": {
             "description": "A UUID string identifying this agent revision.",
             "type": "string"
+        },
+        "source_revision_id": {
+            "type": "string"
         }
     },
-    "required": ["application_id", "id"],
+    "required": ["application_id", "id", "source_revision_id"],
     "type": "object"
 }
