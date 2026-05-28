@@ -4495,7 +4495,7 @@ snapshots:
     scenes-app-data-pipelines-event-filtering--live-mode--light:
         hash: v1.k794b7964.3b67e943ab5f09a1ab90d710522e6389ed328bf0f7bb8d44e660b528903f8789.qRoUqSLsXr0z-C87p_jkG0jFy7z_3AWiZddCLt1cyIQ
     scenes-app-data-pipelines-event-filtering--many-conditions--dark:
-        hash: v1.k794b7964.9fe1402f2ebe21e7c89d21b943a2c77f20bc4d0708a668645a7db7cee51ae2c0.zrIB-gPgSDb-7q5zYuWVOpUQ4s-6KLE_ShFv32XIy3M
+        hash: v1.k794b7964.efc18654f42e2a2c282c22a617485685b985fd3a81f6993559250a9fde54cccd.XNPTQHzpWp8Q9ZcOx1O5FcFtcGQvhginWcvn3H97MCA
     scenes-app-data-pipelines-event-filtering--many-conditions--light:
         hash: v1.k794b7964.9e3d017978dabf9a194a9fcf50a823faf391b9408687b33e8d07e1974d402d7a.xOQik9bmulMBDKxoNZCoDJbqpYVrwbomBpKtYt1mb9M
     scenes-app-data-pipelines-event-filtering--many-test-cases--dark:
@@ -4863,7 +4863,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.3gc3UBg-8GVo4HkNBH7UrogK2q1uh9pXPDjTdYGT8nc
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
-        hash: v1.k794b7964.8887db0213a228a0f958496f8de814bd30d4735f99f8dcd886fbc9740a703afd.U7j0SBm9JuPzdVQVGChjxt-Iw1svrkRV06tAv9pg-mM
+        hash: v1.k794b7964.dad9df902a133cafd6b3314a3800fcb45dabbbb59a0766c87c226549392104fc.u8mciTuIKrwI-d3yiUx6dVpr3oLoJJ7tgvRU7hutwhU
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--light:
         hash: v1.k794b7964.1dd3425e658b907855610a715527654f68a242ed0c1427803dcf4d2289806fed.xd6ZnWiKWTOAglDDiM771sUAuByJ76icZNkrOre_orA
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--dark:

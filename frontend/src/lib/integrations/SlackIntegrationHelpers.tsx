@@ -45,6 +45,11 @@ export function SlackNotConfiguredBanner(): JSX.Element {
     )
 }
 
+// Slack channel IDs are 9+ char uppercase alphanumerics beginning with C (public), G (private), or D (DM).
+// Only trigger a direct lookup against Slack when the typed text plausibly *is* a channel ID, so
+// free-text channel names route through the search endpoint instead.
+const SLACK_CHANNEL_ID_PATTERN = /^[CGD][A-Z0-9]{8,}$/
+
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => {
@@ -127,8 +132,16 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 onInputChange={(val) => {
                     if (val) {
-                        loadSlackChannelById(val)
-                        loadAllSlackChannels(false, val)
+                        // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
+                        // resolve via direct lookup. ID-shape input fires only the direct lookup;
+                        // anything else fires only the search, skipping the otherwise-redundant
+                        // by-id call for a free-text channel name.
+                        const idCandidate = val.trim().toUpperCase()
+                        if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
+                            loadSlackChannelById(idCandidate)
+                        } else {
+                            loadAllSlackChannels(false, val)
+                        }
                         setLocalValue(val)
                     } else {
                         loadAllSlackChannels()
@@ -146,7 +159,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
+                    // The popover is portaled outside the modal and matchWidth only sets min-width,
+                    // not max-width — without a cap the popover can grow to fit a long single line
+                    // and spill past the modal edge.
+                    <p className="text-secondary italic p-1 max-w-sm">
                         No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.
