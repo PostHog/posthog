@@ -150,14 +150,6 @@ class Settings(BaseSettings):
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
-    # Customer-origin region URL stamped on every captured $ai_generation
-    # event as $group_1. The AI usage report filters by this property to
-    # decide which regional aggregation run owns the event, so it must
-    # reflect where the customer lives — *not* where the event is being
-    # sent — and stay consistent across primary and secondary capture.
-    # See posthog/tasks/usage_report.py for the consuming query.
-    posthog_region_url: str = "https://us.posthog.com"
-
     metrics_enabled: bool = True
 
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
