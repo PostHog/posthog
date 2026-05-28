@@ -17,7 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 
-from products.metrics.backend.has_metrics_query_runner import team_has_metrics
+from products.metrics.backend.facade.api import team_has_metrics
 
 __all__ = ["MetricsViewSet"]
 
