@@ -1480,6 +1480,14 @@ export class ApiRequest {
             .withQueryString({ channel_id: channelId })
     }
 
+    public integrationSlackChannelsBySearch(
+        id: IntegrationType['id'],
+        search: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels').withQueryString({ search })
+    }
+
     public integrationTwilioPhoneNumbers(
         id: IntegrationType['id'],
         forceRefresh: boolean,
@@ -5808,6 +5816,12 @@ const api = {
             channelId: string
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
+        },
+        async slackChannelsBySearch(
+            id: IntegrationType['id'],
+            search: string
+        ): Promise<{ channels: SlackChannelType[]; has_more?: boolean }> {
+            return await new ApiRequest().integrationSlackChannelsBySearch(id, search).get()
         },
         async twilioPhoneNumbers(
             id: IntegrationType['id'],

@@ -45,6 +45,11 @@ export function SlackNotConfiguredBanner(): JSX.Element {
     )
 }
 
+// Slack channel IDs are 9+ char uppercase alphanumerics beginning with C (public), G (private), or D (DM).
+// Only trigger a direct lookup against Slack when the typed text plausibly *is* a channel ID, so
+// free-text channel names route through the search endpoint instead.
+const SLACK_CHANNEL_ID_PATTERN = /^[CGD][A-Z0-9]{8,}$/
+
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => {
@@ -76,11 +81,14 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
+        slackChannelsBySearchLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelsBySearch } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
@@ -126,7 +134,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 onInputChange={(val) => {
                     if (val) {
-                        loadSlackChannelById(val)
+                        loadSlackChannelsBySearch(val)
+                        if (SLACK_CHANNEL_ID_PATTERN.test(val)) {
+                            loadSlackChannelById(val)
+                        }
                         setLocalValue(val)
                     }
                 }}
@@ -160,7 +171,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                           ]
                         : [])
                 }
-                loading={allSlackChannelsLoading || slackChannelByIdLoading}
+                loading={allSlackChannelsLoading || slackChannelByIdLoading || slackChannelsBySearchLoading}
             />
 
             {showSlackMembershipWarning ? (

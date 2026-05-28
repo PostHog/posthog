@@ -21,6 +21,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     actions({
         loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
+        loadSlackChannelsBySearch: (search: string) => ({ search }),
     }),
 
     loaders(({ props }) => ({
@@ -42,6 +43,19 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 },
             },
         ],
+        slackChannelsBySearch: [
+            [] as SlackChannelType[],
+            {
+                loadSlackChannelsBySearch: async ({ search }, breakpoint) => {
+                    await breakpoint(300)
+                    if (!search) {
+                        return []
+                    }
+                    const res = await api.integrations.slackChannelsBySearch(props.id, search)
+                    return res.channels ?? []
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -57,14 +71,27 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
             },
         ],
+        _fetchedSlackChannelsBySearch: [
+            [] as SlackChannelType[],
+            {
+                loadSlackChannelsBySearchSuccess: (_, { slackChannelsBySearch }) => slackChannelsBySearch ?? [],
+            },
+        ],
     }),
 
     selectors({
         slackChannels: [
-            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
-            (_fetchedSlackChannels, _fetchedSlackChannelById): SlackChannelType[] => {
+            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById, s._fetchedSlackChannelsBySearch],
+            (_fetchedSlackChannels, _fetchedSlackChannelById, _fetchedSlackChannelsBySearch): SlackChannelType[] => {
                 const channels = [..._fetchedSlackChannels]
-                if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
+                const seen = new Set(channels.map((x) => x.id))
+                for (const channel of _fetchedSlackChannelsBySearch) {
+                    if (!seen.has(channel.id)) {
+                        channels.push(channel)
+                        seen.add(channel.id)
+                    }
+                }
+                if (_fetchedSlackChannelById && !seen.has(_fetchedSlackChannelById.id)) {
                     channels.push(_fetchedSlackChannelById)
                 }
                 return channels
