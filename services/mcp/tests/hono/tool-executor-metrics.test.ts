@@ -36,10 +36,10 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { InstructionsBuilder } from '@/hono/instructions'
 import type { RequestProperties } from '@/lib/request-properties'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -78,7 +78,17 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
-        clientProfile: { capabilities: { supportsInstructions: true } } as any,
+        clientProfile: {
+            capabilities: { supportsInstructions: true },
+        } as any,
+        requestContext: {
+            sessionId: 'sess-1',
+            mcpClientName: 'test',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            transport: 'streamable-http',
+        },
+        sessionContext: null,
         allTools: tools as any,
         distinctId: 'test-distinct-id',
         ...overrides,

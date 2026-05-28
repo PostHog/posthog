@@ -8,12 +8,11 @@
  *
  * The `MCPClientProfile` class owns all per-client behavior decisions:
  *
- * - `isCodingAgent()` matches coding agents that surface `structuredContent`
- *   to the model in preference to `content[].text`. Used to drop
- *   `structuredContent` when a `formatted_results` override is set, otherwise
- *   Claude Code (and friends) show raw JSON instead of the formatted table.
- *   Cursor is deliberately excluded — it reads text for the model and renders
- *   `structuredContent` in UI, so it does not need the workaround.
+ * - `isCodingAgent()` matches coding agents that should default to single-exec
+ *   mode and drop `structuredContent` when a `formatted_results` override is
+ *   set. Cursor is deliberately excluded — it reads text for the model and
+ *   renders `structuredContent` in UI, so it does not need single-exec mode or
+ *   the formatted-results workaround.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Code Tasks wrapper.

@@ -227,7 +227,7 @@ class McpDispatcher {
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })
 
-            void trackInitEvent(props, state)
+            void trackInitEvent(state)
 
             return {
                 protocolVersion,

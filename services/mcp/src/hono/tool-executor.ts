@@ -1,6 +1,7 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
+import { isCodingAgentClient } from '@/lib/client-detection'
 import {
     handleToolError,
     MissingOrganizationContextError,
@@ -17,6 +18,7 @@ import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall } from './analytics'
 import type { InstructionsBuilder } from './instructions'
+import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { ToolCatalog } from './tool-catalog'
@@ -63,7 +65,7 @@ export class ToolExecutor {
 
     async handleToolCall(
         params: Record<string, unknown> | undefined,
-        props: RequestProperties,
+        _props: RequestProperties,
         state: ResolvedState
     ): Promise<unknown> {
         const toolName = params?.name as string
@@ -72,7 +74,7 @@ export class ToolExecutor {
         }
 
         if (toolName === 'exec') {
-            return this.callExecTool(params, props, state)
+            return this.callExecTool(params, state)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -94,7 +96,6 @@ export class ToolExecutor {
                 _meta: preBuilt.base._meta,
             },
             params,
-            props,
             state
         )
     }
@@ -102,7 +103,6 @@ export class ToolExecutor {
     private async callTool(
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
-        props: RequestProperties,
         state: ResolvedState
     ): Promise<unknown> {
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
@@ -130,7 +130,7 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: tool.name, status: 'success' })
             stop({ status: 'success' })
 
-            void trackToolCall(tool.name, Date.now() - startMs, false, props, state)
+            void trackToolCall(tool.name, Date.now() - startMs, false, state)
 
             if (isToolCallPayload(handlerResult)) {
                 return handlerResult
@@ -145,7 +145,7 @@ export class ToolExecutor {
                 toolMeta: tool._meta,
                 toolName: tool.name,
                 params: validation.data,
-                clientName: props.mcpClientName,
+                suppressStructuredContentForFormattedResults: isCodingAgentClient(state.clientProfile.clientName),
                 distinctId,
             })
         } catch (error: unknown) {
@@ -153,20 +153,16 @@ export class ToolExecutor {
             stop({ status: 'error' })
             classifyToolError(error, tool.name)
 
-            void trackToolCall(tool.name, Date.now() - startMs, true, props, state)
+            void trackToolCall(tool.name, Date.now() - startMs, true, state)
 
-            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
+            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
     }
 
-    private async callExecTool(
-        params: Record<string, unknown> | undefined,
-        props: RequestProperties,
-        state: ResolvedState
-    ): Promise<unknown> {
+    private async callExecTool(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
         const execMetrics: ExecMetricState = { innerToolName: undefined }
-        const resolved = this.resolveExecTool(state, props, execMetrics)
+        const resolved = this.resolveExecTool(state, execMetrics)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = resolved.schema.safeParse(toolArgs)
@@ -180,7 +176,7 @@ export class ToolExecutor {
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
 
-            void trackToolCall('exec', Date.now() - startMs, false, props, state)
+            void trackToolCall('exec', Date.now() - startMs, false, state)
 
             if (isToolCallPayload(handlerResult)) {
                 return handlerResult
@@ -191,7 +187,7 @@ export class ToolExecutor {
                 toolMeta: resolved._meta,
                 toolName: 'exec',
                 params: validation.data,
-                clientName: props.mcpClientName,
+                suppressStructuredContentForFormattedResults: isCodingAgentClient(state.clientProfile.clientName),
                 distinctId: undefined,
             })
         } catch (error: unknown) {
@@ -201,18 +197,14 @@ export class ToolExecutor {
             }
             classifyToolError(error, metricTool)
 
-            void trackToolCall('exec', Date.now() - startMs, true, props, state)
+            void trackToolCall('exec', Date.now() - startMs, true, state)
 
-            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
+            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
             return handleToolError(error, 'exec', state.distinctId, sessionUuid)
         }
     }
 
-    private resolveExecTool(
-        state: ResolvedState,
-        props: RequestProperties,
-        execMetrics: ExecMetricState
-    ): ResolvedTool {
+    private resolveExecTool(state: ResolvedState, execMetrics: ExecMetricState): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
@@ -228,18 +220,18 @@ export class ToolExecutor {
                     { tool_name: toolName, ...properties },
                     freshContext,
                     undefined,
-                    state.distinctId,
-                    props
+                    state.distinctId
                 )
             })().catch(() => {})
         }
+        const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         const execTool = createExecTool(
             state.allTools,
             state.context,
             this.instructionsBuilder.buildExecToolDescription(),
             commandReference,
-            props.mcpConsumer,
+            clientContext.mcpConsumer,
             trackInnerCall
         )
 

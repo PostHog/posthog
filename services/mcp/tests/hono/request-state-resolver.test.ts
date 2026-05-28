@@ -58,6 +58,7 @@ vi.mock('@/hono/request-context', () => {
                 })),
                 getAnalyticsContextSafe: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
+                setMcpContexts: vi.fn(),
             }
         }),
     }
@@ -91,19 +92,34 @@ function makeResolver(): RequestStateResolver {
     return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
 }
 
-describe('RequestStateResolver MCP mode pinning', () => {
+describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
         mockSessionStore.clear()
         mockTokenStore.clear()
     })
 
-    it('stores the resolved mode for a new MCP session', async () => {
+    it('stores client props, but not resolved mode, for a new MCP session', async () => {
         const props = makeProps()
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
-        expect(mockSessionStore.get('mcpMode')).toBe('cli')
+        expect(result.requestContext).toMatchObject({
+            mcpClientName: 'claude-code',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            mode: 'cli',
+        })
+        expect(result.sessionContext).toMatchObject({
+            mcpClientName: 'claude-code',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            mode: 'cli',
+        })
+        expect(mockSessionStore.get('mcpClientName')).toBe('claude-code')
+        expect(mockSessionStore.get('mcpClientVersion')).toBe('1.0')
+        expect(mockSessionStore.get('mcpProtocolVersion')).toBe('2025-03-26')
+        expect(mockSessionStore.get('mcpMode')).toBeUndefined()
     })
 
     it('does not store mode for a new MCP session when the mode was explicit', async () => {
@@ -112,10 +128,12 @@ describe('RequestStateResolver MCP mode pinning', () => {
 
         expect(result.useSingleExec).toBe(false)
         expect(props.mode).toBe('tools')
+        expect(result.requestContext.mode).toBe('tools')
+        expect(result.sessionContext?.mode).toBe('tools')
         expect(mockSessionStore.get('mcpMode')).toBeUndefined()
     })
 
-    it('uses cached session mode when client detection would resolve differently', async () => {
+    it('uses cached session client props when request client detection would resolve differently', async () => {
         await makeResolver().resolve(makeProps())
 
         const props = makeProps({ mcpClientName: 'Claude Desktop' })
@@ -123,9 +141,27 @@ describe('RequestStateResolver MCP mode pinning', () => {
 
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
+        expect(props.mcpClientName).toBe('Claude Desktop')
+        expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
+        expect(result.sessionContext?.mcpClientName).toBe('claude-code')
+        expect(result.clientProfile.clientName).toBe('claude-code')
+        expect(result.clientProfile.isCodingAgent()).toBe(true)
     })
 
-    it('uses explicit mode when an existing MCP session cached a different mode', async () => {
+    it('uses cached session client props for instruction capabilities without overwriting request props', async () => {
+        await makeResolver().resolve(makeProps({ mcpClientName: 'codex' }))
+
+        const props = makeProps({ mcpClientName: 'Claude Desktop' })
+        const result = await makeResolver().resolve(props)
+
+        expect(props.mcpClientName).toBe('Claude Desktop')
+        expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
+        expect(result.sessionContext?.mcpClientName).toBe('codex')
+        expect(result.clientProfile.clientName).toBe('codex')
+        expect(result.clientProfile.capabilities.supportsInstructions).toBe(false)
+    })
+
+    it('uses explicit mode when cached session client props would resolve differently', async () => {
         await makeResolver().resolve(makeProps())
 
         const props = makeProps({ mode: 'tools' })
@@ -137,30 +173,78 @@ describe('RequestStateResolver MCP mode pinning', () => {
 
     it('does not pin mode without an MCP session ID', async () => {
         const props = makeProps({ mcpSessionId: undefined })
-        await makeResolver().resolve(props)
+        const result = await makeResolver().resolve(props)
 
         expect(props.mode).toBe('cli')
+        expect(result.sessionContext).toBeNull()
+        expect(result.requestContext.mcpClientName).toBe('claude-code')
         expect(mockSessionStore.get('mcpMode')).toBeUndefined()
     })
 
-    it('keeps the cached mode even when the vendor client would resolve to a different mode', async () => {
-        // First request inits a non-coding-agent pool (Claude Desktop) and pins mode='tools'.
+    it('uses cached vendor client when the live vendor header would resolve differently', async () => {
+        await makeResolver().resolve(
+            makeProps({
+                mcpClientName: 'Anthropic/ClaudeAI',
+                mcpVendorClient: 'ClaudeCode',
+            })
+        )
+        expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
+
+        const pooled = makeProps({
+            mcpClientName: 'Anthropic/ClaudeAI',
+            mcpVendorClient: 'ClaudeAI',
+        })
+        const result = await makeResolver().resolve(pooled)
+
+        expect(result.useSingleExec).toBe(true)
+        expect(pooled.mode).toBe('cli')
+        expect(pooled.mcpVendorClient).toBe('ClaudeAI')
+        expect(result.requestContext.mcpVendorClient).toBe('ClaudeAI')
+        expect(result.sessionContext?.mcpVendorClient).toBe('ClaudeCode')
+        expect(result.clientProfile.vendorClient).toBe('ClaudeCode')
+    })
+
+    it('captures vendor client from a later request when initialize omitted the header', async () => {
         await makeResolver().resolve(
             makeProps({
                 mcpClientName: 'Anthropic/ClaudeAI',
                 mcpVendorClient: undefined,
             })
         )
-        expect(mockSessionStore.get('mcpMode')).toBe('tools')
+        expect(mockSessionStore.get('mcpVendorClient')).toBeUndefined()
 
-        // Same pooled session id, now carrying a Claude Code inner request.
-        // Cache must win — mode stays 'tools'.
         const pooled = makeProps({
             mcpClientName: 'Anthropic/ClaudeAI',
             mcpVendorClient: 'ClaudeCode',
         })
         const result = await makeResolver().resolve(pooled)
-        expect(result.useSingleExec).toBe(false)
-        expect(pooled.mode).toBe('tools')
+
+        expect(result.useSingleExec).toBe(true)
+        expect(pooled.mode).toBe('cli')
+        expect(result.requestContext.mcpVendorClient).toBe('ClaudeCode')
+        expect(result.sessionContext?.mcpVendorClient).toBe('ClaudeCode')
+        expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
+    })
+
+    it('captures consumer from a later request when initialize omitted the header', async () => {
+        await makeResolver().resolve(
+            makeProps({
+                mcpClientName: 'Claude Desktop',
+                mcpConsumer: undefined,
+            })
+        )
+        expect(mockSessionStore.get('mcpConsumer')).toBeUndefined()
+
+        const posthogCode = makeProps({
+            mcpClientName: 'Claude Desktop',
+            mcpConsumer: 'posthog-code',
+        })
+        const result = await makeResolver().resolve(posthogCode)
+
+        expect(result.useSingleExec).toBe(true)
+        expect(posthogCode.mode).toBe('cli')
+        expect(result.requestContext.mcpConsumer).toBe('posthog-code')
+        expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
+        expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
     })
 })

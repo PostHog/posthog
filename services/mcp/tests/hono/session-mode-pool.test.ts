@@ -1,9 +1,10 @@
 // Verifies the connection-pooling scenario observed in production: Anthropic
 // reuses a single `Mcp-Session-Id` across multiple inner clients (Claude
 // Code, Claude.ai, Cowork) and differentiates them via the per-request
-// `x-anthropic-client` header. The server pins `mcpMode` (and the matching
-// `version`) in the session cache at `initialize`; a later `tools/call`
-// carrying a different vendor must NOT flip the resolved mode/version.
+// `x-anthropic-client` header. The server caches the initial raw session
+// identity hints and derives mode from those cached-first hints; a later
+// `tools/call` carrying a different vendor must NOT flip the resolved
+// mode/version.
 //
 // To probe the resolved mode DIRECTLY via a `tools/call` (the user flow
 // under test) we exploit tools that are gated by `mcpVersion` in the catalog.
@@ -128,8 +129,8 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         // Without reading the vendor header, the resolver picks tools mode at
         // init (because `Anthropic/ClaudeAI` doesn't match any coding-agent
         // fragment) and the SDK gets the full multi-tool roster. With vendor
-        // reading + mode pinning, the resolver picks cli mode at init and the
-        // SDK gets the wrapped `[exec]` roster.
+        // reading + cached session hints, the resolver picks cli mode at init
+        // and the SDK gets the wrapped `[exec]` roster.
         const transportA = new StreamableHTTPClientTransport(new URL('/mcp', BASE_URL), {
             fetch: fetchViaApp,
             requestInit: {
@@ -152,12 +153,12 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         expect(cachedTools.tools[0]!.name).toBe('exec')
 
         // headers_2 — pool member with a non-coding-agent vendor. If the
-        // resolver re-derives mode from the live profile, `vendorClient='ClaudeAI'`
+        // resolver re-derives mode from the live request, `vendorClient='ClaudeAI'`
         // + cached `clientName='Anthropic/ClaudeAI'` both miss the coding-agent
-        // fragments → resolves to tools mode (v1) → the v2-only tool falls out
-        // of `state.allTools` and the dispatcher returns "not found". With mode
-        // pinned to cli at init, the request stays at v2 and the v2-only tool
-        // dispatches.
+        // fragments -> resolves to tools mode (v1) -> the v2-only tool falls out
+        // of `state.allTools` and the dispatcher returns "not found". With the
+        // initial vendor hint cached, the request stays at v2 and the v2-only
+        // tool dispatches.
         const probe = await callToolOnSession(sessionId!, 'ClaudeAI', V2_ONLY_TOOL)
         expect(firstText(probe)).not.toMatch(new RegExp(`Tool ${V2_ONLY_TOOL} not found`, 'i'))
 

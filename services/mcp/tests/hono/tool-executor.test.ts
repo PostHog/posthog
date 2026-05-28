@@ -53,7 +53,17 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
-        clientProfile: { capabilities: { supportsInstructions: true } } as any,
+        clientProfile: {
+            capabilities: { supportsInstructions: true },
+        } as any,
+        requestContext: {
+            sessionId: 'sess-1',
+            mcpClientName: 'test',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            transport: 'streamable-http',
+        },
+        sessionContext: null,
         allTools: tools as any,
         distinctId: 'test-distinct-id',
         ...overrides,

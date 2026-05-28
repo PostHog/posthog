@@ -4,9 +4,15 @@ import { evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
-import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
+import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
+import {
+    buildMCPRequestContext,
+    getEffectiveMCPClientContext,
+    type MCPRequestContext,
+    type MCPSessionContext,
+} from './mcp-context'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -20,6 +26,8 @@ export interface ResolvedState {
     toolFeatureFlags: Record<string, boolean> | undefined
     apiKeyScopes: string[]
     clientProfile: MCPClientProfile
+    requestContext: MCPRequestContext
+    sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     distinctId: string
 }
@@ -60,6 +68,10 @@ export class RequestStateResolver {
 
     async resolve(props: RequestProperties): Promise<ResolvedState> {
         const reqCtx = new RequestContext(this.redis, this.env, props)
+        const requestContext = buildMCPRequestContext(props)
+        const sessionContext = await this.resolveSessionContext(reqCtx, requestContext)
+        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+
         const context = await reqCtx.getContext()
 
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = props
@@ -68,14 +80,6 @@ export class RequestStateResolver {
             ...(organizationId ? { orgId: organizationId } : {}),
             ...(projectId ? { projectId } : {}),
         })
-
-        if (props.mcpSessionId) {
-            await reqCtx.sessionCache.setMany({
-                ...(props.mcpClientName ? { mcpClientName: props.mcpClientName } : {}),
-                ...(props.mcpClientVersion ? { mcpClientVersion: props.mcpClientVersion } : {}),
-                ...(props.mcpProtocolVersion ? { mcpProtocolVersion: props.mcpProtocolVersion } : {}),
-            })
-        }
 
         let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
         if (!cachedProjectId) {
@@ -101,42 +105,29 @@ export class RequestStateResolver {
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
 
-        let mcpClientName = props.mcpClientName
-        let mcpClientVersion = props.mcpClientVersion
-        let mcpProtocolVersion = props.mcpProtocolVersion
-        if (props.mcpSessionId && (!mcpClientName || !mcpClientVersion || !mcpProtocolVersion)) {
-            const [cachedName, cachedVersion, cachedProto] = await Promise.all([
-                mcpClientName ? undefined : reqCtx.sessionCache.get('mcpClientName'),
-                mcpClientVersion ? undefined : reqCtx.sessionCache.get('mcpClientVersion'),
-                mcpProtocolVersion ? undefined : reqCtx.sessionCache.get('mcpProtocolVersion'),
-            ])
-            mcpClientName = mcpClientName || cachedName || undefined
-            mcpClientVersion = mcpClientVersion || cachedVersion || undefined
-            mcpProtocolVersion = mcpProtocolVersion || cachedProto || undefined
-        }
-
-        props.mcpClientName = mcpClientName
-        props.mcpClientVersion = mcpClientVersion
-        props.mcpProtocolVersion = mcpProtocolVersion
         const clientProfile = new MCPClientProfile({
-            clientName: mcpClientName,
-            clientVersion: mcpClientVersion,
-            consumer: props.mcpConsumer,
+            clientName: clientContext.mcpClientName,
+            clientVersion: clientContext.mcpClientVersion,
+            consumer: clientContext.mcpConsumer,
             oauthClientName,
-            vendorClient: props.mcpVendorClient,
+            vendorClient: clientContext.mcpVendorClient,
         })
 
         const {
             mode: resolvedMode,
             useSingleExec,
             version,
-        } = await this.resolveSessionModeAndVersion({
-            reqCtx,
-            props,
+        } = this.resolveSessionModeAndVersion({
+            explicitMode: requestContext.mode,
             clientProfile,
             flagVersion,
             clientVersion,
         })
+        requestContext.mode = resolvedMode
+        if (sessionContext) {
+            sessionContext.mode = resolvedMode
+        }
+        reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
 
         const apiKeyScopes = _apiKey?.scopes ?? []
@@ -170,8 +161,58 @@ export class RequestStateResolver {
             toolFeatureFlags,
             apiKeyScopes,
             clientProfile,
+            requestContext,
+            sessionContext,
             allTools,
             distinctId,
+        }
+    }
+
+    private async resolveSessionContext(
+        reqCtx: RequestContext,
+        requestContext: MCPRequestContext
+    ): Promise<MCPSessionContext | null> {
+        if (!requestContext.mcpSessionId) {
+            return null
+        }
+
+        const [cachedName, cachedVersion, cachedProtocol, cachedConsumer, cachedVendor] = await Promise.all([
+            reqCtx.sessionCache.get('mcpClientName'),
+            reqCtx.sessionCache.get('mcpClientVersion'),
+            reqCtx.sessionCache.get('mcpProtocolVersion'),
+            reqCtx.sessionCache.get('mcpConsumer'),
+            reqCtx.sessionCache.get('mcpVendorClient'),
+        ])
+
+        const cacheUpdates: Partial<
+            Pick<State, 'mcpClientName' | 'mcpClientVersion' | 'mcpProtocolVersion' | 'mcpConsumer' | 'mcpVendorClient'>
+        > = {}
+        if (!cachedName && requestContext.mcpClientName) {
+            cacheUpdates.mcpClientName = requestContext.mcpClientName
+        }
+        if (!cachedVersion && requestContext.mcpClientVersion) {
+            cacheUpdates.mcpClientVersion = requestContext.mcpClientVersion
+        }
+        if (!cachedProtocol && requestContext.mcpProtocolVersion) {
+            cacheUpdates.mcpProtocolVersion = requestContext.mcpProtocolVersion
+        }
+        if (!cachedConsumer && requestContext.mcpConsumer) {
+            cacheUpdates.mcpConsumer = requestContext.mcpConsumer
+        }
+        if (!cachedVendor && requestContext.mcpVendorClient) {
+            cacheUpdates.mcpVendorClient = requestContext.mcpVendorClient
+        }
+
+        if (Object.keys(cacheUpdates).length > 0) {
+            await reqCtx.sessionCache.setMany(cacheUpdates)
+        }
+
+        return {
+            mcpClientName: cachedName || requestContext.mcpClientName || undefined,
+            mcpClientVersion: cachedVersion || requestContext.mcpClientVersion || undefined,
+            mcpProtocolVersion: cachedProtocol || requestContext.mcpProtocolVersion || undefined,
+            mcpConsumer: cachedConsumer || requestContext.mcpConsumer || undefined,
+            mcpVendorClient: cachedVendor || requestContext.mcpVendorClient || undefined,
         }
     }
 
@@ -191,15 +232,13 @@ export class RequestStateResolver {
         }
     }
 
-    private async resolveSessionModeAndVersion(args: {
-        reqCtx: RequestContext
-        props: RequestProperties
+    private resolveSessionModeAndVersion(args: {
+        explicitMode: McpMode | undefined
         clientProfile: MCPClientProfile
         flagVersion: number | undefined
         clientVersion: number | undefined
-    }): Promise<{ mode: McpMode; useSingleExec: boolean; version: number }> {
-        const { reqCtx, props, clientProfile, flagVersion, clientVersion } = args
-        const explicitMode = props.mode
+    }): { mode: McpMode; useSingleExec: boolean; version: number } {
+        const { explicitMode, clientProfile, flagVersion, clientVersion } = args
         const candidate = resolveModeAndVersion({
             mode: explicitMode,
             clientProfile,
@@ -212,23 +251,6 @@ export class RequestStateResolver {
             return { mode: explicitMode, useSingleExec: candidate.useSingleExec, version: candidate.version }
         }
 
-        let resolvedMode = candidateMode
-        if (props.mcpSessionId) {
-            const cachedMode = await reqCtx.sessionCache.get('mcpMode')
-            if (cachedMode) {
-                resolvedMode = cachedMode
-            } else {
-                await reqCtx.sessionCache.set('mcpMode', candidateMode)
-            }
-        }
-
-        const { useSingleExec, version } = resolveModeAndVersion({
-            mode: resolvedMode,
-            clientProfile,
-            flagVersion,
-            clientVersion,
-        })
-
-        return { mode: resolvedMode, useSingleExec, version }
+        return { mode: candidateMode, useSingleExec: candidate.useSingleExec, version: candidate.version }
     }
 }
