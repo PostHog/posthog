@@ -97,6 +97,7 @@ export const logsAlertsCreateBodyFiltersOneFilterGroupDefault = null
 export const logsAlertsCreateBodyFiltersOneServiceNamesDefault = null
 export const logsAlertsCreateBodyFiltersOneSeverityLevelsDefault = null
 export const logsAlertsCreateBodyThresholdCountDefault = 100
+export const logsAlertsCreateBodyThresholdCountMin = 0
 
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
 export const logsAlertsCreateBodyWindowMinutesDefault = 5
@@ -1249,7 +1250,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(0)
+        .min(logsAlertsCreateBodyThresholdCountMin)
         .default(logsAlertsCreateBodyThresholdCountDefault)
         .describe(
             "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
@@ -1372,6 +1373,8 @@ export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValues
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneServiceNamesDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneSeverityLevelsDefault = null
+export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
+
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
 
 export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
@@ -2518,7 +2521,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     threshold_count: zod
         .number()
-        .min(0)
+        .min(logsAlertsPartialUpdateBodyThresholdCountMin)
         .optional()
         .describe(
             "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
@@ -2703,6 +2706,8 @@ export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValue
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneServiceNamesDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneSeverityLevelsDefault = null
+export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
+
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
 
@@ -3841,7 +3846,10 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 .default(logsAlertsSimulateCreateBodyFiltersOneSeverityLevelsDefault),
         })
         .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
-    threshold_count: zod.number().min(0).describe('Threshold count to evaluate against.'),
+    threshold_count: zod
+        .number()
+        .min(logsAlertsSimulateCreateBodyThresholdCountMin)
+        .describe('Threshold count to evaluate against.'),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
