@@ -45,6 +45,15 @@ And the HogQL side, so you know where to make a change:
 - HogQL function registry: [`posthog/hogql/functions/`](../../../posthog/hogql/functions/) (aggregations are in [`aggregations.py`](../../../posthog/hogql/functions/aggregations.py))
 - HogQL database schema mappings: [`posthog/hogql/database/schema/`](../../../posthog/hogql/database/schema/)
 
+The materialization system (how property access gets rewritten away from `JSONExtract` automatically):
+
+- Materialized columns registry: [`ee/clickhouse/materialized_columns/columns.py`](../../../ee/clickhouse/materialized_columns/columns.py). `get_materialized_columns(table)` / `get_enabled_materialized_columns(table)` return the `(property_name, table_column) → MaterializedColumn` map for a given table, cached for 15 minutes against the connected ClickHouse.
+- Property groups (different column strategy, same registry shape): [`posthog/clickhouse/property_groups.py`](../../../posthog/clickhouse/property_groups.py).
+- Printer swap point: `_get_materialized_property_source_for_property_type()` and `visit_property_type()` in [`posthog/hogql/printer/base.py`](../../../posthog/hogql/printer/base.py) (around lines 1260 and 1354). When the printer visits a property access, it asks the registry what's materialized for the current ClickHouse and emits the best form available (direct column read, property group lookup, or fall back to `JSONExtract`).
+- ClickHouse-specific dispatch: [`posthog/hogql/printer/clickhouse.py`](../../../posthog/hogql/printer/clickhouse.py) `_get_materialized_property_source_for_property_type` override (around line 412).
+
+This is the mechanism behind the test-vs-prod caveat in the JSON smell below: the printer's lookup runs against whatever ClickHouse it's connected to. The test fixture has a sparse set, prod has a dense set, and the same HogQL prints to different SQL in each. By default, assume property access in HogQL queries gets materialized. The exception is hand-written SQL strings in product code that never go through the printer (e.g. temporal activities, migrations, `sync_execute` callers) and have to do their own materialized-column lookup.
+
 The cluster topology (shards, replicas, ingestion vs data nodes) is in [`posthog/clickhouse/migrations/CLAUDE.md`](../../../posthog/clickhouse/migrations/CLAUDE.md). Read that before proposing any migration that has to land safely across nodes.
 
 ## Step 1: get the ClickHouse SQL
