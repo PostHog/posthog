@@ -378,6 +378,8 @@ class ExperimentService:
     EXPERIMENT_ORDER_ALLOWLIST = {
         "created_at",
         "-created_at",
+        "created_by",
+        "-created_by",
         "updated_at",
         "-updated_at",
         "name",
@@ -2311,6 +2313,9 @@ class ExperimentService:
                     queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
+            elif order_value in ["created_by", "-created_by"]:
+                prefix = "-" if order_value.startswith("-") else ""
+                queryset = queryset.order_by(f"{prefix}created_by__first_name", f"{prefix}created_by__email")
             else:
                 queryset = queryset.order_by(order_value)
         else:

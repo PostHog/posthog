@@ -4221,6 +4221,8 @@ class TestExperimentService(APIBaseTest):
         [
             ("created_at",),
             ("-created_at",),
+            ("created_by",),
+            ("-created_by",),
             ("name",),
             ("-name",),
             ("start_date",),
@@ -4239,6 +4241,9 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
         assert qs is not None
+        # Force evaluation so the SQL actually runs against Postgres — catches
+        # invalid column names that the allowlist check alone would miss.
+        list(qs)
 
     def test_eligible_flags_order_by_invalid_field_raises(self):
         """Ordering eligible flags by a non-allowlisted field should be rejected."""
