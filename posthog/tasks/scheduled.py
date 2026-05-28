@@ -170,6 +170,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             30,
             export_lazy_computation_job_stats.s(),
             name="30 sec lazy_computation backlog probe",
+            # Drop stale signatures if STATS workers fall behind so we don't
+            # re-fire identical aggregates back-to-back after a recovery.
+            expires=30,
         )
 
     sender.add_periodic_task(

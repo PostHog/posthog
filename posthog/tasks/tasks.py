@@ -1789,9 +1789,16 @@ def export_lazy_computation_job_stats() -> None:
                 oldest=Min("created_at")
             )["oldest"]
             if oldest_pending is not None:
-                oldest_pending_age_gauge.set((timezone.now() - oldest_pending).total_seconds())
+                # Clamp at 0: clock skew between app pods and the DB primary
+                # can briefly make this delta negative, which silently breaks
+                # `oldest_pending_age > threshold` alerts.
+                age = max(0.0, (timezone.now() - oldest_pending).total_seconds())
+                oldest_pending_age_gauge.set(age)
             else:
                 oldest_pending_age_gauge.set(0)
     except Exception as exc:
-        # Best-effort — never let a metric-export failure interrupt the worker.
-        logger.warning("export_lazy_computation_job_stats_failed", error=str(exc), exc_info=True)
+        # Best-effort — never let a metric-export failure interrupt the worker —
+        # but do surface persistent failures so a silently-flat dashboard
+        # generates an issue instead of just a quiet log line.
+        logger.exception("export_lazy_computation_job_stats_failed", error=str(exc))
+        capture_exception(exc)
