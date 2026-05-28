@@ -10,7 +10,7 @@ from posthog.tasks.team_metadata import update_related_teams_metadata_cache_task
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
 class TestTeamMetadataInvalidationSignals(BaseTest):
-    def test_organization_rename_enqueues_fanout(self):
+    def test_organization_rename_enqueues_fanout(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self.organization.name = "Renamed org"
@@ -18,7 +18,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
         mock_task.delay.assert_called_once_with(organization_id=self.organization.id, project_id=None)
 
-    def test_project_rename_enqueues_fanout(self):
+    def test_project_rename_enqueues_fanout(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self.project.name = "Renamed project"
@@ -26,7 +26,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
         mock_task.delay.assert_called_once_with(organization_id=None, project_id=self.project.id)
 
-    def test_save_with_name_in_update_fields_enqueues(self):
+    def test_save_with_name_in_update_fields_enqueues(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self.organization.name = "Renamed via update_fields"
@@ -34,7 +34,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
         mock_task.delay.assert_called_once_with(organization_id=self.organization.id, project_id=None)
 
-    def test_save_without_name_in_update_fields_does_not_enqueue(self):
+    def test_save_without_name_in_update_fields_does_not_enqueue(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self.organization.is_member_join_email_enabled = False
@@ -42,7 +42,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
         mock_task.delay.assert_not_called()
 
-    def test_creating_does_not_enqueue(self):
+    def test_creating_does_not_enqueue(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 Organization.objects.create(name="Brand new org")
@@ -53,7 +53,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
         mock_task.delay.assert_not_called()
 
     @override_settings(FLAGS_REDIS_URL="")
-    def test_no_fanout_when_flags_redis_url_unset(self):
+    def test_no_fanout_when_flags_redis_url_unset(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self.organization.name = "Renamed org"
@@ -66,7 +66,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
 class TestRelatedTeamsMetadataFanoutTask(BaseTest):
-    def test_organization_fanout_enqueues_every_team(self):
+    def test_organization_fanout_enqueues_every_team(self) -> None:
         _, second_team = Project.objects.create_with_team(
             organization=self.organization, initiating_user=self.user, name="Second project"
         )
@@ -77,14 +77,14 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
         enqueued_team_ids = {call.args[0] for call in mock_update.delay.call_args_list}
         self.assertEqual(enqueued_team_ids, {self.team.id, second_team.id})
 
-    def test_project_fanout_enqueues_project_team(self):
+    def test_project_fanout_enqueues_project_team(self) -> None:
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_update:
             update_related_teams_metadata_cache_task(project_id=self.project.id)
 
         enqueued_team_ids = {call.args[0] for call in mock_update.delay.call_args_list}
         self.assertEqual(enqueued_team_ids, {self.team.id})
 
-    def test_fanout_is_noop_without_ids(self):
+    def test_fanout_is_noop_without_ids(self) -> None:
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_update:
             update_related_teams_metadata_cache_task()
 
@@ -93,7 +93,7 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
 class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
-    def test_deleting_project_clears_team_metadata_via_cascade(self):
+    def test_deleting_project_clears_team_metadata_via_cascade(self) -> None:
         project, team = Project.objects.create_with_team(
             organization=self.organization, initiating_user=self.user, name="Doomed project"
         )
