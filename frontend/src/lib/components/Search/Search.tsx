@@ -1000,9 +1000,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut enter /> to activate
                     </span>
-                    <span>
-                        <KeyboardShortcut shift enter /> to open in new tab
-                    </span>
                     {searchValue.trim() && (
                         <span>
                             <KeyboardShortcut tab /> to ask AI
