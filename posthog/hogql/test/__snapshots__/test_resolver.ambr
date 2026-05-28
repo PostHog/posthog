@@ -1520,7 +1520,9 @@
                               "override",
                               "distinct_id"
                             ]
+                            end: 33
                             from_asterisk: False
+                            start: 13
                             type: {
                               name: "distinct_id"
                               table_type: {
@@ -1566,7 +1568,9 @@
                         }
                       ]
                       distinct: False
+                      end: 34
                       name: "empty"
+                      start: 7
                       type: {
                         arg_types: [
                           {
@@ -1583,7 +1587,9 @@
                     }
                   ]
                   distinct: False
+                  end: 35
                   name: "not"
+                  start: 3
                   type: {
                     arg_types: [
                       <recursion ...>
@@ -1599,7 +1605,9 @@
                       "override",
                       "person_id"
                     ]
+                    end: 55
                     from_asterisk: False
+                    start: 37
                     type: {
                       name: "person_id"
                       table_type: {
@@ -1649,7 +1657,9 @@
                     chain: [
                       "event_person_id"
                     ]
+                    end: 72
                     from_asterisk: False
+                    start: 57
                     type: {
                       name: "event_person_id"
                       table_type: <recursion ...>
@@ -1664,7 +1674,9 @@
                 }
               ]
               distinct: False
+              end: 73
               name: "if"
+              start: 0
               type: <recursion ...>
             }
             from_asterisk: False
@@ -1858,7 +1870,9 @@
                               "exception_issue_override",
                               "issue_id"
                             ]
+                            end: 46
                             from_asterisk: False
+                            start: 13
                             type: {
                               name: "issue_id"
                               table_type: {
@@ -1901,7 +1915,9 @@
                         }
                       ]
                       distinct: False
+                      end: 47
                       name: "empty"
+                      start: 7
                       type: {
                         arg_types: [
                           {
@@ -1918,7 +1934,9 @@
                     }
                   ]
                   distinct: False
+                  end: 48
                   name: "not"
+                  start: 3
                   type: {
                     arg_types: [
                       <recursion ...>
@@ -1934,7 +1952,9 @@
                       "exception_issue_override",
                       "issue_id"
                     ]
+                    end: 83
                     from_asterisk: False
+                    start: 50
                     type: {
                       name: "issue_id"
                       table_type: {
@@ -2031,7 +2051,9 @@
                 }
               ]
               distinct: False
+              end: 100
               name: "if"
+              start: 0
               type: <recursion ...>
             }
             from_asterisk: False
@@ -2047,7 +2069,9 @@
                   "fingerprint_issue_state",
                   "issue_id"
                 ]
+                end: 32
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2067,7 +2091,9 @@
                   "fingerprint_issue_state",
                   "issue_name"
                 ]
+                end: 34
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2087,7 +2113,9 @@
                   "fingerprint_issue_state",
                   "issue_description"
                 ]
+                end: 41
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2107,7 +2135,9 @@
                   "fingerprint_issue_state",
                   "issue_status"
                 ]
+                end: 36
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2127,7 +2157,9 @@
                   "fingerprint_issue_state",
                   "assigned_user_id"
                 ]
+                end: 40
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2147,7 +2179,9 @@
                   "fingerprint_issue_state",
                   "assigned_role_id"
                 ]
+                end: 40
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2167,7 +2201,9 @@
                   "fingerprint_issue_state",
                   "first_seen"
                 ]
+                end: 34
                 from_asterisk: False
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -2620,7 +2656,9 @@
                           "override",
                           "distinct_id"
                         ]
+                        end: 33
                         from_asterisk: False
+                        start: 13
                         type: {
                           name: "distinct_id"
                           table_type: {
@@ -2666,7 +2704,9 @@
                     }
                   ]
                   distinct: False
+                  end: 34
                   name: "empty"
+                  start: 7
                   type: {
                     arg_types: [
                       {
@@ -2683,7 +2723,9 @@
                 }
               ]
               distinct: False
+              end: 35
               name: "not"
+              start: 3
               type: {
                 arg_types: [
                   <recursion ...>
@@ -2702,7 +2744,9 @@
                   "override",
                   "person_id"
                 ]
+                end: 55
                 from_asterisk: False
+                start: 37
                 type: {
                   name: "person_id"
                   table_type: {
@@ -2752,7 +2796,9 @@
                 chain: [
                   "event_person_id"
                 ]
+                end: 72
                 from_asterisk: False
+                start: 57
                 type: {
                   name: "event_person_id"
                   table_type: <recursion ...>
@@ -2767,7 +2813,9 @@
             }
           ]
           distinct: False
+          end: 73
           name: "if"
+          start: 0
           type: {
             arg_types: [
               <recursion ...>,
@@ -3056,7 +3104,9 @@
                           "exception_issue_override",
                           "issue_id"
                         ]
+                        end: 46
                         from_asterisk: False
+                        start: 13
                         type: {
                           name: "issue_id"
                           table_type: {
@@ -3099,7 +3149,9 @@
                     }
                   ]
                   distinct: False
+                  end: 47
                   name: "empty"
+                  start: 7
                   type: {
                     arg_types: [
                       {
@@ -3116,7 +3168,9 @@
                 }
               ]
               distinct: False
+              end: 48
               name: "not"
+              start: 3
               type: {
                 arg_types: [
                   <recursion ...>
@@ -3135,7 +3189,9 @@
                   "exception_issue_override",
                   "issue_id"
                 ]
+                end: 83
                 from_asterisk: False
+                start: 50
                 type: {
                   name: "issue_id"
                   table_type: {
@@ -3235,7 +3291,9 @@
             }
           ]
           distinct: False
+          end: 100
           name: "if"
+          start: 0
           type: {
             arg_types: [
               <recursion ...>,
@@ -3268,7 +3326,9 @@
               "fingerprint_issue_state",
               "issue_id"
             ]
+            end: 32
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_id"
               table_type: {
@@ -3346,7 +3406,9 @@
               "fingerprint_issue_state",
               "issue_name"
             ]
+            end: 34
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_name"
               table_type: {
@@ -3424,7 +3486,9 @@
               "fingerprint_issue_state",
               "issue_description"
             ]
+            end: 41
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_description"
               table_type: {
@@ -3502,7 +3566,9 @@
               "fingerprint_issue_state",
               "issue_status"
             ]
+            end: 36
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_status"
               table_type: {
@@ -3580,7 +3646,9 @@
               "fingerprint_issue_state",
               "assigned_user_id"
             ]
+            end: 40
             from_asterisk: False
+            start: 0
             type: {
               name: "assigned_user_id"
               table_type: {
@@ -3658,7 +3726,9 @@
               "fingerprint_issue_state",
               "assigned_role_id"
             ]
+            end: 40
             from_asterisk: False
+            start: 0
             type: {
               name: "assigned_role_id"
               table_type: {
@@ -3736,7 +3806,9 @@
               "fingerprint_issue_state",
               "first_seen"
             ]
+            end: 34
             from_asterisk: False
+            start: 0
             type: {
               name: "first_seen"
               table_type: {
@@ -6449,7 +6521,9 @@
                                 "override",
                                 "distinct_id"
                               ]
+                              end: 33
                               from_asterisk: False
+                              start: 13
                               type: {
                                 name: "distinct_id"
                                 table_type: {
@@ -6495,7 +6569,9 @@
                           }
                         ]
                         distinct: False
+                        end: 34
                         name: "empty"
+                        start: 7
                         type: {
                           arg_types: [
                             {
@@ -6512,7 +6588,9 @@
                       }
                     ]
                     distinct: False
+                    end: 35
                     name: "not"
+                    start: 3
                     type: {
                       arg_types: [
                         <recursion ...>
@@ -6528,7 +6606,9 @@
                         "override",
                         "person_id"
                       ]
+                      end: 55
                       from_asterisk: False
+                      start: 37
                       type: {
                         name: "person_id"
                         table_type: {
@@ -6578,7 +6658,9 @@
                       chain: [
                         "event_person_id"
                       ]
+                      end: 72
                       from_asterisk: False
+                      start: 57
                       type: {
                         name: "event_person_id"
                         table_type: <recursion ...>
@@ -6593,7 +6675,9 @@
                   }
                 ]
                 distinct: False
+                end: 73
                 name: "if"
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -6787,7 +6871,9 @@
                                 "exception_issue_override",
                                 "issue_id"
                               ]
+                              end: 46
                               from_asterisk: False
+                              start: 13
                               type: {
                                 name: "issue_id"
                                 table_type: {
@@ -6830,7 +6916,9 @@
                           }
                         ]
                         distinct: False
+                        end: 47
                         name: "empty"
+                        start: 7
                         type: {
                           arg_types: [
                             {
@@ -6847,7 +6935,9 @@
                       }
                     ]
                     distinct: False
+                    end: 48
                     name: "not"
+                    start: 3
                     type: {
                       arg_types: [
                         <recursion ...>
@@ -6863,7 +6953,9 @@
                         "exception_issue_override",
                         "issue_id"
                       ]
+                      end: 83
                       from_asterisk: False
+                      start: 50
                       type: {
                         name: "issue_id"
                         table_type: {
@@ -6960,7 +7052,9 @@
                   }
                 ]
                 distinct: False
+                end: 100
                 name: "if"
+                start: 0
                 type: <recursion ...>
               }
               from_asterisk: False
@@ -6976,7 +7070,9 @@
                     "fingerprint_issue_state",
                     "issue_id"
                   ]
+                  end: 32
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -6996,7 +7092,9 @@
                     "fingerprint_issue_state",
                     "issue_name"
                   ]
+                  end: 34
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -7016,7 +7114,9 @@
                     "fingerprint_issue_state",
                     "issue_description"
                   ]
+                  end: 41
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -7036,7 +7136,9 @@
                     "fingerprint_issue_state",
                     "issue_status"
                   ]
+                  end: 36
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -7056,7 +7158,9 @@
                     "fingerprint_issue_state",
                     "assigned_user_id"
                   ]
+                  end: 40
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -7076,7 +7180,9 @@
                     "fingerprint_issue_state",
                     "assigned_role_id"
                   ]
+                  end: 40
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -7096,7 +7202,9 @@
                     "fingerprint_issue_state",
                     "first_seen"
                   ]
+                  end: 34
                   from_asterisk: False
+                  start: 0
                   type: <recursion ...>
                 }
                 from_asterisk: False
@@ -7500,7 +7608,9 @@
                                     "override",
                                     "distinct_id"
                                   ]
+                                  end: 33
                                   from_asterisk: False
+                                  start: 13
                                   type: {
                                     name: "distinct_id"
                                     table_type: {
@@ -7546,7 +7656,9 @@
                               }
                             ]
                             distinct: False
+                            end: 34
                             name: "empty"
+                            start: 7
                             type: {
                               arg_types: [
                                 {
@@ -7563,7 +7675,9 @@
                           }
                         ]
                         distinct: False
+                        end: 35
                         name: "not"
+                        start: 3
                         type: {
                           arg_types: [
                             <recursion ...>
@@ -7582,7 +7696,9 @@
                             "override",
                             "person_id"
                           ]
+                          end: 55
                           from_asterisk: False
+                          start: 37
                           type: {
                             name: "person_id"
                             table_type: {
@@ -7632,7 +7748,9 @@
                           chain: [
                             "event_person_id"
                           ]
+                          end: 72
                           from_asterisk: False
+                          start: 57
                           type: {
                             name: "event_person_id"
                             table_type: <recursion ...>
@@ -7647,7 +7765,9 @@
                       }
                     ]
                     distinct: False
+                    end: 73
                     name: "if"
+                    start: 0
                     type: {
                       arg_types: [
                         <recursion ...>,
@@ -7936,7 +8056,9 @@
                                     "exception_issue_override",
                                     "issue_id"
                                   ]
+                                  end: 46
                                   from_asterisk: False
+                                  start: 13
                                   type: {
                                     name: "issue_id"
                                     table_type: {
@@ -7979,7 +8101,9 @@
                               }
                             ]
                             distinct: False
+                            end: 47
                             name: "empty"
+                            start: 7
                             type: {
                               arg_types: [
                                 {
@@ -7996,7 +8120,9 @@
                           }
                         ]
                         distinct: False
+                        end: 48
                         name: "not"
+                        start: 3
                         type: {
                           arg_types: [
                             <recursion ...>
@@ -8015,7 +8141,9 @@
                             "exception_issue_override",
                             "issue_id"
                           ]
+                          end: 83
                           from_asterisk: False
+                          start: 50
                           type: {
                             name: "issue_id"
                             table_type: {
@@ -8115,7 +8243,9 @@
                       }
                     ]
                     distinct: False
+                    end: 100
                     name: "if"
+                    start: 0
                     type: {
                       arg_types: [
                         <recursion ...>,
@@ -8148,7 +8278,9 @@
                         "fingerprint_issue_state",
                         "issue_id"
                       ]
+                      end: 32
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "issue_id"
                         table_type: {
@@ -8226,7 +8358,9 @@
                         "fingerprint_issue_state",
                         "issue_name"
                       ]
+                      end: 34
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "issue_name"
                         table_type: {
@@ -8304,7 +8438,9 @@
                         "fingerprint_issue_state",
                         "issue_description"
                       ]
+                      end: 41
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "issue_description"
                         table_type: {
@@ -8382,7 +8518,9 @@
                         "fingerprint_issue_state",
                         "issue_status"
                       ]
+                      end: 36
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "issue_status"
                         table_type: {
@@ -8460,7 +8598,9 @@
                         "fingerprint_issue_state",
                         "assigned_user_id"
                       ]
+                      end: 40
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "assigned_user_id"
                         table_type: {
@@ -8538,7 +8678,9 @@
                         "fingerprint_issue_state",
                         "assigned_role_id"
                       ]
+                      end: 40
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "assigned_role_id"
                         table_type: {
@@ -8616,7 +8758,9 @@
                         "fingerprint_issue_state",
                         "first_seen"
                       ]
+                      end: 34
                       from_asterisk: False
+                      start: 0
                       type: {
                         name: "first_seen"
                         table_type: {
@@ -9404,7 +9548,9 @@
                           "override",
                           "distinct_id"
                         ]
+                        end: 33
                         from_asterisk: False
+                        start: 13
                         type: {
                           name: "distinct_id"
                           table_type: {
@@ -9450,7 +9596,9 @@
                     }
                   ]
                   distinct: False
+                  end: 34
                   name: "empty"
+                  start: 7
                   type: {
                     arg_types: [
                       {
@@ -9467,7 +9615,9 @@
                 }
               ]
               distinct: False
+              end: 35
               name: "not"
+              start: 3
               type: {
                 arg_types: [
                   <recursion ...>
@@ -9486,7 +9636,9 @@
                   "override",
                   "person_id"
                 ]
+                end: 55
                 from_asterisk: False
+                start: 37
                 type: {
                   name: "person_id"
                   table_type: {
@@ -9536,7 +9688,9 @@
                 chain: [
                   "event_person_id"
                 ]
+                end: 72
                 from_asterisk: False
+                start: 57
                 type: {
                   name: "event_person_id"
                   table_type: <recursion ...>
@@ -9551,7 +9705,9 @@
             }
           ]
           distinct: False
+          end: 73
           name: "if"
+          start: 0
           type: {
             arg_types: [
               <recursion ...>,
@@ -9840,7 +9996,9 @@
                           "exception_issue_override",
                           "issue_id"
                         ]
+                        end: 46
                         from_asterisk: False
+                        start: 13
                         type: {
                           name: "issue_id"
                           table_type: {
@@ -9883,7 +10041,9 @@
                     }
                   ]
                   distinct: False
+                  end: 47
                   name: "empty"
+                  start: 7
                   type: {
                     arg_types: [
                       {
@@ -9900,7 +10060,9 @@
                 }
               ]
               distinct: False
+              end: 48
               name: "not"
+              start: 3
               type: {
                 arg_types: [
                   <recursion ...>
@@ -9919,7 +10081,9 @@
                   "exception_issue_override",
                   "issue_id"
                 ]
+                end: 83
                 from_asterisk: False
+                start: 50
                 type: {
                   name: "issue_id"
                   table_type: {
@@ -10019,7 +10183,9 @@
             }
           ]
           distinct: False
+          end: 100
           name: "if"
+          start: 0
           type: {
             arg_types: [
               <recursion ...>,
@@ -10052,7 +10218,9 @@
               "fingerprint_issue_state",
               "issue_id"
             ]
+            end: 32
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_id"
               table_type: {
@@ -10130,7 +10298,9 @@
               "fingerprint_issue_state",
               "issue_name"
             ]
+            end: 34
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_name"
               table_type: {
@@ -10208,7 +10378,9 @@
               "fingerprint_issue_state",
               "issue_description"
             ]
+            end: 41
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_description"
               table_type: {
@@ -10286,7 +10458,9 @@
               "fingerprint_issue_state",
               "issue_status"
             ]
+            end: 36
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_status"
               table_type: {
@@ -10364,7 +10538,9 @@
               "fingerprint_issue_state",
               "assigned_user_id"
             ]
+            end: 40
             from_asterisk: False
+            start: 0
             type: {
               name: "assigned_user_id"
               table_type: {
@@ -10442,7 +10618,9 @@
               "fingerprint_issue_state",
               "assigned_role_id"
             ]
+            end: 40
             from_asterisk: False
+            start: 0
             type: {
               name: "assigned_role_id"
               table_type: {
@@ -10520,7 +10698,9 @@
               "fingerprint_issue_state",
               "first_seen"
             ]
+            end: 34
             from_asterisk: False
+            start: 0
             type: {
               name: "first_seen"
               table_type: {
@@ -11027,7 +11207,9 @@
                           "override",
                           "distinct_id"
                         ]
+                        end: 33
                         from_asterisk: False
+                        start: 13
                         type: {
                           name: "distinct_id"
                           table_type: {
@@ -11073,7 +11255,9 @@
                     }
                   ]
                   distinct: False
+                  end: 34
                   name: "empty"
+                  start: 7
                   type: {
                     arg_types: [
                       {
@@ -11090,7 +11274,9 @@
                 }
               ]
               distinct: False
+              end: 35
               name: "not"
+              start: 3
               type: {
                 arg_types: [
                   <recursion ...>
@@ -11109,7 +11295,9 @@
                   "override",
                   "person_id"
                 ]
+                end: 55
                 from_asterisk: False
+                start: 37
                 type: {
                   name: "person_id"
                   table_type: {
@@ -11159,7 +11347,9 @@
                 chain: [
                   "event_person_id"
                 ]
+                end: 72
                 from_asterisk: False
+                start: 57
                 type: {
                   name: "event_person_id"
                   table_type: <recursion ...>
@@ -11174,7 +11364,9 @@
             }
           ]
           distinct: False
+          end: 73
           name: "if"
+          start: 0
           type: {
             arg_types: [
               <recursion ...>,
@@ -11463,7 +11655,9 @@
                           "exception_issue_override",
                           "issue_id"
                         ]
+                        end: 46
                         from_asterisk: False
+                        start: 13
                         type: {
                           name: "issue_id"
                           table_type: {
@@ -11506,7 +11700,9 @@
                     }
                   ]
                   distinct: False
+                  end: 47
                   name: "empty"
+                  start: 7
                   type: {
                     arg_types: [
                       {
@@ -11523,7 +11719,9 @@
                 }
               ]
               distinct: False
+              end: 48
               name: "not"
+              start: 3
               type: {
                 arg_types: [
                   <recursion ...>
@@ -11542,7 +11740,9 @@
                   "exception_issue_override",
                   "issue_id"
                 ]
+                end: 83
                 from_asterisk: False
+                start: 50
                 type: {
                   name: "issue_id"
                   table_type: {
@@ -11642,7 +11842,9 @@
             }
           ]
           distinct: False
+          end: 100
           name: "if"
+          start: 0
           type: {
             arg_types: [
               <recursion ...>,
@@ -11675,7 +11877,9 @@
               "fingerprint_issue_state",
               "issue_id"
             ]
+            end: 32
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_id"
               table_type: {
@@ -11753,7 +11957,9 @@
               "fingerprint_issue_state",
               "issue_name"
             ]
+            end: 34
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_name"
               table_type: {
@@ -11831,7 +12037,9 @@
               "fingerprint_issue_state",
               "issue_description"
             ]
+            end: 41
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_description"
               table_type: {
@@ -11909,7 +12117,9 @@
               "fingerprint_issue_state",
               "issue_status"
             ]
+            end: 36
             from_asterisk: False
+            start: 0
             type: {
               name: "issue_status"
               table_type: {
@@ -11987,7 +12197,9 @@
               "fingerprint_issue_state",
               "assigned_user_id"
             ]
+            end: 40
             from_asterisk: False
+            start: 0
             type: {
               name: "assigned_user_id"
               table_type: {
@@ -12065,7 +12277,9 @@
               "fingerprint_issue_state",
               "assigned_role_id"
             ]
+            end: 40
             from_asterisk: False
+            start: 0
             type: {
               name: "assigned_role_id"
               table_type: {
@@ -12143,7 +12357,9 @@
               "fingerprint_issue_state",
               "first_seen"
             ]
+            end: 34
             from_asterisk: False
+            start: 0
             type: {
               name: "first_seen"
               table_type: {
