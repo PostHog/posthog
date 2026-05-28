@@ -9,7 +9,7 @@ import {
 } from '@posthog/agent-shared-v2'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { endTurn, FauxPiClient, toolCall, toolUseTurn } from './faux-pi-client'
+import { endTurn, FauxPiClient, toolCall, toolUseTurn } from '../models/faux-pi-client'
 import { Worker } from './worker'
 
 describe('Worker', () => {

@@ -14,7 +14,7 @@
  *     request cuts cleanly.
  */
 
-import type { AssistantMessage, Context, ToolCall } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Context, Model, ToolCall } from '@earendil-works/pi-ai'
 
 import {
     AgentRevision,
@@ -34,16 +34,16 @@ import {
     SessionEventKind,
 } from '@posthog/agent-shared-v2'
 
+import { PiClient } from '../models/pi-client'
 import { buildToolList } from './build-tool-list'
 import { dispatchOne } from './dispatch-one'
-import { PiClient } from './pi-client'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 import { buildSystemPrompt } from './system-prompt'
 
 export interface RunSessionDeps {
     pi: PiClient
     /** The pi-ai Model to invoke for this session (resolved from rev.spec.model). */
-    model: import('@earendil-works/pi-ai').Model<string>
+    model: Model<string>
     /** Per-call API key (provider-specific). Optional — PiAiClient has a default. */
     apiKey?: string
     bundle: BundleStore

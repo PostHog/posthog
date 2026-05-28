@@ -24,10 +24,10 @@ import {
     SessionEventBus,
 } from '@posthog/agent-shared-v2'
 
-import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
-import { posthogLlmGatewayModel } from './llm-gateway-model'
-import { PiAiClient, resolveModelCached } from './pi-client'
-import { Worker } from './worker'
+import { posthogLlmGatewayModel } from './models/llm-gateway-model'
+import { PiAiClient, resolveModelCached } from './models/pi-client'
+import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
+import { Worker } from './workers/worker'
 
 const log = createLogger('agent-runner-v2')
 

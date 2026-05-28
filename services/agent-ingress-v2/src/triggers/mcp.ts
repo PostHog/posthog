@@ -14,10 +14,10 @@
 import { Request, Response, Router } from 'express'
 
 import { SessionQueue } from '@posthog/agent-shared-v2'
+import { SessionEventBus } from '@posthog/agent-shared-v2'
 
-import { SessionEventBus } from '../bus'
-import { enqueueOrResume } from '../enqueue'
-import { RevisionResolver } from '../resolver'
+import { enqueueOrResume } from '../enqueue/enqueue'
+import { RevisionResolver } from '../routing/resolver'
 import { resolveAgent } from './resolve'
 
 export interface McpTriggerDeps {

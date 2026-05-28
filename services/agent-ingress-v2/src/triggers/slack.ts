@@ -12,8 +12,8 @@ import { Request, Response, Router } from 'express'
 
 import { IdentityStore, SessionQueue } from '@posthog/agent-shared-v2'
 
-import { enqueueOrResume } from '../enqueue'
-import { RevisionResolver } from '../resolver'
+import { enqueueOrResume } from '../enqueue/enqueue'
+import { RevisionResolver } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
 
 export interface SlackTriggerDeps {

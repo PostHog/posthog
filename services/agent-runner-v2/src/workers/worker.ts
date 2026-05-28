@@ -32,8 +32,8 @@ import {
     SessionQueue,
 } from '@posthog/agent-shared-v2'
 
-import { PiClient, resolveModelCached } from './pi-client'
-import { runSession } from './run-turn'
+import { runSession } from '../loop/run-turn'
+import { PiClient, resolveModelCached } from '../models/pi-client'
 
 const log = createLogger('worker')
 

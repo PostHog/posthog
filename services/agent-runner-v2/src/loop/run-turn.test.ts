@@ -9,7 +9,7 @@ import {
 } from '@posthog/agent-shared-v2'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { endTurn, errorTurn, FauxPiClient, lengthCappedTurn, toolCall, toolUseTurn } from './faux-pi-client'
+import { endTurn, errorTurn, FauxPiClient, lengthCappedTurn, toolCall, toolUseTurn } from '../models/faux-pi-client'
 import { runSession } from './run-turn'
 
 // FauxPiClient ignores the model argument so a structural stub is fine.

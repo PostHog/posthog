@@ -6,7 +6,7 @@
 
 import { Request } from 'express'
 
-import { ResolvedAgent, RevisionResolver } from '../resolver'
+import { ResolvedAgent, RevisionResolver } from '../routing/resolver'
 
 export async function resolveAgent(resolver: RevisionResolver, req: Request): Promise<ResolvedAgent | null> {
     const slug = typeof req.params?.slug === 'string' ? req.params.slug : null

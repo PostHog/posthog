@@ -11,13 +11,14 @@ import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared
 
 const log = createLogger('ingress')
 
-import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from './auth'
-import { SessionEventBus, MemorySessionEventBus } from './bus'
+import { SessionEventBus, MemorySessionEventBus } from '@posthog/agent-shared-v2'
+
+import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
+import { chatRouter } from '../triggers/chat'
+import { mcpRouter } from '../triggers/mcp'
+import { slackRouter } from '../triggers/slack'
+import { webhookRouter } from '../triggers/webhook'
 import { RevisionResolver, RoutingMode } from './resolver'
-import { chatRouter } from './triggers/chat'
-import { mcpRouter } from './triggers/mcp'
-import { slackRouter } from './triggers/slack'
-import { webhookRouter } from './triggers/webhook'
 
 export interface BuildAppOpts {
     revisions: RevisionStore

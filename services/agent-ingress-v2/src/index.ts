@@ -12,7 +12,7 @@ import {
     SessionEventBus,
 } from '@posthog/agent-shared-v2'
 
-import { buildApp } from './server'
+import { buildApp } from './routing/server'
 
 const log = createLogger('agent-ingress-v2')
 

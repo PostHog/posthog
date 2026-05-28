@@ -7,11 +7,17 @@
 import { Request, Response, Router } from 'express'
 
 import { SessionQueue } from '@posthog/agent-shared-v2'
+import { SessionEventBus } from '@posthog/agent-shared-v2'
 
-import { authorize, AuthProvider, principalsMatch, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER } from '../auth'
-import { SessionEventBus } from '../bus'
-import { enqueueOrResume } from '../enqueue'
-import { RevisionResolver } from '../resolver'
+import {
+    authorize,
+    AuthProvider,
+    principalsMatch,
+    principalToSession,
+    PUBLIC_ONLY_AUTH_PROVIDER,
+} from '../enqueue/auth'
+import { enqueueOrResume } from '../enqueue/enqueue'
+import { RevisionResolver } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
 
 export interface ChatTriggerDeps {

@@ -2,8 +2,8 @@ import request from 'supertest'
 
 import { AgentSpecSchema, MemoryRevisionStore, MemorySessionQueue } from '@posthog/agent-shared-v2'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared-v2'
+import { MemorySessionEventBus } from '@posthog/agent-shared-v2'
 
-import { MemorySessionEventBus } from './bus'
 import { buildApp } from './server'
 
 async function seedApp(
