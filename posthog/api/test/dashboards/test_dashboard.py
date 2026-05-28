@@ -24,7 +24,6 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
@@ -92,33 +91,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
-        )
-
-    def test_retrieve_dashboard_list_includes_other_environments(self):
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
-
-        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "A"}, team_id=self.team.id)
-        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "B"}, team_id=other_team_in_project.id)
-        self.dashboard_api.create_dashboard({"name": "C"}, team_id=team_in_other_project.id)
-
-        response_project_data = self.dashboard_api.list_dashboards(self.project.id)
-        response_env_current_data = self.dashboard_api.list_dashboards(self.team.id, parent="environment")
-        response_env_other_data = self.dashboard_api.list_dashboards(other_team_in_project.id, parent="environment")
-
-        self.assertEqual(
-            {dashboard["id"] for dashboard in response_project_data["results"]},
-            {dashboard_a_id, dashboard_b_id},
-        )
-        self.assertEqual(
-            {dashboard["id"] for dashboard in response_env_current_data["results"]},
-            {dashboard_a_id, dashboard_b_id},
-        )
-        self.assertEqual(
-            {dashboard["id"] for dashboard in response_env_other_data["results"]},
-            {dashboard_a_id, dashboard_b_id},
         )
 
     def test_list_filter_by_tag(self):

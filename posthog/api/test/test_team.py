@@ -124,8 +124,6 @@ def team_api_test_factory():
             self.assertNotIn("event_properties_with_usage", response_data)
 
         def test_retrieve_team_has_group_types(self):
-            other_team = Team.objects.create(organization=self.organization, project=self.project)
-
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
 
@@ -134,13 +132,13 @@ def team_api_test_factory():
             self.assertEqual(response_data["group_types"], [])
 
             create_group_type_mapping_without_created_at(
-                project=self.project, team=other_team, group_type="person", group_type_index=0
+                project=self.project, team=self.team, group_type="person", group_type_index=0
             )
             create_group_type_mapping_without_created_at(
-                project=self.project, team=other_team, group_type="thing", group_type_index=2
+                project=self.project, team=self.team, group_type="thing", group_type_index=2
             )
             create_group_type_mapping_without_created_at(
-                project=self.project, team=other_team, group_type="place", group_type_index=1
+                project=self.project, team=self.team, group_type="place", group_type_index=1
             )
 
             # Clear both cache keys so the next request fetches from DB
@@ -205,9 +203,8 @@ def team_api_test_factory():
         def test_group_types_stale_cache_survives_prolonged_db_outage(self):
             """After the primary 5-minute cache expires during a prolonged DB outage,
             the stale fallback key (24h TTL) keeps serving last known good data."""
-            other_team = Team.objects.create(organization=self.organization, project=self.project)
             create_group_type_mapping_without_created_at(
-                project=self.project, team=other_team, group_type="company", group_type_index=0
+                project=self.project, team=self.team, group_type="company", group_type_index=0
             )
 
             # First request populates both primary and stale cache
@@ -2873,17 +2870,14 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
-            scoped_teams=[other_team_in_project.id],
+            scoped_teams=[other_team.id],
             scopes=["*"],
         )
 
@@ -2893,11 +2887,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         # But they can access the scoped team directly
         response = self.client.get(
-            f"/api/environments/{other_team_in_project.id}/",
+            f"/api/environments/{other_team.id}/",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], other_team_in_project.id)
+        self.assertEqual(response.json()["id"], other_team.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -2928,10 +2922,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
     )
     def test_teams_outside_oauth_scoped_teams_causes_403(self):
         # TODO: This should filter out the teams to the scoped teams, but it causes a 403 due to a bug in APIScopePermission for list endpoints.
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
 
         oauth_app = OAuthApplication.objects.create(
             name="Test OAuth App",
@@ -2949,7 +2940,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             token="pha_test_oauth_token",
             scope="*",
             expires=timezone.now() + timedelta(hours=1),
-            scoped_teams=[other_team_in_project.id],
+            scoped_teams=[other_team.id],
         )
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
@@ -3735,7 +3726,9 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         )
 
     def test_member_cannot_delete_team(self) -> None:
-        # Create a second team in the same project so the org isn't left team-less.
-        other = Team.objects.create(organization=self.organization, project=self.project, name="other")
+        # Create a second team (in its own project) so the org isn't left team-less.
+        _, other = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user, name="other"
+        )
         response = self.client.delete(f"/api/environments/{other.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN

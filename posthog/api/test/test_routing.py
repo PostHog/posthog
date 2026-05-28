@@ -23,7 +23,6 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
-from posthog.models.team.team import Team
 
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation
@@ -89,8 +88,6 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.other_project_annotation = Annotation.objects.create(
             team=other_project_team, organization=self.organization
         )
-        other_team = Team.objects.create(organization=self.organization, project=self.project)
-        self.other_team_annotation = Annotation.objects.create(team=other_team, organization=self.organization)
         self.current_team_annotation = Annotation.objects.create(team=self.team, organization=self.organization)
 
     def test_environment_nested_filtering(self):
@@ -98,22 +95,17 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
 
-    def test_project_nested_filtering(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/foos/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 2)  # Both current_team_annotation and other_team_annotation
-
     def test_organization_nested_filtering(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["count"], 3)  # All except other_org_annotation
+        self.assertEqual(response.json()["count"], 2)  # current_team + other_project, excluding other_org
 
     def test_team_scope_context_set_from_url_team_not_user_current_team(self):
         # User's "current" team is set to self.team, but the URL targets another
-        # team in the same org. The team scope context inside the view must reflect
-        # the URL's team, not user.current_team_id (otherwise queries would silently
-        # mismatch — same class of bug as #50899).
-        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        # team (in a different project) in the same org. The team scope context
+        # inside the view must reflect the URL's team, not user.current_team_id
+        # (otherwise queries would silently mismatch — same class of bug as #50899).
+        _, other_team = Project.objects.create_with_team(initiating_user=self.user, organization=self.organization)
         self.user.current_team = self.team
         self.user.save()
 

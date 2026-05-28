@@ -1480,48 +1480,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 1)
 
-    def test_calculate_people_ch_in_multiteam_project(self):
-        # Create another team in the same project
-        team2 = Team.objects.create(organization=self.organization, project=self.team.project)
-
-        # Create people in team 1
-        _person1_team1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["person1"],
-            properties={"$some_prop": "else"},
-        )
-        person2_team1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["person2"],
-            properties={"$some_prop": "something"},
-        )
-        # Create people in team 2 with same property
-        person1_team2 = _create_person(
-            team_id=team2.pk,
-            distinct_ids=["person1_team2"],
-            properties={"$some_prop": "something"},
-        )
-        _person2_team2 = _create_person(
-            team_id=team2.pk,
-            distinct_ids=["person2_team2"],
-            properties={"$some_prop": "else"},
-        )
-        # Create cohort in team 2 (but same project as team 1)
-        shared_cohort = Cohort.objects.create(
-            team=team2,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-            name="shared cohort",
-        )
-        # Calculate cohort
-        self.calculate_cohort_hogql_test_harness(shared_cohort, 0)
-
-        # Verify shared_cohort is now calculated for both teams
-        results_team1 = self._get_cohortpeople(shared_cohort, team_id=self.team.pk)
-        results_team2 = self._get_cohortpeople(shared_cohort, team_id=team2.pk)
-
-        self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
-        self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
-
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
         action = Action.objects.create(team=self.team, name="all events", steps_json=[{"event": None}])

@@ -396,12 +396,14 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("list_cohort_member_ids")
 
     def test_isolates_cohort_by_team_id(self):
-        """A cohort owned by a different team (even within the same project)
-        must resolve to Q(pk__isnull=True), regardless of any CohortPeople
-        rows or fake memberships set up for it."""
+        """A cohort owned by a different team must resolve to Q(pk__isnull=True),
+        regardless of any CohortPeople rows or fake memberships set up for it."""
+        from posthog.models.project import Project
         from posthog.queries.base import property_to_Q
 
-        other_team = self.organization.teams.create(name="other", project=self.team.project)
+        _, other_team = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user, name="other"
+        )
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
         # Plant a CohortPeople row and (in the personhog run) a fake membership

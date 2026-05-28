@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.project import Project
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -854,8 +855,10 @@ class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
     def setUp(self):
         super().setUp()
 
-        # Create a second team in the same org
-        self.team2 = Team.objects.create(organization=self.organization, name="Test Team 2", project=self.project)
+        # Create a second team (in its own project) in the same org
+        _, self.team2 = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user, name="Test Team 2"
+        )
 
         # Create a second org with a team
         _, self.project2, self.other_org_team = Organization.objects.bootstrap(

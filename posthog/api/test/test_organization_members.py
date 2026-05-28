@@ -109,7 +109,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         from django.utils import timezone
 
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.team.team import Team
+        from posthog.models.project import Project
 
         # Create a key that hasn't been used recently - scoped to organization
         old_key = PersonalAPIKey.objects.create(
@@ -205,7 +205,9 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         # Test with a user who doesn't have scoped API keys for this organization or its teams
         other_org = Organization.objects.create(name="Other Org")
         other_user = User.objects.create_and_join(other_org, "other@x.com", None, "Other")
-        other_team = Team.objects.create(organization=other_org, name="Other Team", project=self.team.project)
+        _, other_team = Project.objects.create_with_team(
+            organization=other_org, initiating_user=other_user, name="Other Team"
+        )
 
         # Create a key scoped to the other organization
         PersonalAPIKey.objects.create(

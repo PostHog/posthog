@@ -4706,39 +4706,6 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_cannot_delete_cohort_used_in_multiple_teams_test_account_filters(
-        self, patch_calculate_cohort, patch_capture
-    ):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
-        )
-        cohort_id = response.json()["id"]
-
-        # Add cohort to test_account_filters for multiple teams
-        self.team.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
-        self.team.save()
-
-        team2 = Team.objects.create(organization=self.organization, project=self.team.project, name="Team 2")
-        team2.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
-        team2.save()
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-            data={"deleted": True},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        detail = response.json()["detail"]
-        self.assertIn(
-            "This cohort is used in 'Filter out internal and test users' for 2 environment(s):",
-            detail,
-        )
-        self.assertIn(self.team.name, detail)
-        self.assertIn(team2.name, detail)
-
-    @patch("posthog.api.cohort.report_user_action")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_can_delete_cohort_not_used_in_test_account_filters(self, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",

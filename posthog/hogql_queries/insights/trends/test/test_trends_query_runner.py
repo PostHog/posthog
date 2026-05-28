@@ -71,7 +71,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.team.team import Team, WeekStartDay
+from posthog.models.team.team import WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -920,37 +920,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
             name="cohort p1",
-        )
-        cohort.calculate_people_ch(pending_version=0)
-
-        response = self._run_trends_query(
-            "2020-01-09",
-            "2020-01-20",
-            IntervalType.DAY,
-            [EventsNode(event="$pageview", properties=[{"key": "id", "value": cohort.pk, "type": "cohort"}])],
-        )
-
-        assert len(response.results) == 1
-        assert response.results[0]["count"] == 6
-        assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
-
-    def test_trends_with_cohort_filter_other_team_in_project(self):
-        self._create_test_events()
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        cohort = Cohort.objects.create(
-            team=other_team_in_project,  # Not self.team!
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "name",
-                            "value": "p1",
-                            "type": "person",
-                        }
-                    ]
-                }
-            ],
-            name="cohort p1 other team",
         )
         cohort.calculate_people_ch(pending_version=0)
 

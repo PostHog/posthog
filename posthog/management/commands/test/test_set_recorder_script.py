@@ -7,6 +7,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.project import Project
 
 
 class TestSetRecorderScriptCommand(BaseTest):
@@ -120,12 +121,14 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
 
     def test_bulk_updates_in_batches(self):
-        # Use bulk_create with a shared project to avoid 2500 individual
+        # Use bulk_create for both Project and Team to avoid 2500 individual
         # Team.objects.create() calls (each of which also creates a Project
         # in its own transaction). The test only cares that 2500 teams exist
         # for the management command to iterate over.
+        ids = [Team.objects.increment_id_sequence() for _ in range(2500)]
+        Project.objects.bulk_create([Project(id=i, organization=self.organization, name=f"Project {i}") for i in ids])
         Team.objects.bulk_create(
-            [Team(organization=self.organization, project=self.project, name=f"Team {i}") for i in range(2500)]
+            [Team(id=i, project_id=i, organization=self.organization, name=f"Team {i}") for i in ids]
         )
 
         out = StringIO()
