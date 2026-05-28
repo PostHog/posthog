@@ -330,7 +330,7 @@ mod tests {
         #[case] mask_fields: Option<Vec<&str>>,
         #[case] expected: bool,
     ) {
-        let read_options = mask_fields.map(read_options_with_mask).flatten();
+        let read_options = mask_fields.and_then(read_options_with_mask);
         assert_eq!(person_needs_properties(&read_options), expected);
     }
 
@@ -345,7 +345,7 @@ mod tests {
         #[case] mask_fields: Option<Vec<&str>>,
         #[case] expected: bool,
     ) {
-        let read_options = mask_fields.map(read_options_with_mask).flatten();
+        let read_options = mask_fields.and_then(read_options_with_mask);
         assert_eq!(group_needs_properties(&read_options), expected);
     }
 
