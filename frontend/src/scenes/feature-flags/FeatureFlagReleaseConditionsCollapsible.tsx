@@ -723,10 +723,10 @@ const ConditionContent = ({
                                                         checked
                                                     )
                                                 }}
-                                                label="Stop evaluation if excluded by rollout"
+                                                label="Stop evaluation at first matching group"
                                                 labelInline={true}
                                             />
-                                            <Tooltip title="When enabled, evaluation will stop if users match the conditions but are excluded by the rollout percentage. Otherwise, evaluation continues to the next condition set.">
+                                            <Tooltip title="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass, regardless of rollout exclusions on other condition groups.">
                                                 <IconInfo className="text-sm text-muted" />
                                             </Tooltip>
                                         </div>
