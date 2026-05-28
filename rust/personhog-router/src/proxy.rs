@@ -276,18 +276,26 @@ impl RawProxyInner {
             *req.headers_mut() = parts.headers.clone();
 
             let oneshot_start = Instant::now();
+            let client = current_client_name();
             match channel.oneshot(req).await {
                 Ok(response) => {
-                    let client = current_client_name();
                     histogram!(
                         "personhog_router_backend_roundtrip_ms",
                         "method" => method.to_string(),
                         "client" => client.to_string(),
+                        "outcome" => "ok",
                     )
                     .record(oneshot_start.elapsed().as_secs_f64() * 1000.0);
                     return response;
                 }
                 Err(e) => {
+                    histogram!(
+                        "personhog_router_backend_roundtrip_ms",
+                        "method" => method.to_string(),
+                        "client" => client.to_string(),
+                        "outcome" => "error",
+                    )
+                    .record(oneshot_start.elapsed().as_secs_f64() * 1000.0);
                     let is_last = attempt >= self.retry_config.max_retries;
                     if is_last {
                         return grpc_error_response(
@@ -296,12 +304,11 @@ impl RawProxyInner {
                         );
                     }
 
-                    let client = current_client_name();
                     counter!(
                         "personhog_router_backend_retries_total",
                         "method" => method.to_string(),
                         "status_code" => "unavailable",
-                        "client" => client,
+                        "client" => client.clone(),
                     )
                     .increment(1);
 
