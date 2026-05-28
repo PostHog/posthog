@@ -190,8 +190,8 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   LEFT JOIN
-    (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
+    (SELECT DISTINCT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -284,8 +284,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
-    (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
+    (SELECT DISTINCT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -322,8 +322,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
-    (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
+    (SELECT DISTINCT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -360,8 +360,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
-    (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
+    (SELECT DISTINCT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version

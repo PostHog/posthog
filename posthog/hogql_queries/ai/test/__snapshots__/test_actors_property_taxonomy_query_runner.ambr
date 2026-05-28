@@ -113,9 +113,9 @@
     (SELECT DISTINCT prop_index,
                      toString(prop_value) AS prop
      FROM
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+       (SELECT DISTINCT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
+                        toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -150,9 +150,9 @@
     (SELECT DISTINCT prop_index,
                      toString(prop_value) AS prop
      FROM
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+       (SELECT DISTINCT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+                        toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -187,9 +187,9 @@
     (SELECT DISTINCT prop_index,
                      toString(prop_value) AS prop
      FROM
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'does not exist'), ''), 'null'), '^"|"$', '') AS `properties___does not exist`,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+       (SELECT DISTINCT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'does not exist'), ''), 'null'), '^"|"$', '') AS `properties___does not exist`,
+                        toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -224,9 +224,9 @@
     (SELECT DISTINCT prop_index,
                      toString(prop_value) AS prop
      FROM
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+       (SELECT DISTINCT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
+                        toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
