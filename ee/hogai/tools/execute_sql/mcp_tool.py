@@ -18,8 +18,9 @@ class ExecuteSQLMCPToolArgs(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description=(
-            "Optional ID of an external data source (e.g. a DuckLake or direct-Postgres connection) "
-            "to run the query against. When omitted, the query runs against the default ClickHouse engine."
+            "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). "
+            "When set, runs the query against that source instead of the ClickHouse catalog. "
+            "Use external-data-sources-list to discover available connection ids."
         ),
     )
 
