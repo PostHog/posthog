@@ -48,6 +48,7 @@ from posthog.temporal.data_imports.sources.common.sql import (
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    compute_projected_columns,
     project_arrow_columns,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
@@ -193,26 +194,6 @@ def _build_query(
     )
     params = result.params if isinstance(result.params, dict) else {}
     return result.sql, params
-
-
-def _retained_column_names(
-    table: Table[Column],
-    enabled_columns: list[str] | None,
-    primary_keys: list[str] | None,
-    incremental_field: str | None,
-) -> list[str] | None:
-    """Mirror `_build_query`'s SELECT clause in source order, or `None` for `SELECT *`."""
-    if enabled_columns is None:
-        return None
-    retained: set[str] = set(enabled_columns)
-    for pk in primary_keys or []:
-        retained.add(pk)
-    if incremental_field:
-        retained.add(incremental_field)
-    ordered = [column.name for column in table.columns if column.name in retained]
-    if not ordered:
-        return None
-    return ordered
 
 
 def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
@@ -760,8 +741,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 if primary_keys is None and "id" in full_table:
                     primary_keys = ["id"]
 
-                retained_columns = _retained_column_names(full_table, enabled_columns, primary_keys, incremental_field)
-                table = project_arrow_columns(full_table, retained_columns)
+                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                table = project_arrow_columns(full_table, projected)
                 arrow_schema = table.to_arrow_schema()
                 logger.debug(f"Source schema: {arrow_schema}")
 

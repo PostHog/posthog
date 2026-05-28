@@ -40,8 +40,10 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
 from posthog.temporal.data_imports.sources.common.sql import compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.projection import format_projected_select_clause
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -370,16 +372,17 @@ def _get_rows_to_sync(
         return 0
 
 
+_BQ_QUOTER = BacktickIdentifierQuoter()
+
+
 def _bq_select_clause(
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
     incremental_field: str | None,
 ) -> str:
-    """BigQuery SELECT-list with backtick quoting."""
+    """BigQuery SELECT-list with backtick quoting and identifier allowlist."""
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-    if projected is None:
-        return "*"
-    return ", ".join(f"`{column}`" for column in projected)
+    return format_projected_select_clause(projected, _BQ_QUOTER)
 
 
 def _get_query(

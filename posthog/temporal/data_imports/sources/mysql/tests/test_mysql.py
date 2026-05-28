@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import MagicMock
 
 import pymysql
-from parameterized import parameterized
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
@@ -658,17 +657,17 @@ class TestBuildQueryForceIndex:
 
 
 class TestBuildQueryEnabledColumns:
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "enabled_columns,primary_keys,expected_prefix",
         [
-            ("none_keeps_select_star", None, ["id"], "SELECT * FROM"),
-            ("subset_projects_with_pk", ["email"], ["id"], "SELECT `email`, `id` FROM"),
-            ("empty_falls_back_when_no_pk_or_incremental", [], None, "SELECT * FROM"),
-            ("empty_keeps_pk_only", [], ["id"], "SELECT `id` FROM"),
-        ]
+            (None, ["id"], "SELECT * FROM"),
+            (["email"], ["id"], "SELECT `email`, `id` FROM"),
+            ([], None, "SELECT * FROM"),
+            ([], ["id"], "SELECT `id` FROM"),
+        ],
     )
     def test_full_refresh_projection(
         self,
-        _name: str,
         enabled_columns: list[str] | None,
         primary_keys: list[str] | None,
         expected_prefix: str,

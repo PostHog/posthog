@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     _get_query,
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
+from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
@@ -172,3 +173,19 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     )
     assert "SELECT `email`, `id`, `updated_at` FROM" in query
     assert "WHERE `updated_at` > 42" in query
+
+
+@pytest.mark.parametrize(
+    "malicious_column",
+    [
+        "x` FROM `other.private` --",
+        "id; DROP TABLE customers",
+        "email`, `secret",
+        "name with space",
+        "col\x00null",
+    ],
+)
+def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
+    """`enabled_columns` flows from user config — must be allowlisted before backtick quoting."""
+    with pytest.raises(InvalidIdentifierError):
+        _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)

@@ -96,26 +96,6 @@ class JsonAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
-def _retained_redshift_column_names(
-    table: Table[Column],
-    enabled_columns: list[str] | None,
-    primary_keys: list[str] | None,
-    incremental_field: str | None,
-) -> list[str] | None:
-    """Mirror `_build_query`'s SELECT-clause column set in source order, or `None` for `SELECT *`."""
-    if enabled_columns is None:
-        return None
-    retained: set[str] = set(enabled_columns)
-    for pk in primary_keys or []:
-        retained.add(pk)
-    if incremental_field:
-        retained.add(incremental_field)
-    ordered = [column.name for column in table.columns if column.name in retained]
-    if not ordered:
-        return None
-    return ordered
-
-
 def _redshift_select_clause(
     enabled_columns: Optional[list[str]],
     primary_keys: Optional[list[str]],
@@ -816,10 +796,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         logger.debug("Falling back to ['id'] for primary keys...")
                         primary_keys = ["id"]
 
-                    retained_columns = _retained_redshift_column_names(
-                        full_table, enabled_columns, primary_keys, incremental_field
-                    )
-                    table = project_arrow_columns(full_table, retained_columns)
+                    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                    table = project_arrow_columns(full_table, projected)
                     logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                     inner_query_with_limit = _build_query(
