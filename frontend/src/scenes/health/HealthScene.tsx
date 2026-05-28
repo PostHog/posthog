@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconSupport, IconWarning } from '@posthog/icons'
+import {
+    IconBell,
+    IconCheck,
+    IconCode,
+    IconDatabase,
+    IconEllipsis,
+    IconRefresh,
+    IconSupport,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -91,6 +100,8 @@ const UnifiedHealthScene = (): JSX.Element => {
         useValues(healthSceneLogic)
     const { refreshHealthData, setShowDismissed } = useActions(healthSceneLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
 
     const now = Date.now()
     const inCooldown = nextRefreshAvailableAt !== null && nextRefreshAvailableAt > now
@@ -110,6 +121,17 @@ const UnifiedHealthScene = (): JSX.Element => {
             <div className="flex items-center justify-between -mt-2 mb-2">
                 <p className="text-sm mb-0">See an at-a-glance view of the health of your project.</p>
                 <div className="flex items-center gap-1">
+                    {healthAlertsEnabled && (
+                        <LemonButton
+                            icon={<IconBell />}
+                            type="secondary"
+                            size="small"
+                            to={urls.healthAlerts()}
+                            tooltip="Subscribe to alerts when any health check fires"
+                        >
+                            Alerts
+                        </LemonButton>
+                    )}
                     <LemonButton
                         icon={<IconSupport />}
                         type="secondary"
