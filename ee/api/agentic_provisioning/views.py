@@ -1381,16 +1381,18 @@ def _compute_partner_scoped_teams(
     able to reach an org-B team via an org-A token just because the user happens
     to be a member of both.
 
-    Returns ``[base_team_id]`` when ``application`` is None (legacy refresh
-    tokens with no app binding); ``filter(application=None)`` would otherwise
-    match every TPC row with NULL application across every partner.
+    Returns ``[]`` when ``application`` is None (legacy refresh tokens with no
+    app binding). A partner-unattributed token cannot be safely scoped, so it
+    gets no teams and the holder must re-authorize. Falling through would let
+    ``filter(application=None)`` match every TPC row with NULL application
+    across every partner.
 
     Returns ``[]`` if ``base_team_id`` no longer resolves to a team the user
     can access; stale scope must not grant ongoing access after ACL revocation
     or org removal.
     """
     if application is None:
-        return [base_team_id]
+        return []
 
     try:
         base_team = Team.objects.select_related("organization").get(id=base_team_id)

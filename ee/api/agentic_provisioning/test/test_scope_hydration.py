@@ -202,3 +202,12 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         new_access_token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
         assert self.team.id in new_access_token.scoped_teams
         assert newly_provisioned.id in new_access_token.scoped_teams
+
+    def test_application_none_yields_empty_scope(self):
+        # application is never None in practice (oauthrefreshtoken.application_id is
+        # NOT NULL and issuance always resolves an app), so this pins the helper's
+        # defensive branch: an unattributed token fails closed with no scope rather
+        # than silently retaining the base team.
+        from ee.api.agentic_provisioning.views import _compute_partner_scoped_teams
+
+        assert _compute_partner_scoped_teams(None, self.user, self.team.id) == []
