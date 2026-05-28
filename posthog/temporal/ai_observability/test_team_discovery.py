@@ -253,16 +253,16 @@ class TestGetTeamIdsForAIObservability:
 
         assert result == [1, 3]
 
-    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_uses_discovery_trigger_events_not_report_list(self, mock_get_teams, _mock_ff):
         """Discovery must pass the narrow trigger list — excluding server-emitted
         $ai_*_clusters / $ai_*_summary events — to avoid the self-perpetuating
-        eligibility loop. The broader LLM_ANALYTICS_REPORT_TRIGGER_EVENTS list is
+        eligibility loop. The broader AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS list is
         reserved for the usage-report caller.
         """
-        from posthog.tasks.llm_analytics_usage_report import (
+        from posthog.tasks.ai_observability_usage_report import (
+            AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS,
             LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
-            LLM_ANALYTICS_REPORT_TRIGGER_EVENTS,
         )
 
         mock_get_teams.return_value = []
@@ -280,9 +280,9 @@ class TestGetTeamIdsForAIObservability:
         assert "$ai_tag" not in passed_trigger_events
         assert "$llm_prompt_fetched" not in passed_trigger_events
         assert "$ai_generation" in passed_trigger_events
-        assert set(passed_trigger_events) < set(LLM_ANALYTICS_REPORT_TRIGGER_EVENTS)
+        assert set(passed_trigger_events) < set(AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
-    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_lookback_uses_inputs_value(self, mock_get_teams, _mock_ff):
         """The discovery activity scopes its eligibility query to the caller's
         TeamDiscoveryInput.lookback_days (passed by the coordinator from the
