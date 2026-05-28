@@ -1,7 +1,7 @@
 import asyncio
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import litellm
@@ -200,7 +200,8 @@ def _wrap_stream_with_breaker(
         success = True
         try:
             async for chunk in inner:
-                yield chunk
+                # body_iterator types loosely as str|bytes|memoryview; our upstream only emits bytes.
+                yield cast(bytes, chunk)
         except asyncio.CancelledError:
             # Client disconnect — neither success nor failure of Anthropic.
             raise

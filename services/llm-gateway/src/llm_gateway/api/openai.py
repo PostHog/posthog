@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import litellm
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -174,14 +174,18 @@ async def _handle_transcription(
 
     request = TranscriptionRequest(model=normalized_model, file=file_tuple, language=language)
 
-    return await handle_llm_request(
-        request_data=request.model_dump(exclude_none=True),
-        user=user,
-        model=normalized_model,
-        is_streaming=False,
-        provider_config=OPENAI_TRANSCRIPTION_CONFIG,
-        llm_call=litellm.atranscription,
-        product=product,
+    # is_streaming=False guarantees a dict response, but handle_llm_request's signature is the union.
+    return cast(
+        dict[str, Any],
+        await handle_llm_request(
+            request_data=request.model_dump(exclude_none=True),
+            user=user,
+            model=normalized_model,
+            is_streaming=False,
+            provider_config=OPENAI_TRANSCRIPTION_CONFIG,
+            llm_call=litellm.atranscription,
+            product=product,
+        ),
     )
 
 

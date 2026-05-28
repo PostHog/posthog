@@ -1,7 +1,7 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -1284,7 +1284,7 @@ class TestAnthropicCircuitBreakerIntegration:
         wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
 
         async def consume() -> list[bytes]:
-            return [chunk async for chunk in wrapped.body_iterator]
+            return cast(list[bytes], [chunk async for chunk in wrapped.body_iterator])
 
         chunks = asyncio.run(consume())
         assert len(chunks) == 2
