@@ -367,7 +367,11 @@ class Database(BaseModel):
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
-        self._denied_tables = set()
+        self._denied_tables: set[str] = set()
+        # Per-resource deny set populated by the warehouse filter methods. Read by
+        # QueryRunner._get_object_access_restrictions so changes to warehouse grants
+        # invalidate cached query results. Keys: "warehouse_table", "warehouse_view".
+        self._denied_resource_ids_by_scope: dict[str, set[str]] = {}
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
@@ -594,7 +598,8 @@ class Database(BaseModel):
         from posthog.models import OrganizationMembership
         from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
-        self.user_access_control = UserAccessControl(user=user, team=team)
+        if self.user_access_control is None:
+            self.user_access_control = UserAccessControl(user=user, team=team)
 
         org_membership = self.user_access_control._organization_membership
         if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
@@ -604,7 +609,6 @@ class Database(BaseModel):
         if not system_node or not hasattr(system_node, "children"):
             return
 
-        denied: set[str] = set()
         for table_node in list(system_node.children.values()):
             table = table_node.table
             if not isinstance(table, PostgresTable) or table.access_scope is None:
@@ -616,9 +620,7 @@ class Database(BaseModel):
 
             # No access - remove from schema
             del system_node.children[table_node.name]
-            denied.add(f"system.{table_node.name}")
-
-        self._denied_tables = denied
+            self._denied_tables.add(f"system.{table_node.name}")
 
     def _filter_all_scoped_system_tables(self) -> None:
         """Remove ALL access-controlled system tables"""
@@ -626,16 +628,89 @@ class Database(BaseModel):
         if not system_node or not hasattr(system_node, "children"):
             return
 
-        denied: set[str] = set()
         for table_node in list(system_node.children.values()):
             table = table_node.table
             if not isinstance(table, PostgresTable) or table.access_scope is None:
                 continue  # Not access-controlled, keep it
 
             del system_node.children[table_node.name]
-            denied.add(f"system.{table_node.name}")
+            self._denied_tables.add(f"system.{table_node.name}")
 
-        self._denied_tables = denied
+    def _denied_warehouse_table_ids_for_user(
+        self,
+        user: "User",
+        team: "Team",
+        tables: list["DataWarehouseTable"],
+    ) -> set[str]:
+        """Per-object access decision for the warehouse_table resource.
+
+        Uses the same precedence chain (specific role/member grants > resource defaults >
+        creator/admin shortcuts) as the warehouse_table REST API — one preload DB query
+        for N tables, then in-memory check_access_level_for_object per table. Org admins
+        bypass with empty deny set.
+
+        Also writes the deny set into self._denied_resource_ids_by_scope["warehouse_table"]
+        so QueryRunner cache fingerprints include the warehouse grants.
+        """
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        if self.user_access_control is None:
+            self.user_access_control = UserAccessControl(user=user, team=team)
+        uac = self.user_access_control
+
+        org_membership = uac._organization_membership
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return set()
+
+        if not tables:
+            return set()
+
+        uac.preload_object_access_controls(list(tables))
+        denied = {
+            str(t.id)
+            for t in tables
+            if not uac.check_access_level_for_object(t, required_level="viewer")
+        }
+        if denied:
+            self._denied_resource_ids_by_scope.setdefault("warehouse_table", set()).update(denied)
+        return denied
+
+    def _denied_warehouse_view_ids_for_user(
+        self,
+        user: "User",
+        team: "Team",
+        saved_queries: list[Any],
+    ) -> set[str]:
+        """Per-object access decision for the warehouse_view resource (saved queries).
+
+        Same shape as `_denied_warehouse_table_ids_for_user`. Closes the
+        saved-query-as-backdoor gap — without this, a user denied access to a warehouse
+        table could SELECT through a view that references the same table.
+        """
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        if self.user_access_control is None:
+            self.user_access_control = UserAccessControl(user=user, team=team)
+        uac = self.user_access_control
+
+        org_membership = uac._organization_membership
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return set()
+
+        if not saved_queries:
+            return set()
+
+        uac.preload_object_access_controls(list(saved_queries))
+        denied = {
+            str(sq.id)
+            for sq in saved_queries
+            if not uac.check_access_level_for_object(sq, required_level="viewer")
+        }
+        if denied:
+            self._denied_resource_ids_by_scope.setdefault("warehouse_view", set()).update(denied)
+        return denied
 
     def serialize(
         self,
@@ -875,6 +950,7 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
+        bypass_access_control: bool = False,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -943,6 +1019,7 @@ class Database(BaseModel):
                 if direct_source is not None:
                     database._direct_connection_metadata = direct_source.connection_metadata
 
+        is_hogql_warehouse_access_control_enabled = False
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             if team is not None:
                 is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
@@ -955,11 +1032,28 @@ class Database(BaseModel):
                     },
                     send_feature_flag_events=False,
                 )
-                if is_hogql_access_control_enabled:
+                if is_hogql_access_control_enabled and not bypass_access_control:
                     if user is not None:
                         database._filter_system_tables_for_user(user, team)
                     else:
                         database._filter_all_scoped_system_tables()
+
+                # Separate FF for the data warehouse ACL — same shape (off-by-default rollout) but
+                # independent of the system-table FF (which is already at 100%). Used inside the
+                # warehouse tables and saved-query loops below to filter out inaccessible objects.
+                is_hogql_warehouse_access_control_enabled = posthoganalytics.feature_enabled(
+                    "hogql-warehouse-access-control",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.id)},
+                    },
+                    send_feature_flag_events=False,
+                )
+        warehouse_acl_active = (
+            is_hogql_warehouse_access_control_enabled and not bypass_access_control and team is not None
+        )
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -1092,8 +1186,26 @@ class Database(BaseModel):
 
                     saved_queries = list(queryset)
 
+                # Warehouse ACL: compute deny set once before the loop. When user is None,
+                # fail closed (deny all) — call sites that legitimately need warehouse data
+                # without a user must opt in via bypass_access_control=True.
+                denied_view_ids: set[str] = set()
+                deny_all_views = False
+                if warehouse_acl_active:
+                    if user is not None:
+                        denied_view_ids = database._denied_warehouse_view_ids_for_user(user, team, saved_queries)
+                    else:
+                        deny_all_views = True
+
                 for saved_query in saved_queries:
                     with timings.measure(f"saved_query_{saved_query.name}"):
+                        if deny_all_views or str(saved_query.id) in denied_view_ids:
+                            # Mark every name this saved query would have occupied so a later
+                            # Database.get_table(name) raises the "You don't have access" error
+                            # via the existing _denied_tables path.
+                            for name_part in (saved_query.name, ".".join(saved_query.name.split("."))):
+                                database._denied_tables.add(name_part)
+                            continue
                         views.add_child(
                             TableNode.create_nested_for_chain(
                                 saved_query.name.split("."),
@@ -1182,12 +1294,36 @@ class Database(BaseModel):
                         )
                     ]
             sync_warnings_now = datetime.now(UTC)
+
+            # Warehouse ACL: compute deny set once before the loop. Mirrors the saved-query
+            # branch above. Without a user we fail closed; opt-in bypass_access_control=True
+            # is the only way to use warehouse data in a userless context.
+            denied_table_ids: set[str] = set()
+            deny_all_tables = False
+            if warehouse_acl_active:
+                if user is not None:
+                    denied_table_ids = database._denied_warehouse_table_ids_for_user(user, team, tables)
+                else:
+                    deny_all_tables = True
+
             for table in tables:
                 if (
                     not database._is_direct_query()
                     and table.external_data_source
                     and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                 ):
+                    continue
+
+                if deny_all_tables or str(table.id) in denied_table_ids:
+                    # Mark every public name this table would have occupied so get_table()
+                    # raises the "You don't have access" error rather than "Unknown table".
+                    # Mirrors the name registration done by the add_child branch below.
+                    database._denied_tables.add(table.name)
+                    if table.external_data_source:
+                        for table_key in _get_warehouse_table_keys(
+                            table, direct_query=database._is_direct_query()
+                        ):
+                            database._denied_tables.add(table_key)
                     continue
 
                 with timings.measure(f"table_{table.name}"):

@@ -1846,6 +1846,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
+        # Include warehouse object-level access control restrictions in the cache key
+        # so that users with different warehouse grants get separate cache entries.
+        restricted_objects = self._get_object_access_restrictions()
+        if restricted_objects:
+            payload["restricted_objects"] = restricted_objects
+
         return payload
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
@@ -1861,6 +1867,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not restricted:
             return None
         return sorted(restricted)
+
+    def _get_object_access_restrictions(self) -> dict[str, list[str]] | None:
+        """Returns a sorted {resource: [ids]} mapping of restricted resource IDs for the current user, or None if no restrictions.
+
+        Reads ``Database._denied_resource_ids_by_scope`` — the warehouse_table /
+        warehouse_view deny set computed by the new filter methods in
+        ``Database.create_for`` using the full ``check_access_level_for_object``
+        precedence chain. Skipped without user since fail-closed Database.create_for
+        produces the right behavior without needing a cache-key contribution.
+        """
+        if self.user is None or self.database is None:
+            return None
+
+        blocked = self.database._denied_resource_ids_by_scope
+        if not blocked:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(blocked.items()) if ids}
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
