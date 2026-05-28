@@ -163,4 +163,59 @@ describe('ingress HTTP server (path mode)', () => {
         const session = await queue.get(parsed.session_id)
         expect(session!.conversation[0].content).toBe('hi via mcp')
     })
+
+    // Trigger-edge validation: the chat trigger used to silently coerce a
+    // missing / wrong-shaped `message` into the empty string, then enqueue a
+    // session that died at the model layer. zod parsing at the edge turns
+    // each of those into a clean 400 with the issue list.
+    it('POST /run with empty message returns 400 with zod issues', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app).post('/agents/x/run').send({ message: '' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_body')
+        expect(res.body.issues[0].path).toEqual(['message'])
+    })
+
+    it('POST /run wrapped in {input: ...} returns 400 (the exact mistake from authoring)', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app).post('/agents/x/run').send({ input: { message: 'hi' } })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_body')
+        expect(res.body.issues[0].path).toEqual(['message'])
+    })
+
+    it('POST /send with non-UUID session_id returns 400', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app).post('/agents/x/send').send({ session_id: 'nope', message: 'hi' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_body')
+        expect(res.body.issues[0].path).toEqual(['session_id'])
+    })
+
+    // Schema-publish: callers should be able to discover the trigger contract
+    // without grepping the trigger source. The agent-level /schemas endpoint
+    // returns just the trigger types this agent has in its spec.
+    it('GET /schemas publishes the chat trigger body shape', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'discoverable')
+        const res = await request(app).get('/agents/discoverable/schemas')
+        expect(res.status).toBe(200)
+        expect(res.body.agent.slug).toBe('discoverable')
+        expect(res.body.triggers.chat).toBeDefined()
+        expect(res.body.triggers.chat.run.body.properties.message).toMatchObject({
+            type: 'string',
+            minLength: 1,
+        })
+        expect(res.body.triggers.chat.run.body.required).toContain('message')
+    })
+
+    it('GET /schemas 404s for an unknown agent', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/agents/ghost/schemas')
+        expect(res.status).toBe(404)
+        expect(res.body.error).toBe('no_agent')
+    })
 })

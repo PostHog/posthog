@@ -15,10 +15,22 @@ import { SessionEventBus, MemorySessionEventBus } from '@posthog/agent-shared'
 
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { chatRouter } from '../triggers/chat'
+import { chatTriggerJsonSchemas } from '../triggers/chat.schemas'
 import { mcpRouter } from '../triggers/mcp'
+import { resolveAgent } from '../triggers/resolve'
 import { slackRouter } from '../triggers/slack'
 import { webhookRouter } from '../triggers/webhook'
 import { AmbiguousRevisionError, RevisionResolver, RoutingMode } from './resolver'
+
+/**
+ * Map of `spec.triggers[].type` → published JSON Schemas for that trigger's
+ * HTTP surface. The agent-level `GET /schemas` endpoint reads this to tell
+ * callers exactly what to send to `/run`, `/send`, etc. — no grepping the
+ * trigger source. New triggers plug their schemas in here.
+ */
+const PUBLISHED_TRIGGER_SCHEMAS: Record<string, unknown> = {
+    chat: chatTriggerJsonSchemas,
+}
 
 export interface BuildAppOpts {
     revisions: RevisionStore
@@ -58,6 +70,33 @@ export function buildApp(opts: BuildAppOpts): Express {
     const authProvider = opts.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
     const triggerDeps = { resolver, queue: opts.queue, teamId: opts.teamId, bus, authProvider }
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
+
+    // Self-describing schemas — exposed BEFORE the trigger mounts so it can't
+    // collide with a trigger's own routes. Returns the published JSON Schemas
+    // for every trigger type this agent has in its spec; clients (curl, MCP,
+    // tests, future authoring AIs) hit this once to learn the exact body
+    // shape required by `/run`, `/send`, `/cancel`, `/listen`.
+    app.get(`${mount}/schemas`, async (req: Request, res: Response) => {
+        const resolved = await resolveAgent(resolver, req, res)
+        if (!resolved) {
+            if (!res.headersSent) {
+                res.status(404).json({ error: 'no_agent' })
+            }
+            return
+        }
+        const triggers: Record<string, unknown> = {}
+        for (const t of resolved.revision.spec.triggers) {
+            const published = PUBLISHED_TRIGGER_SCHEMAS[t.type]
+            if (published !== undefined) {
+                triggers[t.type] = published
+            }
+        }
+        res.json({
+            agent: { slug: resolved.application.slug, name: resolved.application.name },
+            triggers,
+        })
+    })
+
     app.use(mount, slackRouter({ ...triggerDeps, signingSecret: opts.slackSigningSecret, identities: opts.identities }))
     app.use(mount, webhookRouter(triggerDeps))
     app.use(mount, chatRouter(triggerDeps))

@@ -5,6 +5,7 @@
  */
 
 import { Request, Response, Router } from 'express'
+import { z } from 'zod'
 
 import { SessionQueue } from '@posthog/agent-shared'
 import { SessionEventBus } from '@posthog/agent-shared'
@@ -18,7 +19,21 @@ import {
 } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { RevisionResolver } from '../routing/resolver'
+import {
+    ChatCancelBodySchema,
+    ChatListenQuerySchema,
+    ChatRunBodySchema,
+    ChatSendBodySchema,
+} from './chat.schemas'
 import { hasTrigger, resolveAgent } from './resolve'
+
+/**
+ * Turn a zod error into the structured 400 body. Same shape as the janitor's
+ * validation responses so callers (curl, MCP, tests) parse it uniformly.
+ */
+function badRequest(res: Response, err: z.ZodError): void {
+    res.status(400).json({ error: 'invalid_body', issues: err.issues })
+}
 
 export interface ChatTriggerDeps {
     resolver: RevisionResolver
@@ -44,6 +59,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             res.status(404).json({ error: 'no_chat_trigger' })
             return
         }
+        const parsed = ChatRunBodySchema.safeParse(req.body)
+        if (!parsed.success) {
+            badRequest(res, parsed.error)
+            return
+        }
+        const { message, external_key: externalKey = null } = parsed.data
         const auth = await authorize(
             req,
             resolved.application,
@@ -54,8 +75,6 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             res.status(auth.status).json({ error: auth.reason })
             return
         }
-        const message = typeof req.body?.message === 'string' ? req.body.message : ''
-        const externalKey = typeof req.body?.external_key === 'string' ? req.body.external_key : null
         const sessionPrincipal = principalToSession(auth.principal)
         const { sessionId, isResume } = await enqueueOrResume(
             { queue: deps.queue, teamId: deps.teamId },
@@ -71,12 +90,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
     })
 
     r.post('/send', async (req: Request, res: Response) => {
-        const sessionId = typeof req.body?.session_id === 'string' ? req.body.session_id : ''
-        const message = typeof req.body?.message === 'string' ? req.body.message : ''
-        if (!sessionId || !message) {
-            res.status(400).json({ error: 'session_id and message required' })
+        const parsed = ChatSendBodySchema.safeParse(req.body)
+        if (!parsed.success) {
+            badRequest(res, parsed.error)
             return
         }
+        const { session_id: sessionId, message } = parsed.data
         const existing = await deps.queue.get(sessionId)
         if (!existing) {
             res.status(404).json({ error: 'session_not_found' })
@@ -116,11 +135,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
     })
 
     r.post('/cancel', async (req: Request, res: Response) => {
-        const sessionId = typeof req.body?.session_id === 'string' ? req.body.session_id : ''
-        if (!sessionId) {
-            res.status(400).json({ error: 'session_id required' })
+        const parsed = ChatCancelBodySchema.safeParse(req.body)
+        if (!parsed.success) {
+            badRequest(res, parsed.error)
             return
         }
+        const { session_id: sessionId } = parsed.data
         const existing = await deps.queue.get(sessionId)
         if (!existing) {
             res.status(404).json({ error: 'session_not_found' })
@@ -136,11 +156,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
     })
 
     r.get('/listen', async (req: Request, res: Response) => {
-        const sessionId = String(req.query.session_id ?? '')
-        if (!sessionId) {
-            res.status(400).end()
+        const parsed = ChatListenQuerySchema.safeParse(req.query)
+        if (!parsed.success) {
+            badRequest(res, parsed.error)
             return
         }
+        const { session_id: sessionId } = parsed.data
         res.setHeader('Content-Type', 'text/event-stream')
         res.setHeader('Cache-Control', 'no-cache')
         res.setHeader('Connection', 'keep-alive')
