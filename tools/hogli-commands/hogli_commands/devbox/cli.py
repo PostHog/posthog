@@ -1332,7 +1332,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         click.echo(f"Devbox '{name}' is already up to date.")
         return
     config = load_config()
-    params: dict[str, str] = dict(_pinned_region_param(ws))
+    params: dict[str, str] = _pinned_region_param(ws)
     if dotfiles_uri := config.get("dotfiles_uri"):
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
     click.echo(f"Updating '{name}' to the latest template...")
