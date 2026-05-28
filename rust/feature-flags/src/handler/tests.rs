@@ -349,7 +349,7 @@ fn test_decode_request() {
     let result = decoding::decode_request(&headers, body, &meta);
 
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 }
@@ -451,7 +451,7 @@ fn test_decode_request_form_urlencoded() {
 
     let result = decoding::decode_request(&headers, body, &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 }
@@ -479,7 +479,7 @@ fn test_decode_form_data_kludges() {
 
         if should_succeed {
             assert!(result.is_ok(), "Failed to decode: {input}");
-            let request = result.unwrap();
+            let (request, _decoded) = result.unwrap();
             if input.contains("bio") {
                 // Verify we can handle newlines in the decoded JSON
                 let person_properties = request.person_properties.unwrap();
@@ -512,7 +512,7 @@ fn test_handle_unencoded_form_data_with_emojis() {
     let result = decoding::decode_form_data(body, None, None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("test_id".to_string()));
 
@@ -539,7 +539,7 @@ fn test_decode_base64_encoded_form_data_with_emojis() {
     let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("test_id".to_string()));
 
@@ -606,7 +606,7 @@ fn test_decode_form_data_real_world_payload() {
     let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
 
     assert!(result.is_ok(), "Failed to decode real world payload");
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
 
     // Verify key fields from the decoded request
     assert_eq!(request.token, Some("sTMFPsFhdP1Ssg".to_string()));
@@ -1089,7 +1089,7 @@ fn test_decode_request_content_types() {
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1098,7 +1098,7 @@ fn test_decode_request_content_types() {
     headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1110,7 +1110,7 @@ fn test_decode_request_content_types() {
     );
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1118,7 +1118,7 @@ fn test_decode_request_content_types() {
     let headers = HeaderMap::new();
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 

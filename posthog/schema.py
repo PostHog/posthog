@@ -8,7 +8,7 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, conint
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 
 class SchemaRoot(RootModel[Any]):
@@ -641,6 +641,7 @@ class AssistantRecordingPropertyFilter4(BaseModel):
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
+    DATA_WAREHOUSE = "data_warehouse"
 
 
 class AggregationType(StrEnum):
@@ -736,6 +737,13 @@ class AssistantTool(StrEnum):
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
+    MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
+    MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
+    MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
+    MARKETING_LIST_DATA_SOURCES = "marketing_list_data_sources"
+    MARKETING_AUDIT_UTM = "marketing_audit_utm"
+    MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
+    MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
 
 
 class AssistantToolCall(BaseModel):
@@ -958,7 +966,16 @@ class CalendarHeatmapFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dummy: str | None = None
+    bucketBySessionStart: bool | None = Field(
+        default=False,
+        description=(
+            "When true and the series math is `dau`/`unique_users`, each user"
+            " contributes to the (day-of-week, hour) bucket of their session's first"
+            " event only — matching the web overview session-start attribution. When"
+            " false (default), the user contributes to every bucket they have any event"
+            " in. No effect on `total` math (event counts are unchanged either way)."
+        ),
+    )
 
 
 class CalendarHeatmapMathType(StrEnum):
@@ -1348,6 +1365,23 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"
     MANAGED_VIEWSET = "managed_viewset"
+
+
+class DataWarehouseSyncWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: str = Field(..., description="Human-readable warning shown to the user")
+    schema_name: str = Field(
+        ...,
+        description="Name of the ExternalDataSchema responsible for syncing the table",
+    )
+    source_type: str = Field(..., description='Source type, e.g. "Stripe", "Hubspot"')
+    status: str = Field(
+        ...,
+        description=('Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached"'),
+    )
+    table_name: str = Field(..., description="Name of the warehouse table the warning refers to")
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -1934,8 +1968,18 @@ class ExperimentMetricOutlierHandling(BaseModel):
         extra="forbid",
     )
     ignore_zeros: bool | None = None
-    lower_bound_percentile: float | None = None
-    upper_bound_percentile: float | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
 
 
 class Status(StrEnum):
@@ -2589,6 +2633,7 @@ class MaterializedColumnsOptimizationMode(StrEnum):
 class ParserMode(StrEnum):
     CPP_ONLY = "cpp_only"
     CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
+    CPP_WITH_RUST_PY_SHADOW = "cpp_with_rust_py_shadow"
     RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
     RUST_ONLY = "rust_only"
     RUST_PY_ONLY = "rust_py_only"
@@ -4238,12 +4283,6 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
-class AggregationPropertyType1(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    DATA_WAREHOUSE = "data_warehouse"
-
-
 class RetentionPeriod(StrEnum):
     HOUR = "Hour"
     DAY = "Day"
@@ -5003,6 +5042,8 @@ class TrendsFilterLegacy(BaseModel):
     show_percent_stack_view: bool | None = None
     show_values_on_series: bool | None = None
     smoothing_intervals: float | None = None
+    x_axis_label: str | None = None
+    y_axis_label: str | None = None
     y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
@@ -6456,6 +6497,8 @@ class AssistantTrendsFilter(BaseModel):
     )
     showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
     smoothingIntervals: int | None = Field(default=1, description="Smoothing intervals for the trend line.")
+    xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
+    yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
@@ -6898,6 +6941,32 @@ class ExperimentApiEventSource(BaseModel):
     )
     id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
     kind: Kind
+    math: ExperimentMetricMathType | None = Field(
+        default=None,
+        description=(
+            "How to aggregate this source. Defaults to 'total' (event count). Use 'sum'"
+            " together with math_property to aggregate a numeric property — e.g. a"
+            " ratio numerator of revenue per order. Other options: 'avg', 'min', 'max',"
+            " 'unique_session', 'dau', 'unique_group', 'hogql'."
+        ),
+    )
+    math_group_type_index: MathGroupTypeIndex | None = Field(
+        default=None,
+        description=("Group type index to aggregate over. Required when math is 'unique_group'."),
+    )
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "HogQL aggregation expression. Required when math is 'hogql' — without it"
+            " the metric silently falls back to a plain count/sum."
+        ),
+    )
+    math_property: str | None = Field(
+        default=None,
+        description=(
+            "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+        ),
+    )
     properties: list[EventPropertyFilter] | None = Field(
         default=None,
         description="Event property filters to narrow which events are counted.",
@@ -6935,13 +7004,40 @@ class ExperimentApiMetric(BaseModel):
     denominator: ExperimentApiEventSource | None = Field(
         default=None, description="For ratio metrics: denominator source."
     )
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the denominator aggregate."
+            " Leave unset for a binomial-style denominator, which is never clamped."
+        ),
+    )
     goal: ExperimentMetricGoal | None = Field(
         default=None, description="Whether higher or lower values indicate success."
     )
+    ignore_zeros: bool | None = Field(
+        default=None,
+        description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
+    )
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization lower percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this"
+            " percentile are clamped to it before aggregation."
+        ),
+    )
     metric_type: ExperimentMetricType
     name: str | None = Field(default=None, description="Human-readable metric name.")
     numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the numerator aggregate,"
+            " independently of the denominator and each with its own percentile"
+            " thresholds."
+        ),
+    )
     retention_window_end: int | None = None
     retention_window_start: int | None = None
     retention_window_unit: FunnelConversionWindowTimeUnit | None = None
@@ -6954,6 +7050,14 @@ class ExperimentApiMetric(BaseModel):
         default=None, description="For retention metrics: start event."
     )
     start_handling: StartHandling | None = None
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization upper percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this"
+            " percentile are clamped to it before aggregation."
+        ),
+    )
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
@@ -7312,10 +7416,11 @@ class HogQLQueryModifiers(BaseModel):
     parserMode: ParserMode | None = Field(
         default=None,
         description=(
-            "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the"
-            " primary result and sample-compare against the other parser, reporting"
-            " divergences without failing the request. The `rust_py_*` modes drive the"
-            " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
+            "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary,"
+            " rust-py runs as a sampled shadow). `*_shadow` modes return the primary"
+            " result and sample-compare against the other parser, reporting divergences"
+            " without failing the request. The `rust_py_*` modes drive the same"
+            " hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )
@@ -9062,6 +9167,8 @@ class TrendsFilter(BaseModel):
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
+    xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
+    yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
@@ -9249,6 +9356,14 @@ class WebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class WebNotableChangesQueryResponse(BaseModel):
@@ -9368,6 +9483,7 @@ class WebStatsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -12642,6 +12758,14 @@ class CachedWebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
 
 
 class CachedWebNotableChangesQueryResponse(BaseModel):
@@ -12805,6 +12929,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -12843,6 +12968,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class CalendarHeatmapResponse(BaseModel):
@@ -13371,6 +13497,7 @@ class Response5(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -13406,6 +13533,46 @@ class Response6(BaseModel):
     types: list | None = None
 
 
+class Response7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class Response8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13430,6 +13597,7 @@ class Response8(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class Response9(BaseModel):
@@ -15188,6 +15356,14 @@ class HogQLQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class IQRDetectorConfig(BaseModel):
@@ -16053,6 +16229,14 @@ class QueryResponseAlternative8(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class QueryResponseAlternative11(BaseModel):
@@ -16261,6 +16445,7 @@ class QueryResponseAlternative24(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16296,6 +16481,46 @@ class QueryResponseAlternative25(BaseModel):
     types: list | None = None
 
 
+class QueryResponseAlternative26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16320,6 +16545,7 @@ class QueryResponseAlternative27(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class QueryResponseAlternative28(BaseModel):
@@ -16732,6 +16958,14 @@ class QueryResponseAlternative42(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class QueryResponseAlternative43(BaseModel):
@@ -16795,6 +17029,7 @@ class QueryResponseAlternative44(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16830,6 +17065,46 @@ class QueryResponseAlternative45(BaseModel):
     types: list | None = None
 
 
+class QueryResponseAlternative46(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+    usedLazyPrecompute: bool | None = Field(
+        default=None,
+        description="Whether the response was served from the lazy precompute path.",
+    )
+    usedPreAggregatedTables: bool | None = Field(
+        default=None,
+        description="Whether the response was served from a precomputed table.",
+    )
+
+
 class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16854,6 +17129,7 @@ class QueryResponseAlternative47(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class QueryResponseAlternative48(BaseModel):
@@ -17990,8 +18266,8 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
-    aggregationPropertyType: AggregationPropertyType1 | None = Field(
-        default=AggregationPropertyType1.EVENT,
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
         description=("The type of property to aggregate on (event, person or data_warehouse). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
@@ -18651,6 +18927,14 @@ class WebGoalsQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_goals_query precompute path. Requires"
+            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
+            " the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18814,6 +19098,14 @@ class WebStatsTableQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web stats table precompute path. Requires"
+            " the `web-analytics-precompute-toggle` PostHog feature flag to be on for"
+            " the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18887,6 +19179,7 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class WebVitalsQueryResponse(BaseModel):
@@ -19258,6 +19551,14 @@ class CachedHogQLQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class CachedInsightActorsQueryOptionsResponse(BaseModel):
@@ -19467,6 +19768,14 @@ class Response3(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = Field(default=None, description="Types of returned columns")
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data."
+        ),
+    )
 
 
 class Response21(BaseModel):
@@ -20501,6 +20810,14 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     tags: QueryLogTags | None = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web vitals path breakdown precompute"
+            " path. Requires the `web-analytics-precompute-toggle` PostHog feature flag"
+            " to be on for the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -20853,6 +21170,7 @@ class ExperimentRatioMetric(BaseModel):
     conversion_window: int | None = None
     conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
     denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     fingerprint: str | None = None
     goal: ExperimentMetricGoal | None = None
     isSharedMetric: bool | None = None
@@ -20860,6 +21178,7 @@ class ExperimentRatioMetric(BaseModel):
     metric_type: Literal["ratio"] = "ratio"
     name: str | None = None
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     uuid: str | None = None
@@ -20871,8 +21190,10 @@ class ExperimentRatioMetricTypeProps(BaseModel):
         extra="forbid",
     )
     denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = None
     metric_type: Literal["ratio"] = "ratio"
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
 
 
 class ExperimentRetentionMetric(BaseModel):
@@ -21551,6 +21872,14 @@ class TrendsQuery(BaseModel):
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    calendarHeatmapFilter: CalendarHeatmapFilter | None = Field(
+        default=None,
+        description=(
+            "Properties specific to the calendar heatmap display variant. Only"
+            " consulted when `trendsFilter.display ==="
+            " ChartDisplayType.CalendarHeatmap`; ignored otherwise."
+        ),
+    )
     compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
         default=None,
@@ -21682,6 +22011,12 @@ class EndpointRequest(BaseModel):
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
     )
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched."
+        ),
+    )
     version: int | None = Field(
         default=None,
         description=("Target a specific version for updates (optional, defaults to current version)"),
@@ -21721,13 +22056,23 @@ class ExperimentMeanMetric(BaseModel):
     ignore_zeros: bool | None = None
     isSharedMetric: bool | None = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    lower_bound_percentile: float | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
     metric_type: Literal["mean"] = "mean"
     name: str | None = None
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    upper_bound_percentile: float | None = None
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -21737,10 +22082,20 @@ class ExperimentMeanMetricTypeProps(BaseModel):
         extra="forbid",
     )
     ignore_zeros: bool | None = None
-    lower_bound_percentile: float | None = None
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile)."
+        ),
+    )
     metric_type: Literal["mean"] = "mean"
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    upper_bound_percentile: float | None = None
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
+        ),
+    )
 
 
 class ExperimentMetricTypeProps(
@@ -22272,6 +22627,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative23
         | QueryResponseAlternative24
         | QueryResponseAlternative25
+        | QueryResponseAlternative26
         | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
@@ -22292,6 +22648,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative43
         | QueryResponseAlternative44
         | QueryResponseAlternative45
+        | QueryResponseAlternative46
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -22362,6 +22719,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative23
         | QueryResponseAlternative24
         | QueryResponseAlternative25
+        | QueryResponseAlternative26
         | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
@@ -22382,6 +22740,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative43
         | QueryResponseAlternative44
         | QueryResponseAlternative45
+        | QueryResponseAlternative46
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -23201,6 +23560,7 @@ class DataTableNode(BaseModel):
         | Response4
         | Response5
         | Response6
+        | Response7
         | Response8
         | Response9
         | Response10
@@ -23630,6 +23990,7 @@ class MaxUIContext(BaseModel):
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
     notebooks: list[MaxNotebookContext] | None = None
+    voice_mode: bool | None = None
 
 
 class QueryRequest(BaseModel):

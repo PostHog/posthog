@@ -444,22 +444,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
+                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            should_sync: selectAll,
+                            should_sync: schema.permission_error ? false : selectAll,
                         }))
                     }
                     const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
-                        should_sync: targetSet.has(schema.table) ? selectAll : schema.should_sync,
+                        should_sync: targetSet.has(schema.table)
+                            ? schema.permission_error
+                                ? false
+                                : selectAll
+                            : schema.should_sync,
                     }))
                 },
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
                     return state.map((s) => ({
                         ...s,
-                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
+                        should_sync:
+                            s.table === schema.table ? (s.permission_error ? false : shouldSync) : s.should_sync,
                     }))
                 },
                 setSchemaSyncedColumns: (state, { schema, enabledColumns }) => {
@@ -1013,7 +1019,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     should_sync:
                         splitDirectQueryTableName(schema.table, values.directQueryDefaultSchema).schemaName ===
                         schemaName
-                            ? shouldSync
+                            ? schema.permission_error
+                                ? false
+                                : shouldSync
                             : schema.should_sync,
                 }))
             )
@@ -1347,6 +1355,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     if (values.isDirectQueryMode) {
                         schema.should_sync = true
                         schema.sync_type = null
+                        continue
+                    }
+
+                    // Unreachable scope → leave off. User fixes permissions before opting in.
+                    if (schema.permission_error) {
+                        schema.should_sync = false
                         continue
                     }
 

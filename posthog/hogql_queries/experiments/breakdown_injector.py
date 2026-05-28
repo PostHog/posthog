@@ -333,20 +333,26 @@ class BreakdownInjector:
         for alias in aliases:
             query.group_by.append(ast.Field(chain=[final_cte_name, alias]))
 
-    def inject_ratio_breakdown_columns(self, query: ast.SelectQuery) -> None:
+    def inject_ratio_breakdown_columns(self, query: ast.SelectQuery, winsorized: bool = False) -> None:
         """
         Injects breakdown columns into ratio query AST.
         Modifies query in-place.
 
-        With the combined_events structure, breakdowns are simpler:
+        With the pre-aggregation structure, breakdowns are simpler:
         - Breakdowns are attributed from exposures (not from numerator/denominator events)
         - entity_metrics gets breakdown columns directly from exposures
-        - No need for breakdown join conditions since there's only one join to combined_events
+        - No need for breakdown join conditions on the event joins
+
+        When ``winsorized`` is set the query has extra ``percentiles`` and
+        ``winsorized_entity_metrics`` CTEs: percentiles are computed per breakdown group
+        (so each group is capped at its own threshold, pooled across variations) and the
+        final aggregation reads from ``winsorized_entity_metrics``.
         """
         if not self._has_breakdown():
             return
 
         aliases = self._get_breakdown_aliases()
+        final_cte_name = "winsorized_entity_metrics" if winsorized else "entity_metrics"
 
         # Inject into entity_metrics CTE SELECT and GROUP BY (from exposures)
         if query.ctes and "entity_metrics" in query.ctes:
@@ -361,18 +367,64 @@ class BreakdownInjector:
                 for alias in aliases:
                     entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
 
+        # Inject into percentiles CTE (only for winsorization queries) so each breakdown
+        # group gets its own thresholds, pooled across variations.
+        if winsorized and query.ctes and "percentiles" in query.ctes:
+            percentiles_cte = query.ctes["percentiles"]
+            if isinstance(percentiles_cte, ast.CTE) and isinstance(percentiles_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    percentiles_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
+                    )
+                if percentiles_cte.expr.group_by is None:
+                    percentiles_cte.expr.group_by = []
+                for alias in aliases:
+                    percentiles_cte.expr.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
+        # Inject into winsorized_entity_metrics CTE: add breakdown columns and convert the
+        # CROSS JOIN to percentiles into a per-breakdown JOIN.
+        if winsorized and query.ctes and "winsorized_entity_metrics" in query.ctes:
+            winsorized_cte = query.ctes["winsorized_entity_metrics"]
+            if isinstance(winsorized_cte, ast.CTE) and isinstance(winsorized_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    winsorized_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
+                    )
+                if winsorized_cte.expr.select_from:
+                    join_expr = winsorized_cte.expr.select_from.next_join
+                    if join_expr and isinstance(join_expr, ast.JoinExpr):
+                        join_expr.join_type = "JOIN"
+                        join_conditions: list[ast.Expr] = []
+                        for alias in aliases:
+                            join_conditions.append(
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["percentiles", alias]),
+                                    right=ast.Field(chain=["entity_metrics", alias]),
+                                )
+                            )
+                        condition_expr: ast.Expr
+                        if len(join_conditions) == 1:
+                            condition_expr = join_conditions[0]
+                        else:
+                            combined: ast.Expr = join_conditions[0]
+                            for condition in join_conditions[1:]:
+                                combined = ast.And(exprs=[combined, condition])
+                            condition_expr = combined
+                        join_expr.constraint = ast.JoinConstraint(expr=condition_expr, constraint_type="ON")
+
         # Inject into final SELECT - breakdown columns must come right after variant
         for i, alias in enumerate(aliases):
             query.select.insert(
                 1 + i,  # Position after variant column (index 0)
-                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+                ast.Alias(alias=alias, expr=ast.Field(chain=[final_cte_name, alias])),
             )
 
         # Inject into final GROUP BY
         if query.group_by is None:
             query.group_by = []
         for alias in aliases:
-            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+            query.group_by.append(ast.Field(chain=[final_cte_name, alias]))
 
     def inject_retention_breakdown_columns(self, query: ast.SelectQuery) -> None:
         """

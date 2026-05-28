@@ -5,9 +5,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 import regex
 import sqlparse
+from parameterized import parameterized
 
 from posthog.schema import (
     ActionsNode,
+    BreakdownFilter,
+    BreakdownType,
     DataWarehousePropertyFilter,
     EventPropertyFilter,
     EventsNode,
@@ -232,7 +235,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
         expected_1 = dedent("""
             SELECT e.timestamp AS timestamp,
-                   person_id AS aggregation_target,
+                   toString(person_id) AS aggregation_target,
                    if(and(equals(event, '$pageview'), equals(properties.$browser, 'Opera')), 1, 0) AS step_0,
                    0 AS step_1,
                    0 AS step_2,
@@ -245,7 +248,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
         expected_2 = dedent("""
             SELECT e.created_at AS timestamp,
-                   user_id AS aggregation_target,
+                   toString(user_id) AS aggregation_target,
                    0 AS step_0,
                    if(and(1, equals(some_prop, 'some_value')), 1, 0) AS step_1,
                    0 AS step_2,
@@ -258,7 +261,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)  # type: ignore
         expected_3 = dedent("""
             SELECT e.ts AS timestamp,
-                   some_user_id AS aggregation_target,
+                   toString(some_user_id) AS aggregation_target,
                    0 AS step_0,
                    0 AS step_1,
                    if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
@@ -395,3 +398,32 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         select = format_query(funnel_event_query)
         self.assertIn("IN(event, tuple('$pageleave', '$pageview'))", select)
+
+    @parameterized.expand(
+        [
+            ("$session_duration",),
+            ("$channel_type",),
+        ]
+    )
+    @freeze_time("2025-11-12")
+    def test_session_breakdown(self, breakdown_property: str):
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$autocapture")],
+            breakdownFilter=BreakdownFilter(breakdown=breakdown_property, breakdown_type=BreakdownType.SESSION),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        breakdown_expr = FunnelEventQuery(context=context)._get_breakdown_expr()
+        assert isinstance(breakdown_expr, ast.Array)
+        self.assertEqual(len(breakdown_expr.exprs), 1)
+        if_null = breakdown_expr.exprs[0]
+        assert isinstance(if_null, ast.Call) and if_null.name == "ifNull"
+        to_string = if_null.args[0]
+        assert isinstance(to_string, ast.Call) and to_string.name == "toString"
+        field = to_string.args[0]
+        assert isinstance(field, ast.Field)
+        self.assertEqual(field.chain, ["session", breakdown_property])
+
+        funnel_event_query = FunnelEventQuery(context=context).to_query()
+        select = format_query(funnel_event_query)
+        self.assertIn(f"ifNull(toString(session.{breakdown_property}), '')", select)

@@ -243,6 +243,28 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
     return result
 
 
+# Fields whose change could redirect the database connection to a different server
+# (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
+_SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
+
+
+def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
+    """True if the SSH tunnel's connection target (enabled/host/port) changed.
+
+    Scalars are coerced to strings to ignore type drift between stored values
+    (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
+    — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
+    making stored "False" falsely diverge from JSON `false`.
+    """
+    existing = existing if isinstance(existing, dict) else {}
+    incoming = incoming if isinstance(incoming, dict) else {}
+
+    def _coerce(value: Any) -> str:
+        return "" if value is None else str(value)
+
+    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+
+
 def get_direct_postgres_connection_metadata(
     *,
     source_impl: Any,
@@ -395,6 +417,14 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
 class ExternalDataJobSerializers(serializers.ModelSerializer):
     schema = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+    cdc_write_mode = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob "
+            "rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` "
+            "(cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`."
+        ),
+    )
 
     class Meta:
         model = ExternalDataJob
@@ -408,6 +438,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "rows_synced",
             "latest_error",
             "workflow_run_id",
+            "cdc_write_mode",
         ]
         read_only_fields = [
             "id",
@@ -419,7 +450,11 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
             "rows_synced",
             "latest_error",
             "workflow_run_id",
+            "cdc_write_mode",
         ]
+
+    def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
+        return (instance.schema_snapshot or {}).get("cdc_write_mode")
 
     def get_status(self, instance: ExternalDataJob):
         if instance.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED:
@@ -651,11 +686,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
             "host"
         ] != existing_job_inputs.get("host")
-        if connection_host_changed:
+
+        # If the SSH tunnel's connection target changed, also require credentials. Without this an
+        # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled
+        # server, exfiltrating the stored database credentials (VERIA-311).
+        ssh_tunnel_changed = "ssh_tunnel" in incoming_job_inputs and ssh_tunnel_connection_changed(
+            existing_job_inputs.get("ssh_tunnel"),
+            incoming_job_inputs.get("ssh_tunnel"),
+        )
+
+        if connection_host_changed or ssh_tunnel_changed:
             missing_credentials = [
                 key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
             ]
             if missing_credentials:
+                if ssh_tunnel_changed:
+                    raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 raise ValidationError("Changing the connection host requires re-entering your credentials.")
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
@@ -1306,7 +1352,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         management_mode = payload.get("cdc_management_mode", "posthog")
         slot_name = payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}"
-        pub_name = payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
+        default_pub_name = (
+            "posthog_pub" if management_mode == "self_managed" else f"posthog_pub_{source_model.id.hex[:12]}"
+        )
+        pub_name = payload.get("cdc_publication_name") or default_pub_name
 
         # Store CDC config in job_inputs
         job_inputs = source_model.job_inputs or {}
@@ -1686,6 +1735,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
+        # Best-effort per-endpoint scope probe — transient failure falls back to "available".
+        try:
+            endpoint_permissions = source.get_endpoint_permissions(
+                source_config, self.team_id, [schema.name for schema in schemas]
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            endpoint_permissions = {schema.name: None for schema in schemas}
+
         # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
@@ -1712,6 +1770,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
+                "permission_error": endpoint_permissions.get(schema.name),
             }
             for schema in schemas
         ]
