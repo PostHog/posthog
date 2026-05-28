@@ -2877,6 +2877,31 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         # DOT returns a redirect with error params or an error response
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_backslash_authority_bypass_in_localhost_redirect_rejected(self):
+        """`http://evil.example\\@localhost:1234/callback` must not pass the loopback fallback.
+
+        urlparse sees hostname='localhost' so the portless reconstruction matches the
+        registered URI, but the browser following the redirect interprets the backslash
+        as a path separator and delivers the authorization code to evil.example.
+        """
+        auth_url = (
+            f"/oauth/authorize/?client_id=test_localhost_client_id"
+            f"&redirect_uri=http://evil.example\\@localhost:50470/callback"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_percent_encoded_backslash_in_localhost_redirect_rejected(self):
+        """Same trick with the percent-encoded form `%5c`."""
+        auth_url = (
+            f"/oauth/authorize/?client_id=test_localhost_client_id"
+            f"&redirect_uri=http://evil.example%5C@localhost:50470/callback"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
     def test_non_localhost_port_mismatch_still_rejected(self):
         """Port flexibility only applies to loopback addresses, not arbitrary hosts."""
         https_app = OAuthApplication.objects.create(

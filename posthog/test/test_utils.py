@@ -121,6 +121,18 @@ class TestAbsoluteUrls(TestCase):
             with pytest.raises(PotentialSecurityProblemException):
                 (absolute_uri("https://an.external.domain.com/something-outside-posthog"),)
 
+    def test_absolute_uri_rejects_backslash_authority_bypass(self) -> None:
+        # `urlparse` returns hostname='app.posthog.com' so the SITE_URL host check
+        # passes, but HTTP clients/browsers route to attacker.example.
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://attacker.example\\@app.posthog.com/path")
+
+    def test_absolute_uri_rejects_percent_encoded_backslash(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://attacker.example%5C@app.posthog.com/path")
+
 
 class TestFormatUrls(TestCase):
     factory = RequestFactory()
