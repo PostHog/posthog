@@ -11,6 +11,7 @@ from posthog.hogql.errors import QueryError
 
 _DANGEROUS_TABLE_FUNCTION_NAMES: frozenset[str] = frozenset(
     {
+        "query",
         "read_text",
         "read_blob",
         "glob",
@@ -47,7 +48,7 @@ _DANGEROUS_TABLE_FUNCTION_NAMES: frozenset[str] = frozenset(
     }
 )
 _DANGEROUS_TABLE_FUNCTION_PREFIXES = ("read_", "scan_")
-_DANGEROUS_TABLE_FUNCTION_SUFFIXES = ("_scan", "_attach", "_query")
+_DANGEROUS_TABLE_FUNCTION_SUFFIXES = ("_scan", "_attach")
 
 
 def is_dangerous_table_function(name: str) -> bool:
