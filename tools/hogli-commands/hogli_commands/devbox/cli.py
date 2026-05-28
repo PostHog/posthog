@@ -285,6 +285,20 @@ def _sync_workspace_parameters(name: str) -> None:
         update_workspace_parameters(name, params)
 
 
+def _confirm_apply_template_update() -> bool:
+    """Y/n gate before applying a pending template update.
+
+    Skipped for non-interactive stdin so CI / piped invocations never block.
+    """
+    if not sys.stdin.isatty():
+        return False
+    click.echo()
+    click.echo("Template update available for this devbox.")
+    click.echo("Apply it now to avoid the VS Code Coder extension upgrade prompt,")
+    click.echo("which lands in a read-only Output channel and cannot be answered.")
+    return click.confirm("Apply now?", default=True)
+
+
 def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     status = get_workspace_status(workspace)
@@ -299,6 +313,18 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
         return
 
     _sync_workspace_parameters(name)
+
+    if workspace.get("outdated"):
+        if _confirm_apply_template_update():
+            click.echo(f"Updating '{name}' to the latest template...")
+            update_workspace(name, verbose=verbose)
+            click.echo("Updated.")
+        else:
+            click.echo(
+                "Skipping template update. Run `hogli devbox:update` when ready. "
+                "If VS Code prompts to upgrade, decline it — its Output channel "
+                "is read-only and the prompt cannot be answered."
+            )
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
