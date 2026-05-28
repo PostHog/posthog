@@ -65,11 +65,13 @@ function makeActionsComponent(
 export function InvitesTable(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
     const { deleteInvite } = useActions(inviteLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const canViewInviteLinks = !restrictionReason || !!currentOrganization?.members_can_invite
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -111,10 +113,10 @@ export function InvitesTable(): JSX.Element {
             dataIndex: 'id',
             key: 'link',
             render: (_, invite) =>
-                restrictionReason ? (
-                    <i className="text-secondary">Only organization admins can view invite links</i>
-                ) : (
+                canViewInviteLinks ? (
                     InviteLinkComponent(invite.id, invite)
+                ) : (
+                    <i className="text-secondary">Only organization admins can view invite links</i>
                 ),
         },
         {
