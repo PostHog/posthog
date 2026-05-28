@@ -25,6 +25,6 @@
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
-        "wrangler": "^4.59.0"
+        "wrangler": "^4.94.0"
     }
 }

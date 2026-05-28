@@ -90,6 +90,6 @@
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^4.1.7",
-        "wrangler": "^4.59.0"
+        "wrangler": "^4.94.0"
     }
 }
