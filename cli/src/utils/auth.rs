@@ -282,4 +282,60 @@ mod tests {
         let err = load_dotenv(Path::new("/definitely/not/a/real/path/.env")).unwrap_err();
         assert!(err.to_string().contains("env file"));
     }
+
+    // Tests below mutate the real process env. Serialize them against each other so parallel
+    // test execution doesn't cause one test's setup to leak into another's assertion.
+    static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    const ENV_VARS: &[&str] = &[
+        "POSTHOG_CLI_API_KEY",
+        "POSTHOG_CLI_TOKEN",
+        "POSTHOG_CLI_PROJECT_ID",
+        "POSTHOG_CLI_ENV_ID",
+        "POSTHOG_CLI_HOST",
+    ];
+
+    fn clear_env() {
+        for v in ENV_VARS {
+            std::env::remove_var(v);
+        }
+    }
+
+    #[test]
+    fn provider_prefers_process_env_over_env_file() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        clear_env();
+        std::env::set_var("POSTHOG_CLI_API_KEY", "phx_from_env");
+        std::env::set_var("POSTHOG_CLI_PROJECT_ID", "111");
+
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "POSTHOG_CLI_API_KEY=phx_from_file").unwrap();
+        writeln!(f, "POSTHOG_CLI_PROJECT_ID=222").unwrap();
+
+        let provider = EnvVarProvider {
+            env_file: Some(f.path().to_path_buf()),
+        };
+        let token = provider.get_credentials().unwrap();
+        assert_eq!(token.token, "phx_from_env");
+        assert_eq!(token.env_id, "111");
+
+        clear_env();
+    }
+
+    #[test]
+    fn provider_falls_back_to_env_file_when_process_env_missing() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        clear_env();
+
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "POSTHOG_CLI_API_KEY=phx_from_file").unwrap();
+        writeln!(f, "POSTHOG_CLI_PROJECT_ID=222").unwrap();
+
+        let provider = EnvVarProvider {
+            env_file: Some(f.path().to_path_buf()),
+        };
+        let token = provider.get_credentials().unwrap();
+        assert_eq!(token.token, "phx_from_file");
+        assert_eq!(token.env_id, "222");
+    }
 }
