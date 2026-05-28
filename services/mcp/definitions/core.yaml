@@ -188,6 +188,9 @@ tools:
     dashboards-run-insights-retrieve:
         operation: dashboards_run_insights_retrieve
         enabled: false
+    dashboards-run-widgets-retrieve:
+        operation: dashboards_run_widgets_retrieve
+        enabled: false
     dashboards-sharing-list:
         operation: dashboards_sharing_list
         enabled: false
@@ -208,6 +211,18 @@ tools:
         enabled: false
     dashboards-update:
         operation: dashboards_update
+        enabled: false
+    dashboards-widget-catalog-retrieve:
+        operation: dashboards_widget_catalog_retrieve
+        enabled: false
+    dashboards-widgets-batch-create:
+        operation: dashboards_widgets_batch_create
+        enabled: false
+    dashboards-widgets-create:
+        operation: dashboards_widgets_create
+        enabled: false
+    dashboards-widgets-partial-update:
+        operation: dashboards_widgets_partial_update
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update

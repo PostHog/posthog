@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -160,6 +160,50 @@ export const DashboardsDestroyQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
+/**
+ * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
+ */
+export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsCopyTileCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
+    fromDashboardId: zod.number().describe('Dashboard id the tile currently belongs to.'),
+    tileId: zod.number().describe('Dashboard tile id to copy.'),
+})
+
+export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsMoveTilePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+    toDashboard: zod.number().optional().describe('Destination dashboard ID.'),
+    tile: zod
+        .object({
+            id: zod.number().describe('Dashboard tile ID to move.'),
+        })
+        .optional()
+        .describe('Tile to move, identified by its dashboard tile ID.'),
+})
+
 export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
@@ -218,4 +262,172 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         .describe(
             'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
+})
+
+export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsRunWidgetsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+    tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
+})
+
+/**
+ * Add a widget tile to a dashboard.
+ */
+export const DashboardsWidgetsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsWidgetsCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsWidgetsCreateBodyWidgetTypeMax = 64
+
+export const dashboardsWidgetsCreateBodyNameMax = 400
+
+export const DashboardsWidgetsCreateBody = /* @__PURE__ */ zod.object({
+    widget_type: zod
+        .string()
+        .max(dashboardsWidgetsCreateBodyWidgetTypeMax)
+        .describe('Widget type identifier from dashboard-widget-catalog-list.'),
+    config: zod
+        .unknown()
+        .describe(
+            'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list.'
+        ),
+    name: zod
+        .string()
+        .max(dashboardsWidgetsCreateBodyNameMax)
+        .nullish()
+        .describe('Optional custom display name for the widget tile.'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Optional markdown description shown when show_description is enabled.'),
+    layouts: zod.unknown().optional().describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+    show_description: zod.boolean().optional().describe('Whether to show the description on the dashboard tile.'),
+})
+
+/**
+ * Update an existing widget tile on a dashboard.
+ */
+export const DashboardsWidgetsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    tile_id: zod.number().describe('Dashboard tile ID from dashboard-get (must be a widget tile).'),
+})
+
+export const DashboardsWidgetsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsWidgetsPartialUpdateBodyNameMax = 400
+
+export const DashboardsWidgetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    config: zod
+        .unknown()
+        .optional()
+        .describe("Updated widget configuration JSON. Validated for the tile's widget_type."),
+    name: zod
+        .string()
+        .max(dashboardsWidgetsPartialUpdateBodyNameMax)
+        .nullish()
+        .describe('Optional custom display name for the widget tile.'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Optional markdown description shown when show_description is enabled.'),
+    show_description: zod.boolean().optional().describe('Whether to show the description on the dashboard tile.'),
+    layouts: zod.unknown().optional().describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+})
+
+/**
+ * Add multiple widget tiles to a dashboard in one atomic request.
+ */
+export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsWidgetsBatchCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax = 64
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
+
+export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
+    widgets: zod
+        .array(
+            zod.object({
+                widget_type: zod
+                    .string()
+                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
+                    .describe('Widget type identifier from dashboard-widget-catalog-list.'),
+                config: zod
+                    .unknown()
+                    .describe(
+                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list.'
+                    ),
+                name: zod
+                    .string()
+                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax)
+                    .nullish()
+                    .describe('Optional custom display name for the widget tile.'),
+                description: zod
+                    .string()
+                    .optional()
+                    .describe('Optional markdown description shown when show_description is enabled.'),
+                layouts: zod
+                    .unknown()
+                    .optional()
+                    .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                show_description: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether to show the description on the dashboard tile.'),
+            })
+        )
+        .min(1)
+        .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
+        .describe('Widget tiles to add atomically (1–10). Each entry uses the same fields as a single add request.'),
+})
+
+/**
+ * List registered dashboard widget types and config hints for agents.
+ */
+export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsWidgetCatalogRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
 })

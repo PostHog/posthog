@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config": {
+            "description": "Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list."
+        },
+        "description": {
+            "description": "Optional markdown description shown when show_description is enabled.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A unique integer value identifying this dashboard.",
+            "type": "number"
+        },
+        "layouts": {
+            "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs)."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional custom display name for the widget tile."
+        },
+        "show_description": {
+            "description": "Whether to show the description on the dashboard tile.",
+            "type": "boolean"
+        },
+        "widget_type": {
+            "description": "Widget type identifier from dashboard-widget-catalog-list.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["id", "widget_type", "config"],
+    "type": "object"
+}

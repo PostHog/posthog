@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config": {
+            "description": "Updated widget configuration JSON. Validated for the tile's widget_type."
+        },
+        "description": {
+            "description": "Optional markdown description shown when show_description is enabled.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A unique integer value identifying this dashboard.",
+            "type": "number"
+        },
+        "layouts": {
+            "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs)."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional custom display name for the widget tile."
+        },
+        "show_description": {
+            "description": "Whether to show the description on the dashboard tile.",
+            "type": "boolean"
+        },
+        "tile_id": {
+            "description": "Dashboard tile ID from dashboard-get (must be a widget tile).",
+            "type": "number"
+        }
+    },
+    "required": ["id", "tile_id"],
+    "type": "object"
+}
