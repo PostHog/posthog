@@ -137,6 +137,35 @@ class TestAgentRecordedTraining(APIBaseTest):
             pipeline=self.pipeline, role=AutoresearchModel.Role.CHALLENGER, holdout_score=0.80
         ).exists()
 
+    def test_signal_handler_uses_agent_recorded_path_when_iterations_exist(self):
+        from unittest.mock import MagicMock
+
+        from products.autoresearch.backend.training_ingestion import handle_task_run_completed
+        from products.tasks.backend.models import TaskRun as TaskRunModel
+
+        # Agent opens a run and records an iteration via the new MCP write path.
+        run_id = self._open_run()
+        self._record(run_id, number=0, status_value="kept", holdout=0.81)
+
+        # Simulate the TaskRun post_save signal firing on completion.
+        fake_task_run = MagicMock()
+        fake_task_run.state = {"autoresearch_training_run_id": run_id}
+        fake_task_run.status = TaskRunModel.Status.COMPLETED
+        fake_task_run.error_message = ""
+        fake_task_run.id = "00000000-0000-0000-0000-000000000000"
+        fake_task_run.output = None  # no set_output blob — agent recorded via tools
+
+        handle_task_run_completed(fake_task_run)
+
+        run = AutoresearchTrainingRun.objects.get(pk=run_id)
+        assert run.status == AutoresearchTrainingRun.Status.COMPLETED
+        assert run.best_holdout_score == 0.81
+        assert AutoresearchModel.objects.filter(
+            pipeline=self.pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            holdout_score=0.81,
+        ).exists()
+
     def test_cross_team_isolation(self):
         other_org = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_org, name="Other team")

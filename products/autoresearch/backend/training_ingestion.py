@@ -30,6 +30,7 @@ from products.autoresearch.backend.models import (
     AutoresearchPipeline,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.promotion import complete_training_run
 from products.autoresearch.backend.training import ModelRecipeOutput
 
 logger = structlog.get_logger(__name__)
@@ -75,6 +76,22 @@ def handle_task_run_completed(task_run: Any) -> None:
 
     if task_run.status in {TaskRun.Status.FAILED, TaskRun.Status.CANCELLED}:
         _mark_failed(training_run, error=task_run.error_message or "TaskRun did not complete successfully")
+        return
+
+    # Agent-recorded path: if the agent persisted iterations directly via the new MCP write tools
+    # (autoresearch-training-runs-iterations-create), there is no set_output blob to parse.
+    # Finalize through the server-side promotion flow instead. Falls through to the legacy
+    # set_output parser when no iterations exist.
+    if AutoresearchIteration.objects.filter(training_run=training_run).exists():
+        try:
+            complete_training_run(training_run)
+        except Exception:
+            logger.exception(
+                "autoresearch_agent_recorded_complete_failed",
+                training_run_id=training_run_id,
+                task_run_id=str(task_run.id),
+            )
+            _mark_failed(training_run, error="Agent-recorded run completion failed — see server logs")
         return
 
     recipe_data = _extract_recipe(task_run)
