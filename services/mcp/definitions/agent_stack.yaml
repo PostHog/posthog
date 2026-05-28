@@ -313,10 +313,13 @@ tools:
             idempotent: true
         title: List sessions for an agent
         description: >
-            Newest-first list of every session ever run against this agent — across all revisions. Returns id, state
-            (queued/running/waiting/completed/failed), revision_id, principal, turn count, retry count, timestamps. Skip
-            the transcript body in this list view; use `agent-applications-sessions-retrieve` for a single session's
-            full conversation. Supports `limit` (default 100, max 500) and `offset` for paging.
+            Newest-first list of sessions for this agent across all revisions. Each summary carries id, state
+            (queued / running / waiting / completed / failed), revision_id, principal, turn count, retry count,
+            timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost
+            aggregated over the whole conversation). The transcript body is omitted — use
+            `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g.
+            `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging
+            via `limit` (default 100, capped at 500) + `offset`. Filters AND together.
     agent-applications-sessions-retrieve:
         operation: agent_applications_sessions_retrieve
         enabled: true
@@ -328,9 +331,12 @@ tools:
             idempotent: true
         title: Get one session
         description: >
-            Returns the full `AgentSession` row: state, principal, full `conversation` JSONB (user / assistant / toolResult
-            messages), pending_inputs, retry_count, timestamps. Use after `agent-applications-sessions-list` to drill into
-            one row — for example to read the assistant's last reply or audit tool calls.
+            Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages),
+            pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated
+            over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages —
+            useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus
+            `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the
+            full untrimmed conversation so cost reporting stays accurate.
     agent-applications-set-env-create:
         operation: agent_applications_set_env_create
         enabled: true

@@ -11,7 +11,7 @@
 import type { Pool, PoolClient } from 'pg'
 
 import { AgentSession, ConversationMessage } from '../spec/spec'
-import { SessionQueue } from './queue'
+import { ListSessionsOpts, SessionQueue } from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
                      conversation, pending_inputs, principal, retry_count, created_at, updated_at`
@@ -157,19 +157,35 @@ export class PgSessionQueue implements SessionQueue {
         return rowToSession(r.rows[0])
     }
 
-    async listByApplication(
-        applicationId: string,
-        opts: { limit?: number; offset?: number } = {}
-    ): Promise<AgentSession[]> {
+    async listByApplication(applicationId: string, opts: ListSessionsOpts = {}): Promise<AgentSession[]> {
         const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
         const offset = Math.max(0, opts.offset ?? 0)
+        const where: string[] = ['application_id = $1']
+        const params: unknown[] = [applicationId]
+        if (opts.states && opts.states.length > 0) {
+            params.push(opts.states)
+            where.push(`state = ANY($${params.length}::text[])`)
+        }
+        if (opts.revisionId) {
+            params.push(opts.revisionId)
+            where.push(`revision_id = $${params.length}`)
+        }
+        if (opts.createdAfter) {
+            params.push(opts.createdAfter)
+            where.push(`created_at >= $${params.length}`)
+        }
+        if (opts.createdBefore) {
+            params.push(opts.createdBefore)
+            where.push(`created_at <= $${params.length}`)
+        }
+        params.push(limit, offset)
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
-             WHERE application_id = $1
+             WHERE ${where.join(' AND ')}
              ORDER BY created_at DESC
-             LIMIT $2 OFFSET $3`,
-            [applicationId, limit, offset]
+             LIMIT $${params.length - 1} OFFSET $${params.length}`,
+            params
         )
         return r.rows.map(rowToSession)
     }

@@ -35,7 +35,14 @@
 
 import express, { Express, NextFunction, Request, Response } from 'express'
 
-import { BundleStore, RevisionStore, SessionQueue } from '@posthog/agent-shared'
+import {
+    AgentSession,
+    BundleStore,
+    lastAssistantTextPreview,
+    RevisionStore,
+    SessionQueue,
+    totalConversationUsage,
+} from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 import { SweepDeps, sweepOnce } from './sweep'
@@ -82,11 +89,28 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             res.status(400).json({ error: 'missing_application_id' })
             return
         }
-        const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined
-        const offset = req.query.offset ? parseInt(String(req.query.offset), 10) : undefined
-        const sessions = await opts.queue.listByApplication(applicationId, { limit, offset })
-        // Conversation can be large; strip it from the list view. Callers can
-        // fetch one with /sessions/:id when they want the full transcript.
+        const intArg = (raw: unknown): number | undefined => {
+            if (raw === undefined) {
+                return undefined
+            }
+            const n = parseInt(String(raw), 10)
+            return Number.isFinite(n) ? n : undefined
+        }
+        // `state` can be ?state=completed or ?state=completed,failed
+        const stateRaw = req.query.state
+        const states =
+            typeof stateRaw === 'string' ? (stateRaw.split(',').filter(Boolean) as AgentSession['state'][]) : undefined
+        const sessions = await opts.queue.listByApplication(applicationId, {
+            limit: intArg(req.query.limit),
+            offset: intArg(req.query.offset),
+            states,
+            revisionId: typeof req.query.revision_id === 'string' ? req.query.revision_id : undefined,
+            createdAfter: typeof req.query.created_after === 'string' ? req.query.created_after : undefined,
+            createdBefore: typeof req.query.created_before === 'string' ? req.query.created_before : undefined,
+        })
+        // Conversation can be large; strip it from the list view but derive a
+        // preview + usage_total so a single tool call still tells you what the
+        // agent said and how much it cost.
         const summaries = sessions.map((s) => ({
             id: s.id,
             application_id: s.application_id,
@@ -95,6 +119,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             external_key: s.external_key,
             principal: s.principal,
             turns: s.conversation.length,
+            preview: lastAssistantTextPreview(s.conversation),
+            usage_total: totalConversationUsage(s.conversation),
             retry_count: s.retry_count,
             created_at: s.created_at,
             updated_at: s.updated_at,
@@ -108,7 +134,28 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             res.status(404).json({ error: 'not_found' })
             return
         }
-        res.json(s)
+        // Optional ?last_n=<int> returns just the tail of the conversation —
+        // useful for huge sessions where the caller only cares about the most
+        // recent turns. usage_total is always computed over the full
+        // conversation so cost reporting stays accurate.
+        const lastNRaw = req.query.last_n
+        if (typeof lastNRaw === 'string' && lastNRaw.length > 0) {
+            const lastN = parseInt(lastNRaw, 10)
+            if (Number.isFinite(lastN) && lastN >= 0 && lastN < s.conversation.length) {
+                const trimmed: AgentSession = {
+                    ...s,
+                    conversation: s.conversation.slice(-lastN),
+                }
+                res.json({
+                    ...trimmed,
+                    usage_total: totalConversationUsage(s.conversation),
+                    conversation_total_turns: s.conversation.length,
+                    conversation_trimmed: true,
+                })
+                return
+            }
+        }
+        res.json({ ...s, usage_total: totalConversationUsage(s.conversation), conversation_trimmed: false })
     })
     app.post('/sessions/:id/cancel', async (req, res) => {
         const s = await opts.queue.get(req.params.id)

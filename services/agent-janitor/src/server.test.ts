@@ -67,14 +67,119 @@ describe('janitor HTTP', () => {
         expect(res.body.error).toBe('missing_application_id')
     })
 
+    it('GET /sessions supports state / revision_id / created_after filters', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('done-r1'),
+            application_id: 'app-1',
+            revision_id: 'rev-1',
+            state: 'completed',
+            created_at: '2026-05-02T00:00:00Z',
+        })
+        await queue.enqueue({
+            ...session('fail-r1'),
+            application_id: 'app-1',
+            revision_id: 'rev-1',
+            state: 'failed',
+            created_at: '2026-05-03T00:00:00Z',
+        })
+        await queue.enqueue({
+            ...session('done-r2'),
+            application_id: 'app-1',
+            revision_id: 'rev-2',
+            state: 'completed',
+            created_at: '2026-04-25T00:00:00Z',
+        })
+        // state=completed,failed → both completed and failed across revs
+        const both = await request(app).get('/sessions').query({ application_id: 'app-1', state: 'completed,failed' })
+        expect((both.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual([
+            'done-r1',
+            'done-r2',
+            'fail-r1',
+        ])
+        // revision_id filter scopes to one revision
+        const r1 = await request(app).get('/sessions').query({ application_id: 'app-1', revision_id: 'rev-1' })
+        expect((r1.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
+        // created_after excludes older sessions
+        const recent = await request(app)
+            .get('/sessions')
+            .query({ application_id: 'app-1', created_after: '2026-05-01T00:00:00Z' })
+        expect((recent.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
+    })
+
+    it('GET /sessions summaries include preview + usage_total derived from conversation', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-rich'),
+            application_id: 'app-1',
+            conversation: [
+                { role: 'user', content: 'hi', timestamp: 1 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'hello back!' }],
+                    api: 'anthropic-messages',
+                    provider: 'anthropic',
+                    model: 'claude-haiku-4-5',
+                    usage: { input: 50, output: 10, cost: { input: 0.0005, output: 0.0002, total: 0.0007 } },
+                    timestamp: 2,
+                },
+            ],
+        })
+        const res = await request(app).get('/sessions').query({ application_id: 'app-1' })
+        expect(res.body.sessions[0].preview).toBe('hello back!')
+        expect(res.body.sessions[0].usage_total).toMatchObject({
+            tokens_in: 50,
+            tokens_out: 10,
+            cost_total: 0.0007,
+        })
+    })
+
     it('GET /sessions/:id returns session, 404 if missing', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s1'))
         const ok = await request(app).get('/sessions/s1')
         expect(ok.status).toBe(200)
         expect(ok.body.id).toBe('s1')
+        expect(ok.body.conversation_trimmed).toBe(false)
+        expect(ok.body.usage_total).not.toBeUndefined()
         const miss = await request(app).get('/sessions/nope')
         expect(miss.status).toBe(404)
+    })
+
+    it('GET /sessions/:id?last_n trims the transcript but keeps usage_total accurate', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-long'),
+            conversation: [
+                { role: 'user', content: 'turn1', timestamp: 1 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'reply1' }],
+                    api: 'a',
+                    provider: 'a',
+                    model: 'm',
+                    usage: { input: 10, output: 5, cost: { input: 0.0001, output: 0.00005, total: 0.00015 } },
+                    timestamp: 2,
+                },
+                { role: 'user', content: 'turn2', timestamp: 3 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'reply2' }],
+                    api: 'a',
+                    provider: 'a',
+                    model: 'm',
+                    usage: { input: 20, output: 10, cost: { input: 0.0002, output: 0.0001, total: 0.0003 } },
+                    timestamp: 4,
+                },
+            ],
+        })
+        const res = await request(app).get('/sessions/s-long').query({ last_n: 2 })
+        expect(res.body.conversation_trimmed).toBe(true)
+        expect(res.body.conversation_total_turns).toBe(4)
+        expect(res.body.conversation).toHaveLength(2)
+        // Last two messages are turn2 + reply2.
+        expect(res.body.conversation[0].content).toBe('turn2')
+        expect(res.body.usage_total.tokens_in).toBe(30) // accumulated over the full session
     })
 
     it('POST /sessions/:id/cancel marks failed', async () => {

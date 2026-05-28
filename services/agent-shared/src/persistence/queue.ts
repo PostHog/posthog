@@ -6,6 +6,19 @@
 
 import { AgentSession, ConversationMessage } from '../spec/spec'
 
+export interface ListSessionsOpts {
+    limit?: number
+    offset?: number
+    /** Filter to one or more session states (e.g. ['completed','failed']). */
+    states?: AgentSession['state'][]
+    /** Filter to a specific revision id within the application. */
+    revisionId?: string
+    /** ISO datetime — only return sessions with created_at >= this. */
+    createdAfter?: string
+    /** ISO datetime — only return sessions with created_at <= this. */
+    createdBefore?: string
+}
+
 export interface SessionQueue {
     enqueue(session: AgentSession): Promise<void>
     /** Block-claim the next session, returning null if none available within timeoutMs. */
@@ -25,9 +38,10 @@ export interface SessionQueue {
     /**
      * List sessions for one application, newest first. `limit` defaults to 100
      * so a buggy caller can't accidentally page through every session in the
-     * project; supply an explicit larger value if needed.
+     * project; supply an explicit larger value if needed (capped at 500
+     * server-side). Filters compose with AND semantics.
      */
-    listByApplication(applicationId: string, opts?: { limit?: number; offset?: number }): Promise<AgentSession[]>
+    listByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<AgentSession[]>
     /**
      * Re-queue sessions stuck in 'running' beyond the TTL (their worker
      * probably crashed). The session's conversation is preserved; a sibling
@@ -106,13 +120,28 @@ export class MemorySessionQueue implements SessionQueue {
         return null
     }
 
-    async listByApplication(
-        applicationId: string,
-        opts: { limit?: number; offset?: number } = {}
-    ): Promise<AgentSession[]> {
+    async listByApplication(applicationId: string, opts: ListSessionsOpts = {}): Promise<AgentSession[]> {
         const limit = opts.limit ?? 100
         const offset = opts.offset ?? 0
-        const matches = [...this.sessions.values()].filter((s) => s.application_id === applicationId)
+        const stateSet = opts.states && opts.states.length > 0 ? new Set(opts.states) : null
+        const matches = [...this.sessions.values()].filter((s) => {
+            if (s.application_id !== applicationId) {
+                return false
+            }
+            if (stateSet && !stateSet.has(s.state)) {
+                return false
+            }
+            if (opts.revisionId && s.revision_id !== opts.revisionId) {
+                return false
+            }
+            if (opts.createdAfter && s.created_at < opts.createdAfter) {
+                return false
+            }
+            if (opts.createdBefore && s.created_at > opts.createdBefore) {
+                return false
+            }
+            return true
+        })
         matches.sort((a, b) => b.created_at.localeCompare(a.created_at))
         return matches.slice(offset, offset + limit)
     }

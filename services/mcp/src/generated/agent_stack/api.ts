@@ -520,8 +520,10 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
 
 /**
  * List sessions for this application, newest first. Strips the
-conversation transcript from each summary — fetch a single session
-via /sessions/<id>/ for the full body.
+conversation transcript from each summary, but includes a `preview`
+(last assistant text, ~120 chars) and `usage_total` (token + cost
+aggregate). Use `agent-applications-sessions-retrieve` for the full
+transcript of a single session.
  */
 export const AgentApplicationsSessionsListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -533,14 +535,30 @@ export const AgentApplicationsSessionsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AgentApplicationsSessionsListQueryParams = /* @__PURE__ */ zod.object({
+    created_after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO datetime — return sessions with created_at >= this.'),
+    created_before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO datetime — return sessions with created_at <= this.'),
     limit: zod.number().optional(),
     offset: zod.number().optional(),
+    revision_id: zod.string().optional().describe('Only return sessions started against this specific revision.'),
+    state: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, failed.'
+        ),
 })
 
 /**
- * Fetch one session's full state, including the conversation transcript.
-The runner-side queue DB is the source of truth for this — the response
-shape mirrors `AgentSession`.
+ * Fetch one session's state — full conversation by default, or just
+the trailing N messages with `?last_n=`. Always returns a
+`usage_total` block aggregated over the entire session, regardless of
+trim. The runner-side queue DB is the source of truth.
  */
 export const AgentApplicationsSessionsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -550,6 +568,15 @@ export const AgentApplicationsSessionsRetrieveParams = /* @__PURE__ */ zod.objec
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
     session_id: zod.string().describe('UUID of the session to fetch (must belong to this application).'),
+})
+
+export const AgentApplicationsSessionsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    last_n: zod
+        .number()
+        .optional()
+        .describe(
+            'If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.'
+        ),
 })
 
 /**

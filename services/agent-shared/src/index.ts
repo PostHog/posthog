@@ -12,6 +12,7 @@
  */
 
 export * from './spec/spec'
+export * from './spec/summarize-conversation'
 export * from './spec/tool'
 
 export * from './storage/bundle'

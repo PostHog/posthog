@@ -17,6 +17,7 @@ import type {
     AgentApplicationsRevisionsFileUpdateParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionsListParams,
+    AgentApplicationsSessionsRetrieveParams,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
     AgentRevisionValidateResponseApi,
@@ -837,8 +838,10 @@ export const getAgentApplicationsSessionsListUrl = (
 
 /**
  * List sessions for this application, newest first. Strips the
-conversation transcript from each summary — fetch a single session
-via /sessions/<id>/ for the full body.
+conversation transcript from each summary, but includes a `preview`
+(last assistant text, ~120 chars) and `usage_total` (token + cost
+aggregate). Use `agent-applications-sessions-retrieve` for the full
+transcript of a single session.
  */
 export const agentApplicationsSessionsList = async (
     projectId: string,
@@ -855,22 +858,41 @@ export const agentApplicationsSessionsList = async (
     )
 }
 
-export const getAgentApplicationsSessionsRetrieveUrl = (projectId: string, id: string, sessionId: string) => {
-    return `/api/projects/${projectId}/agent_applications/${id}/sessions/${sessionId}/`
+export const getAgentApplicationsSessionsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    sessionId: string,
+    params?: AgentApplicationsSessionsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/sessions/${sessionId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/sessions/${sessionId}/`
 }
 
 /**
- * Fetch one session's full state, including the conversation transcript.
-The runner-side queue DB is the source of truth for this — the response
-shape mirrors `AgentSession`.
+ * Fetch one session's state — full conversation by default, or just
+the trailing N messages with `?last_n=`. Always returns a
+`usage_total` block aggregated over the entire session, regardless of
+trim. The runner-side queue DB is the source of truth.
  */
 export const agentApplicationsSessionsRetrieve = async (
     projectId: string,
     id: string,
     sessionId: string,
+    params?: AgentApplicationsSessionsRetrieveParams,
     options?: RequestInit
 ): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsSessionsRetrieveUrl(projectId, id, sessionId), {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSessionsRetrieveUrl(projectId, id, sessionId, params), {
         ...options,
         method: 'GET',
     })

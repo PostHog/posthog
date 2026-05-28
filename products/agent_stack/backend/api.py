@@ -156,11 +156,51 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application.save(update_fields=["encrypted_env", "updated_at"])
         return Response({"ok": True})
 
+    _SESSION_USAGE_TOTAL_FIELDS = {
+        "tokens_in": drf_serializers.IntegerField(),
+        "tokens_out": drf_serializers.IntegerField(),
+        "cost_input": drf_serializers.FloatField(),
+        "cost_output": drf_serializers.FloatField(),
+        "cost_total": drf_serializers.FloatField(),
+    }
+
     @extend_schema(
         operation_id="agent_applications_sessions_list",
         parameters=[
             OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(
+                "state",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by session state. Comma-separated list accepted "
+                    "(e.g. `completed,failed`). Valid values: queued, running, "
+                    "waiting, completed, failed."
+                ),
+            ),
+            OpenApiParameter(
+                "revision_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Only return sessions started against this specific revision.",
+            ),
+            OpenApiParameter(
+                "created_after",
+                OpenApiTypes.DATETIME,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime — return sessions with created_at >= this.",
+            ),
+            OpenApiParameter(
+                "created_before",
+                OpenApiTypes.DATETIME,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime — return sessions with created_at <= this.",
+            ),
         ],
         request=None,
         responses=OpenApiResponse(
@@ -178,6 +218,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 "external_key": drf_serializers.CharField(allow_null=True),
                                 "principal": drf_serializers.DictField(allow_null=True),
                                 "turns": drf_serializers.IntegerField(),
+                                "preview": drf_serializers.CharField(allow_null=True),
+                                "usage_total": inline_serializer(
+                                    name="AgentSessionUsageTotal",
+                                    fields=_SESSION_USAGE_TOTAL_FIELDS,
+                                ),
                                 "retry_count": drf_serializers.IntegerField(),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
@@ -191,8 +236,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="sessions")
     def sessions_list(self, request: Request, **kwargs) -> Response:
         """List sessions for this application, newest first. Strips the
-        conversation transcript from each summary — fetch a single session
-        via /sessions/<id>/ for the full body."""
+        conversation transcript from each summary, but includes a `preview`
+        (last assistant text, ~120 chars) and `usage_total` (token + cost
+        aggregate). Use `agent-applications-sessions-retrieve` for the full
+        transcript of a single session."""
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -204,7 +251,15 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except ValueError:
             raise ValidationError("limit and offset must be integers")
         try:
-            payload = _janitor().list_sessions(str(application.id), limit=limit, offset=offset)
+            payload = _janitor().list_sessions(
+                str(application.id),
+                limit=limit,
+                offset=offset,
+                state=request.query_params.get("state") or None,
+                revision_id=request.query_params.get("revision_id") or None,
+                created_after=request.query_params.get("created_after") or None,
+                created_before=request.query_params.get("created_before") or None,
+            )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
@@ -219,19 +274,41 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 required=True,
                 description="UUID of the session to fetch (must belong to this application).",
             ),
+            OpenApiParameter(
+                "last_n",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "If set, return only the most recent N messages from the "
+                    "conversation. `usage_total` is still computed over the "
+                    "full session — only the transcript is trimmed. The "
+                    "response includes `conversation_trimmed: true` and "
+                    "`conversation_total_turns` so the caller knows how much "
+                    "was hidden."
+                ),
+            ),
         ],
         request=None,
     )
     @action(detail=True, methods=["get"], url_path="sessions/(?P<session_id>[^/.]+)")
     def sessions_retrieve(self, request: Request, session_id: str = "", **kwargs) -> Response:
-        """Fetch one session's full state, including the conversation transcript.
-        The runner-side queue DB is the source of truth for this — the response
-        shape mirrors `AgentSession`."""
+        """Fetch one session's state — full conversation by default, or just
+        the trailing N messages with `?last_n=`. Always returns a
+        `usage_total` block aggregated over the entire session, regardless of
+        trim. The runner-side queue DB is the source of truth."""
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
+        last_n_param = request.query_params.get("last_n")
         try:
-            payload = _janitor().get_session(session_id)
+            last_n = int(last_n_param) if last_n_param is not None else None
+        except ValueError:
+            raise ValidationError("last_n must be a non-negative integer")
+        if last_n is not None and last_n < 0:
+            raise ValidationError("last_n must be a non-negative integer")
+        try:
+            payload = _janitor().get_session(session_id, last_n=last_n)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         # Cross-check ownership: the janitor doesn't know about teams. Reject

@@ -102,16 +102,39 @@ class JanitorClient:
 
     # ── sessions ───────────────────────────────────────────────────────────
 
-    def list_sessions(self, application_id: str, limit: int | None = None, offset: int | None = None) -> dict:
+    def list_sessions(
+        self,
+        application_id: str,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+        state: str | None = None,
+        revision_id: str | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+    ) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
         if limit is not None:
             params["limit"] = limit
         if offset is not None:
             params["offset"] = offset
+        if state:
+            # Comma-separated list (e.g. "completed,failed"). Pass through
+            # verbatim — the janitor parses.
+            params["state"] = state
+        if revision_id:
+            params["revision_id"] = revision_id
+        if created_after:
+            params["created_after"] = created_after
+        if created_before:
+            params["created_before"] = created_before
         return self._call("GET", "/sessions", params=params)
 
-    def get_session(self, session_id: str) -> dict:
-        return self._call("GET", f"/sessions/{session_id}")
+    def get_session(self, session_id: str, *, last_n: int | None = None) -> dict:
+        params: dict[str, Any] = {}
+        if last_n is not None:
+            params["last_n"] = last_n
+        return self._call("GET", f"/sessions/{session_id}", params=params)
 
     def clone_from(self, target_revision_id: str, source_revision_id: str) -> dict:
         return self._call(

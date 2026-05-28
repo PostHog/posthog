@@ -176,6 +176,14 @@ export interface PatchedAgentApplicationApi {
     readonly updated_at?: string
 }
 
+export interface AgentSessionUsageTotalApi {
+    tokens_in: number
+    tokens_out: number
+    cost_input: number
+    cost_output: number
+    cost_total: number
+}
+
 /**
  * @nullable
  */
@@ -191,6 +199,9 @@ export interface AgentSessionSummaryApi {
     /** @nullable */
     principal: AgentSessionSummaryApiPrincipal
     turns: number
+    /** @nullable */
+    preview: string | null
+    usage_total: AgentSessionUsageTotalApi
     retry_count: number
     created_at: string
     updated_at: string
@@ -267,6 +278,29 @@ export type AgentApplicationsRevisionsFileDestroyParams = {
 }
 
 export type AgentApplicationsSessionsListParams = {
+    /**
+     * ISO datetime — return sessions with created_at >= this.
+     */
+    created_after?: string
+    /**
+     * ISO datetime — return sessions with created_at <= this.
+     */
+    created_before?: string
     limit?: number
     offset?: number
+    /**
+     * Only return sessions started against this specific revision.
+     */
+    revision_id?: string
+    /**
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, failed.
+     */
+    state?: string
+}
+
+export type AgentApplicationsSessionsRetrieveParams = {
+    /**
+     * If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.
+     */
+    last_n?: number
 }

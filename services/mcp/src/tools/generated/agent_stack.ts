@@ -38,6 +38,7 @@ import {
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsListQueryParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSessionsRetrieveQueryParams,
     AgentApplicationsSetEnvCreateBody,
     AgentApplicationsSetEnvCreateParams,
 } from '@/generated/agent_stack/api'
@@ -553,15 +554,21 @@ const agentApplicationsSessionsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/sessions/`,
             query: {
+                created_after: params.created_after,
+                created_before: params.created_before,
                 limit: params.limit,
                 offset: params.offset,
+                revision_id: params.revision_id,
+                state: params.state,
             },
         })
         return result
     },
 })
 
-const AgentApplicationsSessionsRetrieveSchema = AgentApplicationsSessionsRetrieveParams.omit({ project_id: true })
+const AgentApplicationsSessionsRetrieveSchema = AgentApplicationsSessionsRetrieveParams.omit({
+    project_id: true,
+}).extend(AgentApplicationsSessionsRetrieveQueryParams.shape)
 
 const agentApplicationsSessionsRetrieve = (): ToolBase<
     typeof AgentApplicationsSessionsRetrieveSchema,
@@ -574,6 +581,9 @@ const agentApplicationsSessionsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.AgentApplication>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/sessions/${encodeURIComponent(String(params.session_id))}/`,
+            query: {
+                last_n: params.last_n,
+            },
         })
         return result
     },
