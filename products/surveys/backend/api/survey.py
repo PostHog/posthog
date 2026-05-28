@@ -2825,25 +2825,29 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         params.is_valid(raise_exception=True)
         cleaned = params.validated_data
 
+        # score_lte / score_gte only make sense for a specific rating question — reject the
+        # combination at the API boundary rather than letting the HogQL helper raise later.
+        if (cleaned.get("score_lte") is not None or cleaned.get("score_gte") is not None) and not cleaned.get(
+            "question_id"
+        ):
+            raise exceptions.ValidationError("score_lte and score_gte require question_id to be specified")
+
         exclude_uuids: set[str] | None = None
         if cleaned.get("exclude_archived"):
             exclude_uuids = get_archived_response_uuids(str(survey.id), self.team_id)
 
-        try:
-            rows, has_more = fetch_response_rows(
-                survey=survey,
-                team=self.team,
-                since=cleaned.get("since"),
-                until=cleaned.get("until"),
-                question_id=cleaned.get("question_id"),
-                score_lte=cleaned.get("score_lte"),
-                score_gte=cleaned.get("score_gte"),
-                limit=cleaned.get("limit", 100),
-                offset=cleaned.get("offset", 0),
-                exclude_uuids=exclude_uuids,
-            )
-        except ValueError as exc:
-            raise exceptions.ValidationError(str(exc))
+        rows, has_more = fetch_response_rows(
+            survey=survey,
+            team=self.team,
+            since=cleaned.get("since"),
+            until=cleaned.get("until"),
+            question_id=cleaned.get("question_id"),
+            score_lte=cleaned.get("score_lte"),
+            score_gte=cleaned.get("score_gte"),
+            limit=cleaned.get("limit", 100),
+            offset=cleaned.get("offset", 0),
+            exclude_uuids=exclude_uuids,
+        )
 
         tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
 
