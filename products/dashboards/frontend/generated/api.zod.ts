@@ -9,6 +9,120 @@
  */
 import * as zod from 'zod'
 
+export const dashboardTemplatesCreateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesCreateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesCreateBodyTagsItemMax = 255
+
+export const dashboardTemplatesCreateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesCreateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesCreateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesCreateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesCreateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesCreateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesCreateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
+export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesUpdateBodyTagsItemMax = 255
+
+export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesUpdateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesUpdateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesUpdateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesUpdateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesUpdateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesUpdateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
+export const dashboardTemplatesPartialUpdateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
+
+export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesPartialUpdateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesPartialUpdateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesPartialUpdateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
+/**
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
+ */
+export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ zod.object({
+    source_template_id: zod
+        .uuid()
+        .describe(
+            'UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint.'
+        ),
+})
+
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false

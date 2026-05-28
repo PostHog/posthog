@@ -13,7 +13,8 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 # 1. Scaffold a starter YAML with all operations disabled.
 #    --product discovers endpoints via x-product (priority 1) then
 #    URL substring match (fallback). ViewSets in products/<name>/backend/
-#    are auto-tagged. ViewSets elsewhere need @extend_schema(tags=["<product>"]).
+#    are auto-attributed via module path. ViewSets elsewhere need
+#    @extend_schema(extensions={"x-product": "<product>"}).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 

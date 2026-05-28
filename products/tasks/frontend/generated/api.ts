@@ -850,26 +850,6 @@ export const tasksRunsConnectionTokenRetrieve = async (
     })
 }
 
-export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
-}
-
-/**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
- * @summary Get task run logs
- */
-export const tasksRunsLogsRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
 }

@@ -14,9 +14,6 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
-    CopyDashboardTemplateApi,
-    DashboardTemplateApi,
-    DashboardTemplatesListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
@@ -31,7 +28,6 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
-    PaginatedDashboardTemplateListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
@@ -43,7 +39,6 @@ import type {
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
     PaginatedUserListApi,
-    PatchedDashboardTemplateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedOrganizationDomainApi,
@@ -871,151 +866,6 @@ export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
             body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
-}
-
-export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboard_templates/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboard_templates/`
-}
-
-export const dashboardTemplatesList = async (
-    projectId: string,
-    params?: DashboardTemplatesListParams,
-    options?: RequestInit
-): Promise<PaginatedDashboardTemplateListApi> => {
-    return apiMutator<PaginatedDashboardTemplateListApi>(getDashboardTemplatesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardTemplatesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/`
-}
-
-export const dashboardTemplatesCreate = async (
-    projectId: string,
-    dashboardTemplateApi?: NonReadonly<DashboardTemplateApi>,
-    options?: RequestInit
-): Promise<DashboardTemplateApi> => {
-    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardTemplateApi),
-    })
-}
-
-export const getDashboardTemplatesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/${id}/`
-}
-
-export const dashboardTemplatesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<DashboardTemplateApi> => {
-    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardTemplatesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/${id}/`
-}
-
-export const dashboardTemplatesUpdate = async (
-    projectId: string,
-    id: string,
-    dashboardTemplateApi?: NonReadonly<DashboardTemplateApi>,
-    options?: RequestInit
-): Promise<DashboardTemplateApi> => {
-    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardTemplateApi),
-    })
-}
-
-export const getDashboardTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/${id}/`
-}
-
-export const dashboardTemplatesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDashboardTemplateApi?: NonReadonly<PatchedDashboardTemplateApi>,
-    options?: RequestInit
-): Promise<DashboardTemplateApi> => {
-    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardTemplateApi),
-    })
-}
-
-export const getDashboardTemplatesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const dashboardTemplatesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getDashboardTemplatesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDashboardTemplatesCopyBetweenProjectsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/copy_between_projects/`
-}
-
-/**
- * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
- * @summary Copy a team template to this project
- */
-export const dashboardTemplatesCopyBetweenProjectsCreate = async (
-    projectId: string,
-    copyDashboardTemplateApi: CopyDashboardTemplateApi,
-    options?: RequestInit
-): Promise<DashboardTemplateApi> => {
-    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCopyBetweenProjectsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(copyDashboardTemplateApi),
-    })
-}
-
-export const getDashboardTemplatesJsonSchemaRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/dashboard_templates/json_schema/`
-}
-
-export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
 }
 
 export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {

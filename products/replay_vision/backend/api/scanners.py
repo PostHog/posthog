@@ -311,7 +311,6 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[VISION_TAG])
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 
