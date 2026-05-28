@@ -105,11 +105,6 @@ def build_agent_description(
     if pipeline.training_population:
         pop_clause = f"\n- **Training population filter**: `{json.dumps(pipeline.training_population)}`"
 
-    mode_description = {
-        "adoption": "predict whether users who have NOT yet performed this event will do so",
-        "continuation": "predict whether users who HAVE performed this event will do so again",
-    }.get(pipeline.prediction_mode, pipeline.prediction_mode)
-
     schema_json = json.dumps(ModelRecipeOutput.model_json_schema(), indent=2)
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
@@ -123,7 +118,6 @@ def build_agent_description(
         ## Pipeline specification
 
         - **Target event**: `{pipeline.target_event}`
-        - **Prediction mode**: {pipeline.prediction_mode} — {mode_description}
         - **Prediction horizon**: {pipeline.horizon_days} days
         - **Output person property**: `{pipeline.output_person_property}`
         - **Iteration budget**: {iteration_budget}{pop_clause}

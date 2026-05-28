@@ -34,13 +34,12 @@ class AutoresearchPipelineAdmin(admin.ModelAdmin):
         "name",
         "team",
         "target_event",
-        "prediction_mode",
         "horizon_days",
         "status",
         "created_by",
         "created_at",
     )
-    list_filter = ("status", "prediction_mode", "created_at")
+    list_filter = ("status", "created_at")
     search_fields = ("name", "target_event", "team__name")
     readonly_fields = ("id", "created_at", "updated_at", "last_scored_at")
     autocomplete_fields = ("team", "created_by")
@@ -49,7 +48,7 @@ class AutoresearchPipelineAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("id", "name", "description", "status")}),
         ("Team & Owner", {"fields": ("team", "created_by")}),
-        ("Prediction target", {"fields": ("target_event", "target_definition", "horizon_days", "prediction_mode")}),
+        ("Prediction target", {"fields": ("target_event", "target_definition", "horizon_days")}),
         ("Population", {"fields": ("training_population", "inference_population")}),
         ("Output", {"fields": ("output_person_property",)}),
         ("Budget & schedule", {"fields": ("iteration_budget", "iteration_budget_remaining", "cadence_days")}),

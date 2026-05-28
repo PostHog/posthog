@@ -14,6 +14,11 @@ export const manifest: ProductManifest = {
             description: 'Automatically find the best model to predict user behavior and score your users daily.',
             iconType: 'experiment',
         },
+        AutoresearchNew: {
+            name: 'New prediction',
+            import: () => import('./frontend/AutoresearchNewScene'),
+            projectBased: true,
+        },
         AutoresearchPipeline: {
             name: 'Autoresearch pipeline',
             import: () => import('./frontend/AutoresearchPipelineScene'),
@@ -22,10 +27,12 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/autoresearch': ['Autoresearch', 'autoresearch'],
+        '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
         '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
     },
     urls: {
         autoresearch: (): string => '/autoresearch',
+        autoresearchNew: (): string => '/autoresearch/new',
         autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
     },
     treeItemsProducts: [

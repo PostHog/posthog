@@ -91,6 +91,20 @@ class AutoresearchPipelineSerializer(serializers.ModelSerializer):
     inference_population = PopulationDefinitionField(
         help_text="Population scored daily. Typically broader than the training population."
     )
+    champion_holdout_auc = serializers.SerializerMethodField(
+        help_text="Offline holdout AUC of the current champion model (predictive accuracy on held-out training data)."
+    )
+    champion_realized_auc = serializers.SerializerMethodField(
+        help_text="Realized online AUC of the current champion model, computed from mature predictions against actual outcomes."
+    )
+
+    def get_champion_holdout_auc(self, obj: AutoresearchPipeline) -> float | None:
+        champion = obj.models.filter(role="champion").only("holdout_score").order_by("-created_at").first()
+        return champion.holdout_score if champion else None
+
+    def get_champion_realized_auc(self, obj: AutoresearchPipeline) -> float | None:
+        champion = obj.models.filter(role="champion").only("realized_score").order_by("-created_at").first()
+        return champion.realized_score if champion else None
 
     class Meta:
         model = AutoresearchPipeline
@@ -101,7 +115,7 @@ class AutoresearchPipelineSerializer(serializers.ModelSerializer):
             "target_event",
             "target_definition",
             "horizon_days",
-            "prediction_mode",
+            "training_lookback_days",
             "training_population",
             "inference_population",
             "cadence_days",
@@ -115,6 +129,8 @@ class AutoresearchPipelineSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "last_scored_at",
+            "champion_holdout_auc",
+            "champion_realized_auc",
         ]
         read_only_fields = [
             "id",
@@ -124,6 +140,8 @@ class AutoresearchPipelineSerializer(serializers.ModelSerializer):
             "last_scored_at",
             "iteration_budget_remaining",
             "status",
+            "champion_holdout_auc",
+            "champion_realized_auc",
         ]
         extra_kwargs = {
             "id": {"help_text": "Unique UUID of this pipeline."},
@@ -133,8 +151,8 @@ class AutoresearchPipelineSerializer(serializers.ModelSerializer):
             "horizon_days": {
                 "help_text": "Prediction horizon in days. The model predicts whether the target event occurs within this window."
             },
-            "prediction_mode": {
-                "help_text": "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence."
+            "training_lookback_days": {
+                "help_text": "How far back to look for training examples. Larger windows give more data but may include stale behavior."
             },
             "cadence_days": {"help_text": "Re-score the inference population every N days."},
             "iteration_budget": {"help_text": "Total training iterations allowed for the autoresearch loop."},
@@ -178,7 +196,7 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
             "target_event",
             "target_definition",
             "horizon_days",
-            "prediction_mode",
+            "training_lookback_days",
             "training_population",
             "inference_population",
             "cadence_days",
@@ -194,8 +212,8 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
             "horizon_days": {
                 "help_text": "Prediction horizon in days. The model predicts whether the target event occurs within this window."
             },
-            "prediction_mode": {
-                "help_text": "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence."
+            "training_lookback_days": {
+                "help_text": "How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180."
             },
             "cadence_days": {"help_text": "Re-score the inference population every N days. Default: 1."},
             "iteration_budget": {
@@ -409,11 +427,11 @@ class ValidatePipelineRequestSerializer(serializers.Serializer):
         max_value=365,
         help_text="Predict whether the target event occurs within this many days.",
     )
-    prediction_mode = serializers.ChoiceField(
-        choices=AutoresearchPipeline.PredictionMode.choices,
-        default="adoption",
-        help_text="'adoption': predict first-time occurrence for users who haven't done it yet. "
-        "'continuation': predict repeat occurrence for users who have already done it.",
+    training_lookback_days = serializers.IntegerField(
+        default=180,
+        min_value=7,
+        max_value=730,
+        help_text="How far back to look for training examples. Default: 180.",
     )
     training_population = serializers.JSONField(
         default=dict,
@@ -654,10 +672,6 @@ class TemplateInfoSerializer(serializers.Serializer):
     )
     display_name = serializers.CharField(help_text="Human-readable template name.")
     description = serializers.CharField(help_text="What this template predicts and who it is for.")
-    prediction_mode = serializers.ChoiceField(
-        choices=AutoresearchPipeline.PredictionMode.choices,
-        help_text="'adoption': predict first-time occurrence. 'continuation': predict repeat occurrence.",
-    )
     default_horizon_days = serializers.IntegerField(
         help_text="Default prediction horizon in days. Can be overridden when resolving.",
     )
@@ -753,10 +767,6 @@ class ResolvedTemplateSerializer(serializers.Serializer):
             "Other viable activity events found in your schema. "
             "If the resolved event is not the right signal, re-resolve with one of these as target_event."
         ),
-    )
-    prediction_mode = serializers.ChoiceField(
-        choices=AutoresearchPipeline.PredictionMode.choices,
-        help_text="'adoption': first-time occurrence. 'continuation': repeat occurrence.",
     )
     horizon_days = serializers.IntegerField(help_text="Resolved prediction horizon in days.")
     training_population = PopulationSpecField(

@@ -70,8 +70,8 @@ const autoresearchArchiveCreate = (): ToolBase<
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }
-        if (params.prediction_mode !== undefined) {
-            body['prediction_mode'] = params.prediction_mode
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
         }
         if (params.training_population !== undefined) {
             body['training_population'] = params.training_population
@@ -129,8 +129,8 @@ const autoresearchCreate = (): ToolBase<
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }
-        if (params.prediction_mode !== undefined) {
-            body['prediction_mode'] = params.prediction_mode
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
         }
         if (params.training_population !== undefined) {
             body['training_population'] = params.training_population
@@ -190,7 +190,6 @@ const autoresearchList = (): ToolBase<
                     'description',
                     'target_event',
                     'horizon_days',
-                    'prediction_mode',
                     'status',
                     'iteration_budget',
                     'iteration_budget_remaining',
@@ -292,8 +291,8 @@ const autoresearchPauseCreate = (): ToolBase<typeof AutoresearchPauseCreateSchem
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }
-        if (params.prediction_mode !== undefined) {
-            body['prediction_mode'] = params.prediction_mode
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
         }
         if (params.training_population !== undefined) {
             body['training_population'] = params.training_population
@@ -379,8 +378,8 @@ const autoresearchResumeCreate = (): ToolBase<typeof AutoresearchResumeCreateSch
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }
-        if (params.prediction_mode !== undefined) {
-            body['prediction_mode'] = params.prediction_mode
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
         }
         if (params.training_population !== undefined) {
             body['training_population'] = params.training_population
@@ -601,7 +600,6 @@ const autoresearchTemplatesList = (): ToolBase<
                     'key',
                     'display_name',
                     'description',
-                    'prediction_mode',
                     'default_horizon_days',
                     'requires_user_event',
                     'requires_activity_resolution',
@@ -799,8 +797,8 @@ const autoresearchValidateCreate = (): ToolBase<
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }
-        if (params.prediction_mode !== undefined) {
-            body['prediction_mode'] = params.prediction_mode
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
         }
         if (params.training_population !== undefined) {
             body['training_population'] = params.training_population
@@ -845,8 +843,8 @@ const autoresearchValidateOnlineCreate = (): ToolBase<
         if (params.horizon_days !== undefined) {
             body['horizon_days'] = params.horizon_days
         }
-        if (params.prediction_mode !== undefined) {
-            body['prediction_mode'] = params.prediction_mode
+        if (params.training_lookback_days !== undefined) {
+            body['training_lookback_days'] = params.training_lookback_days
         }
         if (params.training_population !== undefined) {
             body['training_population'] = params.training_population

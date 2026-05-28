@@ -10,6 +10,8 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 
+from products.autoresearch.backend.inference import _build_population_conditions
+
 logger = structlog.get_logger(__name__)
 
 # Minimum number of labeled examples needed to train a meaningful model
@@ -41,7 +43,7 @@ def validate_pipeline_definition(
     team: Team,
     target_event: str,
     horizon_days: int,
-    prediction_mode: str,
+    training_lookback_days: int,
     training_population: dict[str, Any],
     inference_population: dict[str, Any],
 ) -> ValidationResult:
@@ -56,7 +58,7 @@ def validate_pipeline_definition(
             team=team,
             target_event=target_event,
             horizon_days=horizon_days,
-            prediction_mode=prediction_mode,
+            training_lookback_days=training_lookback_days,
             training_population=training_population,
             inference_population=inference_population,
         )
@@ -79,25 +81,30 @@ def _run_validation(
     team: Team,
     target_event: str,
     horizon_days: int,
-    prediction_mode: str,
+    training_lookback_days: int,
     training_population: dict[str, Any],
     inference_population: dict[str, Any],
 ) -> ValidationResult:
     warnings: list[ValidationWarning] = []
 
-    # Count distinct users who did the target event in the last (horizon_days * 4) lookback
-    lookback_days = max(horizon_days * 4, 30)
+    # Use the explicit training lookback window. Clamp to a sane minimum so very short windows
+    # still produce a meaningful estimate.
+    lookback_days = max(training_lookback_days, 7)
+
+    training_properties = (training_population or {}).get("properties", []) if training_population else []
+    train_parts, train_values = _build_population_conditions(training_properties)
+    training_clause = f" AND ({' AND '.join(train_parts)})" if train_parts else ""
 
     count_query = HogQLQuery(
-        query="""
+        query=f"""
             SELECT
-                countDistinctIf(person_id, event = {target}) AS positives,
+                countDistinctIf(person_id, event = {{target}}) AS positives,
                 countDistinct(person_id) AS total_users
             FROM events
-            WHERE timestamp >= now() - toIntervalDay({lookback})
-              AND timestamp < now()
+            WHERE timestamp >= now() - toIntervalDay({{lookback}})
+              AND timestamp < now(){training_clause}
         """,
-        values={"target": target_event, "lookback": lookback_days},
+        values={"target": target_event, "lookback": lookback_days, **train_values},
     )
 
     tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
@@ -113,6 +120,27 @@ def _run_validation(
 
     negatives = total_users - positives
     base_rate = positives / total_users if total_users > 0 else 0.0
+
+    # Inference population — count distinct users matching the prediction filter.
+    # If no inference filter is provided we fall back to the training count.
+    inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
+    if inference_properties:
+        inf_parts, inf_values = _build_population_conditions(inference_properties)
+        inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
+        inference_query = HogQLQuery(
+            query=f"""
+                SELECT countDistinct(person_id) AS users
+                FROM events
+                WHERE timestamp >= now() - toIntervalDay({{lookback}})
+                  AND timestamp < now(){inference_clause}
+            """,
+            values={"lookback": lookback_days, **inf_values},
+        )
+        inf_runner = HogQLQueryRunner(query=inference_query, team=team)
+        inf_result = inf_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        inference_size = int(inf_result.results[0][0] or 0) if inf_result.results else 0
+    else:
+        inference_size = total_users
 
     # Volume warnings
     if total_users < MIN_TRAINING_ROWS:
@@ -163,26 +191,6 @@ def _run_validation(
             )
         )
 
-    # Adoption vs continuation coherence check
-    if prediction_mode == "adoption" and base_rate > 0.5:
-        warnings.append(
-            ValidationWarning(
-                code="adoption_high_base_rate",
-                message=f"Prediction mode is 'adoption' but {base_rate:.0%} of users have already done "
-                f"'{target_event}'. Consider 'continuation' mode or tightening the population.",
-                severity="warning",
-            )
-        )
-    elif prediction_mode == "continuation" and base_rate < 0.2:
-        warnings.append(
-            ValidationWarning(
-                code="continuation_low_base_rate",
-                message=f"Prediction mode is 'continuation' but only {base_rate:.0%} of users have done "
-                f"'{target_event}'. Consider 'adoption' mode.",
-                severity="warning",
-            )
-        )
-
     has_errors = any(w.severity == "error" for w in warnings)
     has_hard_warnings = any(w.severity == "warning" for w in warnings)
 
@@ -193,6 +201,6 @@ def _run_validation(
         positive_count=positives,
         negative_count=negatives,
         base_rate=base_rate,
-        inference_population_size=total_users,
+        inference_population_size=inference_size,
         warnings=warnings,
     )

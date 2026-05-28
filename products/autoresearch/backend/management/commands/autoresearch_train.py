@@ -17,7 +17,6 @@ Usage:
         --target '$pageview' \\
         --name "My first pipeline" \\
         --horizon 7 \\
-        --mode adoption \\
         --create
 """
 
@@ -40,12 +39,6 @@ class Command(BaseCommand):
         parser.add_argument("--target", help="Target event name (required with --create).")
         parser.add_argument("--name", default="Dev pipeline", help="Pipeline name (used with --create).")
         parser.add_argument("--horizon", type=int, default=7, help="Horizon days (used with --create).")
-        parser.add_argument(
-            "--mode",
-            default="adoption",
-            choices=["adoption", "continuation"],
-            help="Prediction mode (used with --create).",
-        )
         parser.add_argument(
             "--create",
             action="store_true",
@@ -92,7 +85,6 @@ class Command(BaseCommand):
                 target_event=options["target"],
                 target_definition={},
                 horizon_days=options["horizon"],
-                prediction_mode=options["mode"],
                 training_population={},
                 inference_population={},
                 output_person_property=f"predicted_p_{safe_name}",
@@ -106,7 +98,6 @@ class Command(BaseCommand):
             self.stdout.write(f"\nRunning stub training for pipeline '{pipeline.name}' ({pipeline.pk})")
             self.stdout.write(f"  Target   : {pipeline.target_event}")
             self.stdout.write(f"  Horizon  : {pipeline.horizon_days} days")
-            self.stdout.write(f"  Mode     : {pipeline.prediction_mode}")
             self.stdout.write("")
 
             training_run = run_stub_training(pipeline=pipeline)
@@ -121,7 +112,6 @@ class Command(BaseCommand):
             self.stdout.write(f"\nLaunching real agent training for pipeline '{pipeline.name}' ({pipeline.pk})")
             self.stdout.write(f"  Target      : {pipeline.target_event}")
             self.stdout.write(f"  Horizon     : {pipeline.horizon_days} days")
-            self.stdout.write(f"  Mode        : {pipeline.prediction_mode}")
             self.stdout.write(f"  Iterations  : {iteration_budget}")
             self.stdout.write(f"  User ID     : {user_id}")
             self.stdout.write("")

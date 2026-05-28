@@ -570,7 +570,7 @@
         }
     },
     "autoresearch-create": {
-        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. Required: name and target_event. The prediction_mode defaults to 'adoption' (predict first-time occurrence). horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call autoresearch-train-create to run stub training and generate a champion model.",
+        "description": "Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this endpoint does not block on validation errors. Required: name and target_event. horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call autoresearch-train-create to run stub training and generate a champion model.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Create a pipeline",
@@ -585,7 +585,7 @@
         }
     },
     "autoresearch-list": {
-        "description": "List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event, horizon, prediction mode, and timestamps. Use autoresearch-retrieve to get full details including population definitions.",
+        "description": "List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event, horizon, and timestamps. Use autoresearch-retrieve to get full details including population definitions.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "List pipelines",
@@ -645,7 +645,7 @@
         }
     },
     "autoresearch-resolve-template-create": {
-        "description": "Resolve a template key and optional overrides into a ready-to-use pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and 'repeat_key_behavior', supply target_event (required). After resolving: (1) call autoresearch-validate-create with the resolved target_event, prediction_mode, training_population, and inference_population to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with the resolved fields as-is.",
+        "description": "Resolve a template key and optional overrides into a ready-to-use pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and 'repeat_key_behavior', supply target_event (required). After resolving: (1) call autoresearch-validate-create with the resolved target_event, training_population, and inference_population to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with the resolved fields as-is.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Resolve a template",
@@ -855,7 +855,7 @@
         }
     },
     "autoresearch-validate-create": {
-        "description": "Validate a proposed autoresearch pipeline before creating it. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Use 'adoption' mode for predicting first-time events; use 'continuation' for repeat events. Always validate before creating.",
+        "description": "Validate a proposed autoresearch pipeline before creating it. Returns volume estimates, base rate, positive and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples), or extreme_imbalance (base rate below 0.001). Always validate before creating.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Validate a pipeline definition",

@@ -55,7 +55,6 @@ class AutoresearchTemplate:
     key: str
     display_name: str
     description: str
-    prediction_mode: str  # "adoption" | "continuation"
     default_horizon_days: int
     output_property_prefix: str
     requires_user_event: bool  # user must supply target_event override
@@ -73,7 +72,6 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Predict which active users will be active again in the next 7 days. "
             "Best universal starter template — works for any product with pageview or session data."
         ),
-        prediction_mode="continuation",
         default_horizon_days=7,
         output_property_prefix="predicted_p_active_soon",
         requires_user_event=False,
@@ -93,7 +91,6 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Models future activity probability — low-probability users are the at-risk cohort. "
             "Good for retention campaigns."
         ),
-        prediction_mode="continuation",
         default_horizon_days=14,
         output_property_prefix="predicted_p_active_next_14d",
         requires_user_event=False,
@@ -113,7 +110,6 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Predict which new users will have a second active session within 7 days. "
             "Works without a custom signup event — uses first-seen date. Good for onboarding."
         ),
-        prediction_mode="continuation",
         default_horizon_days=7,
         output_property_prefix="predicted_p_return_after_signup",
         requires_user_event=False,
@@ -132,7 +128,6 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Predict which active users will use a selected feature for the first time within 14 days. "
             "Requires you to choose the feature's event or action."
         ),
-        prediction_mode="adoption",
         default_horizon_days=14,
         output_property_prefix="predicted_p_adopt",
         requires_user_event=True,
@@ -151,7 +146,6 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Predict which users who have already done a key action will do it again within 7 days. "
             "Good for feature retention, power usage, and repeat purchases."
         ),
-        prediction_mode="continuation",
         default_horizon_days=7,
         output_property_prefix="predicted_p_repeat",
         requires_user_event=True,
@@ -228,7 +222,6 @@ class ResolvedTemplate:
     target_event: str
     resolved_activity_event: Optional[str]
     activity_event_alternatives: list[str]
-    prediction_mode: str
     horizon_days: int
     training_population: dict[str, Any]
     inference_population: dict[str, Any]
@@ -292,7 +285,6 @@ def resolve_template(
         target_event=target_event,
         resolved_activity_event=resolved_activity,
         activity_event_alternatives=alternatives,
-        prediction_mode=template.prediction_mode,
         horizon_days=horizon_days,
         training_population=training_population,
         inference_population=inference_population,

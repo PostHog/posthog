@@ -59,7 +59,6 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
             "name": "Test Pipeline",
             "target_event": "$pageview",
             "horizon_days": 7,
-            "prediction_mode": "adoption",
             "iteration_budget": 50,
             "iteration_budget_remaining": 50,
         }
@@ -71,7 +70,7 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
     def test_create_pipeline(self):
         resp = self.client.post(
             f"{self.base_url}/",
-            {"name": "My Pipeline", "target_event": "$signup", "horizon_days": 14, "prediction_mode": "adoption"},
+            {"name": "My Pipeline", "target_event": "$signup", "horizon_days": 14},
             format="json",
         )
         assert resp.status_code == status.HTTP_201_CREATED
@@ -162,7 +161,7 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
     def test_validate_pipeline_success(self, _mock: MagicMock):
         resp = self.client.post(
             f"{self.base_url}/validate/",
-            {"target_event": "$signup", "horizon_days": 7, "prediction_mode": "adoption"},
+            {"target_event": "$signup", "horizon_days": 7},
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK
@@ -175,7 +174,7 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
     def test_validate_pipeline_with_errors(self, _mock: MagicMock):
         resp = self.client.post(
             f"{self.base_url}/validate/",
-            {"target_event": "$rare_event", "horizon_days": 7, "prediction_mode": "adoption"},
+            {"target_event": "$rare_event", "horizon_days": 7},
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK
@@ -274,7 +273,6 @@ class TestAutoresearchSuggestionAPI(APIBaseTest):
             "name": "Test Pipeline",
             "target_event": "$pageview",
             "horizon_days": 7,
-            "prediction_mode": "adoption",
             "iteration_budget": 50,
             "iteration_budget_remaining": 50,
         }

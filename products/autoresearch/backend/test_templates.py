@@ -26,7 +26,6 @@ class TestTemplateDefinitions(TestCase):
         t = TEMPLATES[key]
         self.assertTrue(t.display_name)
         self.assertTrue(t.description)
-        self.assertIn(t.prediction_mode, ("adoption", "continuation"))
         self.assertGreater(t.default_horizon_days, 0)
         self.assertTrue(t.output_property_prefix)
         self.assertIsInstance(t.training_population_spec, dict)
@@ -34,23 +33,21 @@ class TestTemplateDefinitions(TestCase):
 
     @parameterized.expand(
         [
-            ("likely_active_soon", "continuation", 7, False, True),
-            ("at_risk_of_inactivity", "continuation", 14, False, True),
-            ("return_after_first_use", "continuation", 7, False, True),
-            ("feature_adoption", "adoption", 14, True, False),
-            ("repeat_key_behavior", "continuation", 7, True, False),
+            ("likely_active_soon", 7, False, True),
+            ("at_risk_of_inactivity", 14, False, True),
+            ("return_after_first_use", 7, False, True),
+            ("feature_adoption", 14, True, False),
+            ("repeat_key_behavior", 7, True, False),
         ]
     )
     def test_template_config(
         self,
         key: str,
-        expected_mode: str,
         expected_horizon: int,
         requires_user_event: bool,
         requires_activity_resolution: bool,
     ) -> None:
         t = TEMPLATES[key]
-        self.assertEqual(t.prediction_mode, expected_mode)
         self.assertEqual(t.default_horizon_days, expected_horizon)
         self.assertEqual(t.requires_user_event, requires_user_event)
         self.assertEqual(t.requires_activity_resolution, requires_activity_resolution)
@@ -104,7 +101,6 @@ class TestResolveTemplate(TestCase):
         self.assertIsInstance(result, ResolvedTemplate)
         self.assertEqual(result.target_event, "$pageview")
         self.assertEqual(result.resolved_activity_event, "$pageview")
-        self.assertEqual(result.prediction_mode, "continuation")
         self.assertEqual(result.horizon_days, 7)
         self.assertEqual(result.output_person_property, "predicted_p_active_soon")
 
@@ -123,7 +119,6 @@ class TestResolveTemplate(TestCase):
     def test_feature_adoption_with_target_event(self) -> None:
         result = resolve_template(self._make_team(), "feature_adoption", target_event_override="feature_clicked")
         self.assertEqual(result.target_event, "feature_clicked")
-        self.assertEqual(result.prediction_mode, "adoption")
         self.assertEqual(result.horizon_days, 14)
         self.assertIn("predicted_p_adopt_feature_clicked", result.output_person_property)
         self.assertEqual(result.training_population["event"], "feature_clicked")
@@ -132,7 +127,6 @@ class TestResolveTemplate(TestCase):
     def test_repeat_key_behavior_with_target_event(self) -> None:
         result = resolve_template(self._make_team(), "repeat_key_behavior", target_event_override="$pageview")
         self.assertEqual(result.target_event, "$pageview")
-        self.assertEqual(result.prediction_mode, "continuation")
         self.assertEqual(result.training_population["event"], "$pageview")
         self.assertIn("pageview", result.output_person_property)
 
@@ -174,7 +168,6 @@ class TestTemplateAPIEndpoints(APIBaseTest):
             "key",
             "display_name",
             "description",
-            "prediction_mode",
             "default_horizon_days",
             "requires_user_event",
             "requires_activity_resolution",
@@ -191,7 +184,6 @@ class TestTemplateAPIEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["target_event"], "$pageview")
-        self.assertEqual(data["prediction_mode"], "continuation")
         self.assertEqual(data["horizon_days"], 7)
         self.assertIn("training_population", data)
         self.assertIn("inference_population", data)
@@ -215,7 +207,6 @@ class TestTemplateAPIEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["target_event"], "feature_clicked")
-        self.assertEqual(data["prediction_mode"], "adoption")
 
     def test_resolve_template_unknown_key_returns_400(self) -> None:
         response = self.client.post(

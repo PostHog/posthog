@@ -50,6 +50,9 @@ export const autoresearchCreateBodyTargetEventMax = 255
 export const autoresearchCreateBodyHorizonDaysMin = -2147483648
 export const autoresearchCreateBodyHorizonDaysMax = 2147483647
 
+export const autoresearchCreateBodyTrainingLookbackDaysMin = -2147483648
+export const autoresearchCreateBodyTrainingLookbackDaysMax = 2147483647
+
 export const autoresearchCreateBodyCadenceDaysMin = -2147483648
 export const autoresearchCreateBodyCadenceDaysMax = 2147483647
 
@@ -78,12 +81,13 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchCreateBodyHorizonDaysMax)
         .optional()
         .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    prediction_mode: zod
-        .enum(['adoption', 'continuation'])
-        .describe('* `adoption` - Adoption\n* `continuation` - Continuation')
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchCreateBodyTrainingLookbackDaysMax)
         .optional()
         .describe(
-            "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation"
+            'How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.'
         ),
     training_population: zod
         .looseObject({})
@@ -416,6 +420,9 @@ export const autoresearchArchiveCreateBodyTargetEventMax = 255
 export const autoresearchArchiveCreateBodyHorizonDaysMin = -2147483648
 export const autoresearchArchiveCreateBodyHorizonDaysMax = 2147483647
 
+export const autoresearchArchiveCreateBodyTrainingLookbackDaysMin = -2147483648
+export const autoresearchArchiveCreateBodyTrainingLookbackDaysMax = 2147483647
+
 export const autoresearchArchiveCreateBodyCadenceDaysMin = -2147483648
 export const autoresearchArchiveCreateBodyCadenceDaysMax = 2147483647
 
@@ -443,12 +450,13 @@ export const AutoresearchArchiveCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchArchiveCreateBodyHorizonDaysMax)
         .optional()
         .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    prediction_mode: zod
-        .enum(['adoption', 'continuation'])
-        .describe('* `adoption` - Adoption\n* `continuation` - Continuation')
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchArchiveCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchArchiveCreateBodyTrainingLookbackDaysMax)
         .optional()
         .describe(
-            "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation"
+            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
         ),
     training_population: zod
         .looseObject({})
@@ -505,6 +513,9 @@ export const autoresearchPauseCreateBodyTargetEventMax = 255
 export const autoresearchPauseCreateBodyHorizonDaysMin = -2147483648
 export const autoresearchPauseCreateBodyHorizonDaysMax = 2147483647
 
+export const autoresearchPauseCreateBodyTrainingLookbackDaysMin = -2147483648
+export const autoresearchPauseCreateBodyTrainingLookbackDaysMax = 2147483647
+
 export const autoresearchPauseCreateBodyCadenceDaysMin = -2147483648
 export const autoresearchPauseCreateBodyCadenceDaysMax = 2147483647
 
@@ -532,12 +543,13 @@ export const AutoresearchPauseCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchPauseCreateBodyHorizonDaysMax)
         .optional()
         .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    prediction_mode: zod
-        .enum(['adoption', 'continuation'])
-        .describe('* `adoption` - Adoption\n* `continuation` - Continuation')
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchPauseCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchPauseCreateBodyTrainingLookbackDaysMax)
         .optional()
         .describe(
-            "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation"
+            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
         ),
     training_population: zod
         .looseObject({})
@@ -594,6 +606,9 @@ export const autoresearchResumeCreateBodyTargetEventMax = 255
 export const autoresearchResumeCreateBodyHorizonDaysMin = -2147483648
 export const autoresearchResumeCreateBodyHorizonDaysMax = 2147483647
 
+export const autoresearchResumeCreateBodyTrainingLookbackDaysMin = -2147483648
+export const autoresearchResumeCreateBodyTrainingLookbackDaysMax = 2147483647
+
 export const autoresearchResumeCreateBodyCadenceDaysMin = -2147483648
 export const autoresearchResumeCreateBodyCadenceDaysMax = 2147483647
 
@@ -621,12 +636,13 @@ export const AutoresearchResumeCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchResumeCreateBodyHorizonDaysMax)
         .optional()
         .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    prediction_mode: zod
-        .enum(['adoption', 'continuation'])
-        .describe('* `adoption` - Adoption\n* `continuation` - Continuation')
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchResumeCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchResumeCreateBodyTrainingLookbackDaysMax)
         .optional()
         .describe(
-            "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation"
+            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
         ),
     training_population: zod
         .looseObject({})
@@ -720,6 +736,9 @@ export const autoresearchValidateOnlineCreateBodyTargetEventMax = 255
 export const autoresearchValidateOnlineCreateBodyHorizonDaysMin = -2147483648
 export const autoresearchValidateOnlineCreateBodyHorizonDaysMax = 2147483647
 
+export const autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMin = -2147483648
+export const autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMax = 2147483647
+
 export const autoresearchValidateOnlineCreateBodyCadenceDaysMin = -2147483648
 export const autoresearchValidateOnlineCreateBodyCadenceDaysMax = 2147483647
 
@@ -747,12 +766,13 @@ export const AutoresearchValidateOnlineCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchValidateOnlineCreateBodyHorizonDaysMax)
         .optional()
         .describe('Prediction horizon in days. The model predicts whether the target event occurs within this window.'),
-    prediction_mode: zod
-        .enum(['adoption', 'continuation'])
-        .describe('* `adoption` - Adoption\n* `continuation` - Continuation')
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchValidateOnlineCreateBodyTrainingLookbackDaysMax)
         .optional()
         .describe(
-            "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation"
+            'How far back to look for training examples. Larger windows give more data but may include stale behavior.'
         ),
     training_population: zod
         .looseObject({})
@@ -864,7 +884,9 @@ export const AutoresearchValidateCreateParams = /* @__PURE__ */ zod.object({
 export const autoresearchValidateCreateBodyHorizonDaysDefault = 7
 export const autoresearchValidateCreateBodyHorizonDaysMax = 365
 
-export const autoresearchValidateCreateBodyPredictionModeDefault = `adoption`
+export const autoresearchValidateCreateBodyTrainingLookbackDaysDefault = 180
+export const autoresearchValidateCreateBodyTrainingLookbackDaysMin = 7
+export const autoresearchValidateCreateBodyTrainingLookbackDaysMax = 730
 
 export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
     target_event: zod
@@ -876,13 +898,12 @@ export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
         .max(autoresearchValidateCreateBodyHorizonDaysMax)
         .default(autoresearchValidateCreateBodyHorizonDaysDefault)
         .describe('Predict whether the target event occurs within this many days.'),
-    prediction_mode: zod
-        .enum(['adoption', 'continuation'])
-        .describe('* `adoption` - Adoption\n* `continuation` - Continuation')
-        .default(autoresearchValidateCreateBodyPredictionModeDefault)
-        .describe(
-            "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n* `adoption` - Adoption\n* `continuation` - Continuation"
-        ),
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchValidateCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchValidateCreateBodyTrainingLookbackDaysMax)
+        .default(autoresearchValidateCreateBodyTrainingLookbackDaysDefault)
+        .describe('How far back to look for training examples. Default: 180.'),
     training_population: zod
         .unknown()
         .optional()

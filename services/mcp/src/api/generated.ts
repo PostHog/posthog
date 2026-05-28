@@ -4719,18 +4719,6 @@ export namespace Schemas {
     export type AutoresearchPipelineInferencePopulation = { [key: string]: unknown };
 
     /**
-     * * `adoption` - Adoption
-    * `continuation` - Continuation
-     */
-    export type AutoresearchPredictionModeEnum = typeof AutoresearchPredictionModeEnum[keyof typeof AutoresearchPredictionModeEnum];
-
-
-    export const AutoresearchPredictionModeEnum = {
-      Adoption: 'adoption',
-      Continuation: 'continuation',
-    } as const;
-
-    /**
      * * `draft` - Draft
     * `bootstrapping` - Bootstrapping
     * `running` - Running
@@ -4773,11 +4761,12 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       horizon_days?: number;
-      /** 'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.
-
-      * `adoption` - Adoption
-      * `continuation` - Continuation */
-      prediction_mode?: AutoresearchPredictionModeEnum;
+      /**
+         * How far back to look for training examples. Larger windows give more data but may include stale behavior.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      training_lookback_days?: number;
       /** Population used for training. Defines which users can appear as training examples. */
       training_population: AutoresearchPipelineTrainingPopulation;
       /** Population scored daily. Typically broader than the training population. */
@@ -4829,6 +4818,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_scored_at: string | null;
+      /**
+         * Offline holdout AUC of the current champion model (predictive accuracy on held-out training data).
+         * @nullable
+         */
+      readonly champion_holdout_auc: number | null;
+      /**
+         * Realized online AUC of the current champion model, computed from mature predictions against actual outcomes.
+         * @nullable
+         */
+      readonly champion_realized_auc: number | null;
     }
 
     /**
@@ -4867,11 +4866,12 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       horizon_days?: number;
-      /** 'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.
-
-      * `adoption` - Adoption
-      * `continuation` - Continuation */
-      prediction_mode?: AutoresearchPredictionModeEnum;
+      /**
+         * How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      training_lookback_days?: number;
       /** Training population filter. Use {} for all identified users. */
       training_population?: AutoresearchPipelineCreateTrainingPopulation;
       /** Inference population filter. Defaults to training_population if not set. */
@@ -26092,11 +26092,6 @@ export namespace Schemas {
       display_name: string;
       /** What this template predicts and who it is for. */
       description: string;
-      /** 'adoption': predict first-time occurrence. 'continuation': predict repeat occurrence.
-
-      * `adoption` - Adoption
-      * `continuation` - Continuation */
-      prediction_mode: AutoresearchPredictionModeEnum;
       /** Default prediction horizon in days. Can be overridden when resolving. */
       default_horizon_days: number;
       /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
@@ -27202,11 +27197,12 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       horizon_days?: number;
-      /** 'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.
-
-      * `adoption` - Adoption
-      * `continuation` - Continuation */
-      prediction_mode?: AutoresearchPredictionModeEnum;
+      /**
+         * How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      training_lookback_days?: number;
       /** Training population filter. Use {} for all identified users. */
       training_population?: PatchedAutoresearchPipelineCreateTrainingPopulation;
       /** Inference population filter. Defaults to training_population if not set. */
@@ -36080,11 +36076,6 @@ export namespace Schemas {
       resolved_activity_event: string | null;
       /** Other viable activity events found in your schema. If the resolved event is not the right signal, re-resolve with one of these as target_event. */
       activity_event_alternatives: string[];
-      /** 'adoption': first-time occurrence. 'continuation': repeat occurrence.
-
-      * `adoption` - Adoption
-      * `continuation` - Continuation */
-      prediction_mode: AutoresearchPredictionModeEnum;
       /** Resolved prediction horizon in days. */
       horizon_days: number;
       /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
@@ -38512,11 +38503,12 @@ export namespace Schemas {
          * @maximum 365
          */
       horizon_days?: number;
-      /** 'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.
-
-      * `adoption` - Adoption
-      * `continuation` - Continuation */
-      prediction_mode?: AutoresearchPredictionModeEnum;
+      /**
+         * How far back to look for training examples. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
       /** Population filter for training examples. Use {} for all identified users. */
       training_population?: unknown;
       /** Population filter for daily scoring. Defaults to training_population if not provided. */

@@ -34,7 +34,6 @@ class TestAgentRecordedTraining(APIBaseTest):
             name="Test Pipeline",
             target_event="$pageview",
             horizon_days=7,
-            prediction_mode="adoption",
             iteration_budget=50,
             iteration_budget_remaining=50,
         )

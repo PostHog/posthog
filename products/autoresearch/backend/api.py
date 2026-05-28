@@ -139,7 +139,6 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                     "key": t.key,
                     "display_name": t.display_name,
                     "description": t.description,
-                    "prediction_mode": t.prediction_mode,
                     "default_horizon_days": t.default_horizon_days,
                     "requires_user_event": t.requires_user_event,
                     "requires_activity_resolution": t.requires_activity_resolution,
@@ -157,7 +156,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             200: OpenApiResponse(
                 response=ResolvedTemplateSerializer,
                 description=(
-                    "Resolved pipeline config. Pass target_event, prediction_mode, horizon_days, "
+                    "Resolved pipeline config. Pass target_event, horizon_days, "
                     "training_population, inference_population, and output_person_property directly "
                     "to autoresearch-create. Always run autoresearch-validate-create on the resolved "
                     "config before creating."
@@ -200,7 +199,6 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 "target_event": resolved.target_event,
                 "resolved_activity_event": resolved.resolved_activity_event,
                 "activity_event_alternatives": resolved.activity_event_alternatives,
-                "prediction_mode": resolved.prediction_mode,
                 "horizon_days": resolved.horizon_days,
                 "training_population": resolved.training_population,
                 "inference_population": resolved.inference_population,
@@ -233,7 +231,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             team=self.team,
             target_event=data["target_event"],
             horizon_days=data.get("horizon_days", 7),
-            prediction_mode=data.get("prediction_mode", "adoption"),
+            training_lookback_days=data.get("training_lookback_days", 180),
             training_population=data.get("training_population", {}),
             inference_population=data.get("inference_population", {}),
         )

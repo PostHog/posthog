@@ -12,10 +12,6 @@ class AutoresearchPipeline(UUIDModel):
         PAUSED = "paused", "Paused"
         ARCHIVED = "archived", "Archived"
 
-    class PredictionMode(models.TextChoices):
-        ADOPTION = "adoption", "Adoption"
-        CONTINUATION = "continuation", "Continuation"
-
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_pipelines")
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
@@ -28,11 +24,9 @@ class AutoresearchPipeline(UUIDModel):
         default=dict, help_text="Full target definition including filters and positive-label logic"
     )
     horizon_days = models.IntegerField(default=7, help_text="Predict whether the target occurs within N days")
-    prediction_mode = models.CharField(
-        max_length=20,
-        choices=PredictionMode.choices,
-        default=PredictionMode.ADOPTION,
-        help_text="Adoption: users who have not done the target yet. Continuation: users who have.",
+    training_lookback_days = models.IntegerField(
+        default=180,
+        help_text="How far back to look for training examples. Larger windows give more data but may include stale behavior.",
     )
 
     # Population

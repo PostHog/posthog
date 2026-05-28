@@ -11,6 +11,7 @@ export enum Scene {
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Autoresearch = 'Autoresearch',
+    AutoresearchNew = 'AutoresearchNew',
     AutoresearchPipeline = 'AutoresearchPipeline',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',

@@ -57,7 +57,6 @@ class TestHandleTaskRunCompleted(BaseTest):
             "name": "Test",
             "target_event": "$pageview",
             "horizon_days": 7,
-            "prediction_mode": "adoption",
             "iteration_budget": 10,
             "iteration_budget_remaining": 10,
         }

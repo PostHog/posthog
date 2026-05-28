@@ -16,14 +16,14 @@ class TestValidationWarnings(BaseTest):
     def setUp(self):
         super().setUp()
 
-    def _run(self, positives: int, total: int, prediction_mode: str = "adoption", horizon_days: int = 7):
+    def _run(self, positives: int, total: int, horizon_days: int = 7, training_lookback_days: int = 180):
         with patch("products.autoresearch.backend.validation.HogQLQueryRunner") as mock_cls:
             mock_cls.return_value = _make_mock_runner(positives, total)
             return _run_validation(
                 team=self.team,
                 target_event="$pageview",
                 horizon_days=horizon_days,
-                prediction_mode=prediction_mode,
+                training_lookback_days=training_lookback_days,
                 training_population={},
                 inference_population={},
             )
@@ -64,16 +64,6 @@ class TestValidationWarnings(BaseTest):
         codes = [w.code for w in result.warnings]
         assert "near_universal" in codes
 
-    def test_adoption_high_base_rate_warning(self):
-        result = self._run(positives=700, total=1000, prediction_mode="adoption")
-        codes = [w.code for w in result.warnings]
-        assert "adoption_high_base_rate" in codes
-
-    def test_continuation_low_base_rate_warning(self):
-        result = self._run(positives=50, total=1000, prediction_mode="continuation")
-        codes = [w.code for w in result.warnings]
-        assert "continuation_low_base_rate" in codes
-
     def test_error_in_query_returns_error_result(self):
         with patch("products.autoresearch.backend.validation.HogQLQueryRunner") as mock_cls:
             mock_cls.return_value.run.side_effect = RuntimeError("CH is down")
@@ -81,7 +71,7 @@ class TestValidationWarnings(BaseTest):
                 team=self.team,
                 target_event="$pageview",
                 horizon_days=7,
-                prediction_mode="adoption",
+                training_lookback_days=180,
                 training_population={},
                 inference_population={},
             )

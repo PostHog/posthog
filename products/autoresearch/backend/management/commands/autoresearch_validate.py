@@ -5,8 +5,7 @@ Usage:
     python manage.py autoresearch_validate \\
         --team-id 2 \\
         --target '$pageview' \\
-        --horizon 7 \\
-        --mode adoption
+        --horizon 7
 
 Prints volume estimates, base rate, and any warnings.
 """
@@ -25,12 +24,6 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to validate against.")
         parser.add_argument("--target", required=True, help="Target event name, e.g. '$pageview'.")
         parser.add_argument("--horizon", type=int, default=7, help="Prediction horizon in days (default: 7).")
-        parser.add_argument(
-            "--mode",
-            default="adoption",
-            choices=["adoption", "continuation"],
-            help="Prediction mode: 'adoption' (first-time) or 'continuation' (repeat). Default: adoption.",
-        )
 
     def handle(self, *args, **options):
         team_id = options["team_id"]
@@ -42,14 +35,13 @@ class Command(BaseCommand):
         self.stdout.write(f"\nValidating pipeline definition for team '{team.name}' (id={team_id})")
         self.stdout.write(f"  Target event : {options['target']}")
         self.stdout.write(f"  Horizon      : {options['horizon']} days")
-        self.stdout.write(f"  Mode         : {options['mode']}")
         self.stdout.write("")
 
         result = validate_pipeline_definition(
             team=team,
             target_event=options["target"],
             horizon_days=options["horizon"],
-            prediction_mode=options["mode"],
+            training_lookback_days=180,
             training_population={},
             inference_population={},
         )

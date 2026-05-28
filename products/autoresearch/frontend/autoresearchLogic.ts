@@ -1,16 +1,20 @@
-import { afterMount, connect, kea, path } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { autoresearchLogicType } from './autoresearchLogicType'
-import { autoresearchList } from './generated/api'
+import { autoresearchDestroy, autoresearchList } from './generated/api'
 import { AutoresearchPipelineApi } from './generated/api.schemas'
 
 export const autoresearchLogic = kea<autoresearchLogicType>([
     path(['products', 'autoresearch', 'autoresearchLogic']),
     connect({
         values: [teamLogic, ['currentTeamId']],
+    }),
+    actions({
+        deletePipeline: (id: string, name: string) => ({ id, name }),
     }),
     loaders(({ values }) => ({
         pipelines: [
@@ -25,6 +29,20 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 },
             },
         ],
+    })),
+    listeners(({ actions, values }) => ({
+        deletePipeline: async ({ id, name }: { id: string; name: string }) => {
+            if (!values.currentTeamId) {
+                return
+            }
+            try {
+                await autoresearchDestroy(String(values.currentTeamId), id)
+                lemonToast.success(`Deleted "${name}"`)
+                actions.loadPipelines()
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to delete pipeline')
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadPipelines()

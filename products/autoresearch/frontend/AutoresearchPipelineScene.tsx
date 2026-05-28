@@ -63,8 +63,8 @@ function OverviewTab(): JSX.Element {
         <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <MetricCard label="Target event" value={pipeline.target_event} />
-                <MetricCard label="Horizon" value={`${pipeline.horizon_days ?? '—'}d`} />
-                <MetricCard label="Prediction mode" value={pipeline.prediction_mode ?? '—'} />
+                <MetricCard label="Prediction horizon" value={`${pipeline.horizon_days ?? '—'}d`} />
+                <MetricCard label="Training lookback" value={`${pipeline.training_lookback_days ?? '—'}d`} />
                 <MetricCard
                     label="Budget remaining"
                     value={`${pipeline.iteration_budget_remaining} / ${pipeline.iteration_budget ?? '—'}`}
@@ -418,9 +418,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
     ]
 
     const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Pipeline')
-    const subheading = pipeline
-        ? `Predict ${pipeline.target_event} within ${pipeline.horizon_days ?? '?'}d · ${pipeline.prediction_mode}`
-        : undefined
+    const subheading = pipeline ? `Predict ${pipeline.target_event} within ${pipeline.horizon_days ?? '?'}d` : undefined
 
     return (
         <SceneContent>

@@ -59,9 +59,8 @@ def _build_stub_recipe(pipeline: AutoresearchPipeline) -> dict:
         "trained_on": f"{date.today().isoformat()} (stub)",
         "holdout_score": 0.70,
         "agent_description": (
-            f"Stub recipe for '{pipeline.target_event}' (horizon {pipeline.horizon_days}d, "
-            f"{pipeline.prediction_mode} mode). Universal engagement features: event counts, "
-            "distinct event types, days since first/last seen."
+            f"Stub recipe for '{pipeline.target_event}' (horizon {pipeline.horizon_days}d). "
+            "Universal engagement features: event counts, distinct event types, days since first/last seen."
         ),
         "stub": True,
     }
