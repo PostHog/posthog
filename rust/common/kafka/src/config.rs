@@ -81,8 +81,9 @@ pub struct ConsumerConfig {
     pub kafka_consumer_group_instance_id: Option<String>,
 
     // Override partition assignment strategy, e.g. "cooperative-sticky" for
-    // incremental rebalancing instead of the default eager "range" protocol.
-    // During migration, use "range,cooperative-sticky" then drop "range".
+    // incremental rebalancing instead of the default eager "range". librdkafka
+    // rejects mixing protocol types in one list, so migrate the whole group to
+    // cooperative-sticky in a single cutover, not a "range,cooperative-sticky" phase.
     pub kafka_consumer_partition_strategy: Option<String>,
 
     // WarpStream recommends "0" so the kernel auto-tunes TCP buffers.
