@@ -10,7 +10,8 @@ from products.slack_app.backend.slack_thread import (
     SlackThreadContext,
     SlackThreadHandler,
     _format_task_error,
-    random_ack_emoji,
+    ack_emoji_for,
+    stale_ack_emojis_for,
 )
 
 
@@ -86,7 +87,7 @@ class TestSlackThreadHandler(TestCase):
         mock_client.chat_delete.assert_not_called()
 
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_clears_ack_pool_and_eyes(self, mock_get_client):
+    def test_update_reaction_clears_stale_ack_emojis(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -100,16 +101,27 @@ class TestSlackThreadHandler(TestCase):
         handler.update_reaction("hedgehog")
 
         removed_names = [call.kwargs["name"] for call in mock_client.reactions_remove.call_args_list]
-        # Every ack-pool emoji is attempted (Slack returns no_reaction for missing ones) plus the
-        # follow-up "eyes" reaction, so any prior in-progress signal is cleared before the final state.
-        for ack in RANDOM_ACK_EMOJIS:
-            assert ack in removed_names
-        assert "eyes" in removed_names
+        # Only the candidate ack reactions for this specific ts are removed (not the whole pool),
+        # so cleanup stays cheap regardless of pool size.
+        assert removed_names == list(stale_ack_emojis_for("1234.5678"))
         mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
 
-    def test_random_ack_emoji_is_in_pool(self):
-        for _ in range(50):
-            assert random_ack_emoji() in RANDOM_ACK_EMOJIS
+    def test_ack_emoji_for_is_deterministic_per_ts(self):
+        # Same ts must always pick the same emoji — activity retries depend on this for
+        # `_safe_react`'s `already_reacted` short-circuit to keep the ack idempotent.
+        assert ack_emoji_for("1700000001.000100") == ack_emoji_for("1700000001.000100")
+        assert ack_emoji_for("1700000001.000100") in RANDOM_ACK_EMOJIS
+        # Different ts values should reach across the pool (sanity check, not a uniformity claim).
+        reached = {ack_emoji_for(f"1700000000.{i:06d}") for i in range(500)}
+        assert len(reached) >= len(RANDOM_ACK_EMOJIS) // 2
+
+    def test_stale_ack_emojis_for_includes_legacy_seedling_and_eyes(self):
+        # `seedling` was the fixed pre-pool ack; tasks ack'd before this code shipped
+        # must still be cleanable. `eyes` is the follow-up ack.
+        stale = stale_ack_emojis_for("1234.5678")
+        assert "eyes" in stale
+        assert "seedling" in stale
+        assert ack_emoji_for("1234.5678") in stale
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):
