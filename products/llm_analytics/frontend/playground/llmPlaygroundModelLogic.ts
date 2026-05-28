@@ -1,8 +1,6 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import api, { ApiError } from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
+import { ApiError } from 'lib/api'
 
 import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
@@ -78,10 +76,6 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
         ],
     })),
 
-    actions({
-        setActiveProviderKeyId: (id: string | null) => ({ id }),
-    }),
-
     reducers({
         trialModelsErrorStatus: [
             null as number | null,
@@ -93,12 +87,6 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     }
                     return null
                 },
-            },
-        ],
-        activeProviderKeyId: [
-            null as string | null,
-            {
-                setActiveProviderKeyId: (_: string | null, { id }: { id: string | null }) => id,
             },
         ],
         providerKeysSettled: [
@@ -127,27 +115,6 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             },
         ],
     }),
-
-    loaders(() => ({
-        evaluationConfig: {
-            __default: null as { active_provider_key: { id: string } | null } | null,
-            loadEvaluationConfig: async () => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return null
-                }
-                try {
-                    // nosemgrep: prefer-codegen-api
-                    return (await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)) as {
-                        active_provider_key: { id: string } | null
-                    }
-                } catch (e) {
-                    console.warn('Failed to load evaluation config', e)
-                    return null
-                }
-            },
-        },
-    })),
 
     selectors({
         effectiveModelOptions: [
@@ -192,13 +159,6 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
         }
 
         return {
-            loadEvaluationConfigSuccess: ({
-                evaluationConfig,
-            }: {
-                evaluationConfig: { active_provider_key: { id: string } | null } | null
-            }) => {
-                actions.setActiveProviderKeyId(evaluationConfig?.active_provider_key?.id ?? null)
-            },
             loadTrialModelsSuccess: ({ trialModels }: { trialModels: ModelOption[] }) => {
                 if (trialModels.length === 0) {
                     return
@@ -307,9 +267,5 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 actions.clearPendingTargetModel()
             },
         }
-    }),
-
-    afterMount(({ actions }) => {
-        actions.loadEvaluationConfig()
     }),
 ])

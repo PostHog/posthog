@@ -8,7 +8,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 
 import type { ModelOption } from '../modelPickerLogic'
-import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import type { llmPlaygroundRunLogicType } from './llmPlaygroundRunLogicType'
@@ -166,7 +166,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmPlaygroundPromptsLogic({ tabId }),
             ['promptConfigs'],
             llmPlaygroundModelLogic({ tabId }),
-            ['effectiveModelOptions', 'activeProviderKeyId'],
+            ['effectiveModelOptions'],
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
@@ -319,10 +319,15 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             return
                         }
 
-                        providerKeyId =
-                            resolveProviderKeyForPrompt(prompt, values.effectiveModelOptions, values.providerKeys)
-                                ?.id ?? values.activeProviderKeyId
-                        selectedModelProvider = selectedModel.provider.toLowerCase()
+                        // Derive provider from the resolved key so it always matches provider_key_id.
+                        const effectiveProviderKey = resolveProviderKeyForPrompt(
+                            prompt,
+                            values.effectiveModelOptions,
+                            values.providerKeys
+                        )
+                        providerKeyId = effectiveProviderKey?.id ?? null
+                        selectedModelProvider =
+                            effectiveProviderKey?.provider ?? normalizeLLMProvider(selectedModel.provider) ?? ''
 
                         const requestData: Record<string, unknown> = {
                             system: prompt.systemPrompt,

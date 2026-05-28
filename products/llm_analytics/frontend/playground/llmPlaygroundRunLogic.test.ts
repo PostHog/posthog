@@ -6,6 +6,7 @@ import api, { ApiError } from 'lib/api'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
 
@@ -17,9 +18,6 @@ describe('llmPlaygroundRunLogic', () => {
                 '/api/llm_proxy/models/': [
                     { id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' },
                 ],
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                    active_provider_key: null,
-                },
                 '/api/environments/:team_id/llm_analytics/provider_keys/': {
                     results: [],
                 },
@@ -153,6 +151,85 @@ describe('llmPlaygroundRunLogic', () => {
         logic.unmount()
         streamSpy.mockRestore()
         captureExceptionSpy.mockRestore()
+    })
+
+    describe('completion request provider/key resolution', () => {
+        const azureKeyId = '11111111-1111-1111-1111-111111111111'
+
+        const buildMocks = (
+            keys: { id: string; provider: string; state?: string; name?: string }[],
+            byokByKey: Record<string, { id: string; name: string; provider: string }[]> = {}
+        ): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/llm_proxy/models/': (req: any) => {
+                    const providerKeyId = req.url.searchParams.get('provider_key_id')
+                    if (providerKeyId) {
+                        return [200, byokByKey[providerKeyId] ?? []]
+                    }
+                    return [200, [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }]]
+                },
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: keys.map((k) => ({
+                        id: k.id,
+                        provider: k.provider,
+                        name: k.name ?? `${k.provider} key`,
+                        state: k.state ?? 'ok',
+                        error_message: null,
+                        api_key_masked: '***',
+                        azure_endpoint_display: null,
+                        api_version_display: null,
+                        created_at: '2026-01-01T00:00:00Z',
+                        created_by: null,
+                        last_used_at: null,
+                    })),
+                },
+            },
+        })
+
+        const runOnce = async (model: string, selectedProviderKeyId: string | null = null): Promise<any> => {
+            const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+                options.onMessage?.({ data: JSON.stringify({ type: 'text', text: 'ok' }) })
+            })
+            const logic = llmPlaygroundRunLogic()
+            logic.mount()
+            const modelLogic = llmPlaygroundModelLogic()
+            modelLogic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(modelLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.setModel(model, selectedProviderKeyId ?? undefined)
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+            llmPlaygroundRunLogic.actions.submitPrompt()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const payload = streamSpy.mock.calls[0]?.[1]?.data
+            logic.unmount()
+            modelLogic.unmount()
+            streamSpy.mockRestore()
+            return payload
+        }
+
+        it('sends canonical provider value when running a BYOK Azure model', async () => {
+            useMocks(
+                buildMocks([{ id: azureKeyId, provider: 'azure_openai' }], {
+                    [azureKeyId]: [{ id: 'gpt-4.1', name: 'gpt-4.1', provider: 'Azure OpenAI' }],
+                })
+            )
+            const payload = await runOnce('gpt-4.1', azureKeyId)
+            expect(payload).toMatchObject({
+                model: 'gpt-4.1',
+                provider: 'azure_openai',
+                provider_key_id: azureKeyId,
+            })
+        })
+
+        it('does not attach a mismatched-provider key when running a trial model', async () => {
+            // Azure key configured + trial OpenAI model would trigger ProviderMismatchError on the backend.
+            useMocks(buildMocks([{ id: azureKeyId, provider: 'azure_openai' }]))
+            const payload = await runOnce('gpt-5-mini')
+            expect(payload).toMatchObject({ model: 'gpt-5-mini', provider: 'openai' })
+            expect(payload.provider_key_id).toBeUndefined()
+        })
     })
 
     it('captures exceptions thrown before the stream opens', async () => {

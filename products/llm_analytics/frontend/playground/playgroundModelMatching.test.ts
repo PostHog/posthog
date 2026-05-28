@@ -1,9 +1,12 @@
+import type { ModelOption } from '../modelPickerLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import type { PromptConfig } from './llmPlaygroundPromptsLogic'
 import {
     isTraceLikeSelection,
     matchClosestModel,
     matchClosestModelOption,
     type MatchModelOption,
+    resolveProviderKeyForPrompt,
     resolveTraceModelSelection,
 } from './playgroundModelMatching'
 
@@ -126,6 +129,61 @@ describe('playgroundModelMatching', () => {
             const keys = [providerKey('key-a', 'anthropic'), providerKey('key-z', 'anthropic')]
             const result = resolveTraceModelSelection('claude-sonnet-4', 'anthropic', models, keys)
             expect(result.providerKeyId).toBe('key-a')
+        })
+    })
+
+    describe('resolveProviderKeyForPrompt', () => {
+        const promptOf = (overrides: Partial<PromptConfig>): Pick<PromptConfig, 'model' | 'selectedProviderKeyId'> => ({
+            model: '',
+            selectedProviderKeyId: null,
+            ...overrides,
+        })
+        const modelOption = (overrides: Partial<ModelOption> & Pick<ModelOption, 'id' | 'provider'>): ModelOption => ({
+            name: overrides.id,
+            description: '',
+            ...overrides,
+        })
+
+        it('returns the explicitly selected key when present', () => {
+            const prompt = promptOf({ model: 'gpt-4.1', selectedProviderKeyId: 'azure-key' })
+            const modelOptions = [modelOption({ id: 'gpt-4.1', provider: 'Azure OpenAI', providerKeyId: 'azure-key' })]
+            const keys = [providerKey('azure-key', 'azure_openai')]
+            expect(resolveProviderKeyForPrompt(prompt, modelOptions, keys)?.id).toBe('azure-key')
+        })
+
+        it('uses the model option providerKeyId for BYOK models', () => {
+            const prompt = promptOf({ model: 'gpt-4.1' })
+            const modelOptions = [modelOption({ id: 'gpt-4.1', provider: 'Azure OpenAI', providerKeyId: 'azure-key' })]
+            const keys = [providerKey('azure-key', 'azure_openai')]
+            expect(resolveProviderKeyForPrompt(prompt, modelOptions, keys)?.id).toBe('azure-key')
+        })
+
+        it('matches the trial model provider against the user-configured keys', () => {
+            const prompt = promptOf({ model: 'gpt-5-mini' })
+            const modelOptions = [modelOption({ id: 'gpt-5-mini', provider: 'OpenAI' })]
+            const keys = [providerKey('openai-key', 'openai')]
+            expect(resolveProviderKeyForPrompt(prompt, modelOptions, keys)?.id).toBe('openai-key')
+        })
+
+        it('does not match an Azure key when the trial model is OpenAI', () => {
+            const prompt = promptOf({ model: 'gpt-5-mini' })
+            const modelOptions = [modelOption({ id: 'gpt-5-mini', provider: 'OpenAI' })]
+            const keys = [providerKey('azure-key', 'azure_openai')]
+            expect(resolveProviderKeyForPrompt(prompt, modelOptions, keys)).toBeNull()
+        })
+
+        it('normalizes the display provider name when matching against keys', () => {
+            const prompt = promptOf({ model: 'gpt-4.1' })
+            const modelOptions = [modelOption({ id: 'gpt-4.1', provider: 'Azure OpenAI' })]
+            const keys = [providerKey('azure-key', 'azure_openai')]
+            expect(resolveProviderKeyForPrompt(prompt, modelOptions, keys)?.id).toBe('azure-key')
+        })
+
+        it('ignores invalid keys when matching by provider', () => {
+            const prompt = promptOf({ model: 'gpt-5-mini' })
+            const modelOptions = [modelOption({ id: 'gpt-5-mini', provider: 'OpenAI' })]
+            const keys = [providerKey('openai-key', 'openai', 'invalid')]
+            expect(resolveProviderKeyForPrompt(prompt, modelOptions, keys)).toBeNull()
         })
     })
 })

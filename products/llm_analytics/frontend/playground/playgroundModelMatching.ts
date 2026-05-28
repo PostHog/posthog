@@ -316,6 +316,9 @@ export function resolveProviderKeyForPrompt(
         }
     }
 
-    const provider = selectedModel.provider.toLowerCase()
+    const provider = normalizeLLMProvider(selectedModel.provider)
+    if (!provider) {
+        return null
+    }
     return providerKeys.find((k) => k.provider === provider && k.state !== 'invalid') ?? null
 }
