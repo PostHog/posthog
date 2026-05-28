@@ -33,7 +33,6 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
-from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
@@ -1982,13 +1981,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [(Decimal("90.49"),)])
 
     def test_currency_conversion_with_string_date(self):
+        # The printer wraps the date argument with toDate(...) so a string date is parsed
+        # rather than rejected by the dictGetOrDefault range key. This matches the behavior
+        # of _toDate('2024-01-01') in test_currency_conversion above.
         query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
-        with self.assertRaises(InternalCHQueryError) as e:
-            execute_hogql_query(query, team=self.team)
-        assert (
-            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
-            in str(e.exception)
-        )
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("90.49"),)])
+
+    def test_currency_conversion_with_datetime(self):
+        # Regression for an experiment metric crash: passing a DateTime64 expression (e.g. the
+        # raw event timestamp) used to fail with "Illegal type DateTime64 of fourth argument of
+        # function dictGetOrDefault must be convertible to Int64". The printer's toDate wrap
+        # normalizes the date argument before the dictionary lookup.
+        query = "SELECT convertCurrency('USD', 'EUR', 100, toDateTime('2024-01-01 12:34:56'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("90.49"),)])
 
     def test_currency_conversion_with_bogus_currency_from(self):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"

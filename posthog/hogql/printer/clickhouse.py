@@ -256,7 +256,17 @@ class ClickHousePrinter(BasePrinter):
         elif node.name == "convertCurrency":
             # convertCurrency(from_currency, to_currency, amount, timestamp?)
             from_currency, to_currency, amount, *_rest = args
-            date = args[3] if len(args) > 3 and args[3] else "today()"
+            # The exchange_rate dictionary is RANGE_HASHED over Date columns, so its range key
+            # must be Int64-convertible. ClickHouse refuses to coerce DateTime64 to Int64, so we
+            # wrap the date argument with toDate(...) here — callers passing a raw event
+            # timestamp (e.g. an experiment metric over `events.timestamp`) would otherwise crash
+            # with an "Illegal type ... fourth argument of function dictGetOrDefault" error.
+            # Skip the wrap when the caller already produced a `toDate(...)` expression to keep
+            # the SQL legible for callsites that did the right thing.
+            if len(args) > 3 and args[3]:
+                date = args[3] if args[3].startswith("toDate(") else f"toDate({args[3]})"
+            else:
+                date = "today()"
             db = django_settings.CLICKHOUSE_DATABASE
             # Build rate lookup expressions
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
