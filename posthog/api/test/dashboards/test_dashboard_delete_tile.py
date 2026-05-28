@@ -6,6 +6,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.constants import AvailableFeature
 from posthog.models import User
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -15,6 +16,11 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 class TestDashboardDeleteTile(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # restriction_level enforcement requires the ACCESS_CONTROL product feature on the org.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     def _delete_tile(self, dashboard_id: int, tile_id: int, expected_status: int = status.HTTP_204_NO_CONTENT):
