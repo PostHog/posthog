@@ -8,6 +8,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { AI_TRAINING_URL } from './aiTrainingConstants'
+import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
 
 function AITrainingDescription({ isHipaa, isLocked }: { isHipaa: boolean; isLocked: boolean }): JSX.Element {
     if (isHipaa) {
@@ -51,7 +52,7 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
         : isLocked
           ? 'Please contact us to change this setting.'
           : restrictionReason
-            ? 'You must be an admin or owner of your organization to change this setting'
+            ? ORG_ADMIN_REQUIRED_TOOLTIP
             : undefined
 
     const checked = !isHipaa && !!currentOrganization?.is_ai_training_opted_in

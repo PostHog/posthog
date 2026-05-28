@@ -6,6 +6,8 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
+
 export function OrganizationAI(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
@@ -21,11 +23,7 @@ export function OrganizationAI(): JSX.Element {
                     updateOrganization({ is_ai_data_processing_approved: checked })
                 }}
                 checked={!!currentOrganization?.is_ai_data_processing_approved}
-                disabledReason={
-                    restrictionReason
-                        ? 'You must be an admin or owner of your organization to change this setting'
-                        : undefined
-                }
+                disabledReason={restrictionReason ? ORG_ADMIN_REQUIRED_TOOLTIP : undefined}
                 loading={currentOrganizationLoading}
                 bordered
             />

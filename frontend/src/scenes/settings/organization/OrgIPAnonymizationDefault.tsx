@@ -7,6 +7,8 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { organizationLogic } from '~/scenes/organizationLogic'
 
+import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
+
 export function OrgIPAnonymizationDefault(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
@@ -21,11 +23,7 @@ export function OrgIPAnonymizationDefault(): JSX.Element {
                 updateOrganization({ default_anonymize_ips: checked })
             }}
             checked={!!currentOrganization?.default_anonymize_ips}
-            disabledReason={
-                restrictionReason
-                    ? 'You must be an admin or owner of your organization to change this setting'
-                    : undefined
-            }
+            disabledReason={restrictionReason ? ORG_ADMIN_REQUIRED_TOOLTIP : undefined}
             loading={currentOrganizationLoading}
             label="Discard client IP data by default for new projects"
             bordered
