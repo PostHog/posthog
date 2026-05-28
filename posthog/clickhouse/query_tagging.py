@@ -412,6 +412,9 @@ class QueryTags(BaseModel):
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
 
+    # True when the query embeds a user-supplied HogQL string; used to split user vs platform errors in system.query_log.
+    contains_user_hogql: Optional[bool] = None
+
     hogql_features: Optional[HogQLFeatures] = None
 
     modifiers: Optional[object] = None
@@ -523,6 +526,18 @@ def tag_queries(**kwargs) -> None:
     updated_tags = current_tags.model_copy(deep=True)
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
+
+
+def tag_contains_user_hogql() -> None:
+    """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
+
+    Idempotent — safe to call inside hot loops (recursive ``property_to_expr``, breakdown
+    iteration, ``@property`` accessors) since the early-return skips the ``model_copy``
+    inside ``tag_queries`` after the first call per query context.
+    """
+    if get_query_tag_value("contains_user_hogql"):
+        return
+    tag_queries(contains_user_hogql=True)
 
 
 def get_team_query_tags(team: "Team") -> dict[str, Any]:

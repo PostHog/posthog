@@ -149,6 +149,14 @@ class TestFirstRunNotice:
         captured_second = capsys.readouterr()
         assert captured_second.err == ""
 
+    @pytest.mark.parametrize("ci_var", telemetry._CI_ENV_VARS)
+    def test_suppressed_in_ci(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path, capsys, ci_var: str):
+        monkeypatch.setenv(ci_var, "true")
+        telemetry.show_first_run_notice_if_needed()
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert not telemetry_config.exists()
+
 
 class TestTelemetryCommands:
     @pytest.fixture

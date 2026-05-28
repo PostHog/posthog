@@ -139,7 +139,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         const idCandidate = val.trim().toUpperCase()
                         if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                             loadSlackChannelById(idCandidate)
-                        } else {
+                        } else if (val !== modifiedValue) {
+                            // LemonInputSelect auto-fills the input with the selected option's key on
+                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
+                            // search — the composite "id|#name" matches no channel server-side and
+                            // would overwrite the cached list with [], so the bare ID could no longer
+                            // resolve to a name after blur.
                             loadAllSlackChannels(false, val)
                         }
                         setLocalValue(val)
