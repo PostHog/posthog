@@ -71,11 +71,8 @@ const makeWorkflow = (fromValue: any): HogFlow => ({
     updated_at: '2026-05-01T00:00:00.000Z',
 })
 
-// Never-resolving templates response keeps `hogFunctionTemplatesByIdLoading` true so the
-// function-action validation branch is skipped and the email-specific block in
-// `actionValidationErrorsById` is the only one that runs. That is the editor state we
-// care about — before the template fetch completes the user can already see (or miss)
-// inline errors on the step.
+// Hangs the templates fetch so `hogFunctionTemplatesByIdLoading` stays true and the
+// function-action branch in `actionValidationErrorsById` doesn't clobber the email block.
 const hangingTemplatesEndpoint = (): Promise<unknown> => new Promise(() => {})
 
 describe('workflowLogic email step "from" validation', () => {
@@ -86,10 +83,6 @@ describe('workflowLogic email step "from" validation', () => {
     })
 
     it('flags the step as invalid when "from" has an email but no integrationId (no sender picked)', async () => {
-        // The Zod schema for runtime email parameters
-        // (`CyclotronInvocationQueueParametersEmailSchema`) requires `from.integrationId`.
-        // The editor must reject this configuration before activation, even when a
-        // default/templated `from.email` is present.
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
@@ -125,9 +118,6 @@ describe('workflowLogic email step "from" validation', () => {
     })
 
     it('flags the step as invalid when integrationId is set but from.email is missing', async () => {
-        // Runtime schema requires both `from.email` and `from.integrationId`. The pre-fix
-        // validator already rejected missing `from.email`; the editor must keep doing so even
-        // though the new code path also requires `from.integrationId`.
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }),
@@ -160,7 +150,6 @@ describe('workflowLogic email step "from" validation', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        // No email-block errors at all — every other required field (to, subject, html) is set.
         expect(result?.errors.email).toBeUndefined()
         expect(result?.valid).toBe(true)
     })
