@@ -42,9 +42,11 @@ def _drop_view_logs_when_file_deleted(sender, instance: FileSystem, **kwargs) ->
     # their canonical file, so we only act when the canonical row is gone.
     if not instance.ref or instance.type == "folder" or instance.shortcut:
         return
-    if FileSystem.objects.filter(
-        team_id=instance.team_id, type=instance.type, ref=instance.ref, shortcut=False
-    ).exists():
+    if (
+        FileSystem.objects.filter(team_id=instance.team_id, type=instance.type, ref=instance.ref)
+        .exclude(shortcut=True)
+        .exists()
+    ):
         return
     FileSystemViewLog.objects.filter(team_id=instance.team_id, type=instance.type, ref=instance.ref).delete()
 

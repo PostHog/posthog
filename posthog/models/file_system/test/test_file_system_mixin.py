@@ -216,6 +216,32 @@ class TestFileSystemSyncMixin(TestCase):
         assert not FileSystem.objects.filter(id=fs_entry.id).exists()
         self.assertEqual(FileSystemViewLog.objects.count(), 0)
 
+    def test_file_system_view_logs_survive_when_legacy_null_shortcut_row_remains(self):
+        """
+        Legacy FileSystem rows can have shortcut=NULL (the field is nullable and the Recents
+        query treats NULL as canonical). Deleting one canonical row while another canonical
+        row with shortcut=NULL still exists must not clear the view logs.
+        """
+        insight = Insight.objects.create(team=self.team, name="My Insight", saved=True, created_by=self.user)
+        FileSystemViewLog.objects.create(team=self.team, user=self.user, type="insight", ref=insight.short_id)
+
+        legacy_row = FileSystem.objects.create(
+            team=self.team,
+            path=f"Legacy/{insight.name}",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            href=f"/insights/{insight.short_id}",
+            shortcut=None,
+            created_by=self.user,
+        )
+
+        canonical = FileSystem.objects.get(team=self.team, type="insight", ref=insight.short_id, shortcut=False)
+        canonical.delete()
+
+        assert FileSystem.objects.filter(id=legacy_row.id).exists()
+        self.assertEqual(FileSystemViewLog.objects.count(), 1)
+
     def test_file_system_view_logs_survive_shortcut_deletion(self):
         """
         Shortcuts share (type, ref) with their canonical file. Deleting a shortcut must not

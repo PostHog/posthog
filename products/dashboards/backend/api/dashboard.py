@@ -950,14 +950,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
-        insights_to_undelete = []
-        for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
-            if tile.insight and tile.insight.deleted:
-                tile.insight.deleted = False
-                insights_to_undelete.append(tile.insight)
-        Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
-        # bulk_update also bypasses signals — re-sync FileSystem so restored insights reappear.
+        # The default Insight manager excludes deleted=True, so traversing tile.insight returns None
+        # for soft-deleted rows. Query the unfiltered manager directly to find the insights that
+        # need to be restored alongside the dashboard.
+        insights_to_undelete = list(
+            Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, deleted=True
+            ).distinct()
+        )
+        for insight in insights_to_undelete:
+            insight.deleted = False
         if insights_to_undelete:
+            Insight.objects_including_soft_deleted.bulk_update(insights_to_undelete, ["deleted"])
+            # bulk_update also bypasses signals — re-sync FileSystem so restored insights reappear.
             DashboardSerializer._sync_filesystem_for_insights(
                 [insight.id for insight in insights_to_undelete], instance.team_id
             )
@@ -967,7 +972,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         """Re-run FileSystem sync for insights whose ``deleted`` flag was changed via bulk update."""
         # The default Insight manager excludes deleted=True, so use the unfiltered manager —
         # this helper is invoked specifically after bulk deletes/undeletes and must see both.
-        # nosemgrep: idor-lookup-without-team (caller passed a team-scoped id list)
         insights = Insight.objects_including_soft_deleted.filter(id__in=insight_ids, team_id=team_id).select_related(
             "team"
         )
