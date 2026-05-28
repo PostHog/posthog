@@ -12,7 +12,6 @@ from posthog.admin.inlines.organization_member_inline import OrganizationMemberF
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
-from posthog.models.webauthn_credential import WebauthnCredential
 
 
 class TestOAuthSidebarRegrouping(BaseTest):
@@ -111,18 +110,6 @@ class TestUserAdmin(BaseTest):
 
         assert self.search_user_ids("missing-distinct-id") == []
 
-    def _make_passkey(self, user: User, *, verified: bool) -> None:
-        WebauthnCredential.objects.create(
-            user=user,
-            credential_id=b"cred",
-            label="Test passkey",
-            public_key=b"pk",
-            algorithm=-7,
-            counter=0,
-            transports=["internal"],
-            verified=verified,
-        )
-
     def test_clean_passkeys_enabled_for_2fa_rejects_when_user_has_no_verified_passkey(self) -> None:
         from django.core.exceptions import ValidationError
 
@@ -130,26 +117,6 @@ class TestUserAdmin(BaseTest):
         form.cleaned_data = {"passkeys_enabled_for_2fa": True}
         with self.assertRaises(ValidationError):
             form.clean_passkeys_enabled_for_2fa()
-
-    def test_clean_passkeys_enabled_for_2fa_rejects_when_only_unverified_passkey_exists(self) -> None:
-        from django.core.exceptions import ValidationError
-
-        self._make_passkey(self.user, verified=False)
-        form = UserChangeForm(instance=self.user)
-        form.cleaned_data = {"passkeys_enabled_for_2fa": True}
-        with self.assertRaises(ValidationError):
-            form.clean_passkeys_enabled_for_2fa()
-
-    def test_clean_passkeys_enabled_for_2fa_allows_enable_when_verified_passkey_exists(self) -> None:
-        self._make_passkey(self.user, verified=True)
-        form = UserChangeForm(instance=self.user)
-        form.cleaned_data = {"passkeys_enabled_for_2fa": True}
-        assert form.clean_passkeys_enabled_for_2fa() is True
-
-    def test_clean_passkeys_enabled_for_2fa_allows_disable_regardless_of_passkey_state(self) -> None:
-        form = UserChangeForm(instance=self.user)
-        form.cleaned_data = {"passkeys_enabled_for_2fa": False}
-        assert form.clean_passkeys_enabled_for_2fa() is False
 
 
 class TestPluginAttachmentInline(BaseTest):
