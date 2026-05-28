@@ -6,6 +6,7 @@ const baseState = (): ManifestState => ({
     auth_token: 'tok_123',
     auth_api_key: '',
     auth_api_key_name: 'Authorization',
+    auth_api_key_location: 'header',
     auth_username: '',
     auth_password: '',
     headers: [],
@@ -17,8 +18,10 @@ const baseState = (): ManifestState => ({
             data_selector: 'data',
             primary_key: 'id',
             paginator: { type: 'single_page' },
+            sort_mode: 'asc',
             incremental_enabled: false,
             cursor_path: '',
+            cursor_type: 'datetime',
             start_param: '',
         },
     ],
@@ -39,6 +42,15 @@ describe('buildManifest', () => {
         const manifest = buildManifest(state) as any
         expect(manifest.client.auth).toEqual({ type: 'api_key', name: 'X-API-Key', location: 'header' })
         expect(manifest.client.auth.api_key).toBeUndefined()
+    })
+
+    it.each(['header', 'query', 'cookie'] as const)('threads api_key location=%s into client.auth', (location) => {
+        const state = baseState()
+        state.auth_type = 'api_key'
+        state.auth_api_key_location = location
+        state.auth_api_key_name = 'key'
+        const manifest = buildManifest(state) as any
+        expect(manifest.client.auth.location).toBe(location)
     })
 
     it('emits http_basic auth with username but no password', () => {
@@ -148,6 +160,40 @@ describe('buildManifest', () => {
         const noCursor = buildManifest(state) as any
         expect('incremental' in noCursor.resources[0].endpoint).toBe(false)
     })
+
+    it('omits cursor_type when it equals the backend default (datetime)', () => {
+        const state = baseState()
+        state.streams[0].incremental_enabled = true
+        state.streams[0].cursor_path = 'updated_at'
+        const manifest = buildManifest(state) as any
+        expect('cursor_type' in manifest.resources[0].endpoint.incremental).toBe(false)
+    })
+
+    it.each(['date', 'timestamp', 'integer'] as const)('emits cursor_type=%s when non-default', (cursorType) => {
+        const state = baseState()
+        state.streams[0].incremental_enabled = true
+        state.streams[0].cursor_path = 'updated_at'
+        state.streams[0].cursor_type = cursorType
+        const manifest = buildManifest(state) as any
+        expect(manifest.resources[0].endpoint.incremental.cursor_type).toBe(cursorType)
+    })
+
+    it('emits sort_mode only when explicitly descending', () => {
+        const asc = buildManifest(baseState()) as any
+        expect('sort_mode' in asc.resources[0]).toBe(false)
+
+        const descState = baseState()
+        descState.streams[0].sort_mode = 'desc'
+        const desc = buildManifest(descState) as any
+        expect(desc.resources[0].sort_mode).toBe('desc')
+    })
+
+    it('serializes the auto paginator to type-only', () => {
+        const state = baseState()
+        state.streams[0].paginator = { type: 'auto' }
+        const manifest = buildManifest(state) as any
+        expect(manifest.resources[0].endpoint.paginator).toEqual({ type: 'auto' })
+    })
 })
 
 describe('parseManifestIntoState', () => {
@@ -211,6 +257,101 @@ describe('parseManifestIntoState', () => {
         })
         const state = parseManifestIntoState(manifestJson)
         expect(state.auth_type).toBe('none')
+    })
+
+    it.each(['query', 'cookie'] as const)('parses api_key location=%s out of the manifest', (location) => {
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x', auth: { type: 'api_key', name: 'k', location } },
+            resources: [{ name: 'r', endpoint: { path: '/r' } }],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.auth_api_key_location).toBe(location)
+    })
+
+    it("folds the dead 'param' alias to 'query' on parse", () => {
+        // Backend treats both as the same (auth.py:41), so the UI never has to
+        // distinguish them. A manifest authored elsewhere should still parse.
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x', auth: { type: 'api_key', name: 'k', location: 'param' } },
+            resources: [{ name: 'r', endpoint: { path: '/r' } }],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.auth_api_key_location).toBe('query')
+    })
+
+    it('parses the auto paginator type when the manifest declares it', () => {
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x' },
+            resources: [{ name: 'r', endpoint: { path: '/r', paginator: { type: 'auto' } } }],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.streams[0].paginator.type).toBe('auto')
+    })
+
+    it.each(['date', 'timestamp', 'integer'] as const)(
+        'parses cursor_type=%s from incremental config',
+        (cursorType) => {
+            const manifestJson = JSON.stringify({
+                client: { base_url: 'https://x' },
+                resources: [
+                    {
+                        name: 'r',
+                        endpoint: { path: '/r', incremental: { cursor_path: 'c', cursor_type: cursorType } },
+                    },
+                ],
+            })
+            const state = parseManifestIntoState(manifestJson)
+            expect(state.streams[0].cursor_type).toBe(cursorType)
+        }
+    )
+
+    it('falls back to datetime cursor_type for an unknown value', () => {
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x' },
+            resources: [
+                {
+                    name: 'r',
+                    endpoint: { path: '/r', incremental: { cursor_path: 'c', cursor_type: 'bogus' } },
+                },
+            ],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.streams[0].cursor_type).toBe('datetime')
+    })
+
+    it.each(['asc', 'desc'] as const)('parses sort_mode=%s from the resource', (mode) => {
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x' },
+            resources: [{ name: 'r', endpoint: { path: '/r' }, sort_mode: mode }],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.streams[0].sort_mode).toBe(mode)
+    })
+
+    it('round-trips all new fields without drift', () => {
+        const original = baseState()
+        original.auth_type = 'api_key'
+        original.auth_api_key_name = 'X-Key'
+        original.auth_api_key_location = 'query'
+        original.streams = [
+            {
+                name: 'events',
+                path: '/events',
+                method: 'GET',
+                data_selector: 'data',
+                primary_key: 'id',
+                paginator: { type: 'auto' },
+                sort_mode: 'desc',
+                incremental_enabled: true,
+                cursor_path: 'updated_at',
+                cursor_type: 'timestamp',
+                start_param: 'since',
+            },
+        ]
+
+        const firstJson = JSON.stringify(buildManifest(original))
+        const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
+        expect(secondJson).toBe(firstJson)
     })
 })
 

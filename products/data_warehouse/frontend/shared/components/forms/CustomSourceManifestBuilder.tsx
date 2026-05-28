@@ -6,13 +6,23 @@ import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } fro
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AuthType, HeaderEntry, ManifestState, Paginator, StreamForm } from './customSourceManifest'
+import {
+    ApiKeyLocation,
+    AuthType,
+    CursorType,
+    HeaderEntry,
+    ManifestState,
+    Paginator,
+    SortMode,
+    StreamForm,
+} from './customSourceManifest'
 import {
     customSourceManifestBuilderLogic,
     type CustomSourceManifestBuilderLogicProps,
 } from './customSourceManifestBuilderLogic'
 
 const PAGINATOR_OPTIONS: { value: Paginator['type']; label: string }[] = [
+    { value: 'auto', label: 'Auto-detect' },
     { value: 'single_page', label: 'Single page (no pagination)' },
     { value: 'json_response', label: 'JSON body next-URL' },
     { value: 'cursor', label: 'Cursor in JSON body' },
@@ -24,8 +34,26 @@ const PAGINATOR_OPTIONS: { value: Paginator['type']; label: string }[] = [
 const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
     { value: 'none', label: 'No auth' },
     { value: 'bearer', label: 'Bearer token' },
-    { value: 'api_key', label: 'API key (header)' },
+    { value: 'api_key', label: 'API key' },
     { value: 'http_basic', label: 'HTTP basic auth' },
+]
+
+const API_KEY_LOCATION_OPTIONS: { value: ApiKeyLocation; label: string }[] = [
+    { value: 'header', label: 'Header' },
+    { value: 'query', label: 'Query parameter' },
+    { value: 'cookie', label: 'Cookie' },
+]
+
+const CURSOR_TYPE_OPTIONS: { value: CursorType; label: string }[] = [
+    { value: 'datetime', label: 'Datetime' },
+    { value: 'date', label: 'Date' },
+    { value: 'timestamp', label: 'Timestamp (epoch)' },
+    { value: 'integer', label: 'Integer' },
+]
+
+const SORT_MODE_OPTIONS: { value: SortMode; label: string }[] = [
+    { value: 'asc', label: 'Ascending (oldest first)' },
+    { value: 'desc', label: 'Descending (newest first)' },
 ]
 
 /**
@@ -134,10 +162,19 @@ function AuthSection({
                 </LemonField.Pure>
             )}
             {state.auth_type === 'api_key' && (
-                <div className="grid grid-cols-2 gap-2">
-                    <LemonField.Pure label="Header name">
+                <div className="grid grid-cols-3 gap-2">
+                    <LemonField.Pure label="Location">
+                        <LemonSelect
+                            value={state.auth_api_key_location}
+                            onChange={(value) => update({ auth_api_key_location: value as ApiKeyLocation })}
+                            options={API_KEY_LOCATION_OPTIONS}
+                        />
+                    </LemonField.Pure>
+                    <LemonField.Pure
+                        label={state.auth_api_key_location === 'header' ? 'Header name' : 'Parameter name'}
+                    >
                         <LemonInput
-                            placeholder="Authorization"
+                            placeholder={state.auth_api_key_location === 'header' ? 'Authorization' : 'api_key'}
                             value={state.auth_api_key_name}
                             onChange={(value) => update({ auth_api_key_name: value })}
                         />
@@ -305,6 +342,7 @@ function PaginatorSection({
 }): JSX.Element {
     const switchType = (type: Paginator['type']): void => {
         switch (type) {
+            case 'auto':
             case 'single_page':
                 onUpdate({ type })
                 return
@@ -433,22 +471,44 @@ function IncrementalSection({
                 label="Enable incremental sync"
             />
             {stream.incremental_enabled && (
-                <div className="grid grid-cols-2 gap-2">
-                    <LemonField.Pure label="Cursor JSONPath">
-                        <LemonInput
-                            placeholder="updated_at"
-                            value={stream.cursor_path}
-                            onChange={(value) => onUpdate({ cursor_path: value })}
-                        />
-                    </LemonField.Pure>
-                    <LemonField.Pure label="Cursor query param">
-                        <LemonInput
-                            placeholder="since"
-                            value={stream.start_param}
-                            onChange={(value) => onUpdate({ start_param: value })}
-                        />
-                    </LemonField.Pure>
-                </div>
+                <>
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Cursor JSONPath">
+                            <LemonInput
+                                placeholder="updated_at"
+                                value={stream.cursor_path}
+                                onChange={(value) => onUpdate({ cursor_path: value })}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Cursor query param">
+                            <LemonInput
+                                placeholder="since"
+                                value={stream.start_param}
+                                onChange={(value) => onUpdate({ start_param: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Cursor type">
+                            <LemonSelect
+                                value={stream.cursor_type}
+                                onChange={(value) => onUpdate({ cursor_type: value as CursorType })}
+                                options={CURSOR_TYPE_OPTIONS}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Upstream row order">
+                            <LemonSelect
+                                value={stream.sort_mode}
+                                onChange={(value) => onUpdate({ sort_mode: value as SortMode })}
+                                options={SORT_MODE_OPTIONS}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    <p className="m-0 text-xs text-secondary">
+                        Pick "Descending" when the API returns newest rows first — otherwise a resumed sync may skip
+                        rows.
+                    </p>
+                </>
             )}
         </div>
     )
