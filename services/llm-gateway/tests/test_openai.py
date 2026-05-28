@@ -298,6 +298,31 @@ class TestChatCompletionsEndpoint:
         mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
         mock_acompletion.assert_not_called()
 
+    @patch("llm_gateway.api.openai.make_cloudflare_completion_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_unpriced_cf_model_rejected_before_routing(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "@cf/meta/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
+        # Critical: rejection must happen before we hand the model off to CF, otherwise the
+        # gateway eats the real CF bill while billing the user $0.01 fallback.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
 
 class TestUnsupportedModelRejection:
     """Gemini/Vertex models must be rejected before reaching litellm, which would

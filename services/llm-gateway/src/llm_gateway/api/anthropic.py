@@ -18,7 +18,11 @@ from llm_gateway.api.handler import (
 )
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
-from llm_gateway.cloudflare import ensure_cloudflare_configured, make_cloudflare_anthropic_call
+from llm_gateway.cloudflare import (
+    ensure_cloudflare_configured,
+    ensure_cloudflare_model_allowed,
+    make_cloudflare_anthropic_call,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
@@ -98,6 +102,7 @@ async def _send_cloudflare_messages(
     is_streaming: bool,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
+    ensure_cloudflare_model_allowed(request_data["model"])
     settings = get_settings()
     api_base, api_key = ensure_cloudflare_configured(settings)
 

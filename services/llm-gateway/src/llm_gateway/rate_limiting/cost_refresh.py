@@ -15,6 +15,11 @@ CACHE_TTL_SECONDS = 300
 # Models routed through non-canonical litellm providers (e.g. Cloudflare via
 # openai/ prefix) won't match their cost map entry. Map the key we actually
 # pass to litellm → the canonical key in the cost map.
+#
+# Note on Cloudflare entries: litellm doesn't publish per-model CF prices for
+# anything beyond a few legacy Llama-2/Mistral variants. We alias to the model
+# vendor's direct rate (e.g. moonshot/kimi-k2.6) as a proxy; this is *not* CF's
+# actual resold rate, and may drift if CF introduces markup or flat-rate billing.
 COST_ALIASES: dict[str, str] = {
     "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
 }

@@ -562,6 +562,32 @@ class TestAnthropicMessagesEndpoint:
             mock_make_call.assert_called_once()
             mock_anthropic.assert_not_called()
 
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with patch("llm_gateway.api.anthropic.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/meta/llama-3.3-70b-instruct",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
+        # Rejection must happen before we hand the model off to CF, otherwise the
+        # gateway eats the real CF bill while billing the user $0.01 fallback.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
     def test_invalid_provider_header_returns_400(
         self,
         authenticated_client: TestClient,

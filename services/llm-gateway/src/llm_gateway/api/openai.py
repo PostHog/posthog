@@ -11,7 +11,11 @@ from llm_gateway.api.handler import (
     OPENAI_TRANSCRIPTION_CONFIG,
     handle_llm_request,
 )
-from llm_gateway.cloudflare import ensure_cloudflare_configured, make_cloudflare_completion_call
+from llm_gateway.cloudflare import (
+    ensure_cloudflare_configured,
+    ensure_cloudflare_model_allowed,
+    make_cloudflare_completion_call,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
@@ -39,6 +43,7 @@ async def _handle_chat_completions(
     data = body.model_dump(exclude_none=True)
 
     if _is_cloudflare_model(body.model):
+        ensure_cloudflare_model_allowed(body.model)
         settings = get_settings()
         api_base, api_key = ensure_cloudflare_configured(settings)
         return await handle_llm_request(
