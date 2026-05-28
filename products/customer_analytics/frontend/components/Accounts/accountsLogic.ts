@@ -2,11 +2,19 @@ import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reduc
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    AccountsQuery,
+    DatabaseSchemaField,
+    DatabaseSchemaTable,
+    DataTableNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
 import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
@@ -15,6 +23,8 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
+
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import type { accountsLogicType } from './accountsLogicType'
 
@@ -22,13 +32,18 @@ export const ACCOUNTS_PAGE_SIZE = 20
 
 export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
 
-// Columns aliased into the `context.columns.X` namespace are present in the response
-// (so the table cell renderers can reach `id` / `external_id` via the row tuple) but
-// hidden from the visible columns via QueryContextColumn.hidden = true.
-export const ACCOUNTS_HOGQL_SELECT: string[] = [
+// Columns aliased into the `context.columns.X` namespace are always included in the
+// SELECT — the table cell renderers depend on them for row identity (id) and the
+// external_id display in the Account cell, but they're hidden from the visible
+// columns via QueryContextColumn.hidden = true.
+export const ACCOUNTS_HOGQL_PINNED_SELECT: string[] = [
     'id AS `context.columns.id`',
-    'name',
     'external_id AS `context.columns.external_id`',
+]
+
+// User-configurable defaults — the shape the table ships with out of the box.
+export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
+    'name',
     'accounts.tags.names AS tag_names',
     'accounts.notebooks.count AS notebook_count',
     'csm',
@@ -36,16 +51,110 @@ export const ACCOUNTS_HOGQL_SELECT: string[] = [
     'account_owner',
 ]
 
-export const ACCOUNTS_HOGQL_COLUMN_NAMES: string[] = [
-    'context.columns.id',
-    'name',
-    'context.columns.external_id',
-    'tag_names',
-    'notebook_count',
-    'csm',
-    'account_executive',
-    'account_owner',
-]
+export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
+
+export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'accounts'
+
+export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | `accounts.${string}`
+
+export type AccountColumnOption = {
+    name: string
+    expression: string
+    type?: string
+}
+
+export type AccountColumnGroup = {
+    key: AccountColumnGroupKey
+    label: string
+    options: AccountColumnOption[]
+    isFreeform?: boolean
+}
+
+// Field types that point at joined tables/views (lazy joins, virtual tables,
+// user-defined data warehouse joins, saved queries). Each one surfaces as a
+// dedicated dropdown entry in the column configurator.
+const JOIN_FIELD_TYPES = new Set(['lazy_table', 'virtual_table', 'view', 'materialized_view'])
+
+// Field types we omit from the "Account properties" group — these are
+// navigation aliases, joined tables (handled separately), or unknown types.
+const SKIPPED_DIRECT_FIELD_TYPES = new Set([
+    'lazy_table',
+    'virtual_table',
+    'view',
+    'materialized_view',
+    'field_traverser',
+    'unknown',
+])
+
+function joinOptionsFor(field: DatabaseSchemaField, joinedTable: DatabaseSchemaTable | undefined): AccountColumnOption[] {
+    const names: string[] = field.fields ?? Object.keys(joinedTable?.fields ?? {})
+    return names.map((name) => ({
+        name,
+        // `accounts.<join>.<col> AS <col>` — alias keeps the visible column
+        // name human-readable while disambiguating columns that collide with
+        // direct fields (e.g. `name` on a joined table).
+        expression: `accounts.${field.name}.${name} AS ${name}`,
+        type: joinedTable?.fields?.[name]?.type,
+    }))
+}
+
+export function buildAccountColumnGroups(
+    allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined
+): AccountColumnGroup[] {
+    const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
+    const directOptions: AccountColumnOption[] = []
+    const joinGroups: AccountColumnGroup[] = []
+
+    if (accountsTable) {
+        for (const field of Object.values(accountsTable.fields)) {
+            if (JOIN_FIELD_TYPES.has(field.type)) {
+                const joinedTable = field.table ? allTablesMap?.[field.table] : undefined
+                joinGroups.push({
+                    key: `accounts.${field.name}` as AccountColumnGroupKey,
+                    label: `accounts.${field.name}`,
+                    options: joinOptionsFor(field, joinedTable),
+                })
+                continue
+            }
+            if (SKIPPED_DIRECT_FIELD_TYPES.has(field.type)) {
+                continue
+            }
+            directOptions.push({
+                name: field.name,
+                expression: field.hogql_value || field.name,
+                type: field.type,
+            })
+        }
+    }
+
+    return [
+        { key: 'account_properties', label: 'Account properties', options: directOptions },
+        ...joinGroups,
+        { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
+    ]
+}
+
+interface SortLikeValues {
+    sortOrder: AccountSortOrder
+    visibleColumnNames: string[]
+}
+
+interface SortLikeActions {
+    setSortOrder: (sortOrder: AccountSortOrder) => void
+}
+
+// Sort safety: if the user removes the column currently being sorted on, drop
+// the sort — otherwise the backend receives an `orderBy` that references a
+// non-existent alias.
+function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActions): void {
+    const sort = values.sortOrder
+    if (!sort) {
+        return
+    }
+    if (!values.visibleColumnNames.includes(sort.column)) {
+        actions.setSortOrder(null)
+    }
+}
 
 export type RoleFilterValue = number | null
 
@@ -87,7 +196,8 @@ const EMPTY_RESULT: AccountsLoadResult = { count: 0, results: [] }
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], databaseTableListLogic, ['allTablesMap', 'databaseLoading']],
+        actions: [databaseTableListLogic, ['loadDatabase']],
     })),
     actions({
         setSearchQuery: (query: string) => ({ query }),
@@ -100,6 +210,14 @@ export const accountsLogic = kea<accountsLogicType>([
         setActiveView: (view: AccountsView) => ({ view }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
+        setSelectColumns: (columns: string[]) => ({ columns }),
+        selectColumn: (column: string) => ({ column }),
+        unselectColumn: (column: string) => ({ column }),
+        moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        resetColumns: true,
+        saveColumns: true,
+        showColumnConfigurator: true,
+        hideColumnConfigurator: true,
         refresh: true,
         updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
             accountId,
@@ -166,6 +284,35 @@ export const accountsLogic = kea<accountsLogicType>([
                 setSortOrder: (_, { sortOrder }) => sortOrder,
             },
         ],
+        selectColumns: [
+            [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+            {
+                setSelectColumns: (_, { columns }) => columns,
+                selectColumn: (state, { column }) =>
+                    state.includes(column) ? state : [...state, column],
+                unselectColumn: (state, { column }) => state.filter((c) => c !== column),
+                moveColumn: (state, { oldIndex, newIndex }) => {
+                    if (oldIndex === newIndex || oldIndex < 0 || oldIndex >= state.length) {
+                        return state
+                    }
+                    const next = [...state]
+                    const [removed] = next.splice(oldIndex, 1)
+                    next.splice(newIndex, 0, removed)
+                    return next
+                },
+                resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+                loadSavedColumnConfigurationSuccess: (state, { savedColumnConfiguration }) =>
+                    savedColumnConfiguration ? savedColumnConfiguration.columns : state,
+            },
+        ],
+        columnConfiguratorVisible: [
+            false,
+            {
+                showColumnConfigurator: () => true,
+                hideColumnConfigurator: () => false,
+                saveColumns: () => false,
+            },
+        ],
         savingRoles: [
             {} as Record<string, true>,
             {
@@ -194,6 +341,31 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     loaders(({ values }) => ({
+        savedColumnConfiguration: [
+            null as { id: string; columns: string[] } | null,
+            {
+                loadSavedColumnConfiguration: async (): Promise<{ id: string; columns: string[] } | null> => {
+                    try {
+                        const response = await api.columnConfigurations.list({
+                            teamId: values.currentTeamId || undefined,
+                            context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
+                        })
+                        if (response.results && response.results.length > 0) {
+                            return {
+                                id: response.results[0].id,
+                                columns: response.results[0].columns || [],
+                            }
+                        }
+                        return null
+                    } catch (error) {
+                        posthog.captureException(error as Error, {
+                            scope: 'accountsLogic.loadSavedColumnConfiguration',
+                        })
+                        return null
+                    }
+                },
+            },
+        ],
         accounts: [
             EMPTY_RESULT,
             {
@@ -250,6 +422,15 @@ export const accountsLogic = kea<accountsLogicType>([
                 (accountId: string, role: AccountRoleKey): boolean =>
                     !!savingRoles[savingRoleKey(accountId, role)],
         ],
+        visibleColumnNames: [
+            (s) => [s.selectColumns],
+            (selectColumns: string[]): string[] => selectColumns.map((c) => extractDisplayLabel(c)),
+        ],
+        accountsColumnGroups: [
+            (s) => [s.allTablesMap],
+            (allTablesMap: Record<string, DatabaseSchemaTable>): AccountColumnGroup[] =>
+                buildAccountColumnGroups(allTablesMap),
+        ],
         hogqlQuery: [
             (s) => [
                 s.searchQuery,
@@ -259,6 +440,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
                 s.sortOrder,
+                s.selectColumns,
             ],
             (
                 searchQuery: string,
@@ -267,11 +449,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
-                sortOrder: AccountSortOrder
+                sortOrder: AccountSortOrder,
+                selectColumns: string[]
             ): DataTableNode => {
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
-                    select: ACCOUNTS_HOGQL_SELECT,
+                    select: [...ACCOUNTS_HOGQL_PINNED_SELECT, ...selectColumns],
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
                 }
                 const trimmed = searchQuery.trim()
@@ -362,6 +545,38 @@ export const accountsLogic = kea<accountsLogicType>([
         setSortOrder: () => {
             actions.setCurrentPage(1)
         },
+        setSelectColumns: () => {
+            clearSortIfColumnRemoved(values, actions)
+        },
+        unselectColumn: () => {
+            clearSortIfColumnRemoved(values, actions)
+        },
+        resetColumns: () => {
+            clearSortIfColumnRemoved(values, actions)
+        },
+        saveColumns: async () => {
+            const teamId = values.currentTeamId || undefined
+            const columns = values.selectColumns
+            try {
+                if (values.savedColumnConfiguration?.id) {
+                    await api.columnConfigurations.update({
+                        teamId,
+                        id: values.savedColumnConfiguration.id,
+                        data: { columns },
+                    })
+                } else {
+                    const response = await api.columnConfigurations.create({
+                        teamId,
+                        data: { context_key: ACCOUNTS_COLUMN_CONFIG_KEY, columns },
+                    })
+                    actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns || [] })
+                }
+                lemonToast.success('Columns saved')
+            } catch (error) {
+                posthog.captureException(error as Error, { scope: 'accountsLogic.saveColumns' })
+                lemonToast.error('Failed to save columns')
+            }
+        },
         refresh: () => {
             actions.loadAccounts()
             dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
@@ -400,7 +615,13 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadAccounts()
+        actions.loadSavedColumnConfiguration()
+        // Lazily fetch the database schema only if it isn't already in flight / loaded.
+        // databaseTableListLogic dedupes concurrent calls internally.
+        if (!values.allTablesMap || Object.keys(values.allTablesMap).length === 0) {
+            actions.loadDatabase()
+        }
     }),
 ])

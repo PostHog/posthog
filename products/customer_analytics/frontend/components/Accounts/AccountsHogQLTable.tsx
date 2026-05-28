@@ -14,8 +14,8 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
+import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
 import {
-    ACCOUNTS_HOGQL_COLUMN_NAMES,
     ACCOUNTS_HOGQL_DATA_NODE_KEY,
     AccountRoleKey,
     AccountSortableColumn,
@@ -43,22 +43,33 @@ const COLUMN_WIDTHS = {
 // names in the HogQL response. `id` and `external_id` come back under the
 // `context.columns.X` prefix so DataTable's existing hidden-flag path filters
 // them out of the visible columns — we still need them in the row tuple for
-// the row-expand id and the Account cell's external_id rendering.
+// the row-expand id and the Account cell's external_id rendering. The pinned
+// columns are always present in the SELECT (see ACCOUNTS_HOGQL_PINNED_SELECT
+// in accountsLogic.ts).
 const COLUMN_KEY_OVERRIDES: Record<string, string> = {
     id: 'context.columns.id',
     external_id: 'context.columns.external_id',
 }
 
-function columnIndex(name: string): number {
-    return ACCOUNTS_HOGQL_COLUMN_NAMES.indexOf(COLUMN_KEY_OVERRIDES[name] ?? name)
-}
-
-function getCell(record: unknown, column: string): unknown {
+function getCellAt(record: unknown, names: string[], column: string): unknown {
     if (!Array.isArray(record)) {
         return undefined
     }
-    const index = columnIndex(column)
+    const index = names.indexOf(COLUMN_KEY_OVERRIDES[column] ?? column)
     return index >= 0 ? record[index] : undefined
+}
+
+// Pinned columns prepended to the SELECT in this order — see ACCOUNTS_HOGQL_PINNED_SELECT.
+const PINNED_COLUMN_NAMES = ['context.columns.id', 'context.columns.external_id']
+
+function useColumnNames(): string[] {
+    const { visibleColumnNames } = useValues(accountsLogic)
+    return [...PINNED_COLUMN_NAMES, ...visibleColumnNames]
+}
+
+function useGetCell(): (record: unknown, column: string) => unknown {
+    const names = useColumnNames()
+    return (record, column) => getCellAt(record, names, column)
 }
 
 function tupleToAssignment(value: unknown): AccountAssignment {
@@ -77,6 +88,7 @@ function tupleToAssignment(value: unknown): AccountAssignment {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
+    const getCell = useGetCell()
     const name = String(getCell(record, 'name') ?? '')
     const externalId = getCell(record, 'external_id')
     return (
@@ -96,12 +108,14 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 }
 
 function TagsCell({ record }: { record: unknown }): JSX.Element {
+    const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const tags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
     return tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : <span className="text-muted">—</span>
 }
 
 function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
+    const getCell = useGetCell()
     const count = Number(getCell(record, 'notebook_count')) || 0
     return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
 }
@@ -109,6 +123,7 @@ function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
 function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRoleKey }): JSX.Element {
     const { isRoleSaving, accountOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
+    const getCell = useGetCell()
     const accountId = String(getCell(record, 'id') ?? '')
     const overrideProperties = accountId ? accountOverrides[accountId]?.properties : undefined
     const overrideRole = overrideProperties != null ? overrideProperties[role] : undefined
@@ -220,8 +235,10 @@ const CONTEXT: QueryContext<DataTableNode> = {
     },
     expandable: {
         noIndent: true,
+        // id is the first pinned column in ACCOUNTS_HOGQL_PINNED_SELECT, so it's
+        // always at position 0 in the row tuple regardless of user column choices.
         expandedRowRender: ({ result }) => {
-            const accountId = Array.isArray(result) ? String(result[columnIndex('id')] ?? '') : ''
+            const accountId = Array.isArray(result) ? String(result[0] ?? '') : ''
             return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
         },
     },
@@ -312,7 +329,12 @@ export function AccountsHogQLTable(): JSX.Element {
                 query: hogqlQuery.source,
             }}
         >
-            <AccountsHogQLDataTable query={hogqlQuery} />
+            <div className="flex flex-col gap-2">
+                <div className="flex justify-end">
+                    <AccountsColumnConfigurator />
+                </div>
+                <AccountsHogQLDataTable query={hogqlQuery} />
+            </div>
         </BindLogic>
     )
 }
