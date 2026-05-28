@@ -607,8 +607,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
-        # Explicit cast: Mock attribute access returns a Mock that orjson can't serialize.
-        return bool(getattr(source, "supports_column_selection", False))
+        # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
+        return bool(source.supports_column_selection)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1253,21 +1253,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
 
-            # `postgres_db_*` feed CDC + direct-postgres paths that only run for Postgres.
             metadata_source_catalog: str | None
             metadata_source_schema: str | None
             metadata_source_table_name: str | None
-            postgres_db_schema: str = ""
-            postgres_db_table_name: str = ""
             if source_type_model == ExternalDataSourceType.POSTGRES:
-                postgres_catalog, postgres_db_schema, postgres_db_table_name = get_postgres_source_table_location(
-                    schema_name=schema_name,
-                    source_schema=source_schema,
-                    default_schema=default_source_schema,
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_postgres_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                    )
                 )
-                metadata_source_catalog = postgres_catalog
-                metadata_source_schema = postgres_db_schema
-                metadata_source_table_name = postgres_db_table_name
             else:
                 metadata_source_catalog = source_schema.source_catalog if source_schema else None
                 metadata_source_schema = source_schema.source_schema if source_schema else None
@@ -1281,7 +1277,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema=metadata_source_schema,
                     source_table_name=metadata_source_table_name,
                 )
-                if bool(getattr(source, "supports_column_selection", False))
+                if source.supports_column_selection
                 else {}
             )
 
@@ -1332,21 +1328,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 enabled_columns=enabled_columns,
             )
 
-            # For CDC schemas with PostHog-managed mode, add table to publication
+            # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`
+            # guarantees non-None schema/table in that branch above.
             if is_cdc_schema and should_sync and cdc_enabled:
+                assert metadata_source_schema is not None and metadata_source_table_name is not None
                 cdc_config = PostgresCDCConfig.from_source(new_source_model)
                 if cdc_config.management_mode == "posthog" and cdc_config.publication_name:
                     self._add_table_to_cdc_publication(
                         new_source_model,
                         cdc_config.publication_name,
-                        postgres_db_schema,
-                        postgres_db_table_name,
+                        metadata_source_schema,
+                        metadata_source_table_name,
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
                 # Apply the picker's column subset on the very first DataWarehouseTable build,
                 # not just on subsequent updates — otherwise users see all columns in HogQL until
                 # they hit save again or a refresh runs.
+                assert metadata_source_schema is not None and metadata_source_table_name is not None
                 schema_model.table = upsert_direct_postgres_table(
                     None,
                     schema_name=schema_name,
@@ -1358,8 +1357,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         incremental_field,
                     ),
                     source_catalog=metadata_source_catalog,
-                    source_schema=postgres_db_schema,
-                    source_table_name=postgres_db_table_name,
+                    source_schema=metadata_source_schema,
+                    source_table_name=metadata_source_table_name,
                 )
                 schema_model.save(update_fields=["table"])
 
@@ -2042,7 +2041,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         results = {}
         for source_type, source in sources.items():
             config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(getattr(source, "supports_column_selection", False))
+            config["supportsColumnSelection"] = bool(source.supports_column_selection)
             results[str(source_type)] = config
 
         return Response(status=status.HTTP_200_OK, data=results)

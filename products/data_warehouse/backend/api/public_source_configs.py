@@ -30,7 +30,7 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
         results = {}
         for source_type, source in sources.items():
             config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(getattr(source, "supports_column_selection", False))
+            config["supportsColumnSelection"] = bool(source.supports_column_selection)
             results[str(source_type)] = config
 
         return Response(status=status.HTTP_200_OK, data=results)
