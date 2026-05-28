@@ -1,0 +1,18 @@
+[package]
+name = "cohort-event-shuffler"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+envconfig = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
+metrics-exporter-prometheus = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

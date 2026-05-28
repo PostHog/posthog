@@ -2039,6 +2039,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7ee2cfacbd29706479902b06d75ad8f1362900836aa32799eabc7e004bfd854"
 
 [[package]]
+name = "cohort-event-shuffler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "envconfig",
+ "lifecycle",
+ "metrics-exporter-prometheus",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "cohort-stream-processor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "envconfig",
+ "lifecycle",
+ "metrics-exporter-prometheus",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
