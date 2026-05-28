@@ -14,6 +14,8 @@ export type {
 export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
+export { Sparkline } from './charts/Sparkline/Sparkline'
+export type { SparklineProps } from './charts/Sparkline/Sparkline'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -21,6 +23,20 @@ export type { ChartProps } from './core/Chart'
 export { RadialChart, RADIAL_MARGINS } from './core/RadialChart'
 export type { RadialChartProps, RadialLayoutBuilder } from './core/RadialChart'
 export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
+
+// Box plot
+export { BoxPlot } from './charts/BoxPlot/BoxPlot'
+export type {
+    BoxPlotAdaptedMeta,
+    BoxPlotClickData,
+    BoxPlotConfig,
+    BoxPlotProps,
+    BoxPlotTooltipContext,
+} from './charts/BoxPlot/BoxPlot'
+export { computeBoxBand, computeBoxRect, computeSeriesBoxes } from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
+export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
 // Pie / donut
 export { PieChart } from './charts/PieChart/PieChart'

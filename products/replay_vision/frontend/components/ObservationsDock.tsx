@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
-import { ObservationCard } from './ObservationCard'
+import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
@@ -86,7 +86,7 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 loading={observing}
                 data-attr="vision-observe-recording"
             >
-                Observe this recording
+                Scan this recording
             </LemonButton>
         </LemonDropdown>
     )
@@ -151,7 +151,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationCard key={observation.id} observation={observation} />
+                            <ObservationDockCard key={observation.id} observation={observation} />
                         ))
                     )}
                 </div>

@@ -295,6 +295,9 @@
                             "requires_field": {
                                 "type": "string"
                             },
+                            "searchable": {
+                                "type": "boolean"
+                            },
                             "secret": {
                                 "default": false,
                                 "type": "boolean"
@@ -469,6 +472,9 @@
                                                 },
                                                 "requires_field": {
                                                     "type": "string"
+                                                },
+                                                "searchable": {
+                                                    "type": "boolean"
                                                 },
                                                 "secret": {
                                                     "default": false,

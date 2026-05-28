@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import click
 
-from .checks import CHECKS, CheckContext, is_isolated_product, validate_tach_toml
+from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, is_isolated_product, validate_tach_toml
 from .paths import PRODUCTS_DIR, TACH_TOML, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
@@ -125,3 +126,70 @@ def lint_all_products() -> None:
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")
+
+
+def lint_owners(names: list[str] | None = None) -> None:
+    """Validate product.yaml ``owners:`` against repo-collaborator GitHub teams.
+
+    With ``names`` empty/None, sweeps every product (local convenience). In CI
+    the call site passes the list of products whose product.yaml actually
+    changed, so pre-existing rot elsewhere doesn't block unrelated PRs.
+
+    Separated from ``lint_all_products`` because it makes a GitHub API call —
+    wired into CI behind a paths filter so it only runs when a product.yaml
+    changes.
+    """
+    if names:
+        targets: list[Path] = []
+        for name in names:
+            d = PRODUCTS_DIR / name
+            if not d.is_dir():
+                click.echo(f"⚠ skipping '{name}': not a product directory")
+                continue
+            targets.append(d)
+        # If the caller passed names but none resolved, treat it as an error —
+        # otherwise an unexpected slug from CI's sed/xargs pipeline would slip
+        # through as a silent green ("✓ All 0 product owners are valid").
+        if not targets:
+            click.echo("✗ None of the provided names matched a product directory — nothing validated")
+            raise SystemExit(1)
+    else:
+        targets = sorted(
+            d
+            for d in PRODUCTS_DIR.iterdir()
+            if d.is_dir() and not d.name.startswith((".", "_")) and (d / "__init__.py").exists()
+        )
+
+    check = ProductYamlOwnersCheck()
+    structure = load_structure()
+    failed: list[str] = []
+
+    scope = "all products" if not names else f"{len(targets)} changed product(s)"
+    click.echo(f"Validating product.yaml owners across {scope} against PostHog/posthog teams\n")
+
+    for product_dir in targets:
+        ctx = CheckContext(
+            name=product_dir.name,
+            product_dir=product_dir,
+            backend_dir=product_dir / "backend",
+            is_isolated=is_isolated_product(product_dir / "backend"),
+            structure=structure,
+            detailed=False,
+        )
+        result = check.run(ctx)
+        if result.skip:
+            continue
+        if result.issues:
+            failed.append(product_dir.name)
+            click.echo(f"─ {product_dir.name}")
+            for line in result.lines:
+                click.echo(f"    {line}")
+            for issue in result.issues:
+                _gh_annotation("error", product_dir.name, check.label, issue, file=result.file)
+
+    click.echo("")
+    if failed:
+        click.echo(f"✗ {len(failed)} product(s) failed owner validation: {', '.join(failed)}")
+        raise SystemExit(1)
+
+    click.echo(f"✓ All {len(targets)} product owners are valid PostHog/posthog teams")

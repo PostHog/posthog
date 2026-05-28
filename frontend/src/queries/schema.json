@@ -3559,7 +3559,14 @@
                 "search_llm_traces",
                 "run_hog_eval_test",
                 "diagnose_proxy",
-                "web_analytics_doctor"
+                "web_analytics_doctor",
+                "marketing_diagnose_setup",
+                "marketing_explain_conversion_goal",
+                "marketing_list_conversion_goals",
+                "marketing_list_data_sources",
+                "marketing_audit_utm",
+                "marketing_suggest_conversion_goals",
+                "marketing_suggest_utm_mappings"
             ],
             "type": "string"
         },
@@ -6505,6 +6512,13 @@
                 "types": {
                     "description": "Types of returned columns",
                     "items": {},
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
                     "type": "array"
                 }
             },
@@ -9644,6 +9658,14 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "description": "Whether the response was served from the lazy precompute path.",
+                    "type": "boolean"
+                },
+                "usedPreAggregatedTables": {
+                    "description": "Whether the response was served from a precomputed table.",
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -10191,6 +10213,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -10281,8 +10306,10 @@
         "CalendarHeatmapFilter": {
             "additionalProperties": false,
             "properties": {
-                "dummy": {
-                    "type": "string"
+                "bucketBySessionStart": {
+                    "default": false,
+                    "description": "When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way).",
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -11843,6 +11870,13 @@
                                     "description": "Types of returned columns",
                                     "items": {},
                                     "type": "array"
+                                },
+                                "warnings": {
+                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.",
+                                    "items": {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    "type": "array"
                                 }
                             },
                             "required": ["results"],
@@ -12078,6 +12112,14 @@
                                 "types": {
                                     "items": {},
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "description": "Whether the response was served from the lazy precompute path.",
+                                    "type": "boolean"
+                                },
+                                "usedPreAggregatedTables": {
+                                    "description": "Whether the response was served from a precomputed table.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -12120,6 +12162,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -13487,6 +13532,33 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
+        "DataWarehouseSyncWarning": {
+            "additionalProperties": false,
+            "properties": {
+                "message": {
+                    "description": "Human-readable warning shown to the user",
+                    "type": "string"
+                },
+                "schema_name": {
+                    "description": "Name of the ExternalDataSchema responsible for syncing the table",
+                    "type": "string"
+                },
+                "source_type": {
+                    "description": "Source type, e.g. \"Stripe\", \"Hubspot\"",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Sync status that triggered the warning, e.g. \"Failed\", \"Paused\", \"BillingLimitReached\"",
+                    "type": "string"
+                },
+                "table_name": {
+                    "description": "Name of the warehouse table the warning refers to",
+                    "type": "string"
+                }
+            },
+            "required": ["table_name", "schema_name", "source_type", "status", "message"],
+            "type": "object"
+        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -14590,6 +14662,13 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
+                },
+                "tags": {
+                    "description": "Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",
@@ -16823,6 +16902,23 @@
                     "enum": ["EventsNode", "ActionsNode"],
                     "type": "string"
                 },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType",
+                    "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                },
+                "math_group_type_index": {
+                    "description": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "type": "string"
+                },
+                "math_property": {
+                    "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "type": "string"
+                },
                 "properties": {
                     "description": "Event property filters to narrow which events are counted.",
                     "items": {
@@ -16886,13 +16982,27 @@
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For ratio metrics: denominator source."
                 },
+                "denominator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling",
+                    "description": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped."
+                },
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal",
                     "description": "Whether higher or lower values indicate success."
                 },
+                "ignore_zeros": {
+                    "description": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
+                },
+                "lower_bound_percentile": {
+                    "description": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
                 },
                 "metric_type": {
                     "$ref": "#/definitions/ExperimentMetricType"
@@ -16904,6 +17014,10 @@
                 "numerator": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For ratio metrics: numerator source."
+                },
+                "numerator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling",
+                    "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
                 },
                 "retention_window_end": {
                     "$ref": "#/definitions/integer"
@@ -16932,6 +17046,12 @@
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
                     "type": "string"
+                },
+                "upper_bound_percentile": {
+                    "description": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
                 },
                 "uuid": {
                     "description": "Unique identifier. Auto-generated if omitted.",
@@ -17551,6 +17671,9 @@
                     "type": "string"
                 },
                 "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "metric_type": {
@@ -17570,6 +17693,9 @@
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
                 "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "uuid": {
@@ -17590,6 +17716,9 @@
                     "type": "boolean"
                 },
                 "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "metric_type": {
@@ -17600,6 +17729,9 @@
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
                 "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 }
             },
@@ -17669,9 +17801,15 @@
                     "type": "boolean"
                 },
                 "lower_bound_percentile": {
+                    "description": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "upper_bound_percentile": {
+                    "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 }
             },
@@ -17980,6 +18118,9 @@
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "denominator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
+                },
                 "fingerprint": {
                     "type": "string"
                 },
@@ -18002,6 +18143,9 @@
                 },
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "numerator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
                 },
                 "response": {
                     "type": "object"
@@ -18026,12 +18170,18 @@
                 "denominator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "denominator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
+                },
                 "metric_type": {
                     "const": "ratio",
                     "type": "string"
                 },
                 "numerator": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "numerator_outlier_handling": {
+                    "$ref": "#/definitions/ExperimentMetricOutlierHandling"
                 }
             },
             "required": ["metric_type", "numerator", "denominator"],
@@ -21003,10 +21153,11 @@
                     "type": "boolean"
                 },
                 "parserMode": {
-                    "description": "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "description": "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
                     "enum": [
                         "cpp_only",
                         "cpp_with_rust_shadow",
+                        "cpp_with_rust_py_shadow",
                         "rust_with_cpp_shadow",
                         "rust_only",
                         "rust_py_only",
@@ -21143,6 +21294,13 @@
                 "types": {
                     "description": "Types of returned columns",
                     "items": {},
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
                     "type": "array"
                 }
             },
@@ -28402,6 +28560,13 @@
                             "description": "Types of returned columns",
                             "items": {},
                             "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "required": ["results"],
@@ -29390,6 +29555,14 @@
                         "types": {
                             "items": {},
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "description": "Whether the response was served from the lazy precompute path.",
+                            "type": "boolean"
+                        },
+                        "usedPreAggregatedTables": {
+                            "description": "Whether the response was served from a precomputed table.",
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -29432,6 +29605,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -30195,6 +30371,13 @@
                             "description": "Types of returned columns",
                             "items": {},
                             "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
                         }
                     },
                     "required": ["results"],
@@ -30430,6 +30613,14 @@
                         "types": {
                             "items": {},
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "description": "Whether the response was served from the lazy precompute path.",
+                            "type": "boolean"
+                        },
+                        "usedPreAggregatedTables": {
+                            "description": "Whether the response was served from a precomputed table.",
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -30472,6 +30663,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -38656,6 +38850,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
+                "calendarHeatmapFilter": {
+                    "$ref": "#/definitions/CalendarHeatmapFilter",
+                    "description": "Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise."
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
@@ -39795,6 +39993,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -39856,6 +40058,14 @@
                 "types": {
                     "items": {},
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "description": "Whether the response was served from the lazy precompute path.",
+                    "type": "boolean"
+                },
+                "usedPreAggregatedTables": {
+                    "description": "Whether the response was served from a precomputed table.",
+                    "type": "boolean"
                 }
             },
             "required": ["results"],
@@ -40918,6 +41128,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -40963,6 +41177,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],

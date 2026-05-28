@@ -2,10 +2,16 @@ from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 
-def _upsert_issues(
+def upsert_issues_with_deltas(
     kind: str,
     issues_by_team: dict[int, list[HealthCheckResult]],
-) -> int:
+) -> list[HealthIssue]:
+    """Upsert health issues from a batch detection result.
+
+    Returns the rows that became active in this call (newly created or
+    transitioned from RESOLVED). These are the rows that should trigger
+    a `firing` alert.
+    """
     issues = [
         {
             "team_id": team_id,
@@ -19,11 +25,16 @@ def _upsert_issues(
     return HealthIssue.bulk_upsert(kind, issues)
 
 
-def _resolve_stale_issues(
+def resolve_stale_issues_with_deltas(
     kind: str,
     issues_by_team: dict[int, list[HealthCheckResult]],
     healthy_team_ids: set[int],
-) -> int:
+) -> list[HealthIssue]:
+    """Resolve issues for teams that no longer trip the check.
+
+    Returns the rows that transitioned ACTIVE -> RESOLVED in this call.
+    These are the rows that should trigger a `resolved` alert.
+    """
     all_team_ids = healthy_team_ids | set(issues_by_team.keys())
 
     keep_hashes: dict[int, set[str]] = {}
