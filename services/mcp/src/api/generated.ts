@@ -24064,11 +24064,6 @@ export namespace Schemas {
     }
 
     /**
-     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
-     */
-    export type ScannerResultEventIdMapping = { [key: string]: unknown };
-
-    /**
      * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
      */
     export interface ScannerResult {
@@ -24079,8 +24074,6 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
-      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-      event_id_mapping: ScannerResultEventIdMapping;
     }
 
     export interface ReplayObservation {

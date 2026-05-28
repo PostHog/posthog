@@ -70,13 +70,6 @@ class ScannerResultSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
     )
-    event_id_mapping = serializers.DictField(
-        child=serializers.JSONField(),
-        help_text=(
-            "Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: "
-            "`{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited."
-        ),
-    )
 
 
 class ReplayObservationSerializer(serializers.ModelSerializer):

@@ -29,7 +29,11 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
-from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _extract_segments,
+    _resolve_citations,
+    call_scanner_provider_activity,
+)
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_summarizer_observation import (
@@ -54,9 +58,10 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.scanners.base import ChipSegment, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, SummarizerScanner
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -686,7 +691,7 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert stored.session_id == "sess-1"
         assert stored.team_id == scanner.team_id
-        assert stored.events.columns == ["event_id", "event", "timestamp", "$session_id"]
+        assert stored.events.columns == ["event_uuid", "event", "timestamp", "$session_id"]
         assert stored.metadata.start_time == start
         assert stored.metadata.end_time == end
         assert stored.metadata.duration_seconds == 300.0
@@ -694,22 +699,14 @@ class TestFetchSessionEventsActivity:
         assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
 
     @pytest.mark.asyncio
-    async def test_paginates_through_get_events_until_short_page(self) -> None:
+    async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        page_size = 3000
-
-        full_page_rows = [("$pageview", start, f"sess-{i}") for i in range(page_size)]
-        last_page_rows = [("$pageview", start, "sess-last")]
+        page_rows = [("$pageview", start, f"sess-{i}") for i in range(50)]
         mock_obj = self._make_session_replay_events_mock(
-            metadata,
-            [
-                # First page reports more available; second page (short) reports no more, ending the loop.
-                (["event", "timestamp", "$session_id"], full_page_rows, True),
-                (["event", "timestamp", "$session_id"], last_page_rows, False),
-            ],
+            metadata, [(["event", "timestamp", "$session_id"], page_rows, False)]
         )
 
         with patch(
@@ -717,23 +714,18 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(
-                    observation_id=observation_id,
-                    team_id=scanner.team_id,
-                    session_id="sess-1",
-                )
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
-        assert mock_obj.get_events.call_count == 2
+        assert mock_obj.get_events.call_count == 1
         assert mock_obj.get_events.call_args_list[0].kwargs["page"] == 0
-        assert mock_obj.get_events.call_args_list[1].kwargs["page"] == 1
-        assert mock_obj.get_events.call_args_list[0].kwargs["limit"] == page_size
+        assert mock_obj.get_events.call_args_list[0].kwargs["limit"] == 2000
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
         stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
-        assert len(stored.events.rows) == page_size + 1
+        assert len(stored.events.rows) == 50
 
     @pytest.mark.asyncio
     async def test_is_idempotent_when_redis_already_has_payload(self) -> None:
@@ -995,12 +987,12 @@ class TestFetchSessionEventsActivity:
         stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert len(stored.events.rows) == 2  # rageclick collapsed, $pageview kept
-        assert "uuid" not in stored.events.columns  # not surfaced to the LLM
-        # The mapping records the FIRST uuid seen for each unique event_id.
-        assert len(stored.event_id_mapping) == 2
-        uuids = {c.uuid for c in stored.event_id_mapping.values()}
-        assert "00000000-0000-0000-0000-000000000001" in uuids
-        assert "00000000-0000-0000-0000-000000000004" in uuids
+        assert "event_uuid" in stored.events.columns
+        assert "uuid" not in stored.events.columns
+        assert set(stored.event_timestamps.keys()) == {
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000004",
+        }
 
     @pytest.mark.asyncio
     async def test_session_metadata_round_trips_to_payload(self) -> None:
@@ -1042,15 +1034,15 @@ class TestFetchSessionEventsActivity:
         assert m.events_truncated is False
 
     @pytest.mark.asyncio
-    async def test_marks_events_truncated_when_last_page_has_more(self) -> None:
+    async def test_marks_events_truncated_when_first_page_has_more(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        # All 5 pages report has_more=True — we've used the page budget but more events exist.
-        full_page = [("$pageview", start, f"sess-{i}") for i in range(3000)]
-        pages = [(["event", "timestamp", "$session_id"], full_page, True)] * 5
-        mock_obj = self._make_session_replay_events_mock(metadata, pages)
+        full_page = [("$pageview", start, f"sess-{i}") for i in range(2000)]
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(["event", "timestamp", "$session_id"], full_page, True)]
+        )
 
         with patch(
             "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
@@ -1067,16 +1059,15 @@ class TestFetchSessionEventsActivity:
         assert stored.metadata.events_truncated is True
 
     @pytest.mark.asyncio
-    async def test_does_not_mark_truncated_when_last_page_exactly_fills_budget(self) -> None:
+    async def test_does_not_mark_truncated_when_first_page_exactly_fills_budget(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        # Four full pages with more available, then the fifth full page reports no more.
-        full_page = [("$pageview", start, f"sess-{i}") for i in range(3000)]
-        pages: list[tuple] = [(["event", "timestamp", "$session_id"], full_page, True)] * 4
-        pages.append((["event", "timestamp", "$session_id"], full_page, False))
-        mock_obj = self._make_session_replay_events_mock(metadata, pages)
+        full_page = [("$pageview", start, f"sess-{i}") for i in range(2000)]
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(["event", "timestamp", "$session_id"], full_page, False)]
+        )
 
         with patch(
             "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
@@ -1802,3 +1793,105 @@ class TestWorkflowErrorHelpers:
 
     def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
         assert _root_cause_message(ValueError("bad arg")) == "bad arg"
+
+
+_UUID_A = "0193abcd-1234-7e89-9abc-deadbeefcafe"
+_UUID_B = "0193abcd-1234-7e89-9abc-feedface0000"
+_UUID_HALLUCINATED = "0193abcd-1234-7e89-9abc-aaaaaaaaaaaa"
+
+
+def _monitor_scanner() -> MonitorScanner:
+    return MonitorScanner(prompt="p")
+
+
+def _summarizer_scanner() -> SummarizerScanner:
+    return SummarizerScanner(prompt="p")
+
+
+class TestExtractSegments:
+    def test_inline_citation_splits_into_text_chip_text(self) -> None:
+        text = f"Foo (event_uuid {_UUID_A}) bar"
+        plain, segments = _extract_segments(text, {_UUID_A: 1234})
+        assert plain == "Foo bar"
+        assert segments == [
+            TextSegment(value="Foo"),
+            ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
+            TextSegment(value=" bar"),
+        ]
+
+    def test_multiple_citations_produce_alternating_segments(self) -> None:
+        text = f"A (event_uuid {_UUID_A}) then B (event_uuid {_UUID_B}) then C."
+        plain, segments = _extract_segments(text, {_UUID_A: 100, _UUID_B: 200})
+        assert plain == "A then B then C."
+        assert segments == [
+            TextSegment(value="A"),
+            ChipSegment(uuid=_UUID_A, timestamp_ms=100),
+            TextSegment(value=" then B"),
+            ChipSegment(uuid=_UUID_B, timestamp_ms=200),
+            TextSegment(value=" then C."),
+        ]
+
+    def test_hallucinated_uuid_is_dropped_from_segments(self) -> None:
+        text = f"X (event_uuid {_UUID_A}) Y (event_uuid {_UUID_HALLUCINATED}) Z."
+        plain, segments = _extract_segments(text, {_UUID_A: 50})
+        assert plain == "X Y Z."
+        chips = [s for s in segments if isinstance(s, ChipSegment)]
+        assert [c.uuid for c in chips] == [_UUID_A]
+
+    def test_citation_at_text_start_omits_leading_empty_text_segment(self) -> None:
+        text = f"(event_uuid {_UUID_A}) was the cause."
+        plain, segments = _extract_segments(text, {_UUID_A: 0})
+        assert plain == " was the cause."
+        assert segments == [
+            ChipSegment(uuid=_UUID_A, timestamp_ms=0),
+            TextSegment(value=" was the cause."),
+        ]
+
+    def test_citation_at_text_end_omits_trailing_empty_text_segment(self) -> None:
+        text = f"It ended (event_uuid {_UUID_A})"
+        plain, segments = _extract_segments(text, {_UUID_A: 999})
+        assert plain == "It ended"
+        assert segments == [
+            TextSegment(value="It ended"),
+            ChipSegment(uuid=_UUID_A, timestamp_ms=999),
+        ]
+
+    def test_no_citations_returns_text_unchanged_and_single_segment(self) -> None:
+        text = "Nothing to strip."
+        plain, segments = _extract_segments(text, {_UUID_A: 0})
+        assert plain == text
+        assert segments == [TextSegment(value="Nothing to strip.")]
+
+    def test_uuid_case_is_normalized_in_chip(self) -> None:
+        text = f"Saw (event_uuid {_UUID_A.upper()})."
+        plain, segments = _extract_segments(text, {_UUID_A: 42})
+        assert plain == "Saw."
+        chips = [s for s in segments if isinstance(s, ChipSegment)]
+        assert chips[0].uuid == _UUID_A
+
+
+class TestResolveCitations:
+    def test_populates_field_and_segments(self) -> None:
+        finalized = MonitorOutput(verdict=True, reasoning=f"User retried (event_uuid {_UUID_A}) twice.", confidence=0.9)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 1234})
+        assert isinstance(resolved, MonitorOutput)
+        assert resolved.reasoning == "User retried twice."
+        assert resolved.reasoning_segments == [
+            TextSegment(value="User retried"),
+            ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
+            TextSegment(value=" twice."),
+        ]
+
+    def test_summarizer_uses_summary_field(self) -> None:
+        finalized = SummarizerOutput(title="t", summary=f"They tried X (event_uuid {_UUID_A}).", confidence=0.9)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), {_UUID_A: 7})
+        assert isinstance(resolved, SummarizerOutput)
+        assert resolved.summary == "They tried X."
+        assert any(isinstance(s, ChipSegment) and s.uuid == _UUID_A for s in resolved.summary_segments)
+
+    def test_no_citations_in_text_yields_single_text_segment(self) -> None:
+        finalized = MonitorOutput(verdict=True, reasoning="No citations here.", confidence=0.9)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 0})
+        assert isinstance(resolved, MonitorOutput)
+        assert resolved.reasoning == "No citations here."
+        assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]
