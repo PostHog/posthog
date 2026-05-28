@@ -19,15 +19,6 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AssistantHogQLQuery = z.object({
-    kind: z.literal('HogQLQuery').default('HogQLQuery'),
-    query: z
-        .string()
-        .describe(
-            'SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions.'
-        ),
-})
-
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -111,6 +102,13 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
 ])
+
+const AssistantHogQLQuery = z.object({
+    kind: z.literal('HogQLQuery').default('HogQLQuery'),
+    query: z
+        .string()
+        .describe('SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions.'),
+})
 
 const AssistantDataVisualizationTableSettings = z.object({
     columns: z
