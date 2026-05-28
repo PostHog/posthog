@@ -174,11 +174,10 @@ class DashboardTile(models.Model):
     def clean(self):
         super().clean()
 
-        related_fields = sum(
-            map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile", "widget")])
-        )
+        # Widget exclusivity lands with the 4-way DB check in migration 0009 (PR #60491).
+        related_fields = sum(map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile")]))
         if related_fields != 1:
-            raise ValidationError("Can only set exactly one of insight, text, button_tile, or widget for this tile")
+            raise ValidationError("Can only set exactly one of insight, text, or button_tile for this tile")
 
         if self.insight is None and (
             self.filters_hash is not None
