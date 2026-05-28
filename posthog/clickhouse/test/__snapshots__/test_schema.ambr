@@ -610,6 +610,7 @@
       ai_tags_fixed Array(String),
       ai_tags_freeform Array(String),
       ai_highlighted UInt8,
+      surfacing_score Nullable(Float32),
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -2468,6 +2469,7 @@
       ai_tags_fixed Array(String),
       ai_tags_freeform Array(String),
       ai_highlighted UInt8,
+      surfacing_score Nullable(Float32),
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -4687,6 +4689,8 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- Score in [0, 1] from the surfacing scoring sweep used to surface sessions for downstream summarization
+      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -4717,6 +4721,7 @@
   ,`ai_tags_fixed` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
+  ,`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))
   )
   AS SELECT
   session_id,
@@ -4757,6 +4762,7 @@
   ,groupUniqArrayArray(ai_tags_fixed) as ai_tags_fixed
   ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
+  ,max(surfacing_score) as surfacing_score
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -6008,6 +6014,8 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- Score in [0, 1] from the surfacing scoring sweep used to surface sessions for downstream summarization
+      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -7366,6 +7374,8 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- Score in [0, 1] from the surfacing scoring sweep used to surface sessions for downstream summarization
+      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -9484,6 +9494,8 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- Score in [0, 1] from the surfacing scoring sweep used to surface sessions for downstream summarization
+      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -9991,6 +10003,8 @@
       ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+      -- Score in [0, 1] from the surfacing scoring sweep used to surface sessions for downstream summarization
+      surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''

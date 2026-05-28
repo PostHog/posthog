@@ -74,7 +74,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="survey_targeting_flag",
     )
     linked_insight = models.ForeignKey(
-        "posthog.Insight",
+        "product_analytics.Insight",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

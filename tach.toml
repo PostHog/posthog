@@ -43,10 +43,11 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",
+    "products.product_analytics",
     "products.replay",
     "products.revenue_analytics",
     "products.surveys",
@@ -81,7 +82,7 @@ depends_on = [
     "products.legal_documents",
     "products.links",
     "products.live_debugger",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
     "products.marketing_analytics",
     "products.mcp_store",
@@ -116,6 +117,7 @@ depends_on = [
     "posthog",
     "products.experiments",
     "products.feature_flags",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -124,6 +126,7 @@ path = "products.alerts"
 depends_on = [
     "ee",
     "posthog",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -160,23 +163,14 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.customer_analytics"
-depends_on = [
-    "ee",
-    "posthog",
-    "products.data_warehouse",
-    "products.notebooks",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.dashboards"
 depends_on = [
     "ee",
     "posthog",
     "products.alerts",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_analytics",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -240,7 +234,8 @@ layer = "modules"
 [[modules]]
 path = "products.early_access_features"
 depends_on = [
-    "posthog", "products.feature_flags",
+    "posthog",
+    "products.feature_flags",
 ]
 layer = "modules"
 
@@ -250,6 +245,7 @@ depends_on = [
     "posthog",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.product_analytics",
     "products.signals", "products.warehouse_sources",
 ]
 layer = "modules"
@@ -277,9 +273,10 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.event_definitions",
+    "products.feature_flags",
     "products.notifications",
     "products.product_tours",
-    "products.surveys", "products.feature_flags",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -287,7 +284,13 @@ layer = "modules"
 path = "products.feature_flags"
 depends_on = [
     "ee",
-    "posthog", "products.surveys", "products.dashboards", "products.early_access_features", "products.product_tours", "products.experiments",
+    "posthog",
+    "products.dashboards",
+    "products.early_access_features",
+    "products.experiments",
+    "products.product_analytics",
+    "products.product_tours",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -314,13 +317,22 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.llm_analytics"
+path = "products.ai_observability"
 depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
     "products.workflows",
 ]
+layer = "modules"
+
+[[modules]]
+# Vestigial app — only retains the migration history under the llm_analytics
+# Django app label. All models and code live under products.ai_observability now.
+# Historical migration files reference posthog.models.utils etc.; allowed because
+# they're frozen history, not new code.
+path = "products.llm_analytics"
+depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]
@@ -333,17 +345,6 @@ layer = "modules"
 [[modules]]
 path = "products.managed_migrations"
 depends_on = []
-layer = "modules"
-
-[[modules]]
-path = "products.marketing_analytics"
-depends_on = [
-    "posthog",
-    "products.access_control",
-    "products.actions",
-    "products.analytics_platform",
-    "products.data_warehouse", "products.warehouse_sources",
-]
 layer = "modules"
 
 [[modules]]
@@ -380,6 +381,7 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.product_analytics",
     "products.tasks",
 ]
 layer = "modules"
@@ -414,7 +416,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
 ]
 layer = "modules"
@@ -422,8 +424,11 @@ layer = "modules"
 [[modules]]
 path = "products.product_analytics"
 depends_on = [
+    "ee",
     "posthog",
     "products.actions",
+    "products.alerts",
+    "products.dashboards",
     "products.data_warehouse",
     "products.event_definitions",
 ]
@@ -433,7 +438,8 @@ layer = "modules"
 path = "products.product_tours"
 depends_on = [
     "posthog",
-    "products.surveys", "products.feature_flags",
+    "products.feature_flags",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -482,6 +488,7 @@ path = "products.slack_app"
 depends_on = [
     "posthog",
     "products.dashboards",
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -491,7 +498,32 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
-    "products.product_tours", "products.feature_flags",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.product_tours",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.customer_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.data_warehouse",
+    "products.notebooks",
+    "products.product_analytics",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.marketing_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.access_control",
+    "products.actions",
+    "products.analytics_platform",
+    "products.data_warehouse", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -502,11 +534,12 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
-    "products.llm_analytics",
+    "products.feature_flags",
+    "products.ai_observability",
     "products.mcp_store",
     "products.posthog_ai",
     "products.signals",
-    "products.slack_app", "products.feature_flags",
+    "products.slack_app",
 ]
 layer = "modules"
 
@@ -558,6 +591,7 @@ depends_on = [
 layer = "modules"
 
 # Facade + views: the canonical public surface for all isolated products.
+
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
@@ -569,6 +603,7 @@ from = [
 
 # TODO: Experiments-specific temporary interface
 # Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
+
 [[interfaces]]
 expose = [
     "backend\\.presentation\\.experiments.*",
@@ -579,6 +614,7 @@ from = [
 ]
 
 # user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
+
 [[interfaces]]
 expose = [
     "backend\\.presentation\\.webhooks.*",
@@ -629,6 +665,7 @@ from = [
 # integration import models / dashboard_templates directly. Move those into
 # the product (and through the facade) so this interface can shrink back to
 # the isolated default.
+
 [[interfaces]]
 expose = [
     "backend\\.dashboard_templates.*",
@@ -664,6 +701,7 @@ from = [
 ]
 
 # Legacy leaks — core (posthog/ee) still imports these internals directly.
+
 [[interfaces]]
 expose = [
     "backend\\.models.*",

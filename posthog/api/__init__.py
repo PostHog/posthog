@@ -46,6 +46,34 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.ai_observability.backend.api import (
+    AIObservabilityClusteringRunViewSet,
+    AIObservabilityOfflineEvaluationsViewSet,
+    AIObservabilitySentimentViewSet,
+    AIObservabilitySummarizationViewSet,
+    AIObservabilityTextReprViewSet,
+    AIObservabilityTranslateViewSet,
+    ClusteringConfigViewSet,
+    ClusteringJobViewSet,
+    DatasetItemViewSet,
+    DatasetViewSet,
+    EvaluationConfigViewSet,
+    EvaluationReportViewSet,
+    EvaluationRunViewSet,
+    EvaluationViewSet,
+    LLMEvaluationSummaryViewSet,
+    LLMModelsViewSet,
+    LLMProviderKeyValidationViewSet,
+    LLMProviderKeyViewSet,
+    LLMProxyViewSet,
+    PersonalSpendViewSet,
+    ReviewQueueItemViewSet,
+    ReviewQueueViewSet,
+    ScoreDefinitionViewSet,
+    TaggerViewSet,
+    TraceReviewViewSet,
+)
+from products.ai_observability.backend.api.skills import LLMSkillViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -81,34 +109,6 @@ from products.error_tracking.backend.api import (
     GitProviderFileLinksViewSet,
 )
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
-from products.llm_analytics.backend.api import (
-    ClusteringConfigViewSet,
-    ClusteringJobViewSet,
-    DatasetItemViewSet,
-    DatasetViewSet,
-    EvaluationConfigViewSet,
-    EvaluationReportViewSet,
-    EvaluationRunViewSet,
-    EvaluationViewSet,
-    LLMAnalyticsClusteringRunViewSet,
-    LLMAnalyticsOfflineEvaluationsViewSet,
-    LLMAnalyticsSentimentViewSet,
-    LLMAnalyticsSummarizationViewSet,
-    LLMAnalyticsTextReprViewSet,
-    LLMAnalyticsTranslateViewSet,
-    LLMEvaluationSummaryViewSet,
-    LLMModelsViewSet,
-    LLMProviderKeyValidationViewSet,
-    LLMProviderKeyViewSet,
-    LLMProxyViewSet,
-    PersonalSpendViewSet,
-    ReviewQueueItemViewSet,
-    ReviewQueueViewSet,
-    ScoreDefinitionViewSet,
-    TaggerViewSet,
-    TraceReviewViewSet,
-)
-from products.llm_analytics.backend.api.skills import LLMSkillViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -142,6 +142,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
+from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
@@ -167,7 +168,6 @@ from . import (
     hog_function,
     hog_function_template,
     ingestion_warnings,
-    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -371,6 +371,14 @@ router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Seats (proxied to billing service)
 router.register(r"seats", seats.SeatViewSet, "seats")
+
+# Quota limits (project-scoped — backs the LLM gateway's QuotaResolver)
+projects_router.register(
+    r"quota_limits",
+    QuotaLimitsViewSet,
+    "project_quota_limits",
+    ["team_id"],
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -837,11 +845,12 @@ router.register(r"query_performance_proxy", QueryPerformanceProxyViewSet, "query
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
-from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
 from products.actions.backend.api.action import ActionViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight import InsightViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -1161,6 +1170,12 @@ signal_reports_router.register(
     "environment_signal_report_tasks",
     ["team_id", "report_id"],
 )
+signal_reports_router.register(
+    r"artefacts",
+    signals.SignalReportArtefactViewSet,
+    "environment_signal_report_artefacts",
+    ["team_id", "report_id"],
+)
 projects_router.register(
     r"signals/source_configs",
     signals.SignalSourceConfigViewSet,
@@ -1272,7 +1287,7 @@ register_grandfathered_environment_nested_viewset(
 
 register_grandfathered_environment_nested_viewset(
     r"insight_variables",
-    insight_variable.InsightVariableViewSet,
+    InsightVariableViewSet,
     "environment_insight_variables",
     ["team_id"],
 )
@@ -1502,14 +1517,14 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/text_repr",
-    LLMAnalyticsTextReprViewSet,
+    AIObservabilityTextReprViewSet,
     "environment_llm_analytics_text_repr",
     ["team_id"],
 )
 
 environments_router.register(
     r"llm_analytics/summarization",
-    LLMAnalyticsSummarizationViewSet,
+    AIObservabilitySummarizationViewSet,
     "environment_llm_analytics_summarization",
     ["team_id"],
 )
@@ -1523,7 +1538,7 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/translate",
-    LLMAnalyticsTranslateViewSet,
+    AIObservabilityTranslateViewSet,
     "environment_llm_analytics_translate",
     ["team_id"],
 )
@@ -1558,7 +1573,7 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/clustering_runs",
-    LLMAnalyticsClusteringRunViewSet,
+    AIObservabilityClusteringRunViewSet,
     "environment_llm_analytics_clustering_runs",
     ["team_id"],
 )
@@ -1579,14 +1594,14 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/sentiment",
-    LLMAnalyticsSentimentViewSet,
+    AIObservabilitySentimentViewSet,
     "environment_llm_analytics_sentiment",
     ["team_id"],
 )
 
 environments_router.register(
     r"llm_analytics/offline_evaluations",
-    LLMAnalyticsOfflineEvaluationsViewSet,
+    AIObservabilityOfflineEvaluationsViewSet,
     "environment_llm_analytics_offline_evaluations",
     ["team_id"],
 )

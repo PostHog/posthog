@@ -17,7 +17,6 @@ import type {
     PingRequest,
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
-
 import { randomUUID } from 'node:crypto'
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
@@ -114,7 +113,7 @@ class McpDispatcher {
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
         this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env)
+        this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
@@ -189,13 +188,13 @@ class McpDispatcher {
                 case Method.Initialize:
                     return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
                 case Method.ToolsList:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!))
                 case Method.ToolsCall:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, props, state!))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, state!))
                 case Method.ResourcesList:
                     return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
-                    return jsonRpcResult(id, this.resourceCatalog.readResource(params))
+                    return jsonRpcResult(id, await this.resourceCatalog.readResource(params))
                 case Method.PromptsList:
                     return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
                 case Method.PromptsGet:
@@ -222,12 +221,13 @@ class McpDispatcher {
                 ? requestedVersion
                 : LATEST_PROTOCOL_VERSION
 
+            await this.resourceCatalog.revalidateContextMillResources('initialize')
             const instructions = await this.instructionsBuilder.build(props, state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })
 
-            void trackInitEvent(props, state)
+            void trackInitEvent(state)
 
             return {
                 protocolVersion,

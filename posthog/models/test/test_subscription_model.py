@@ -15,7 +15,6 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.insight import Insight
 from posthog.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
@@ -24,6 +23,8 @@ from posthog.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 @patch.object(settings, "SECRET_KEY", "not-so-secret")

@@ -8,7 +8,6 @@ from structlog import get_logger
 
 from posthog.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
-from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.ph_client import ph_scoped_capture
@@ -18,6 +17,8 @@ from posthog.temporal.subscriptions.llm_change_summary import generate_change_su
 from posthog.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models import CoreMemory
 

@@ -198,7 +198,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -223,27 +223,38 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
-              id: commit-pin
+            - name: Check for pin changes
+              id: check-pin
+              shell: bash
+              run: |
+                  if git diff --quiet pyproject.toml uv.lock; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Commit pin
+              if: steps.check-pin.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  add: |
-                      pyproject.toml
-                      uv.lock
-                  message: 'Use new hogql-parser-rs version'
-                  default_author: github_actions
-                  github_token: ${{ steps.app-token.outputs.token }}
+                  commit_message: 'Use new hogql-parser-rs version'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'pyproject.toml uv.lock'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Verify pin is consistent with the published version
               shell: bash
               env:
-                  PUSHED: ${{ steps.commit-pin.outputs.pushed }}
+                  CHANGED: ${{ steps.check-pin.outputs.changed }}
                   VERSION: ${{ needs.check-version.outputs.local-version }}
               run: |
                   # The commit step is a no-op when pyproject.toml + uv.lock were already
                   # pre-bumped on the branch to the version we just published — fine.
                   # Verify the pin is consistent with the published version (i.e. the
                   # branch is in a deployable state) before declaring success.
-                  if [[ "$PUSHED" != "true" ]]; then
+                  if [[ "$CHANGED" != "true" ]]; then
                     pinned=$(grep -m1 'hogql-parser-rs==' pyproject.toml | sed -E 's/.*hogql-parser-rs==([^"]*).*/\1/')
                     if [[ "$pinned" != "$VERSION" ]]; then
                       echo "::error::hogql-parser-rs published to PyPI as $VERSION but pyproject.toml pin says $pinned."

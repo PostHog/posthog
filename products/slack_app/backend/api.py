@@ -147,14 +147,18 @@ def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str
     return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
 
 
-def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
+def _format_slack_user_info_payload(
+    *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
+) -> dict[str, Any]:
     return {
         "user": {
+            "is_admin": is_admin,
+            "is_owner": is_owner,
             "profile": {
                 "email": email,
                 "display_name": display_name,
                 "real_name": real_name,
-            }
+            },
         }
     }
 
@@ -187,13 +191,16 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
         email=profile.email,
         display_name=profile.display_name,
         real_name=profile.real_name,
+        is_admin=profile.is_admin,
+        is_owner=profile.is_owner,
     )
 
 
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
     from products.slack_app.backend.models import SlackUserProfileCache
 
-    profile = user_info.get("user", {}).get("profile", {})
+    user = user_info.get("user", {})
+    profile = user.get("profile", {})
     try:
         SlackUserProfileCache.objects.update_or_create(
             integration_id=integration.id,
@@ -202,6 +209,8 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
                 "email": profile.get("email") or None,
                 "display_name": profile.get("display_name") or "",
                 "real_name": profile.get("real_name") or "",
+                "is_admin": bool(user.get("is_admin")),
+                "is_owner": bool(user.get("is_owner")),
             },
         )
     except DatabaseError:
@@ -297,6 +306,45 @@ def lookup_slack_user_id_by_email(
     )
     cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
     return slack_user_id
+
+
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Your team has used its monthly PostHog AI credits. "
+    "Top up at https://us.posthog.com/organization/billing to continue."
+)
+
+
+def post_quota_exhausted_denial(
+    *,
+    integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-credits denial message into a Slack thread.
+
+    Called by the workflow's quota gate after it determines the team is over
+    quota. Lives in this module so the Slack-posting helpers and the message
+    text stay co-located; the quota check itself lives in the temporal layer
+    (which is the only side allowed to import ``ee.billing``).
+    """
+    logger.info(
+        "posthog_code_slack_blocked_by_quota",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
 
 
 def _post_slack_user_feedback(
@@ -1034,7 +1082,7 @@ def classify_task_needs_repo(
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
     )
     try:
-        client = get_llm_client("slack-posthog-code")
+        client = get_llm_client("slack_app_routing")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -1074,19 +1122,27 @@ def _posthog_code_flag_subject(integration: Integration) -> User | None:
     return fallback.user if fallback else None
 
 
-def _is_app_mention_edit(event: dict[str, Any]) -> bool:
-    """Detect app_mention events Slack re-fires when a user edits a mentioning message.
+def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
-    Why: Slack sends a fresh app_mention with a new event_id when a previously-posted
-    mention is edited, which gives the resulting Temporal workflow a different
-    workflow_id and bypasses USE_EXISTING — so without this guard the edit kicks off
-    a second task in parallel with the original.
+    - "edit": Slack re-fires app_mention with a new event_id when a previously-posted
+      mention is edited. The new event_id bypasses Temporal workflow dedup, so without
+      this guard the edit spawns a duplicate task alongside the original.
+    - "bot_author": the message was authored by another Slack app/bot. Foreign bots
+      that quote `<@PostHog>` in their text (incident bots, alert relays, our own
+      notifications integration) would trigger reply loops on every re-post.
     """
-    if event.get("edited"):
-        return True
-    if event.get("subtype") == "message_changed":
-        return True
-    return False
+    if event.get("edited") or event.get("subtype") == "message_changed":
+        return "edit"
+    if (
+        event.get("bot_id")
+        or event.get("bot_profile")
+        or event.get("app_id")
+        or event.get("subtype") == "bot_message"
+        or event.get("user") == "USLACKBOT"
+    ):
+        return "bot_author"
+    return None
 
 
 def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
@@ -1189,19 +1245,21 @@ def route_posthog_code_event_to_relevant_region(
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
-            if _is_app_mention_edit(event):
-                logger.info(
-                    "posthog_code_event_edit_ignored",
-                    slack_team_id=slack_team_id,
-                    channel=event.get("channel"),
-                    message_ts=event.get("ts"),
-                )
-                return ROUTE_HANDLED_LOCALLY
             if not _posthog_code_enabled_for_integration(local_match):
                 logger.info(
                     "posthog_code_event_flag_off",
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
+                )
+                return ROUTE_HANDLED_LOCALLY
+            ignore_reason = _app_mention_ignore_reason(event)
+            if ignore_reason:
+                logger.info(
+                    "posthog_code_event_app_mention_ignored",
+                    reason=ignore_reason,
+                    slack_team_id=slack_team_id,
+                    channel=event.get("channel"),
+                    message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
             slack = SlackIntegration(local_match)

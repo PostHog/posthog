@@ -79,6 +79,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
@@ -1650,97 +1651,112 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        query_type = getattr(self.query, "kind", "Other")
-        survey_query_metric_labels = get_survey_query_metric_labels(self.query)
-        query_start = perf_counter()
-        try:
-            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
-            if survey_query_metric_labels:
-                SURVEY_QUERY_EXECUTION_TOTAL.labels(
-                    **survey_query_metric_labels, category="success", error_type="none"
-                ).inc()
-        except Exception as e:
-            QUERY_EXECUTION_TOTAL.labels(
-                query_type=query_type,
-                category=classify_query_error(e),
-                error_type=clickhouse_error_type(e),
-            ).inc()
-            if survey_query_metric_labels:
-                SURVEY_QUERY_EXECUTION_TOTAL.labels(
-                    **survey_query_metric_labels,
+        # Capture data warehouse sync warnings from every HogQL execution that contributes to this
+        # response. Nested calls (one runner invoking another) see the parent's accumulator via
+        # ContextVar and contribute to it; the outermost scope is the one that attaches and resets.
+        with accumulator_scope() as warnings_accumulator:
+            query_type = getattr(self.query, "kind", "Other")
+            survey_query_metric_labels = get_survey_query_metric_labels(self.query)
+            query_start = perf_counter()
+            try:
+                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+                if survey_query_metric_labels:
+                    SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                        **survey_query_metric_labels, category="success", error_type="none"
+                    ).inc()
+            except Exception as e:
+                QUERY_EXECUTION_TOTAL.labels(
+                    query_type=query_type,
                     category=classify_query_error(e),
                     error_type=clickhouse_error_type(e),
                 ).inc()
-            raise
-        finally:
-            query_duration_seconds = perf_counter() - query_start
-            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_seconds)
-            if survey_query_metric_labels:
-                SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
+                if survey_query_metric_labels:
+                    SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                        **survey_query_metric_labels,
+                        category=classify_query_error(e),
+                        error_type=clickhouse_error_type(e),
+                    ).inc()
+                raise
+            finally:
+                query_duration_seconds = perf_counter() - query_start
+                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_seconds)
+                if survey_query_metric_labels:
+                    SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
-        fresh_response_dict: dict[str, Any] = {
-            **query_result.model_dump(),
-            "is_cached": False,
-            "last_refresh": last_refresh,
-            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-            "cache_key": cache_key,
-            "timezone": self.team.timezone,
-            "cache_target_age": target_age,
-        }
+            fresh_response_dict: dict[str, Any] = {
+                **query_result.model_dump(),
+                "is_cached": False,
+                "last_refresh": last_refresh,
+                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                "cache_key": cache_key,
+                "timezone": self.team.timezone,
+                "cache_target_age": target_age,
+            }
 
-        try:
-            query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
-            fresh_response_dict["query_metadata"] = query_metadata
+            try:
+                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+                fresh_response_dict["query_metadata"] = query_metadata
 
-            # Don't log usage for warming queries
-            if not trigger or not trigger.startswith("warming"):
-                log_event_usage_from_query_metadata(
-                    query_metadata,
-                    team_id=self.team.id,
-                    user_id=user.id if user else None,
+                # Don't log usage for warming queries
+                if not trigger or not trigger.startswith("warming"):
+                    log_event_usage_from_query_metadata(
+                        query_metadata,
+                        team_id=self.team.id,
+                        user_id=user.id if user else None,
+                    )
+            except Exception as e:
+                # fail silently if we can't extract query metadata
+                capture_exception(
+                    e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
                 )
-        except Exception as e:
-            # fail silently if we can't extract query metadata
-            capture_exception(e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"})
 
-        if trigger:
-            fresh_response_dict["calculation_trigger"] = trigger
+            if trigger:
+                fresh_response_dict["calculation_trigger"] = trigger
 
-        # Don't cache debug queries with errors and export queries
-        errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
-        has_error = errors is not None and len(errors) > 0
-        if not has_error and self.limit_context != LimitContext.EXPORT:
-            cache_manager.set_cache_data(
-                response=fresh_response_dict,
-                # This would be a possible place to decide to not ever keep this cache warm
-                # Example: Not for super quickly calculated insights
-                # Set target_age to None in that case
-                target_age=target_age,
+            # Attach accumulated warehouse sync warnings before caching, so cache hits replay them.
+            # Guard against response classes that don't carry the field: every analytics response
+            # inherits `warnings` from AnalyticsQueryResponseBase, and several standalone classes
+            # add it explicitly — but a future response class that omits it would otherwise crash
+            # pydantic validation on the extra key (and poison the cache, which set_cache_data has
+            # already written by the time CachedResponse(**dict) raises).
+            if warnings_accumulator and "warnings" in CachedResponse.model_fields:
+                fresh_response_dict["warnings"] = [w.model_dump() for w in warnings_accumulator.values()]
+
+            # Don't cache debug queries with errors and export queries
+            errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
+            has_error = errors is not None and len(errors) > 0
+            if not has_error and self.limit_context != LimitContext.EXPORT:
+                cache_manager.set_cache_data(
+                    response=fresh_response_dict,
+                    # This would be a possible place to decide to not ever keep this cache warm
+                    # Example: Not for super quickly calculated insights
+                    # Set target_age to None in that case
+                    target_age=target_age,
+                )
+
+            query_executed_props = {
+                "insight_id": insight_id,
+                "dashboard_id": dashboard_id,
+                "cache_hit": False,
+                "cache_key": cache_key,
+                "calculation_trigger": trigger,
+                "execution_mode": execution_mode.value,
+                "query_type": query_type,
+                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                "query_duration_ms": query_duration_ms,
+                "has_error": has_error,
+            }
+            report_user_or_team_action(
+                "query executed",
+                query_executed_props,
+                user=user,
+                team=self.team,
+                organization=self.team.organization,
+                analytics_props=analytics_props,
             )
 
-        query_executed_props = {
-            "insight_id": insight_id,
-            "dashboard_id": dashboard_id,
-            "cache_hit": False,
-            "cache_key": cache_key,
-            "calculation_trigger": trigger,
-            "execution_mode": execution_mode.value,
-            "query_type": query_type,
-            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-            "query_duration_ms": query_duration_ms,
-            "has_error": has_error,
-        }
-        report_user_or_team_action(
-            "query executed",
-            query_executed_props,
-            user=user,
-            team=self.team,
-            organization=self.team.organization,
-            analytics_props=analytics_props,
-        )
-
-        return CachedResponse(**fresh_response_dict)
+            return CachedResponse(**fresh_response_dict)
 
     def get_api_queries_concurrency_limit(self):
         """

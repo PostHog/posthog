@@ -1518,7 +1518,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_with_complex_request() -> Result<()> {
+async fn test_feature_enrollment_with_complex_request() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -1560,15 +1560,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
                     "rollout_percentage": 100
                 }
             ],
-            "super_groups": [{
-                "properties": [{
-                    "key": "$feature_enrollment/my-flag",
-                    "type": "person",
-                    "value": ["true"],
-                    "operator": "exact"
-                }],
-                "rollout_percentage": 100
-            }]
+            "feature_enrollment": true
         }
     }]);
 
@@ -2924,14 +2916,14 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
-    // This test specifically addresses the bug where super condition property overrides
+async fn test_feature_enrollment_property_overrides_bug_fix() -> Result<()> {
+    // This test specifically addresses the bug where feature enrollment property overrides
     // were ignored when evaluating flags. The bug was that if you sent:
-    // "$feature_enrollment/discussions": false
-    // as an override, it would be ignored if the flag's super_groups checked for that property.
+    // "$feature_enrollment/discussions-flag": false
+    // as an override, it would be ignored if the flag's feature_enrollment gate checked for that property.
 
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "super_condition_user".to_string();
+    let distinct_id = "feature_enrollment_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -2946,7 +2938,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
             team.id,
             distinct_id.clone(),
             Some(json!({
-                "$feature_enrollment/discussions": true,  // DB has it as true
+                "$feature_enrollment/discussions-flag": true,  // DB has it as true
                 "email": "user@example.com"
             })),
         )
@@ -2968,15 +2960,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
                     "rollout_percentage": 100
                 }
             ],
-            "super_groups": [{
-                "properties": [{
-                    "key": "$feature_enrollment/discussions",
-                    "type": "person",
-                    "value": ["true"],
-                    "operator": "exact"
-                }],
-                "rollout_percentage": 100
-            }]
+            "feature_enrollment": true
         }
     }]);
 
@@ -3002,7 +2986,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
     let json_data = res.json::<Value>().await?;
 
-    // Should be enabled because DB has $feature_enrollment/discussions = true
+    // Should be enabled because DB has $feature_enrollment/discussions-flag = true
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -3025,7 +3009,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
         "token": token,
         "distinct_id": distinct_id,
         "person_properties": {
-            "$feature_enrollment/discussions": false  // Override to false
+            "$feature_enrollment/discussions-flag": false  // Override to false
         }
     });
 
@@ -3064,7 +3048,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
             team.id,
             "another_user".to_string(),
             Some(json!({
-                "$feature_enrollment/discussions": false,  // DB has it as false
+                "$feature_enrollment/discussions-flag": false,  // DB has it as false
                 "email": "another@example.com"
             })),
         )
@@ -3075,7 +3059,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
         "token": token,
         "distinct_id": "another_user",
         "person_properties": {
-            "$feature_enrollment/discussions": true  // Override to true
+            "$feature_enrollment/discussions-flag": true  // Override to true
         }
     });
 
@@ -3246,9 +3230,9 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_with_cohort_filters() -> Result<()> {
+async fn test_feature_enrollment_with_cohort_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "super_condition_cohort_user".to_string();
+    let distinct_id = "feature_enrollment_cohort_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -3263,7 +3247,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
             team.id,
             distinct_id.clone(),
             Some(json!({
-                "$feature_enrollment/discussions": false,  // Super condition property in DB
+                "$feature_enrollment/discussions-with-cohort": false,  // Super condition property in DB
                 "email": "user@example.com"
             })),
         )
@@ -3271,7 +3255,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         .unwrap();
 
     // Create a flag that matches your production example:
-    // - Has a super condition that checks "$feature_enrollment/discussions"
+    // - Has a super condition that checks "$feature_enrollment/discussions-with-cohort"
     // - Has a regular condition with a cohort filter
     let flag_json = json!([{
         "id": 1,
@@ -3292,15 +3276,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
             }],
             "payloads": {},
             "multivariate": null,
-            "super_groups": [{
-                "properties": [{
-                    "key": "$feature_enrollment/discussions",
-                    "type": "person",
-                    "value": ["true"],
-                    "operator": "exact"
-                }],
-                "rollout_percentage": 100
-            }]
+            "feature_enrollment": true
         }
     }]);
 
@@ -3326,7 +3302,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
 
     let json_data = res.json::<Value>().await?;
 
-    // Should be disabled because DB has $feature_enrollment/discussions = false
+    // Should be disabled because DB has $feature_enrollment/discussions-with-cohort = false
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -3348,7 +3324,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         "token": token,
         "distinct_id": distinct_id,
         "person_properties": {
-            "$feature_enrollment/discussions": true  // Override super condition property to true
+            "$feature_enrollment/discussions-with-cohort": true  // Override super condition property to true
         }
     });
 
@@ -3365,8 +3341,8 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let json_override = res_override.json::<Value>().await?;
 
     // This is the key test: the flag should now be enabled because:
-    // 1. Super condition can be evaluated from override (discussions = true)
-    // 2. Super condition matches, so we return early with super_condition_value
+    // 1. Feature enrollment can be evaluated from override (discussions = true)
+    // 2. Enrollment matches, so we return early with super_condition_value
     // 3. We don't even need to evaluate the cohort filter in the regular condition
     assert_json_include!(
         actual: json_override,
@@ -3389,7 +3365,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         "token": token,
         "distinct_id": distinct_id,
         "person_properties": {
-            "$feature_enrollment/discussions": false  // Override to false
+            "$feature_enrollment/discussions-with-cohort": false  // Override to false
         }
     });
 
@@ -6031,8 +6007,7 @@ async fn test_api_cohort_flag_integration() -> Result<()> {
             ],
             "multivariate": null,
             "aggregation_group_type_index": null,
-            "payloads": {},
-            "super_groups": []
+            "payloads": {}
         }
     }]);
 
@@ -6110,8 +6085,7 @@ async fn test_api_cohort_flag_integration_no_match() -> Result<()> {
             ],
             "multivariate": null,
             "aggregation_group_type_index": null,
-            "payloads": {},
-            "super_groups": []
+            "payloads": {}
         }
     }]);
 
