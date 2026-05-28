@@ -48,7 +48,7 @@ Staffed across three parallel workstreams for a team of 2 engineers +
 1 UI loaner. The detailed sequencing/capacity view lives in the
 team note; this is the at-a-glance map.
 
-- **W1 — Lifecycle & Trust (Dyl):** the serial spine. B.1 security
+- **W1 — Lifecycle & Trust (Dylan):** the serial spine. B.1 security
   patch → A → B.1 → B.2 → B.3. One owner because it's all the same
   state-machine + spec surface.
 - **W2 — Capabilities & Concierge (Danilo):** the spine-independent
