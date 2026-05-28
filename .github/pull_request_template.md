@@ -26,7 +26,7 @@
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
-## Checklist
+## Automatic notifications
 
 - [ ] Publish to changelog?
 - [ ] Alert Sales and Marketing teams?
