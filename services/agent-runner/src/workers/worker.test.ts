@@ -247,6 +247,110 @@ describe('Worker', () => {
         expect(after!.state).toBe('failed')
     })
 
+    // The pre-flight inside `runOne` (revision load, secrets, integrations,
+    // sandbox acquire, custom-tool bundle reads) sits under one try/catch.
+    // Each failure mode below would crash the worker loop pre-fix; the
+    // boundary now fails just the one session.
+    type FailureCase = {
+        name: string
+        withCustomTool: boolean
+        overrides: (failingPool: InProcessSandboxPool) => Partial<{
+            resolveSecrets: () => Promise<Record<string, string>>
+            resolveIntegrations: () => Promise<Record<string, never>>
+            sandboxes: InProcessSandboxPool
+        }>
+    }
+    const PREFLIGHT_CASES: FailureCase[] = [
+        {
+            name: 'resolveSecrets throws',
+            withCustomTool: false,
+            overrides: () => ({
+                resolveSecrets: async () => {
+                    throw new Error('decryption failed')
+                },
+            }),
+        },
+        {
+            name: 'resolveIntegrations throws',
+            withCustomTool: false,
+            overrides: () => ({
+                resolveIntegrations: async () => {
+                    throw new Error('integrations service unavailable')
+                },
+            }),
+        },
+        {
+            name: 'sandboxes.acquireForSession throws',
+            withCustomTool: true,
+            overrides: (failingPool) => ({ sandboxes: failingPool }),
+        },
+    ]
+
+    it.each(PREFLIGHT_CASES)(
+        'runOne fails the session (loop survives) when $name',
+        async ({ withCustomTool, overrides }) => {
+            const revisions = new MemoryRevisionStore()
+            const bundle = new MemoryBundleStore()
+            const queue = new MemorySessionQueue()
+            const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
+            const COMPILED = `module.exports = { id: "noop", actions: { default: () => ({}) } }`
+            const rev = await revisions.createRevision({
+                application_id: app.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 's3://x/',
+                spec: AgentSpecSchema.parse({
+                    model: 'faux/test',
+                    tools: withCustomTool ? [{ kind: 'custom', id: 'noop', path: 'tools/noop/' }] : [],
+                }),
+            })
+            await bundle.write(rev.id, 'agent.md', 'x')
+            if (withCustomTool) {
+                await bundle.write(rev.id, 'tools/noop/compiled.js', COMPILED)
+                await bundle.write(rev.id, 'tools/noop/schema.json', '{}')
+            }
+            const session: AgentSession = {
+                id: 'sess-preflight',
+                application_id: app.id,
+                revision_id: rev.id,
+                team_id: 1,
+                external_key: null,
+                state: 'queued',
+                conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+                pending_inputs: [],
+                principal: null,
+                retry_count: 0,
+                usage_total: { ...EMPTY_USAGE_TOTAL },
+                created_at: '2026-05-27',
+                updated_at: '2026-05-27',
+            }
+            await queue.enqueue(session)
+
+            // A pool that always rejects acquireForSession — only matters for
+            // the sandbox-failure case but cheap to construct unconditionally.
+            const failingPool = new InProcessSandboxPool()
+            failingPool.acquireForSession = async () => {
+                throw new Error('sandbox pool exhausted')
+            }
+
+            const worker = new Worker({
+                queue,
+                revisions,
+                bundle,
+                sandboxes: new InProcessSandboxPool(),
+                pi: new FauxPiClient([endTurn('would never run')]),
+                broker: new SecretBroker(),
+                resolveIntegrations: async () => ({}),
+                resolveSecrets: async () => ({}),
+                ...overrides(failingPool),
+            })
+
+            await expect(worker.loop({ iterations: 1, claimTimeoutMs: 10 })).resolves.toBeUndefined()
+            const after = await queue.get('sess-preflight')
+            expect(after!.state).toBe('failed')
+        }
+    )
+
     it('main loop swallows transient claim() errors instead of crashing', async () => {
         const revisions = new MemoryRevisionStore()
         const bundle = new MemoryBundleStore()
