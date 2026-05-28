@@ -9791,7 +9791,7 @@
     declarations: [
       {
         catches: [
-          [
+          (
             "e",
             None,
             {
@@ -9799,7 +9799,7 @@
               end: 19
               start: 17
             }
-          ]
+          )
         ]
         end: 19
         start: 0
@@ -9821,7 +9821,7 @@
     declarations: [
       {
         catches: [
-          [
+          (
             "e",
             "T",
             {
@@ -9829,7 +9829,7 @@
               end: 22
               start: 20
             }
-          ]
+          )
         ]
         end: 22
         start: 0
