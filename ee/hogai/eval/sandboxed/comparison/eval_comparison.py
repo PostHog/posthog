@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+import traceback
 import contextlib
 from pathlib import Path
 
@@ -168,14 +169,28 @@ async def eval_cli_vs_mcp(sandboxed_demo_data, mcp_mode, pytestconfig):
         pytest.skip("comparison runs once; the arm loop controls MCP mode")
 
     results: list[RunResult] = []
+    failures: list[tuple[str, str]] = []
     for arm in ARMS:
         with _configure_arm(arm):
             for task in TASKS:
                 for rep in range(REPS):
+                    label = f"{arm.key}/{task.name}/rep{rep}"
+                    print(f"[comparison] running {label} ...", flush=True)  # noqa: T201
                     try:
-                        results.append(await _run_one(arm, task, rep, sandboxed_demo_data))
-                    except Exception:
-                        logger.exception("Comparison run failed: arm=%s task=%s rep=%d", arm.key, task.name, rep)
+                        run = await _run_one(arm, task, rep, sandboxed_demo_data)
+                        results.append(run)
+                        print(  # noqa: T201
+                            f"[comparison]   ok {label}: tokens={run.total_tokens} "
+                            f"outcome={run.outcome_pass} exit={run.exit_code}",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        failures.append((label, repr(exc)))
+                        print(f"[comparison]   FAILED {label}: {exc!r}\n{traceback.format_exc()}", flush=True)  # noqa: T201
+
+    print(f"\n[comparison] {len(results)} run(s) ok, {len(failures)} failed", flush=True)  # noqa: T201
+    for label, err in failures:
+        print(f"[comparison]   - {label}: {err}", flush=True)  # noqa: T201
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "comparison.md").write_text(render_markdown(results))
