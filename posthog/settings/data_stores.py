@@ -173,6 +173,16 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+    if TEST:
+        # The persons DB schema is built by sqlx (rust/persons_migrations), not Django —
+        # PersonDBRouter.allow_migrate blocks every Django migration on it. Without MIGRATE=False,
+        # pytest-django's setup_databases still walks and records all ~1,300 Django migrations
+        # against the empty persons test database on every shard (~300s of pure overhead, scaling
+        # with migration count), even though the router skips the actual DDL. Skipping migrate here
+        # leaves conftest.run_persons_sqlx_migrations to build the real schema.
+        DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
+        DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
+
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 

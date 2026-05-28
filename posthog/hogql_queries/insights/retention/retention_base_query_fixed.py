@@ -403,7 +403,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_values = None
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            min_timestamp_inner_expr = self.get_first_time_anchor_expr()
+            min_timestamp_inner_expr = self.get_first_time_anchor_expr(self.start_event)
 
             start_event_timestamps = parse_expr(
                 """

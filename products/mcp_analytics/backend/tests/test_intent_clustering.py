@@ -15,10 +15,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 import numpy as np
 from parameterized import parameterized
 
-from posthog.temporal.mcp_analytics.summarize_session_intents.activities import NO_INTENT_RECORDED_FALLBACK
-
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
+    NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
     _medoid_index,
     _routing_entropy,
