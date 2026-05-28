@@ -19,6 +19,7 @@ from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.common.worker import create_worker
 
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.services.local_cli import ENV_LOCAL_CLI_HOST_PATH, LocalCliCache
 from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -224,6 +225,31 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
             os.environ.pop(ENV_LOCAL_SKILLS_HOST_PATH, None)
         else:
             os.environ[ENV_LOCAL_SKILLS_HOST_PATH] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sandboxed_local_cli(_sandbox_settings) -> Generator[Path | None, None, None]:
+    """Build the dev ``posthog-cli`` binary once per session; expose it for bind-mounting.
+
+    Hash-cached, so repeat runs skip the build. Sets ``SANDBOX_LOCAL_CLI_HOST_PATH`` so
+    ``DockerSandbox`` mounts it onto PATH and ``provision_sandbox`` mints a per-case CLI
+    key — both gated on this env var, so they only fire under evals. If the build fails
+    (e.g. no Rust toolchain), the suite still runs; the CLI cases just score 0.
+    """
+    previous = os.environ.get(ENV_LOCAL_CLI_HOST_PATH)
+    binary: Path | None = None
+    try:
+        binary = LocalCliCache().ensure_built()
+        os.environ[ENV_LOCAL_CLI_HOST_PATH] = str(binary)
+    except Exception as exc:
+        logger.warning("Could not build posthog-cli for evals; CLI cases will be skipped/zero: %s", exc)
+    try:
+        yield binary
+    finally:
+        if previous is None:
+            os.environ.pop(ENV_LOCAL_CLI_HOST_PATH, None)
+        else:
+            os.environ[ENV_LOCAL_CLI_HOST_PATH] = previous
 
 
 @pytest.fixture(scope="session", autouse=True)

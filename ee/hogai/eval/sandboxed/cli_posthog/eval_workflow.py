@@ -4,14 +4,15 @@ Where ``cli_mcp`` exercises the MCP server's ``exec`` (CLI-*like*) tool, this su
 exercises the actual ``posthog-cli`` binary: the agent discovers and runs commands
 through ``Bash`` (``posthog-cli <category> <verb> [--flags] [--json ...]``).
 
-PREREQUISITE (not yet wired): the sandbox image must ship the ``posthog-cli`` binary
-on PATH, authenticated against the per-case demo project (``POSTHOG_CLI_API_KEY`` /
-``POSTHOG_CLI_PROJECT_ID`` / ``POSTHOG_CLI_HOST``), with the steering block installed
-(``posthog-cli init``). Until that is in place these cases will run but the agent has
-no binary to call, so they will score 0. The harness, cases, and scorers are complete;
-only the sandbox provisioning is outstanding.
+Provisioning (wired, eval-gated): the ``_sandboxed_local_cli`` conftest fixture builds
+the dev binary from the working tree and sets ``SANDBOX_LOCAL_CLI_HOST_PATH``; on that
+signal ``DockerSandbox`` bind-mounts it onto PATH and ``provision_sandbox`` mints a
+per-case personal API key, injecting ``POSTHOG_CLI_API_KEY`` / ``POSTHOG_CLI_PROJECT_ID``
+/ ``POSTHOG_CLI_HOST``. All of this is inert in production (the env var is never set).
+The agent is told to use the CLI by the prompt, so the steering block (``posthog-cli
+init``) is not required for these cases.
 
-To run a single eval (once the sandbox ships the binary):
+To run a single eval:
     pytest ee/hogai/eval/sandboxed/cli_posthog/eval_workflow.py::eval_help_discovery
 """
 

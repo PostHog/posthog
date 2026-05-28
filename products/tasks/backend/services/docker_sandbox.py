@@ -38,6 +38,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
+from .local_cli import ENV_LOCAL_CLI_HOST_PATH
 from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
     WORKING_DIR,
@@ -331,6 +332,13 @@ class DockerSandbox(SandboxBase):
                         continue
                     container_skill = f"/scripts/plugins/posthog/skills/{entry}"
                     volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
+
+            # Opt-in bind-mount for the dev posthog-cli binary (set by the eval harness),
+            # onto a PATH directory already in the base image. Lets evals exercise the
+            # working-tree CLI without baking it into the image. Inert in production.
+            local_cli_host = os.environ.get(ENV_LOCAL_CLI_HOST_PATH)
+            if local_cli_host and os.path.isfile(local_cli_host):
+                volume_args.extend(["-v", f"{local_cli_host}:/opt/posthog/bin/posthog-cli:ro"])
 
             cap_args = ["--cap-add", "SYS_PTRACE"]
             if config.template == SandboxTemplate.PI_BASE:

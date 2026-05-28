@@ -1,3 +1,4 @@
+import os
 import shlex
 import logging
 from dataclasses import dataclass
@@ -6,11 +7,15 @@ from django.conf import settings
 
 from temporalio import activity
 
+from posthog.models import PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.local_cli import ENV_LOCAL_CLI_HOST_PATH
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
@@ -136,6 +141,32 @@ def _get_image_source_label(
     return "base_image", "published sandbox base image"
 
 
+def _maybe_posthog_cli_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
+    """Eval/local only: when the dev ``posthog-cli`` binary is mounted into the sandbox
+    (``SANDBOX_LOCAL_CLI_HOST_PATH`` is set by the eval harness), mint a per-case personal
+    API key so the CLI can authenticate to this case's freshly-created team. Inert in
+    production, where the env var is never set and no binary is ever mounted.
+    """
+    if not os.environ.get(ENV_LOCAL_CLI_HOST_PATH):
+        return {}
+    user = task.created_by
+    if user is None:
+        return {}
+    value = generate_random_token_personal()
+    PersonalAPIKey.objects.create(
+        user=user,
+        label=f"eval-posthog-cli-team-{ctx.team_id}",
+        secure_value=hash_key_value(value),
+        mask_value=mask_key_value(value),
+        scopes=["*"],
+    )
+    return {
+        "POSTHOG_CLI_API_KEY": value,
+        "POSTHOG_CLI_PROJECT_ID": str(ctx.team_id),
+        "POSTHOG_CLI_HOST": get_sandbox_api_url(),
+    }
+
+
 def _build_environment_variables(
     ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
 ) -> dict[str, str]:
@@ -185,6 +216,8 @@ def _build_environment_variables(
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
     elif run_state.handoff_resumed:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
+
+    environment_variables.update(_maybe_posthog_cli_env_vars(ctx, task))
 
     return environment_variables
 
