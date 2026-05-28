@@ -5,6 +5,8 @@ import { IconCopy, IconEye, IconPencil, IconPlus, IconSearch, IconTrash } from '
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { XRayHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -175,6 +177,16 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             <VisionQuotaMeter />
+
+            <ProductIntroduction
+                productName="Replay vision"
+                productKey={ProductKey.REPLAY_VISION}
+                thingName="scanner"
+                description="Replay vision runs scanners over completed sessions on a schedule or on demand, using session recordings and events to do anything you can describe — categorize sessions, monitor user behavior, surface frustration or confusion, flag bugs, score intent, or detect any custom pattern. Results land as queryable events you can build insights, alerts, and cohorts on."
+                secondaryDescription="You can get started using a template, or create a fully custom scanner yourself."
+                customHog={XRayHog}
+                action={() => push(urls.replayVision('new'))}
+            />
 
             <SceneSection
                 title="Scanners"
