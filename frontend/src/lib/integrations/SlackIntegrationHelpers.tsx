@@ -133,14 +133,18 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onInputChange={(val) => {
                     if (val) {
                         // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
-                        // resolve via direct lookup. When the typed text plausibly is a channel ID,
-                        // skip the broader name-search call too.
+                        // resolve via direct lookup. ID-shaped input fires only the direct lookup;
+                        // anything else fires only the search. Both branches return so the master
+                        // block below — kept verbatim for merge safety — only ever runs for empty
+                        // val, where it falls through to the else clause.
                         const idCandidate = val.trim().toUpperCase()
                         if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                             loadSlackChannelById(idCandidate)
-                            setLocalValue(val)
-                            return
+                        } else {
+                            loadAllSlackChannels(false, val)
                         }
+                        setLocalValue(val)
+                        return
                     }
                     if (val) {
                         loadSlackChannelById(val)
