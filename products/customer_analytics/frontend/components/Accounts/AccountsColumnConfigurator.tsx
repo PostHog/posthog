@@ -1,3 +1,5 @@
+import './AccountsColumnConfigurator.scss'
+
 import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -5,14 +7,18 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { IconChevronDown, IconOpenInNew, IconPencil, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonMenu, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 
 import { AccountColumnGroup, AccountColumnGroupKey, accountsLogic } from './accountsLogic'
+
+const HOGQL_DOCS_URL = 'https://posthog.com/docs/hogql'
 
 export function AccountsColumnConfigurator(): JSX.Element {
     const { columnConfiguratorVisible } = useValues(accountsLogic)
@@ -42,9 +48,9 @@ function AccountsColumnConfiguratorModal({
     onClose: () => void
 }): JSX.Element {
     const { selectColumns, accountsColumnGroups, databaseLoading } = useValues(accountsLogic)
-    const { saveColumns, moveColumn, resetColumns, setSelectColumns } = useActions(accountsLogic)
+    const { saveColumns, moveColumn, resetColumns, setSelectColumns, unselectColumn } = useActions(accountsLogic)
 
-    const editColumn = (column: string, index: number): void => {
+    const onEditColumn = (column: string, index: number): void => {
         const next = window.prompt('Edit column', column)
         if (next !== null && next !== '') {
             setSelectColumns(selectColumns.map((c, i) => (i === index ? next : c)))
@@ -59,7 +65,7 @@ function AccountsColumnConfiguratorModal({
             className="w-full max-w-248"
             footer={
                 <>
-                    <div className="flex-1">
+                    <div className="flex-1 flex flex-wrap items-center gap-2">
                         <LemonButton type="secondary" onClick={resetColumns}>
                             Reset to defaults
                         </LemonButton>
@@ -80,44 +86,57 @@ function AccountsColumnConfiguratorModal({
                 </>
             }
         >
-            <div className="flex flex-col gap-4">
-                <div className="w-full">
-                    <h4 className="secondary uppercase text-secondary">
-                        Visible columns ({selectColumns.length}) - Drag to reorder
-                    </h4>
-                    <DndContext
-                        onDragEnd={({ active, over }) => {
-                            if (over && active.id !== over.id) {
-                                moveColumn(
-                                    selectColumns.indexOf(active.id.toString()),
-                                    selectColumns.indexOf(over.id.toString())
-                                )
-                            }
-                        }}
-                        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-                    >
-                        <SortableContext items={selectColumns} strategy={verticalListSortingStrategy}>
-                            {selectColumns.map((column, index) => (
-                                <SelectedAccountColumn
-                                    key={column}
-                                    column={column}
-                                    onEdit={() => editColumn(column, index)}
-                                />
-                            ))}
-                        </SortableContext>
-                    </DndContext>
-                </div>
-                <div className="w-full">
-                    <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                    <AvailableColumnsPicker groups={accountsColumnGroups} loading={databaseLoading} />
+            <div className="AccountsColumnConfiguratorModal">
+                <div className="flex flex-col gap-4">
+                    <div className="w-full">
+                        <h4 className="secondary uppercase text-secondary">
+                            Visible columns ({selectColumns.length}) - Drag to reorder
+                        </h4>
+                        <DndContext
+                            onDragEnd={({ active, over }) => {
+                                if (over && active.id !== over.id) {
+                                    moveColumn(
+                                        selectColumns.indexOf(active.id.toString()),
+                                        selectColumns.indexOf(over.id.toString())
+                                    )
+                                }
+                            }}
+                            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        >
+                            <SortableContext items={selectColumns} strategy={verticalListSortingStrategy}>
+                                {selectColumns.map((column, index) => (
+                                    <SelectedAccountColumn
+                                        key={column}
+                                        column={column}
+                                        dataIndex={index}
+                                        onEdit={onEditColumn}
+                                        onRemove={unselectColumn}
+                                    />
+                                ))}
+                            </SortableContext>
+                        </DndContext>
+                    </div>
+                    <div className="w-full">
+                        <h4 className="secondary uppercase text-secondary">Available columns</h4>
+                        <AvailableColumnsPicker groups={accountsColumnGroups} loading={databaseLoading} />
+                    </div>
                 </div>
             </div>
         </LemonModal>
     )
 }
 
-function SelectedAccountColumn({ column, onEdit }: { column: string; onEdit: () => void }): JSX.Element {
-    const { unselectColumn } = useActions(accountsLogic)
+function SelectedAccountColumn({
+    column,
+    dataIndex,
+    onEdit,
+    onRemove,
+}: {
+    column: string
+    dataIndex: number
+    onEdit: (column: string, index: number) => void
+    onRemove: (column: string) => void
+}): JSX.Element {
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const label = extractDisplayLabel(column)
 
@@ -127,21 +146,26 @@ function SelectedAccountColumn({ column, onEdit }: { column: string; onEdit: () 
             // eslint-disable-next-line react/forbid-dom-props
             style={{ transform: CSS.Transform.toString(transform), transition }}
             {...attributes}
-            className="flex items-center gap-2 px-2 py-1 border-b border-border last:border-b-0"
-            data-attr={`accounts-column-row-${label}`}
         >
-            <span {...listeners} className="cursor-grab text-secondary flex items-center">
-                <SortableDragIcon />
-            </span>
-            <span className="flex-1 truncate font-mono text-sm" title={column}>
-                {label}
-            </span>
-            <LemonButton size="small" onClick={onEdit} tooltip="Edit expression">
-                <IconPencil />
-            </LemonButton>
-            <LemonButton size="small" status="danger" onClick={() => unselectColumn(column)} tooltip="Remove column">
-                <IconX />
-            </LemonButton>
+            <div className="SelectedColumn" data-attr={`accounts-column-row-${label}`}>
+                <span {...listeners} className="drag-handle">
+                    <SortableDragIcon />
+                </span>
+                <span className="ml-1 truncate font-mono text-sm" title={column}>
+                    {label}
+                </span>
+                <div className="flex-1" />
+                <Tooltip title="Edit">
+                    <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
+                        <IconPencil data-attr="column-display-item-edit-icon" />
+                    </LemonButton>
+                </Tooltip>
+                <Tooltip title="Remove">
+                    <LemonButton onClick={() => onRemove(column)} status="danger" size="small">
+                        <IconX data-attr="column-display-item-remove-icon" />
+                    </LemonButton>
+                </Tooltip>
+            </div>
         </div>
     )
 }
@@ -164,15 +188,6 @@ function AvailableColumnsPicker({
         [groups, activeGroupKey]
     )
 
-    const selectOptions = useMemo(
-        () =>
-            groups.map((g) => ({
-                value: g.key,
-                label: g.label,
-            })),
-        [groups]
-    )
-
     const filteredOptions = useMemo(() => {
         if (!activeGroup || activeGroup.isFreeform) {
             return []
@@ -186,83 +201,155 @@ function AvailableColumnsPicker({
 
     const isSelected = (expression: string): boolean => selectColumns.includes(expression)
 
+    const addSqlExpression = (): void => {
+        const expr = sqlInput.trim()
+        if (expr) {
+            selectColumn(expr)
+            setSqlInput('')
+        }
+    }
+
+    const searchPlaceholder = activeGroup?.isFreeform
+        ? 'Use the SQL expression panel below'
+        : `Search ${activeGroup?.label.toLowerCase() ?? 'columns'}`
+
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-                <LemonInput
-                    placeholder={activeGroup?.isFreeform ? 'SQL expression mode' : 'Search columns'}
-                    value={search}
-                    onChange={setSearch}
-                    disabled={activeGroup?.isFreeform}
-                    fullWidth
-                    data-attr="accounts-columns-search"
-                />
-                <LemonSelect<AccountColumnGroupKey>
-                    value={activeGroupKey}
-                    options={selectOptions}
-                    onChange={(value) => value && setActiveGroupKey(value)}
-                    data-attr="accounts-columns-group"
+            <LemonInput
+                type="search"
+                placeholder={searchPlaceholder}
+                value={search}
+                onChange={setSearch}
+                disabled={activeGroup?.isFreeform}
+                fullWidth
+                data-attr="accounts-columns-search"
+                suffix={
+                    <CategoryPicker
+                        groups={groups}
+                        activeKey={activeGroupKey}
+                        onChange={(key) => {
+                            setActiveGroupKey(key)
+                            setSearch('')
+                        }}
+                    />
+                }
+            />
+            {activeGroup?.isFreeform ? (
+                <SqlExpressionPanel value={sqlInput} onChange={setSqlInput} onAdd={addSqlExpression} />
+            ) : (
+                <div className="AvailableColumnsList border border-border rounded">
+                    {loading && filteredOptions.length === 0 ? (
+                        <div className="p-3 text-secondary">Loading schema…</div>
+                    ) : filteredOptions.length === 0 ? (
+                        <div className="p-3 text-secondary">
+                            {search.trim() ? 'No matching columns' : 'No columns available'}
+                        </div>
+                    ) : (
+                        <ul className="m-0 p-0 list-none">
+                            {filteredOptions.map((option) => {
+                                const already = isSelected(option.expression)
+                                return (
+                                    <li key={option.expression} className="border-b border-border last:border-b-0">
+                                        <LemonButton
+                                            fullWidth
+                                            size="small"
+                                            onClick={() => !already && selectColumn(option.expression)}
+                                            disabledReason={already ? 'Already added' : undefined}
+                                            data-attr={`accounts-column-option-${option.name}`}
+                                        >
+                                            <span className="flex-1 font-mono">{option.name}</span>
+                                            {option.type ? (
+                                                <span className="ml-2 text-xs text-secondary">{option.type}</span>
+                                            ) : null}
+                                        </LemonButton>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function CategoryPicker({
+    groups,
+    activeKey,
+    onChange,
+}: {
+    groups: AccountColumnGroup[]
+    activeKey: AccountColumnGroupKey
+    onChange: (key: AccountColumnGroupKey) => void
+}): JSX.Element {
+    const activeLabel = groups.find((g) => g.key === activeKey)?.label ?? activeKey
+
+    return (
+        <LemonMenu
+            items={groups.map((group) => ({
+                key: group.key,
+                label: group.label,
+                active: group.key === activeKey,
+                'data-attr': `accounts-columns-group-item-${group.key}`,
+                onClick: () => onChange(group.key),
+            }))}
+            placement="bottom-end"
+            className={CLICK_OUTSIDE_BLOCK_CLASS}
+        >
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                sideIcon={<IconChevronDown />}
+                data-attr="accounts-columns-group"
+                className={CLICK_OUTSIDE_BLOCK_CLASS}
+            >
+                {activeLabel}
+            </LemonButton>
+        </LemonMenu>
+    )
+}
+
+function SqlExpressionPanel({
+    value,
+    onChange,
+    onAdd,
+}: {
+    value: string
+    onChange: (next: string) => void
+    onAdd: () => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2 p-3 border border-border rounded">
+            <div>
+                <h4 className="secondary uppercase text-secondary mb-1">SQL expression</h4>
+                <LemonTextArea
+                    value={value}
+                    onChange={onChange}
+                    placeholder="JSONExtractString(properties, 'industry') AS industry"
+                    minRows={3}
+                    data-attr="accounts-columns-sql"
                 />
             </div>
-            <div className="h-[min(360px,50vh)] overflow-y-auto border border-border rounded">
-                {activeGroup?.isFreeform ? (
-                    <div className="flex flex-col gap-2 p-3">
-                        <LemonTextArea
-                            value={sqlInput}
-                            onChange={setSqlInput}
-                            placeholder="JSONExtractString(properties, 'industry') AS industry"
-                            minRows={3}
-                            data-attr="accounts-columns-sql"
-                        />
-                        <div>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                disabledReason={!sqlInput.trim() ? 'Enter a HogQL expression' : undefined}
-                                onClick={() => {
-                                    const expr = sqlInput.trim()
-                                    if (expr) {
-                                        selectColumn(expr)
-                                        setSqlInput('')
-                                    }
-                                }}
-                            >
-                                Add column
-                            </LemonButton>
-                        </div>
-                    </div>
-                ) : loading && filteredOptions.length === 0 ? (
-                    <div className="p-3 text-secondary">Loading schema…</div>
-                ) : filteredOptions.length === 0 ? (
-                    <div className="p-3 text-secondary">
-                        {search.trim() ? 'No matching columns' : 'No columns available'}
-                    </div>
-                ) : (
-                    <ul className="m-0 p-0 list-none">
-                        {filteredOptions.map((option) => {
-                            const already = isSelected(option.expression)
-                            return (
-                                <li
-                                    key={option.expression}
-                                    className="border-b border-border last:border-b-0"
-                                >
-                                    <LemonButton
-                                        fullWidth
-                                        size="small"
-                                        onClick={() => !already && selectColumn(option.expression)}
-                                        disabledReason={already ? 'Already added' : undefined}
-                                        data-attr={`accounts-column-option-${option.name}`}
-                                    >
-                                        <span className="flex-1 font-mono">{option.name}</span>
-                                        {option.type ? (
-                                            <span className="ml-2 text-xs text-secondary">{option.type}</span>
-                                        ) : null}
-                                    </LemonButton>
-                                </li>
-                            )
-                        })}
-                    </ul>
-                )}
+            <div className="text-secondary text-xs whitespace-pre">
+                {`Enter SQL expression, such as:
+- properties.industry
+- toInt(properties.\`Long Field Name\`) * 10
+- concat(name, ' (', external_id, ')')`}
+            </div>
+            <LemonButton
+                type="primary"
+                fullWidth
+                center
+                disabledReason={!value.trim() ? 'Enter a HogQL expression' : undefined}
+                onClick={onAdd}
+                data-attr="accounts-columns-sql-add"
+            >
+                Add SQL expression
+            </LemonButton>
+            <div className="flex justify-end">
+                <Link to={HOGQL_DOCS_URL} target="_blank" className="text-xs flex items-center gap-1">
+                    Learn more about SQL <IconOpenInNew />
+                </Link>
             </div>
         </div>
     )

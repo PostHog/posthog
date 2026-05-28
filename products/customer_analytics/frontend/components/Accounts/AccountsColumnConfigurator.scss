@@ -1,0 +1,28 @@
+.AccountsColumnConfiguratorModal {
+    .SelectedColumn {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0 0.5rem;
+        margin: calc(var(--radius) / 2) 0;
+        overflow: hidden;
+        background-color: var(--color-accent-highlight-secondary);
+        border-radius: var(--radius);
+    }
+
+    .drag-handle {
+        padding-right: 0.25rem;
+        font-size: 1.2em;
+        color: var(--text-3000);
+        cursor: move;
+
+        svg {
+            transform: rotate(90deg);
+        }
+    }
+
+    .AvailableColumnsList {
+        max-height: min(360px, 50vh);
+        overflow-y: auto;
+    }
+}
