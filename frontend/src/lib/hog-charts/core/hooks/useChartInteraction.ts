@@ -122,6 +122,7 @@ export function useChartInteraction<Meta = unknown>({
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the most
     // recent commit, so an effect-deferred ref is correct here.
     const hoverIndexRef = useLatest(hoverIndex)
+    const hoverPositionRef = useLatest(hoverPosition)
 
     // Precompute the (coord, index) lookup table once per (labels, scale) change.
     const labelPositions = useMemo(
@@ -216,12 +217,24 @@ export function useChartInteraction<Meta = unknown>({
         }
 
         if (onPointClick) {
-            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue)
+            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, hoverPositionRef.current)
             if (clickData) {
                 onPointClick(clickData)
             }
         }
-    }, [onPointClick, series, labels, resolveValue, pinnable, tooltipCtx, isPinned, clearTooltip, pin, hoverIndexRef])
+    }, [
+        onPointClick,
+        series,
+        labels,
+        resolveValue,
+        pinnable,
+        tooltipCtx,
+        isPinned,
+        clearTooltip,
+        pin,
+        hoverIndexRef,
+        hoverPositionRef,
+    ])
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 

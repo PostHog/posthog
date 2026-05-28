@@ -40,7 +40,7 @@ import type {
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { BarTooltip } from './BarTooltip'
-import { cursorOutsideBarFillExtent, seriesKeysAtCursor } from './utils/bars-under-cursor'
+import { cursorOutsideBarFillExtent, seriesKeysAtCursor, strictSeriesKeyAtCursor } from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
@@ -115,9 +115,14 @@ function BarChartInner<Meta = unknown>({
         xTickFormatter,
         divergingStack = false,
         maxBandRange,
+        bandPadding,
         barShadow,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
+
+    // Stashed inside createScales so the onPointClick wrapper can read fresh d3 scales when
+    // resolving the segment under the cursor.
+    const d3ScalesRef = useRef<BarChartPrivate['__barChart'] | null>(null)
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
@@ -188,7 +193,9 @@ function BarChartInner<Meta = unknown>({
                 axisOrientation,
                 stackedSeries,
                 maxBandRange,
+                bandPadding,
             })
+            d3ScalesRef.current = d3Scales
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
@@ -238,7 +245,7 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange]
+        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange, bandPadding]
     )
 
     const drawStatic = useCallback(
@@ -462,6 +469,47 @@ function BarChartInner<Meta = unknown>({
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
+    // Stacked/percent segments share a band slot — rewrite `clickData.series` to the
+    // segment under the cursor so drop-off fillers and per-breakdown segments route correctly.
+    const wrappedOnPointClick = useMemo<((data: PointClickData<Meta>) => void) | undefined>(() => {
+        if (!onPointClick) {
+            return undefined
+        }
+        if (barLayout === 'grouped') {
+            return onPointClick
+        }
+        return (clickData) => {
+            const { cursor, label, dataIndex, crossSeriesData } = clickData
+            const d3Scales = d3ScalesRef.current
+            if (!cursor || !d3Scales) {
+                onPointClick(clickData)
+                return
+            }
+            const hitKey = strictSeriesKeyAtCursor({
+                series: crossSeriesData.map((d) => d.series),
+                label,
+                dataIndex,
+                cursor,
+                scales: d3Scales,
+                layout: barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+            })
+            const hit = hitKey ? crossSeriesData.find((d) => d.series.key === hitKey) : null
+            if (!hit) {
+                onPointClick(clickData)
+                return
+            }
+            onPointClick({
+                ...clickData,
+                series: hit.series,
+                value: hit.value,
+                seriesIndex: series.indexOf(hit.series),
+            })
+        }
+    }, [onPointClick, barLayout, isHorizontal, stackedData, topStackedKeyByAxis, series])
+
     return (
         <Chart
             series={series}
@@ -481,7 +529,7 @@ function BarChartInner<Meta = unknown>({
                     isHorizontal={isHorizontal}
                 />
             )}
-            onPointClick={onPointClick}
+            onPointClick={wrappedOnPointClick}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}

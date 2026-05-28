@@ -100,6 +100,8 @@ export interface PointClickData<Meta = unknown> {
     label: string
     /** Values from all visible series at this x-axis index, for cross-series comparisons. */
     crossSeriesData: { series: Series<Meta>; value: number }[]
+    /** Cursor position in canvas pixels at click time, or `null` if unavailable. */
+    cursor: { x: number; y: number } | null
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -218,6 +220,9 @@ export interface BarChartConfig extends ChartConfig {
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while
      *  gridlines still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
+    /** Inner padding of the band scale (0–1). Defaults to 0.2. `paddingOuter` is set to
+     *  `bandPadding / 2`, keeping `step = range / N`. */
+    bandPadding?: number
     /** Drop shadow under each bar so it reads as layered over a `barTrack`. */
     barShadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
 }

@@ -221,7 +221,8 @@ describe('BarChart', () => {
             const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
-            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
+            // Stacked/percent order is cursor-resolved, so assert membership not declaration order.
+            expect(new Set(tooltip.seriesData.map((s) => s.series.key))).toEqual(new Set(expectedKeys))
         })
 
         it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
@@ -234,6 +235,23 @@ describe('BarChart', () => {
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.series.a.value).toBe(20)
             expect(tooltip.series.b.value).toBe(15)
+        })
+
+        it('stacked tooltip bubbles the cursor-resolved segment to seriesData[0]', async () => {
+            // At index 1: a=20 (bottom of stack), b=15 (on top). Mid-plot lands in b's range.
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            chart.hoverAtIndex(1)
+            const tipB = await chart.waitForTooltip()
+            expect(tipB.seriesData[0].series.key).toBe('b')
+            const step = dimensions.plotWidth / LABELS.length
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1.5,
+                clientY: dimensions.plotTop + dimensions.plotHeight - 8,
+            })
+            const tipA = await chart.waitForTooltip()
+            expect(tipA.seriesData[0].series.key).toBe('a')
         })
 
         it('percent tooltip shows each series own fraction, not the cumulative fraction', async () => {

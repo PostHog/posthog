@@ -5,7 +5,7 @@ import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
 import type { TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
-import { seriesKeysAtCursor } from './utils/bars-under-cursor'
+import { seriesKeysAtCursor, strictSeriesKeyAtCursor } from './utils/bars-under-cursor'
 
 export interface BarTooltipProps<Meta> {
     ctx: TooltipContext<Meta>
@@ -36,8 +36,8 @@ export function BarTooltip<Meta>({
     return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
 }
 
-/** Returns null when the cursor is in a gap (no bar under it on the band axis) so the
- *  tooltip frame doesn't render around an empty body. */
+/** Returns null when no bar sits under the cursor on the band axis. For stacked/percent
+ *  layouts the value-axis-resolved segment is bubbled to `seriesData[0]`. */
 function narrowSeriesByCursor<Meta>(
     ctx: TooltipContext<Meta>,
     scales: BarScaleSet,
@@ -50,8 +50,9 @@ function narrowSeriesByCursor<Meta>(
     if (!cursor) {
         return ctx
     }
-    const hits = seriesKeysAtCursor({
-        series: ctx.seriesData.map((entry) => entry.series),
+    const seriesList = ctx.seriesData.map((entry) => entry.series)
+    const cursorArgs = {
+        series: seriesList,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
         cursor,
@@ -60,9 +61,20 @@ function narrowSeriesByCursor<Meta>(
         isHorizontal,
         stackedData,
         topStackedKeyByAxis,
-    })
+    }
+    const hits = seriesKeysAtCursor(cursorArgs)
     if (hits.size === 0) {
         return null
     }
-    return { ...ctx, seriesData: ctx.seriesData.filter((entry) => hits.has(entry.series.key)) }
+    let filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
+    if ((layout === 'stacked' || layout === 'percent') && filtered.length > 1) {
+        const strictHit = strictSeriesKeyAtCursor(cursorArgs)
+        if (strictHit) {
+            const idx = filtered.findIndex((entry) => entry.series.key === strictHit)
+            if (idx > 0) {
+                filtered = [filtered[idx], ...filtered.slice(0, idx), ...filtered.slice(idx + 1)]
+            }
+        }
+    }
+    return { ...ctx, seriesData: filtered }
 }

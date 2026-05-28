@@ -18,6 +18,12 @@ export function barContainsPointOnBandAxis(
         : point.x >= bar.x && point.x <= bar.x + bar.width
 }
 
+/** Full-rect (both axes) hit-test. Stacked segments share a band slot; the value axis is
+ *  what distinguishes them. */
+export function barContainsPoint(bar: BarRect, point: { x: number; y: number }): boolean {
+    return point.x >= bar.x && point.x <= bar.x + bar.width && point.y >= bar.y && point.y <= bar.y + bar.height
+}
+
 /** True when the cursor is in the bar's band slot but outside its filled value extent —
  *  the strict complement of {@link barContainsPointOnBandAxis} on the value axis. Used
  *  to distinguish track-region hover from bar-region hover. Caller is expected to have
@@ -44,7 +50,9 @@ export interface SeriesKeysAtCursorArgs {
     topStackedKeyByAxis: Map<string, string>
 }
 
-/** Shared by drawHover and the tooltip wrapper so they can't drift. */
+/** Shared by drawHover and the tooltip wrapper. Band-axis-only containment, so a stacked
+ *  tooltip still lists every segment. For single-segment routing (e.g. clicks) use
+ *  {@link strictSeriesKeyAtCursor}. */
 export function seriesKeysAtCursor(args: SeriesKeysAtCursorArgs): Set<string> {
     const { series, label, dataIndex, cursor, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
     const hits = new Set<string>()
@@ -70,4 +78,32 @@ export function seriesKeysAtCursor(args: SeriesKeysAtCursorArgs): Set<string> {
         }
     }
     return hits
+}
+
+/** Returns the single series whose bar rect contains the cursor, or `null`. Used by
+ *  click routing to single out a stacked segment. */
+export function strictSeriesKeyAtCursor(args: SeriesKeysAtCursorArgs): string | null {
+    const { series, label, dataIndex, cursor, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const stackedBand = stackedData?.get(s.key)
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const isTopOfStack = topStackedKeyByAxis.get(axisId) === s.key
+        const bar = computeBarAtIndex({
+            series: s as Series,
+            label,
+            dataIndex,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand,
+            isTopOfStack,
+        })
+        if (bar && barContainsPoint(bar, cursor)) {
+            return s.key
+        }
+    }
+    return null
 }

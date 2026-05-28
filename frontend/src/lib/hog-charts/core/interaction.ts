@@ -135,7 +135,8 @@ export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
     series: ResolvedSeries<Meta>[],
     labels: string[],
-    resolveValue: ResolveValueFn
+    resolveValue: ResolveValueFn,
+    cursor: { x: number; y: number } | null = null
 ): PointClickData<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -158,5 +159,6 @@ export function buildPointClickData<Meta = unknown>(
             series: s,
             value: resolveValue(s, dataIndex),
         })),
+        cursor,
     }
 }
