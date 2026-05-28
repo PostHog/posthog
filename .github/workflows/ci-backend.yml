@@ -2246,7 +2246,7 @@ jobs:
 
             - name: Run async migrations tests
               run: |
-                  # Temporary timing instrumentation: expose slow async migration test bodies in PR logs.
+                  # Scope async migration tests directly and reuse the primed test database.
                   pytest posthog/async_migrations/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
 
             - name: Upload test results
