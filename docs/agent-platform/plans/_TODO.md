@@ -86,3 +86,28 @@ file (and out of this list) once the design lands.
       with the existing `?revision_id` override (uuid wins, suffix is
       shorthand). Useful for Slack mentions / webhook URLs where you
       want to share a draft link without exposing the full UUID.
+
+- [ ] **Auto-chaining via a gateway agent (Slack-first).** Today Slack
+      mentions are routed 1:1 — `@my-helpdesk-agent` triggers
+      `my-helpdesk-agent` and nothing else. Spec out a "gateway agent"
+      pattern: a single `@posthog` (or similar) Slack-mentioned agent
+      is the single entry point that routes the user's message to one
+      of N downstream agents and forwards results back into the same
+      Slack thread. Open design questions: (a) routing — does the
+      gateway use an LLM classifier, declarative routes
+      (`spec.routes[]`), or both? (b) chaining semantics — fire-and-
+      forget vs await-and-relay vs streaming relay; (c) identity
+      passthrough — the originating Slack user's principal must flow
+      to the downstream session so the existing strict-principal +
+      ACL machinery (per `per-session-access-elevation.md`) applies
+      uniformly; the downstream `session.principal` should be the
+      Slack user, not the gateway; (d) thread continuity — downstream
+      replies thread under the same `slack:<channel>:<ts>`
+      `external_key` so a single conversation appears unified;
+      (e) generalization beyond Slack — the same pattern applies to
+      webhook + chat-UI triggers (a single API endpoint dispatches
+      across many agents). Composes with rate-limiting (a fan-out
+      gateway burns capacity quickly), approval-gating (downstream
+      tool calls retain their gates), and the cron trigger (a
+      gateway agent _is_ the natural shape for an org-wide
+      assistant). Promote to its own plan when picked up.
