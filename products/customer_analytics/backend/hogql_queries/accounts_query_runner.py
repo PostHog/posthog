@@ -5,6 +5,8 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models import User
+from posthog.rbac.user_access_control import UserAccessControl
 
 DEFAULT_COLUMNS = ("id", "name", "external_id", "created_at")
 
@@ -53,6 +55,11 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             limit_context=self.limit_context,
             limit=self.query.limit,
             offset=self.query.offset,
+        )
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource(
+            "customer_analytics", "viewer"
         )
 
     def to_query(self) -> ast.SelectQuery:

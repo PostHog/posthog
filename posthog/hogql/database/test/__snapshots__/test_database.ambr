@@ -2439,36 +2439,6 @@
                   "table": null,
                   "type": "string"
               },
-              "csm": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "csm",
-                  "id": null,
-                  "name": "csm",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_executive": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_executive",
-                  "id": null,
-                  "name": "account_executive",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_owner": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_owner",
-                  "id": null,
-                  "name": "account_owner",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "created_by_id": {
                   "chain": null,
                   "fields": null,
@@ -2502,6 +2472,82 @@
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_tagged_items": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tag_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tag_id",
+                  "id": null,
+                  "name": "tag_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_tagged_items",
+          "name": "system._account_tagged_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_resource_notebooks": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "notebook_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "notebook_id",
+                  "id": null,
+                  "name": "notebook_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_resource_notebooks",
+          "name": "system._account_resource_notebooks",
           "row_count": null,
           "type": "system"
       },
@@ -10116,36 +10162,6 @@
                   "table": null,
                   "type": "string"
               },
-              "csm": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "csm",
-                  "id": null,
-                  "name": "csm",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_executive": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_executive",
-                  "id": null,
-                  "name": "account_executive",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_owner": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_owner",
-                  "id": null,
-                  "name": "account_owner",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "created_by_id": {
                   "chain": null,
                   "fields": null,
@@ -10179,6 +10195,82 @@
           },
           "id": "system.accounts",
           "name": "system.accounts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_tagged_items": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "tag_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "tag_id",
+                  "id": null,
+                  "name": "tag_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_tagged_items",
+          "name": "system._account_tagged_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system._account_resource_notebooks": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "notebook_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "notebook_id",
+                  "id": null,
+                  "name": "notebook_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system._account_resource_notebooks",
+          "name": "system._account_resource_notebooks",
           "row_count": null,
           "type": "system"
       },

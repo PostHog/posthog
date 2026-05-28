@@ -8,11 +8,18 @@ from parameterized import parameterized
 from posthog.schema import AccountsQuery, AccountsQueryResponse
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.constants import AvailableFeature
 from posthog.models import Tag
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.test.factories import create_account
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -248,3 +255,15 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="A")
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
+
+    def test_validate_query_runner_access_default(self):
+        runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
+        self.assertTrue(runner.validate_query_runner_access(self.user))
+
+    def test_validate_query_runner_access_denied(self):
+        AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+        self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
+        self.organization.save()
+
+        runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
+        self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
