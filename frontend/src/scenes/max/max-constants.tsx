@@ -142,11 +142,7 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
 
 function skillStatusFormatter(
     toolCall: EnhancedToolCall,
-    {
-        completedLabel,
-        pendingLabel,
-        nameArgKey,
-    }: { completedLabel: string; pendingLabel: string; nameArgKey?: string }
+    { completedLabel, pendingLabel, nameArgKey }: { completedLabel: string; pendingLabel: string; nameArgKey?: string }
 ): string {
     const rawName = nameArgKey ? toolCall.args?.[nameArgKey] : undefined
     const suffix = typeof rawName === 'string' && rawName ? ` "${rawName}"` : ''
