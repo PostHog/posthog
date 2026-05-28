@@ -14,7 +14,9 @@
  * Run via `tsx src/index.ts` (no precompile).
  */
 
-import { Pool } from 'pg'
+import { mkdir } from 'node:fs/promises'
+import pg from 'pg'
+const { Pool } = pg
 
 import { createLogger, FsBundleStore, PgRevisionStore, PgSessionQueue, SCHEMA_SQL } from '@posthog/agent-shared'
 
@@ -27,7 +29,11 @@ async function main(): Promise<void> {
     const port = parseInt(process.env.PORT ?? '8082', 10)
     const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
     const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
-    const bundleRoot = process.env.AGENT_BUNDLE_ROOT ?? '/var/lib/agent-bundles'
+    // Default to a user-writable dir so dev / local CI work without root.
+    // Production sets AGENT_BUNDLE_ROOT to a mounted volume (or S3 bucket
+    // for the future S3BundleStore impl).
+    const bundleRoot = process.env.AGENT_BUNDLE_ROOT ?? `${process.env.HOME ?? '/tmp'}/.posthog/agent-bundles`
+    await mkdir(bundleRoot, { recursive: true })
 
     const posthogDb = new Pool({ connectionString: posthogDbUrl })
     const agentDb = new Pool({ connectionString: agentDbUrl })

@@ -16,7 +16,9 @@
  * Run with `tsx src/index.ts` (no build step). `pnpm start` wraps that.
  */
 
-import { Pool } from 'pg'
+import { mkdir } from 'node:fs/promises'
+import pg from 'pg'
+const { Pool } = pg
 
 import {
     createLogger,
@@ -43,7 +45,11 @@ const log = createLogger('agent-runner')
 async function main(): Promise<void> {
     const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
     const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
-    const bundleRoot = process.env.AGENT_BUNDLE_ROOT ?? '/var/lib/agent-bundles'
+    // Default to a user-writable dir so dev / local CI work without root.
+    // Production sets AGENT_BUNDLE_ROOT to a mounted volume shared with the
+    // janitor (same path on both deployments).
+    const bundleRoot = process.env.AGENT_BUNDLE_ROOT ?? `${process.env.HOME ?? '/tmp'}/.posthog/agent-bundles`
+    await mkdir(bundleRoot, { recursive: true })
     const useGateway = process.env.AGENT_USE_LLM_GATEWAY === '1'
 
     const posthogDb = new Pool({ connectionString: posthogDbUrl })

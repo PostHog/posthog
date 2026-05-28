@@ -12,7 +12,8 @@
  * Single-pool default (both env vars unset → same Postgres) is fine for dev.
  */
 
-import { Pool } from 'pg'
+import pg from 'pg'
+const { Pool } = pg
 
 import {
     createLogger,
@@ -62,7 +63,7 @@ async function main(): Promise<void> {
     })
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
     main().catch((err) => {
         log.fatal({ err: (err as Error).message, stack: (err as Error).stack }, 'fatal')
         process.exit(1)

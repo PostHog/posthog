@@ -223,7 +223,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             PORT=${AGENT_INGRESS_PORT:-3030} \
-            pnpm --filter @posthog/agent-ingress start
+            pnpm --filter @posthog/agent-ingress start:dev
         capability: agent_runtime
         ready_pattern: 'listening'
         groups:
@@ -231,7 +231,7 @@ procs:
             tech: Node
 
     agent-runner:
-        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start'
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
         capability: agent_runtime
         ready_pattern: 'starting worker loop'
         groups:
@@ -242,7 +242,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             PORT=${AGENT_JANITOR_PORT:-3031} \
-            pnpm --filter @posthog/agent-janitor start
+            pnpm --filter @posthog/agent-janitor start:dev
         capability: agent_runtime
         ready_pattern: 'listening'
         groups:

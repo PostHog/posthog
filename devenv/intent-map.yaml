@@ -392,8 +392,8 @@ intents:
             [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
 
     agents:
-        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB'
-        capabilities: [agent_runtime]
+        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB, plus the MCP server for authoring agents through Claude'
+        capabilities: [agent_runtime, mcp_server]
 
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'
