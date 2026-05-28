@@ -131,7 +131,7 @@ describe('TrendsLifecycleChart', () => {
         })
     })
 
-    it('renders the legend when lifecycleFilter.showLegend is true', async () => {
+    it('renders the legend items in the same order as the rendered series', async () => {
         renderInsight({
             query: buildLifecycleQuery({ lifecycleFilter: { showLegend: true } }) as unknown as InsightQuery,
             featureFlags: HOG_CHARTS_FLAG,
@@ -140,11 +140,9 @@ describe('TrendsLifecycleChart', () => {
 
         await screen.findByTestId('trend-lifecycle-graph')
         const legend = await screen.findByTestId('trend-lifecycle-legend')
-        // Lifecycle status names appear capitalized in the legend.
-        expect(legend.textContent).toMatch(/New/)
-        expect(legend.textContent).toMatch(/Returning/)
-        expect(legend.textContent).toMatch(/Resurrecting/)
-        expect(legend.textContent).toMatch(/Dormant/)
+        // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
+        const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+        expect(labels).toEqual(['Dormant', 'Returning', 'Resurrecting', 'New'])
     })
 
     it('omits the legend when showLegend is not set', async () => {

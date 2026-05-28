@@ -226,3 +226,17 @@ export const StackedWithLegend: Story = {
         />
     ),
 }
+
+export const UnstackedWithLegend: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: false,
+                id: 305,
+                shortId: 'lifecycleUnstackedLegend',
+                name: 'Lifecycle unstacked (with legend)',
+                showLegend: true,
+            })}
+        />
+    ),
+}

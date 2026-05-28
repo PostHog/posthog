@@ -15,7 +15,6 @@ describe('ChartLegend', () => {
                 <div data-attr="chart">C</div>
             </ChartLegend>
         )
-        // No wrapper div — chart is the only top-level child.
         expect(container.children).toHaveLength(1)
         expect((container.firstChild as HTMLElement).getAttribute('data-attr')).toBe('chart')
         expect(container.textContent).not.toContain('A')
@@ -41,7 +40,6 @@ describe('ChartLegend', () => {
         expect(container.textContent).toContain('B')
         expect(container.querySelector('[data-attr="chart"]')).not.toBeNull()
         expect(container.querySelector('[data-attr="my-legend"]')).not.toBeNull()
-        // Outer wrapper carries the height-fill class so the chart inherits parent height.
         const outer = container.firstChild as HTMLElement
         expect(outer.className).toContain('flex-1')
         expect(outer.className).toContain('min-h-0')

@@ -78,6 +78,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [indexedResults, currentPeriodResult?.labels])
 
+    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
+
     const valueLabelFormatter = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
         [trendsFilter, baseCurrency]
@@ -192,12 +194,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (
-        <ChartLegend
-            show={!!showLegend}
-            items={legendItemsFromSeries(series, theme)}
-            position="top"
-            legendDataAttr="trend-lifecycle-legend"
-        >
+        <ChartLegend show={!!showLegend} items={legendItems} position="top" legendDataAttr="trend-lifecycle-legend">
             <TimeSeriesBarChart<TrendsSeriesMeta>
                 series={series}
                 labels={labels}
