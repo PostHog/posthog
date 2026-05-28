@@ -7,11 +7,11 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
+import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricAggregation, metricsViewerLogic } from './metricsViewerLogic'
 
@@ -74,8 +74,9 @@ export interface MetricsViewerProps {
 
 export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
     const logic = metricsViewerLogic({ tabId: id })
-    const pickerLogic = metricNamePickerLogic({ tabId: id })
-    useMountedLogic(pickerLogic)
+    // Keep the picker logic mounted alongside the viewer so the chosen metric's
+    // metric_type stays available for the aggregation hint after the dropdown closes.
+    const pickerLogic = useMountedLogic(metricNamePickerLogic({ tabId: id }))
     const {
         metricName,
         aggregation,
@@ -87,37 +88,13 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
         hasMetricName,
     } = useValues(logic)
     const { setMetricName, setAggregation, setDateFrom, setDateTo, fetchQueryResults } = useActions(logic)
-    const { items: pickerItems, itemsLoading: pickerLoading, search: pickerSearch } = useValues(pickerLogic)
-    const { setSearch: setPickerSearch, loadItems: loadPickerItems } = useActions(pickerLogic)
-
-    // Prime the picker once on mount so the dropdown isn't empty before the user types.
-    useEffect(() => {
-        loadPickerItems({})
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    const { items: pickerItems } = useValues(pickerLogic)
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
     }, [metricName, aggregation, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const pickerOptions = useMemo(
-        () =>
-            pickerItems.map((item) => ({
-                key: item.name,
-                label: item.name,
-                labelComponent: (
-                    <div className="min-w-0 space-y-0.5">
-                        <div className="truncate">{item.name}</div>
-                        {item.metric_type && (
-                            <div className="text-xs text-muted">
-                                <span>{item.metric_type}</span>
-                            </div>
-                        )}
-                    </div>
-                ),
-            })),
-        [pickerItems]
-    )
     const selectedMetricType = useMemo(
         () => pickerItems.find((item) => item.name === metricName)?.metric_type,
         [pickerItems, metricName]
@@ -171,29 +148,8 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-2">
-                <div className="flex flex-col gap-1 min-w-[320px]">
-                    <LemonInputSelect
-                        size="small"
-                        mode="single"
-                        placeholder="Pick or search a metric"
-                        options={pickerOptions}
-                        value={metricName ? [metricName] : []}
-                        loading={pickerLoading}
-                        disableFiltering
-                        allowCustomValues
-                        onInputChange={setPickerSearch}
-                        onChange={(next) => setMetricName(next[0] ?? '')}
-                        data-attr="metrics-name-picker"
-                        emptyStateComponent={
-                            <div className="px-2 py-1 text-sm text-muted">
-                                {pickerLoading
-                                    ? 'Loading metrics…'
-                                    : pickerSearch
-                                      ? 'No metrics match this search.'
-                                      : 'No metrics ingested in the last 7 days.'}
-                            </div>
-                        }
-                    />
+                <div className="flex flex-col gap-1">
+                    <MetricNameFilter tabId={id} value={metricName} onChange={setMetricName} />
                     {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
                         <span className="text-xs text-secondary">
                             {selectedMetricType} — {recommendedAggregation} recommended

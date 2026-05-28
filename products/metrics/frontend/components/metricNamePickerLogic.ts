@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -44,4 +44,9 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
             actions.loadItems({})
         },
     })),
+    afterMount(({ actions }) => {
+        // Prime the list so the dropdown isn't empty on first open. Mirrors
+        // serviceFilterLogic's afterMount in logs.
+        actions.loadItems({})
+    }),
 ])
