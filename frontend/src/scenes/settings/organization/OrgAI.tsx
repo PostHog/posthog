@@ -21,7 +21,11 @@ export function OrganizationAI(): JSX.Element {
                     updateOrganization({ is_ai_data_processing_approved: checked })
                 }}
                 checked={!!currentOrganization?.is_ai_data_processing_approved}
-                disabledReason={restrictionReason || undefined}
+                disabledReason={
+                    restrictionReason
+                        ? 'You must be an admin or owner of your organization to change this setting'
+                        : undefined
+                }
                 loading={currentOrganizationLoading}
                 bordered
             />

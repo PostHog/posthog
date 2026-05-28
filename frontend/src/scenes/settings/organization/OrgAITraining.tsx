@@ -50,7 +50,9 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
         ? 'HIPAA organizations are always opted out of AI training. Please contact us if this needs to change.'
         : isLocked
           ? 'Please contact us to change this setting.'
-          : restrictionReason || undefined
+          : restrictionReason
+            ? 'You must be an admin or owner of your organization to change this setting'
+            : undefined
 
     const checked = !isHipaa && !!currentOrganization?.is_ai_training_opted_in
 
