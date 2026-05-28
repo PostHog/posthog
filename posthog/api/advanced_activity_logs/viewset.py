@@ -214,6 +214,7 @@ class JSONStringFilterField(serializers.JSONField):
 _IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
 _IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
+
 def _validate_ip_or_wildcard(value: str) -> None:
     v = (value or "").strip()
     if not v or not _IP_FILTER_RE.match(v):

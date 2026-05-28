@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1176_migrate_web_analytics_models"),
+        ("posthog", "1185_fix_non_list_test_account_filters"),
     ]
 
     operations = [
