@@ -1,7 +1,7 @@
 """Prometheus metrics for the MCP analytics intent clustering workflow.
 
 Pattern lifted from
-``posthog/temporal/llm_analytics/trace_clustering/metrics.py`` — same
+``posthog/temporal/ai_observability/trace_clustering/metrics.py`` — same
 shape of counters (started/finished/errors, items/clusters analysed) and
 histograms (workflow execution latency, activity execution latency,
 schedule-to-start latency).
@@ -26,7 +26,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-from posthog.temporal.llm_analytics.metrics import ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder, get_metric_meter
 from posthog.temporal.mcp_analytics.intent_clustering.constants import COORDINATOR_WORKFLOW_NAME, WORKFLOW_NAME
 
 # Histograms registered into PrometheusConfig via common/worker.py.
