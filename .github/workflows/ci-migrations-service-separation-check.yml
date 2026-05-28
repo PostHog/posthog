@@ -24,14 +24,18 @@ jobs:
               id: skip-label
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+                  GITHUB_REF: ${{ github.ref }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
               run: |
-                  if [ "${{ github.event_name }}" = "pull_request" ]; then
-                      labels='${{ toJson(github.event.pull_request.labels.*.name) }}'
-                  elif [ "${{ github.event_name }}" = "merge_group" ]; then
-                      # github.ref looks like refs/heads/gh-readonly-queue/<base>/pr-<num>-<sha>
-                      pr_num=$(echo "${{ github.ref }}" | grep -oE 'pr-[0-9]+' | head -1 | sed 's/pr-//')
+                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                      labels="$PR_LABELS_JSON"
+                  elif [ "$EVENT_NAME" = "merge_group" ]; then
+                      # GITHUB_REF looks like refs/heads/gh-readonly-queue/<base>/pr-<num>-<sha>
+                      pr_num=$(echo "$GITHUB_REF" | grep -oE 'pr-[0-9]+' | head -1 | sed 's/pr-//')
                       if [ -n "$pr_num" ]; then
-                          labels=$(gh api "repos/${{ github.repository }}/issues/$pr_num/labels" --jq '[.[].name]')
+                          labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr_num/labels" --jq '[.[].name]')
                       else
                           labels='[]'
                       fi
