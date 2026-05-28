@@ -117,6 +117,7 @@ class TestBackfillWorkflowsSlackIntegrationCommand(BaseTest):
             call_command("backfill_workflows_slack_integration", "--dry-run")
 
         self.target_flow.refresh_from_db()
+        assert self.target_flow.draft is not None
         assert (
             self.target_flow.actions[1]["config"]["inputs"]["slack_workspace"]["value"] == backfill.OLD_INTEGRATION_ID
         )
@@ -136,6 +137,7 @@ class TestBackfillWorkflowsSlackIntegrationCommand(BaseTest):
         self.untouched_flow.refresh_from_db()
         self.other_team_flow.refresh_from_db()
 
+        assert self.target_flow.draft is not None
         assert (
             self.target_flow.actions[1]["config"]["inputs"]["slack_workspace"]["value"] == backfill.NEW_INTEGRATION_ID
         )
