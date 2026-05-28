@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Max number of names to return. Defaults to 100, capped at 1000.",
+            "type": "number"
+        },
+        "value": {
+            "description": "Substring filter (case-insensitive) applied to metric names.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
