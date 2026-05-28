@@ -23,19 +23,56 @@ UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\
 # stage-specific reactions (:mag: for searching, :hedgehog: for done, :x: for failed)
 # and from "eyes" (the follow-up ack), so the cleanup pool stays unambiguous.
 RANDOM_ACK_EMOJIS: tuple[str, ...] = (
+    # Friendly greetings & thinking
     "seedling",
     "wave",
-    "sparkles",
-    "rocket",
     "robot_face",
     "thinking_face",
-    "hammer_and_wrench",
-    "gear",
-    "coffee",
     "nerd_face",
+    "sunglasses",
+    # Energy & magic
+    "sparkles",
+    "rocket",
     "zap",
     "crystal_ball",
     "mage",
+    "star2",
+    "dizzy",
+    "rainbow",
+    # Working / tinkering
+    "hammer_and_wrench",
+    "gear",
+    "coffee",
+    "keyboard",
+    "telescope",
+    "brain",
+    "bulb",
+    "compass",
+    # Nature & luck
+    "four_leaf_clover",
+    "cherry_blossom",
+    "sunflower",
+    "herb",
+    # Animal companions
+    "owl",
+    "otter",
+    "penguin",
+    "fox_face",
+    "bee",
+    "butterfly",
+    "unicorn_face",
+    "turtle",
+    "panda_face",
+    "koala",
+    "hamster",
+    # Play & whimsy
+    "art",
+    "balloon",
+    "game_die",
+    # Characters
+    "ninja",
+    "alien",
+    "space_invader",
 )
 
 
