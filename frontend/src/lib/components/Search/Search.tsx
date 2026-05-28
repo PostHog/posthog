@@ -1000,7 +1000,7 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                         <KeyboardShortcut enter /> to activate
                     </span>
                     <span>
-                        <KeyboardShortcut shift enter /> to open in new browser tab
+                        <KeyboardShortcut shift enter /> to open in new tab
                     </span>
                     {searchValue.trim() && (
                         <span>
