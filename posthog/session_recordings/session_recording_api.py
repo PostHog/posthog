@@ -461,7 +461,7 @@ class SessionRecordingSourcesSerializer(serializers.Serializer):
 class SessionRecordingUpdateSerializer(serializers.Serializer):
     viewed = serializers.BooleanField(required=False)
     analyzed = serializers.BooleanField(required=False)
-    player_metadata = serializers.JSONField(required=False)
+    player_metadata = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):

@@ -1650,12 +1650,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
-                player_metadata: values.sessionPlayerMetaData,
+                player_metadata: values.sessionPlayerMetaData ?? undefined,
             })
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             await api.recordings.update(props.sessionRecordingId, {
                 analyzed: true,
-                player_metadata: values.sessionPlayerMetaData,
+                player_metadata: values.sessionPlayerMetaData ?? undefined,
             })
         },
         setPause: () => {
