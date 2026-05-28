@@ -1992,12 +1992,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
         sources = SourceRegistry.get_all_sources()
-        configs = {name: source.get_source_config for name, source in sources.items()}
+        results = {}
+        for source_type, source in sources.items():
+            config = source.get_source_config.model_dump()
+            config["supportsColumnSelection"] = bool(getattr(source, "supports_column_selection", False))
+            results[str(source_type)] = config
 
-        return Response(
-            status=status.HTTP_200_OK,
-            data={str(key): value.model_dump() for key, value in configs.items()},
-        )
+        return Response(status=status.HTTP_200_OK, data=results)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(methods=["GET"], detail=False)

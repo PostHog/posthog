@@ -5870,6 +5870,14 @@ export interface SourceConfig {
      * @default false
      */
     featured?: boolean
+
+    /**
+     * Whether the source-creation wizard should expose the per-column projection picker.
+     * Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker
+     * for drivers that ignore `enabled_columns` at sync time.
+     * @default false
+     */
+    supportsColumnSelection?: boolean
 }
 
 export const externalDataSources = [
