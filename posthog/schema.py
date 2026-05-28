@@ -7436,7 +7436,7 @@ class HogQLQueryModifiers(BaseModel):
             " qualifying start event falls in the cohort date range. Three-state:"
             " `true` forces on, `false` is a kill switch, unset falls back to a static"
             " gate that enables narrowing when the retention window is small relative"
-            " to team age. Only applied when start and return entities are identical."
+            " to team age."
         ),
     )
     s3TableUseInvalidColumns: bool | None = None

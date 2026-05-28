@@ -227,13 +227,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return entity_to_expr(self.return_event, self.team)
 
     @cached_property
-    def start_and_return_entities_are_same(self) -> bool:
-        identity_fields = {"id", "type", "table_name", "timestamp_field", "properties"}
-        return self.start_event.model_dump(mode="json", include=identity_fields) == self.return_event.model_dump(
-            mode="json", include=identity_fields
-        )
-
-    @cached_property
     def _first_time_narrowing_static_gate(self) -> bool:
         # Pattern A is a knockout when the cohort window is small relative to team lifetime
         # (most actors' first qualifying event sits before date_from) and a regression when
@@ -254,9 +247,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         #   True  → force on (bypass static gate, e.g. for opt-in benchmarking)
         #   False → kill switch (never apply, even if static gate would trigger)
         #   None  → fall back to the static gate so safe shapes get the win by default
+        # First-time / first-ever is the only precondition. Different entities are fine —
+        # narrowing filters by actor, not by event, and for first-time semantics the outer
+        # query already drops actors whose first start event sits outside the cohort window.
         if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
-            return False
-        if not self.start_and_return_entities_are_same:
             return False
         explicit = self.modifiers.retentionFirstTimeNarrowingPath
         if explicit is not None:

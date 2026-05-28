@@ -5500,7 +5500,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     @parameterized.expand(
         [
-            # Explicit True forces narrowing on for first-time/first-ever same-entity queries.
+            # Explicit True forces narrowing on for any first-time / first-ever query.
             ("force_on_first_time_same_entity", True, "retention_first_time", "$pageview", "$pageview", True),
             (
                 "force_on_first_ever_same_entity",
@@ -5510,9 +5510,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 "$pageview",
                 True,
             ),
-            # Explicit True still respects the preconditions (must be first-time, same entity).
+            # Different entities are fine — narrowing filters by actor, the outer first-time wrapper
+            # already drops actors whose first start event sits outside the cohort window.
+            ("force_on_first_time_different_entity", True, "retention_first_time", "$pageview", "$screen", True),
+            # Recurring retention has no first-time wrapper, so narrowing would be unsafe.
             ("force_on_recurring_skipped", True, "retention_recurring", "$pageview", "$pageview", False),
-            ("force_on_different_entity_skipped", True, "retention_first_time", "$pageview", "$screen", False),
             # Explicit False is a kill switch — never apply, regardless of preconditions or gate.
             ("kill_switch_first_time_same_entity", False, "retention_first_time", "$pageview", "$pageview", False),
         ]
