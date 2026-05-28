@@ -6,6 +6,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -17,6 +18,7 @@ import {
     ACCOUNTS_HOGQL_COLUMN_NAMES,
     ACCOUNTS_HOGQL_DATA_NODE_KEY,
     AccountRoleKey,
+    AccountSortableColumn,
     accountsLogic,
 } from './accountsLogic'
 
@@ -149,6 +151,36 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
 
 const HIDDEN_COLUMN: QueryContextColumn = { hidden: true }
 
+function SortableColumnHeader({
+    column,
+    label,
+}: {
+    column: AccountSortableColumn
+    label: string
+}): JSX.Element {
+    const { sortOrder } = useValues(accountsLogic)
+    const { toggleSort } = useActions(accountsLogic)
+    const order = sortOrder?.column === column ? (sortOrder.direction === 'asc' ? 1 : -1) : null
+    return (
+        <span
+            role="button"
+            tabIndex={0}
+            className="inline-flex items-center cursor-pointer select-none"
+            onClick={() => toggleSort(column)}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    toggleSort(column)
+                }
+            }}
+            data-attr={`accounts-hogql-sort-${column}`}
+        >
+            {label}
+            <SortingIndicator order={order} />
+        </span>
+    )
+}
+
 const CONTEXT: QueryContext<DataTableNode> = {
     columns: {
         id: HIDDEN_COLUMN,
@@ -164,17 +196,19 @@ const CONTEXT: QueryContext<DataTableNode> = {
             render: ({ record }) => <TagsCell record={record} />,
         },
         notebook_count: {
-            title: 'Notes',
+            renderTitle: () => <SortableColumnHeader column="notebook_count" label="Notes" />,
             width: COLUMN_WIDTHS.notebook_count,
             render: ({ record }) => <NotebookCountCell record={record} />,
         },
         csm: {
-            title: ROLE_LABELS.csm,
+            renderTitle: () => <SortableColumnHeader column="csm" label={ROLE_LABELS.csm} />,
             width: COLUMN_WIDTHS.csm,
             render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
         },
         account_executive: {
-            title: ROLE_LABELS.account_executive,
+            renderTitle: () => (
+                <SortableColumnHeader column="account_executive" label={ROLE_LABELS.account_executive} />
+            ),
             width: COLUMN_WIDTHS.account_executive,
             render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
         },
