@@ -122,14 +122,63 @@ export type Context = {
      *   authors should catch and fall back to a non-interactive path.
      * - `SessionBusUnhealthyError` if the bus transport or payload validation
      *   fails (structurally malformed responses, not protocol-level errors).
+     *
+     * NOTE: `elicit` is legacy (2025-06-18 protocol only). New code should
+     * use `requestInput` below — same intent, works on both protocol versions.
      */
     elicit?: ElicitFn
+
+    /**
+     * Universal input-request seam. Works on both protocol pipelines:
+     *
+     * - 2025-06-18: delegates to `elicit` under the hood (pushes
+     *   `elicitation/create` over SSE and awaits a reply via the session bus).
+     * - 2026-07-28: throws an internal `InputRequiredSignal` that the
+     *   dispatcher catches, turning into an `InputRequiredResult`. On retry,
+     *   returns the corresponding entry from `inputResponses`.
+     *
+     * Tool authors write straight-line code:
+     *
+     * ```ts
+     * const result = await context.requestInput({
+     *     key: 'confirm',
+     *     message: 'Proceed?',
+     *     requestedSchema: { type: 'object', properties: {} },
+     * })
+     * if (result.action !== 'accept') return cancellation()
+     * ```
+     *
+     * Undefined when no elicitation capability was negotiated. Tool authors
+     * MUST treat `if (context.requestInput)` as a capability check.
+     *
+     * IMPORTANT (2026-07-28 only): handlers may be re-invoked multiple times
+     * as the protocol round-trips. Code BEFORE a `requestInput` call runs on
+     * every round; side-effects there must be idempotent. Place destructive
+     * side-effects AFTER the `accept` branch.
+     */
+    requestInput?: RequestInputFn
 }
 
 export type ElicitFn = (
     params: ElicitRequestFormParams,
     options?: { timeoutMs?: number; signal?: AbortSignal }
 ) => Promise<ElicitResult>
+
+export type RequestInputFn = (params: RequestInputParams) => Promise<ElicitResult>
+
+export interface RequestInputParams {
+    /**
+     * Author-chosen identifier for this input request. Used to correlate
+     * the response on retry. Stable within a single tool's logic — if a
+     * handler issues two requestInput calls in sequence, they must use
+     * different keys.
+     */
+    key: string
+    /** Prompt text shown to the user. */
+    message: string
+    /** JSON Schema for the expected response content. Empty `properties` for action-only confirmations. */
+    requestedSchema: ElicitRequestFormParams['requestedSchema']
+}
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string

@@ -1,14 +1,33 @@
-import {
-    ErrorCode,
-    JSONRPC_VERSION,
-    LATEST_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS,
-} from '@modelcontextprotocol/sdk/types.js'
+/**
+ * Shared MCP dispatcher for the Hono server.
+ *
+ * One class handles both `2025-06-18` and `2026-07-28` traffic. The
+ * protocol-specific bits live in `ProtocolStrategy`:
+ *
+ *   - `preDispatch.validate` — per-request validation
+ *     (legacy: noop; v2026: headers + `_meta`).
+ *   - `handshake` — the protocol's handshake RPC
+ *     (legacy: `initialize`; v2026: `server/discover`).
+ *   - `toolCall.dispatchToolsCall` — single-message `tools/call`
+ *     (legacy: SSE-upgrade race; v2026: `InputRequiredResult`).
+ *   - `toolCall.deliverInboundResponse?` — legacy-only seam for routing
+ *     inbound JSON-RPC responses to the session bus. v2026 has no
+ *     separate response POSTs.
+ *
+ * Everything else (`tools/list`, `ping`, `resources/*`, `prompts/*`,
+ * JSON-RPC parse and error responses, top-level batch dispatch) is
+ * shared here.
+ *
+ * Two instances are constructed at startup — one per protocol — sharing
+ * the underlying catalog, state resolver, and tool executor. The
+ * streamable handler selects between them per request.
+ */
+
+import { ErrorCode, JSONRPC_VERSION } from '@modelcontextprotocol/sdk/types.js'
 import type {
     CallToolRequest,
     GetPromptRequest,
     InitializeRequest,
-    InitializeResult,
     JSONRPCMessage,
     JSONRPCRequest,
     ListPromptsRequest,
@@ -18,43 +37,21 @@ import type {
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
 
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
-import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
-import { CapabilityStore, projectClientCapabilities, supportsAnyElicitation } from './capability-store'
 import { getEnv } from './constants'
-import { ElicitBinding } from './elicit-binding'
+import { loadGuidelines } from './guidelines-loader'
 import { InstructionsBuilder } from './instructions'
-import { initDurationSeconds, initTotal } from './metrics'
+import type { ProtocolStrategy } from './protocol-strategy'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
-import { type BusAwaitMetrics, RedisPollingSessionResponseBus, type SessionResponseBus } from './session-bus'
-import { createSseResponse, type SseResponseHandle } from './sse-response'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
+import { V2026ProtocolError } from './v2026/errors'
 
 export { McpDispatcher }
 export type { ResolvedState } from './request-state-resolver'
-
-function loadGuidelines(): string {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const mod = require('@shared/guidelines.md')
-        return typeof mod === 'string' ? mod : (mod?.default ?? '')
-    } catch {
-        // @shared alias only resolves in the esbuild production bundle.
-        // Fall back to reading from disk (works in Vitest/test contexts).
-    }
-    try {
-        const fs = require('node:fs')
-        const path = require('node:path')
-        return fs.readFileSync(path.resolve(process.cwd(), 'shared/guidelines.md'), 'utf-8')
-    } catch {
-        return ''
-    }
-}
 
 const MAX_BATCH_SIZE = 100
 const MAX_BODY_BYTES = 1_048_576
@@ -85,7 +82,7 @@ type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | str
 type JsonRpcErrorResponse = {
     jsonrpc: typeof JSONRPC_VERSION
     id: number | string
-    error: { code: number; message: string }
+    error: { code: number; message: string; data?: Record<string, unknown> }
 }
 type JsonRpcResponse = JsonRpcResultResponse | JsonRpcErrorResponse
 
@@ -97,66 +94,44 @@ function jsonRpcMethodError(id: number | string, code: number, message: string):
     return { jsonrpc: JSONRPC_VERSION, id, error: { code, message } }
 }
 
-function jsonRpcErrorResponse(id: unknown, code: number, message: string): Response {
+function jsonRpcErrorResponse(id: unknown, code: number, message: string, httpStatus = 200): Response {
     return new Response(JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }), {
-        status: 200,
+        status: httpStatus,
         headers: { 'Content-Type': 'application/json' },
     })
 }
 
-export interface McpDispatcherOptions {
-    /**
-     * Cross-pod session bus. Defaults to a Redis-polling bus over the same
-     * `RedisLike` client. Tests can inject `InMemorySessionResponseBus`.
-     */
-    sessionBus?: SessionResponseBus
-    /**
-     * Per-await metrics adapter (e.g. Prometheus). Defaults to no-op.
-     */
-    busMetrics?: BusAwaitMetrics
-    /**
-     * Per-token cache of `initialize` capabilities. Defaults to a
-     * Redis-backed store using the same `RedisLike` client. Tests can inject
-     * a stub backed by an in-memory Map.
-     */
-    capabilityStore?: CapabilityStore
+export interface SharedDispatcherDeps {
+    catalog: ToolCatalog
+    resourceCatalog: ResourceCatalog
+    stateResolver: RequestStateResolver
+    toolExecutor: ToolExecutor
+    instructionsBuilder: InstructionsBuilder
+}
+
+/**
+ * Build the shared dependencies once. Two dispatcher instances (one per
+ * protocol) share these — catalog warmup is idempotent and per-request
+ * state resolution is stateless across calls.
+ */
+export function buildSharedDeps(catalog: ToolCatalog, redis: RedisLike): SharedDispatcherDeps {
+    const env = getEnv()
+    const resourceCatalog = new ResourceCatalog(env)
+    const stateResolver = new RequestStateResolver(catalog, redis, env)
+    const instructionsBuilder = new InstructionsBuilder(loadGuidelines())
+    const toolExecutor = new ToolExecutor(catalog, instructionsBuilder)
+    return { catalog, resourceCatalog, stateResolver, toolExecutor, instructionsBuilder }
 }
 
 class McpDispatcher {
-    private readonly catalog: ToolCatalog
-    private readonly resourceCatalog: ResourceCatalog
-    private readonly stateResolver: RequestStateResolver
-    private readonly toolExecutor: ToolExecutor
-    private readonly instructionsBuilder: InstructionsBuilder
-    private readonly sessionBus: SessionResponseBus
-    private readonly busMetrics: BusAwaitMetrics | undefined
-    private readonly capabilityStore: CapabilityStore
+    private readonly shared: SharedDispatcherDeps
+    readonly strategy: ProtocolStrategy
 
     private warmupPromise: Promise<void> | undefined
 
-    constructor(catalog: ToolCatalog, redis: RedisLike, options: McpDispatcherOptions = {}) {
-        const env = getEnv()
-        this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env)
-        this.stateResolver = new RequestStateResolver(catalog, redis, env)
-        this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
-        this.sessionBus = options.sessionBus ?? new RedisPollingSessionResponseBus(redis)
-        this.busMetrics = options.busMetrics
-        this.capabilityStore = options.capabilityStore ?? new CapabilityStore(redis)
-    }
-
-    /**
-     * Production delivery seam for inbound JSONRPC responses.
-     *
-     * The streamable handler classifies an inbound POST body and, when it's a
-     * response to a server-initiated request (today: `elicitation/create`),
-     * calls `dispatcher.bus.deliver(id, payload)` to route it to whichever
-     * pod is parked on the matching await. Tests also use this accessor to
-     * inject replies into the bus directly.
-     */
-    get bus(): SessionResponseBus {
-        return this.sessionBus
+    constructor(shared: SharedDispatcherDeps, strategy: ProtocolStrategy) {
+        this.shared = shared
+        this.strategy = strategy
     }
 
     async warmup(): Promise<void> {
@@ -165,8 +140,8 @@ class McpDispatcher {
     }
 
     private async doWarmup(): Promise<void> {
-        await this.catalog.warmup()
-        await this.resourceCatalog.warmup()
+        await this.shared.catalog.warmup()
+        await this.shared.resourceCatalog.warmup()
     }
 
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {
@@ -182,7 +157,22 @@ class McpDispatcher {
             return jsonRpcErrorResponse(null, ErrorCode.ParseError, 'Parse error: Invalid JSON')
         }
 
+        // Per-protocol validation (v2026 checks headers + _meta; legacy noop).
+        try {
+            await this.strategy.preDispatch.validate(req, body, props)
+        } catch (err) {
+            return mapProtocolError(err, body)
+        }
+
         const wasArray = Array.isArray(body)
+        if (wasArray && !this.strategy.allowBatches) {
+            return jsonRpcErrorResponse(
+                null,
+                ErrorCode.InvalidRequest,
+                `JSON-RPC batches are not supported in ${this.strategy.version} protocol`,
+                400
+            )
+        }
         const messages: JSONRPCMessage[] = wasArray ? (body as JSONRPCMessage[]) : [body as JSONRPCMessage]
 
         if (messages.length > MAX_BATCH_SIZE) {
@@ -194,158 +184,32 @@ class McpDispatcher {
             return new Response(null, { status: 202 })
         }
 
-        const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
-        const state = needsState ? await this.stateResolver.resolve(props) : undefined
+        const needsState = requests.some(
+            (r) => TRACKED_METHODS.has(r.method) || r.method === this.strategy.handshake.method
+        )
+        const state = needsState ? await this.shared.stateResolver.resolve(props) : undefined
 
-        // Single-message tools/call can upgrade to SSE if the tool handler
-        // calls `context.elicit()`. Batches and other methods stay on the
-        // plain JSON path — server-initiated elicits don't fit the batch
-        // request/response shape and aren't valid for non-tool methods.
+        // Single-message `tools/call` runs through the strategy — that's
+        // where elicitation diverges. Batches and other methods take the
+        // shared path (server-initiated elicits don't fit batches anyway).
         if (!wasArray && requests.length === 1 && requests[0]!.method === Method.ToolsCall) {
-            return await this.dispatchToolsCallWithMaybeSse(requests[0]!, props, state!, req.signal)
-        }
-
-        if (!wasArray && requests.length === 1) {
-            const result = await this.dispatch(requests[0]!, props, state)
-            return new Response(JSON.stringify(result), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
-        }
-
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
-        return new Response(JSON.stringify(results), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        })
-    }
-
-    /**
-     * Dispatch a single `tools/call` request that may surface an elicit.
-     *
-     * Runs the tool handler concurrently with a watcher for the first elicit.
-     * Whichever finishes first decides the response shape:
-     * - **Handler completes first** → return plain JSON, exactly as the
-     *   pre-elicit code path did. Zero extra cost when no elicit fires.
-     * - **First elicit fires first** → return the SSE response immediately
-     *   (already carrying the `elicitation/create` message). Continue
-     *   awaiting the handler in the background; when it resolves, write
-     *   the final JSONRPC result to the SSE stream and close it.
-     */
-    private async dispatchToolsCallWithMaybeSse(
-        request: JSONRPCRequest,
-        props: RequestProperties,
-        state: ResolvedState,
-        requestSignal: AbortSignal
-    ): Promise<Response> {
-        const { id, params } = request
-
-        // Only install the elicit binding when the client declared elicitation
-        // support at initialize. Otherwise leave `Context.elicit` undefined —
-        // tool handlers checking `if (context.elicit)` see the truthful answer
-        // and fall back, no SSE round-trip required. This is the spec-compliant
-        // gate; without it we'd push a server-initiated request the client
-        // never agreed to support.
-        const caps = await this.capabilityStore.get(props.userHash)
-        const elicitAllowed = supportsAnyElicitation(caps)
-
-        type HandlerOutcome = { kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }
-
-        if (!elicitAllowed) {
-            // Fast path: no binding, no SSE possible. Behaves exactly like a
-            // pre-elicit tool call.
-            const outcome: HandlerOutcome = await this.toolExecutor
-                .handleToolCall(params, props, state)
-                .then((value): HandlerOutcome => ({ kind: 'success', value }))
-                .catch((error): HandlerOutcome => ({ kind: 'error', error }))
-            const result = this.buildToolsCallJsonRpcResponse(id, outcome)
-            return new Response(JSON.stringify(result), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
-        }
-
-        const binding = new ElicitBinding({
-            bus: this.sessionBus,
-            createSseHandle: async () => createSseResponse(),
-            requestSignal,
-            ...(this.busMetrics !== undefined ? { gatewayOptions: { metrics: this.busMetrics } } : {}),
-        })
-        state.reqCtx.setElicitBinding(binding)
-
-        const handlerPromise: Promise<HandlerOutcome> = this.toolExecutor
-            .handleToolCall(params, props, state)
-            .then((value): HandlerOutcome => ({ kind: 'success', value }))
-            .catch((error): HandlerOutcome => ({ kind: 'error', error }))
-
-        // Wait for whichever happens first.
-        const winner = await Promise.race([
-            handlerPromise.then(() => 'handler' as const),
-            binding.firstElicit.then(() => 'elicit' as const),
-        ])
-
-        if (winner === 'handler') {
-            const outcome = await handlerPromise
-            const result = this.buildToolsCallJsonRpcResponse(id, outcome)
-            return new Response(JSON.stringify(result), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
-        }
-
-        // SSE path — the binding already wrote `elicitation/create` to the
-        // writer. Hand the response back to the client now; flush the
-        // handler's eventual result asynchronously.
-        const sseHandle = binding.getSseHandle()
-        if (!sseHandle) {
-            // Should never happen: firstElicit resolved but no handle was
-            // recorded. Treat as internal error.
-            const fallback = jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
-            return new Response(JSON.stringify(fallback), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
-        }
-
-        void this.finalizeSseResponse(sseHandle, id, handlerPromise)
-        return sseHandle.response
-    }
-
-    /**
-     * Wait for the tool handler to complete, then write the final JSONRPC
-     * result (or error) to the SSE writer and close the stream. Errors
-     * during the writes themselves are swallowed — the client has already
-     * disconnected at that point.
-     */
-    private async finalizeSseResponse(
-        sseHandle: SseResponseHandle,
-        id: number | string,
-        handlerPromise: Promise<{ kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }>
-    ): Promise<void> {
-        try {
-            const outcome = await handlerPromise
-            const result = this.buildToolsCallJsonRpcResponse(id, outcome)
-            await sseHandle.writer.write(result)
-        } catch (error) {
-            console.error('[McpDispatcher] SSE finalize failed:', error)
-        } finally {
             try {
-                await sseHandle.writer.close()
-            } catch {
-                /* already closed */
+                return await this.strategy.toolCall.dispatchToolsCall(requests[0]!, props, state!, req.signal)
+            } catch (err) {
+                return mapProtocolError(err, body)
             }
         }
-    }
 
-    private buildToolsCallJsonRpcResponse(
-        id: number | string,
-        outcome: { kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }
-    ): JsonRpcResponse {
-        if (outcome.kind === 'success') {
-            return jsonRpcResult(id, outcome.value)
+        try {
+            if (!wasArray && requests.length === 1) {
+                const result = await this.dispatch(requests[0]!, props, state)
+                return jsonResponse(result)
+            }
+            const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
+            return jsonResponse(results)
+        } catch (err) {
+            return mapProtocolError(err, body)
         }
-        console.error('[McpDispatcher] Internal error:', outcome.error)
-        return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
     }
 
     private async dispatch(
@@ -356,72 +220,71 @@ class McpDispatcher {
         const { id, method, params } = request
 
         try {
+            // The strategy's handshake method (initialize OR server/discover)
+            // takes precedence — it owns the shape of the result.
+            if (method === this.strategy.handshake.method) {
+                const result = await this.strategy.handshake.handle(request, props, state!)
+                return jsonRpcResult(id, result)
+            }
+
             switch (method) {
-                case Method.Initialize:
-                    return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
                 case Method.ToolsList:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
+                    return jsonRpcResult(id, await this.shared.toolExecutor.handleToolsList(state!, props))
                 case Method.ToolsCall:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, props, state!))
+                    // Batched tools/call only — single-message hits the
+                    // strategy path above. No elicit support in batches.
+                    return jsonRpcResult(
+                        id,
+                        await this.shared.toolExecutor.handleToolCall(
+                            params as Record<string, unknown> | undefined,
+                            props,
+                            state!
+                        )
+                    )
                 case Method.ResourcesList:
-                    return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
+                    return jsonRpcResult(id, this.shared.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
-                    return jsonRpcResult(id, this.resourceCatalog.readResource(params))
+                    return jsonRpcResult(id, this.shared.resourceCatalog.readResource(params))
                 case Method.PromptsList:
-                    return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
+                    return jsonRpcResult(id, this.shared.resourceCatalog.getPromptsList())
                 case Method.PromptsGet:
-                    return jsonRpcResult(id, this.resourceCatalog.getPrompt(params))
+                    return jsonRpcResult(id, this.shared.resourceCatalog.getPrompt(params))
                 case Method.Ping:
                     return jsonRpcResult(id, {})
                 default:
                     return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
         } catch (error) {
+            if (error instanceof V2026ProtocolError) {
+                return { jsonrpc: JSONRPC_VERSION, id, error: { code: error.code, message: error.message } }
+            }
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
     }
+}
 
-    private async handleInitialize(
-        params: Record<string, unknown> | undefined,
-        props: RequestProperties,
-        state: ResolvedState
-    ): Promise<InitializeResult> {
-        try {
-            const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
-            const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
-                ? requestedVersion
-                : LATEST_PROTOCOL_VERSION
-
-            // Cache the client's declared capabilities so subsequent stateless
-            // requests can gate server-initiated calls (elicitation/create
-            // today). Always overwrite so a re-initialize with FEWER
-            // capabilities than a prior session correctly downgrades the
-            // cached state. Best-effort write: a Redis blip just costs an
-            // extra fail-closed bounce on the next tool/call.
-            const projectedCaps = projectClientCapabilities(params?.['capabilities'])
-            await this.capabilityStore.set(props.userHash, projectedCaps)
-
-            const instructions = await this.instructionsBuilder.build(props, state)
-
-            initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
-            initTotal.inc({ status: 'success' })
-
-            void trackInitEvent(props, state)
-
-            return {
-                protocolVersion,
-                capabilities: {
-                    tools: { listChanged: false },
-                    resources: { listChanged: false },
-                    prompts: { listChanged: false },
-                },
-                serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-                ...(instructions ? { instructions } : {}),
-            }
-        } catch (error) {
-            initTotal.inc({ status: 'error' })
-            throw error
-        }
+function mapProtocolError(err: unknown, body: unknown): Response {
+    if (err instanceof V2026ProtocolError) {
+        const id = isRecord(body) && 'id' in body ? (body['id'] as string | number | null) : null
+        return new Response(
+            JSON.stringify({
+                jsonrpc: JSONRPC_VERSION,
+                id,
+                error: err.data
+                    ? { code: err.code, message: err.message, data: err.data }
+                    : { code: err.code, message: err.message },
+            }),
+            { status: err.httpStatus, headers: { 'Content-Type': 'application/json' } }
+        )
     }
+    throw err
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function jsonResponse(body: unknown): Response {
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
 }

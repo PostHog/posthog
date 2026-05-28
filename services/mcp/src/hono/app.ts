@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 
+import type { McpDispatcher } from './dispatcher'
 import { httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
 import { type BusAwaitMetrics, createPromBusMetrics, type SessionResponseBus } from './session-bus'
@@ -28,6 +29,12 @@ export interface CreateAppOptions {
      * this undefined or pass a spy.
      */
     busMetrics?: BusAwaitMetrics
+    /**
+     * Override the v2026 dispatcher for integration tests. Production loads
+     * the signing key from `MCP_REQUEST_STATE_SIGNING_KEY` at startup;
+     * tests inject a codec backed by a fixed key + clock.
+     */
+    dispatcher2026?: McpDispatcher
 }
 
 const sseRedirect = (c: HonoCtx): Response => {
@@ -49,11 +56,18 @@ export function createApp(redis: RedisWithPing, options: CreateAppOptions = {}):
     app.all('/sse', sseRedirect)
     app.all('/sse/*', sseRedirect)
 
-    const dispatcherOptions: { sessionBus?: SessionResponseBus; busMetrics?: BusAwaitMetrics } = {
+    const dispatcherOptions: {
+        sessionBus?: SessionResponseBus
+        busMetrics?: BusAwaitMetrics
+        dispatcher2026?: McpDispatcher
+    } = {
         busMetrics: options.busMetrics ?? createPromBusMetrics(),
     }
     if (options.sessionBus !== undefined) {
         dispatcherOptions.sessionBus = options.sessionBus
+    }
+    if (options.dispatcher2026 !== undefined) {
+        dispatcherOptions.dispatcher2026 = options.dispatcher2026
     }
     const streamable = new StreamableMcpHandler(redis, lifecycle, dispatcherOptions)
 

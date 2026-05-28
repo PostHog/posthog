@@ -4,9 +4,9 @@ import { ElicitationNotSupportedError } from '@/hono/session-bus'
 import { requestConfirmation } from '@/tools/confirmation-runtime'
 import type { Context } from '@/tools/types'
 
-type ElicitFn = NonNullable<Context['elicit']>
+type RequestInputFn = NonNullable<Context['requestInput']>
 
-function makeContext(elicit: ElicitFn | undefined): Context {
+function makeContext(requestInput: RequestInputFn | undefined): Context {
     // The runtime helper only touches `context.elicit`. Everything else is
     // stubbed to `null as never` — accessing them in the helper would be a
     // bug, and the test will surface it as a TypeError if it ever happens.
@@ -20,8 +20,8 @@ function makeContext(elicit: ElicitFn | undefined): Context {
         getDistinctId: () => Promise.resolve('did'),
         trackEvent: () => Promise.resolve(),
     } as Context
-    if (elicit) {
-        ctx.elicit = elicit
+    if (requestInput) {
+        ctx.requestInput = requestInput
     }
     return ctx
 }
@@ -77,16 +77,16 @@ describe('requestConfirmation — no elicit available', () => {
 
 describe('requestConfirmation — elicit available', () => {
     it('emits an empty requestedSchema (no form fields, just action buttons)', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             {},
             {
                 message: 'Proceed?',
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit).toHaveBeenCalledWith(
+        expect(requestInput).toHaveBeenCalledWith(
             expect.objectContaining({
                 requestedSchema: { type: 'object', properties: {} },
             })
@@ -94,9 +94,9 @@ describe('requestConfirmation — elicit available', () => {
     })
 
     it('returns accepted when the user accepts', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         const outcome = await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             { id: 42 },
             {
                 message: 'Delete {id}?',
@@ -104,8 +104,8 @@ describe('requestConfirmation — elicit available', () => {
             }
         )
         expect(outcome.kind).toBe('accepted')
-        expect(elicit).toHaveBeenCalledTimes(1)
-        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete 42?' }))
+        expect(requestInput).toHaveBeenCalledTimes(1)
+        expect(requestInput).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete 42?' }))
     })
 
     it.each([
@@ -114,9 +114,9 @@ describe('requestConfirmation — elicit available', () => {
     ])(
         'returns cancelled with a $expectedWord reason when the user $action',
         async ({ action, label, expectedWord }) => {
-            const elicit = vi.fn<ElicitFn>(async () => ({ action }))
+            const requestInput = vi.fn<RequestInputFn>(async () => ({ action }))
             const outcome = await requestConfirmation(
-                makeContext(elicit),
+                makeContext(requestInput),
                 {},
                 {
                     message: 'Proceed?',
@@ -139,11 +139,11 @@ describe('requestConfirmation — elicit available', () => {
     ])(
         'treats runtime ElicitationNotSupportedError as the no-elicit branch ($policy)',
         async ({ policy, expectedKind }) => {
-            const elicit = vi.fn<ElicitFn>(async () => {
+            const requestInput = vi.fn<RequestInputFn>(async () => {
                 throw new ElicitationNotSupportedError(-32601, 'Method not found')
             })
             const outcome = await requestConfirmation(
-                makeContext(elicit),
+                makeContext(requestInput),
                 {},
                 {
                     message: 'Proceed?',
@@ -155,12 +155,12 @@ describe('requestConfirmation — elicit available', () => {
     )
 
     it('propagates non-NotSupported errors (e.g. bus unhealthy) — does not swallow', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => {
+        const requestInput = vi.fn<RequestInputFn>(async () => {
             throw new Error('bus unhealthy')
         })
         await expect(
             requestConfirmation(
-                makeContext(elicit),
+                makeContext(requestInput),
                 {},
                 {
                     message: 'Proceed?',
@@ -173,49 +173,49 @@ describe('requestConfirmation — elicit available', () => {
 
 describe('requestConfirmation — message templating', () => {
     it('interpolates {paramName} placeholders from params', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             { orgId: 'acme', count: 3 },
             {
                 message: 'Delete {count} items from {orgId}?',
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete 3 items from acme?' }))
+        expect(requestInput).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete 3 items from acme?' }))
     })
 
     it('leaves unknown placeholders literal so authors notice missing keys', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             {},
             {
                 message: 'Delete {missing}?',
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete {missing}?' }))
+        expect(requestInput).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete {missing}?' }))
     })
 
     it('leaves null/undefined param values as literal placeholders, not the string "null"', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             { id: null },
             {
                 message: 'Action on {id}',
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Action on {id}' }))
+        expect(requestInput).toHaveBeenCalledWith(expect.objectContaining({ message: 'Action on {id}' }))
     })
 
     it('calls the builder when provided and uses its return value', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         const builder = vi.fn(async () => 'Built prompt')
         await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             { id: 1 },
             {
                 builder,
@@ -223,19 +223,19 @@ describe('requestConfirmation — message templating', () => {
             }
         )
         expect(builder).toHaveBeenCalledTimes(1)
-        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Built prompt' }))
+        expect(requestInput).toHaveBeenCalledWith(expect.objectContaining({ message: 'Built prompt' }))
     })
 
     it('awaits sync builders too', async () => {
-        const elicit = vi.fn<ElicitFn>(async () => ({ action: 'accept' as const }))
+        const requestInput = vi.fn<RequestInputFn>(async () => ({ action: 'accept' as const }))
         await requestConfirmation(
-            makeContext(elicit),
+            makeContext(requestInput),
             {},
             {
                 builder: () => 'Sync prompt',
                 onNoElicit: 'deny',
             }
         )
-        expect(elicit).toHaveBeenCalledWith(expect.objectContaining({ message: 'Sync prompt' }))
+        expect(requestInput).toHaveBeenCalledWith(expect.objectContaining({ message: 'Sync prompt' }))
     })
 })

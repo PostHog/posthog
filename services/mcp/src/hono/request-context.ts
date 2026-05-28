@@ -152,6 +152,25 @@ export class RequestContext {
                 return (params, options) => binding.invoke(params, options)
             },
         })
+        // Universal seam. In the legacy pipeline it delegates to `elicit`,
+        // which is the binding-backed SSE round-trip. Tools that use the
+        // universal API work unchanged when v2026 takes over.
+        Object.defineProperty(ctx, 'requestInput', {
+            enumerable: true,
+            configurable: false,
+            get(): Context['requestInput'] {
+                const binding = self.elicitBinding
+                if (!binding) {
+                    return undefined
+                }
+                return async (params) => {
+                    return await binding.invoke({
+                        message: params.message,
+                        requestedSchema: params.requestedSchema,
+                    })
+                }
+            },
+        })
         return ctx
     }
 

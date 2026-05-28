@@ -20,6 +20,7 @@ import type { InstructionsBuilder } from './instructions'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { ToolCatalog } from './tool-catalog'
+import { isInputRequiredSignal } from './v2026/input-required-signal'
 
 interface ResolvedTool {
     name: string
@@ -149,6 +150,14 @@ export class ToolExecutor {
                 distinctId,
             })
         } catch (error: unknown) {
+            // The v2026 pipeline's `requestInput` throws `InputRequiredSignal`
+            // as a control-flow signal that the dispatcher catches to build
+            // an `InputRequiredResult`. It is NOT a tool failure; let it
+            // propagate unchanged.
+            if (isInputRequiredSignal(error)) {
+                stop({ status: 'success' })
+                throw error
+            }
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
             classifyToolError(error, tool.name)

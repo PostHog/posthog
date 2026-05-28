@@ -39,7 +39,11 @@ export async function requestConfirmation<P extends Record<string, unknown>>(
 ): Promise<ConfirmationOutcome> {
     const actionLabel = options.actionLabel ?? 'this action'
 
-    if (!context.elicit) {
+    // `requestInput` is the universal seam — works on both 2025-06-18 (where
+    // it delegates to elicit) and 2026-07-28 (where it throws an
+    // InputRequiredSignal the dispatcher catches). Undefined means no
+    // capability available; fall back per policy.
+    if (!context.requestInput) {
         return noElicitOutcome(options.onNoElicit, actionLabel)
     }
 
@@ -47,7 +51,8 @@ export async function requestConfirmation<P extends Record<string, unknown>>(
 
     let elicitResult
     try {
-        elicitResult = await context.elicit({
+        elicitResult = await context.requestInput({
+            key: 'confirm',
             message: prompt,
             // Empty schema → clients render just the action buttons.
             // The protocol-level `action` field is the explicit-intent signal;

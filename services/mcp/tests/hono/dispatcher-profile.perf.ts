@@ -23,9 +23,13 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import type { RequestProperties } from '@/lib/request-properties'
-import { McpDispatcher } from '@/hono/dispatcher'
+import { CapabilityStore } from '@/hono/capability-store'
+import { buildSharedDeps, McpDispatcher } from '@/hono/dispatcher'
+import { InMemorySessionResponseBus } from '@/hono/session-bus'
+import { LegacyHandshakeStrategy } from '@/hono/strategies/legacy/handshake'
+import { buildLegacyStrategy } from '@/hono/strategies/legacy/tool-call'
 import { ToolCatalog } from '@/hono/tool-catalog'
+import type { RequestProperties } from '@/lib/request-properties'
 
 class MockRedis {
     private store = new Map<string, string>()
@@ -185,7 +189,16 @@ describe('McpDispatcher profiling', () => {
 
         const redis = new MockRedis()
         catalog = new ToolCatalog()
-        dispatcher = new McpDispatcher(catalog, redis as any)
+        const shared = buildSharedDeps(catalog, redis as any)
+        const capabilityStore = new CapabilityStore(redis as any)
+        const legacyStrategy = buildLegacyStrategy({
+            capabilityStore,
+            sessionBus: new InMemorySessionResponseBus(),
+            busMetrics: undefined,
+            toolExecutor: shared.toolExecutor,
+            handshake: new LegacyHandshakeStrategy(capabilityStore, shared.instructionsBuilder),
+        })
+        dispatcher = new McpDispatcher(shared, legacyStrategy)
         await dispatcher.warmup()
 
         // Prime the warm cache
