@@ -1978,7 +1978,7 @@ class TestPrinter(BaseTest):
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
                 "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
-                f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"JOIN (SELECT DISTINCT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
@@ -2004,7 +2004,7 @@ class TestPrinter(BaseTest):
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
                 "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
-                f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"JOIN (SELECT DISTINCT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
@@ -2026,7 +2026,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
+                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT DISTINCT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
@@ -2045,7 +2045,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
+                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT DISTINCT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "

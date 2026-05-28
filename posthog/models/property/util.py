@@ -495,7 +495,10 @@ def prop_filter_json_extract(
         }
         if is_denormalized:
             return (
-                " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
+                " {property_operator} ({left} != '' AND {left} != 'null')".format(
+                    left=property_expr,
+                    property_operator=property_operator,
+                ),
                 params,
             )
         return (
@@ -514,7 +517,10 @@ def prop_filter_json_extract(
         }
         if is_denormalized:
             return (
-                " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
+                " {property_operator} ({left} = '' OR {left} = 'null')".format(
+                    left=property_expr,
+                    property_operator=property_operator,
+                ),
                 params,
             )
         return (
