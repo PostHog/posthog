@@ -86,35 +86,34 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
 
         const items = [...grouped.values()]
 
-        const teamIds: number[] = items.map((req) => {
+        const teamIds: number[] = []
+        const bucketSizes: number[] = []
+        const refillRates: number[] = []
+        for (const req of items) {
             if (req.teamId == null) {
                 throw new Error(
                     `PerIssueGuardedRateLimiterService(${this.config.name}): request for id "${req.id}" is missing teamId — the step must populate it`
                 )
             }
-            return req.teamId
-        })
-
-        const bucketSizes = items.map((req) => {
-            const bucketSize = req.bucketSize
-            if (bucketSize == null) {
+            if (req.bucketSize == null) {
                 throw new Error(
                     `PerIssueGuardedRateLimiterService(${this.config.name}): missing bucketSize for ${req.id}`
                 )
             }
-            return bucketSize
-        })
+            if (req.refillRate == null) {
+                throw new Error(
+                    `PerIssueGuardedRateLimiterService(${this.config.name}): missing refillRate for ${req.id}`
+                )
+            }
+            teamIds.push(req.teamId)
+            bucketSizes.push(req.bucketSize)
+            refillRates.push(req.refillRate)
+        }
 
         const res = await this.redis.usePipeline(
             { name: `per-issue-guarded:${this.config.name}`, failOpen: true },
             (pipeline) => {
                 items.forEach((req, i) => {
-                    const refillRate = req.refillRate
-                    if (refillRate == null) {
-                        throw new Error(
-                            `PerIssueGuardedRateLimiterService(${this.config.name}): missing refillRate for ${req.id}`
-                        )
-                    }
                     const teamId = teamIds[i]
                     const now = req.now ?? Math.round(Date.now() / 1000)
                     pipeline.checkGuardedRateLimit(
@@ -124,7 +123,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                         now,
                         req.cost,
                         bucketSizes[i],
-                        refillRate,
+                        refillRates[i],
                         req.ttlSeconds ?? this.config.bucketTtlSeconds,
                         this.config.threshold,
                         this.config.windowTtlSeconds,
