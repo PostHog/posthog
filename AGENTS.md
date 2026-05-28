@@ -29,6 +29,36 @@
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 
+## Agent CLI (`posthog-cli`)
+
+`posthog-cli` exposes the full PostHog API surface (~349 operations) as composable shell commands for agents.
+It is generated from the same OpenAPI → MCP pipeline, so it stays in lockstep with the MCP server.
+Prefer it for reading and writing PostHog data from the shell:
+it composes with pipes / `jq` / scripts and costs almost no context, because commands are discovered on demand rather than loaded up front.
+
+Discover on demand — do not guess command or flag names:
+
+- `posthog-cli --help` — top-level groups (e.g. `feature-flag`, `dashboard`, `experiment`) alongside the built-in commands
+- `posthog-cli <category> --help` — the verbs under a category
+- `posthog-cli <category> <verb> --help` — the flags and their types
+- `posthog-cli exp agent list` — dump every tool as `category / verb / name / endpoint`
+
+Invoke as `posthog-cli <category> <verb> [--flags] [--json '{...}']`, for example
+`posthog-cli feature-flag create --key checkout-v2 --name "Checkout v2" --active true`.
+Scalar parameters are flags; nested or complex parameters go through `--json` (an explicit flag wins over the same key in `--json`).
+
+- Preview any write with `--dry-run` first — it prints the resolved request and sends nothing.
+- Output is raw API JSON on stdout; pipe to `jq` and spill large results to a file rather than the context window.
+- Auth: commands need credentials. If none are configured, or a command fails with an authentication error, the user must authenticate first by running `posthog-cli login`. That command is interactive (it prompts for host, key, and project), so ask the user to run it themselves — do not run it yourself and assume it will succeed. Alternatively, credentials can be supplied via the env vars `POSTHOG_CLI_API_KEY` (a personal API key, `phx_…`), `POSTHOG_CLI_PROJECT_ID`, and `POSTHOG_CLI_HOST`.
+  The key must belong to the same instance as the host; for local dev set `POSTHOG_CLI_HOST` explicitly (it does not default to localhost).
+
+Codegen and parity (for changes that touch the API surface):
+
+- The command surface is generated into `services/mcp/schema/cli-manifest.json` by `pnpm --filter=@posthog/mcp run generate-tools` (run it after serializer / `tools.yaml` changes, alongside `hogli build:openapi`). Do not hand-edit the manifest.
+- A conformance harness keeps the CLI byte-identical to the MCP: `pnpm --filter=@posthog/mcp run generate-cli-conformance` regenerates request goldens, and `cargo test -p posthog-cli agent::` asserts the CLI builds the same requests as the MCP handlers.
+- The CLI itself is the Rust crate in `cli/`; build it with `cargo build --release` from `cli/` until it ships in the published `posthog-cli` package.
+- The steering block we inject into an **end user's** `AGENTS.md` is authored at `cli/src/agent/steering.md` (single source of truth, delimited by `posthog:cli` markers for idempotent re-injection). Keep that block focused on usage + auth; the codegen/parity rules above are for this repo only. (The command that writes it into a user's file is not built yet.)
+
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.

@@ -47,5 +47,8 @@ only assembles params before handing off to the verified interpreter).
   agent discovery (native `--help` is human-formatted).
 - **Path params as positionals** — `feature-flag delete 123` instead of `--id 123`, if preferred.
 - **`skill list` / `skill install`** (O2).
+- **Steering injection** — the canonical user-facing steering block is now authored at
+  `cli/src/agent/steering.md` (delimited by `posthog:cli` markers). Still TODO: a `posthog-cli`
+  setup/init command that writes/refreshes that block in the end user's `AGENTS.md` (Phase 4).
 - Naming edge cases for a few categories (e.g. query wrappers land under `query-wrapper`); revisit the
   slug rule if any read poorly.
