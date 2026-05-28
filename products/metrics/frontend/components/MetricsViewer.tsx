@@ -1,16 +1,18 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonInput, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
+import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricAggregation, metricsViewerLogic } from './metricsViewerLogic'
 
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
@@ -19,6 +21,17 @@ const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'count', label: 'Count' },
     { value: 'p95', label: 'p95' },
 ]
+
+// Recommended aggregation per OTel metric type. Used for an inline hint —
+// we don't auto-switch the user's choice (hint, don't overwrite).
+const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> = {
+    gauge: 'avg',
+    sum: 'sum',
+    counter: 'sum',
+    histogram: 'p95',
+    summary: 'p95',
+    exponential_histogram: 'p95',
+}
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
 const DATE_OPTIONS: DateMappingOption[] = [
@@ -61,6 +74,8 @@ export interface MetricsViewerProps {
 
 export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
     const logic = metricsViewerLogic({ tabId: id })
+    const pickerLogic = metricNamePickerLogic({ tabId: id })
+    useMountedLogic(pickerLogic)
     const {
         metricName,
         aggregation,
@@ -72,11 +87,28 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
         hasMetricName,
     } = useValues(logic)
     const { setMetricName, setAggregation, setDateFrom, setDateTo, fetchQueryResults } = useActions(logic)
+    const { items: pickerItems, itemsLoading: pickerLoading } = useValues(pickerLogic)
+    const { setSearch: setPickerSearch, loadItems: loadPickerItems } = useActions(pickerLogic)
 
-    // Refetch whenever any filter changes — the loader breakpoint debounces input.
+    // Prime the picker once on mount so the dropdown isn't empty before the user types.
+    useEffect(() => {
+        loadPickerItems({})
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
     }, [metricName, aggregation, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const pickerOptions = useMemo(
+        () => pickerItems.map((item) => ({ key: item.name, label: item.name })),
+        [pickerItems]
+    )
+    const selectedMetricType = useMemo(
+        () => pickerItems.find((item) => item.name === metricName)?.metric_type,
+        [pickerItems, metricName]
+    )
+    const recommendedAggregation = selectedMetricType ? RECOMMENDED_AGGREGATION_BY_TYPE[selectedMetricType] : undefined
 
     // Mirrors the format/timeUnit ladder LogsSparkline uses so the X-axis density
     // matches the selected range.
@@ -124,14 +156,26 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-                <LemonInput
-                    size="small"
-                    placeholder="Metric name (e.g. http.server.duration)"
-                    value={metricName}
-                    onChange={setMetricName}
-                    className="min-w-[300px]"
-                />
+            <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-col gap-1 min-w-[320px]">
+                    <LemonInputSelect
+                        size="small"
+                        mode="single"
+                        placeholder="Pick or search a metric"
+                        options={pickerOptions}
+                        value={metricName ? [metricName] : []}
+                        loading={pickerLoading}
+                        disableFiltering
+                        allowCustomValues
+                        onInputChange={setPickerSearch}
+                        onChange={(next) => setMetricName(next[0] ?? '')}
+                    />
+                    {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
+                        <span className="text-xs text-secondary">
+                            {selectedMetricType} — {recommendedAggregation} recommended
+                        </span>
+                    )}
+                </div>
                 <LemonSelect
                     size="small"
                     value={aggregation}
@@ -156,7 +200,7 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
-                        Enter a metric name to see its time series.
+                        Pick a metric to see its time series.
                     </div>
                 ) : hasResults ? (
                     <Sparkline
