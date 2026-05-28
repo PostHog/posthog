@@ -113,10 +113,30 @@ class PostHogCallback(InstrumentedCallback):
 
     callback_name = "posthog"
 
-    def __init__(self, api_key: str, host: str):
+    def __init__(
+        self,
+        api_key: str,
+        host: str,
+        region_url: str = "https://us.posthog.com",
+        secondary_api_key: str | None = None,
+        secondary_host: str | None = None,
+    ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        # Customer-origin region URL stamped on every captured event via the
+        # `instance` group. The PHAI usage report filters on $group_<N> where
+        # N is the destination project's `instance` group_type_index, so the
+        # value must be the customer's region URL — not the capture host's.
+        # That keeps EU events tagged as EU even when the secondary capture
+        # mirrors them to the US instance for engineer visibility.
+        self._region_url = region_url
+        # Optional second capture target. When set, each captured event is
+        # mirrored to this host with the same payload, mirroring the
+        # `ee/hogai/core/runner.py:201-206` pattern that lets EU traffic also
+        # surface on the US dashboard. Set on the EU gateway deployment only.
+        self._secondary_api_key = secondary_api_key
+        self._secondary_host = secondary_host
 
     async def _on_success(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -192,9 +212,8 @@ class PostHogCallback(InstrumentedCallback):
             "distinct_id": distinct_id,
             "event": "$ai_generation",
             "properties": properties,
+            "groups": self._build_groups(team_id),
         }
-        if team_id:
-            capture_kwargs["groups"] = {"project": team_id}
 
         logger.debug(
             "PostHog capturing event",
@@ -257,9 +276,8 @@ class PostHogCallback(InstrumentedCallback):
             "distinct_id": distinct_id,
             "event": "$ai_generation",
             "properties": properties,
+            "groups": self._build_groups(team_id),
         }
-        if team_id:
-            capture_kwargs["groups"] = {"project": team_id}
 
         logger.debug(
             "PostHog capturing error event",
@@ -270,6 +288,20 @@ class PostHogCallback(InstrumentedCallback):
         )
         self._capture_fire_and_forget(**capture_kwargs)
 
+    def _build_groups(self, team_id: int | None) -> dict[str, Any]:
+        """Build the `groups` dict for a captured event.
+
+        Always includes `instance` so the destination project's `instance`
+        group resolves to the customer-origin region URL — this is what the
+        usage report's $group_N filter reads to attribute events to the
+        right regional aggregation run. `project` is included when an
+        authenticated team is known.
+        """
+        groups: dict[str, Any] = {"instance": self._region_url}
+        if team_id:
+            groups["project"] = team_id
+        return groups
+
     def _capture_fire_and_forget(self, **capture_kwargs: Any) -> None:
         """
         Initializes a separate client for the capture operation to avoid payload bloat.
@@ -279,9 +311,24 @@ class PostHogCallback(InstrumentedCallback):
         loop.run_in_executor(None, partial(self._capture_sync, **capture_kwargs))
 
     def _capture_sync(self, **capture_kwargs: Any) -> None:
+        self._capture_to_destination(self._api_key, self._host, **capture_kwargs)
+        if self._secondary_api_key and self._secondary_host:
+            self._capture_to_destination(
+                self._secondary_api_key,
+                self._secondary_host,
+                **capture_kwargs,
+            )
+
+    def _capture_to_destination(self, api_key: str, host: str, **capture_kwargs: Any) -> None:
+        """Fire a single capture against one PostHog instance.
+
+        Each call uses a fresh client so a slow shutdown on one destination
+        doesn't pin a pooled client and to avoid cross-destination state
+        bleed in the SDK.
+        """
         client = Posthog(
-            self._api_key,
-            host=self._host,
+            api_key,
+            host=host,
             sync_mode=True,
             enable_local_evaluation=False,
         )
@@ -289,7 +336,7 @@ class PostHogCallback(InstrumentedCallback):
             client.capture(**capture_kwargs)
         except Exception as e:
             client.capture_exception(e, **capture_kwargs)
-            logger.exception("posthog_capture_failed", error=str(e))
+            logger.exception("posthog_capture_failed", host=host, error=str(e))
         finally:
             client.shutdown()
 

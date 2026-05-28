@@ -96,7 +96,7 @@ class TestPostHogCallback:
 
             assert call_kwargs["distinct_id"] == "user-distinct-id-123"
             assert call_kwargs["event"] == "$ai_generation"
-            assert call_kwargs["groups"] == {"project": 456}
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
 
             props = call_kwargs["properties"]
             assert props["$ai_model"] == "claude-3-opus"
@@ -127,8 +127,11 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             call_kwargs = mock_client.capture.call_args.kwargs
-            # distinct_id should be a UUID string since no auth user
-            assert "groups" not in call_kwargs  # No team_id means no groups
+            # distinct_id should be a UUID string since no auth user.
+            # The instance group is always set so the destination project can
+            # resolve $group_<N> for the region URL filter in the usage report,
+            # even when no authenticated team is known.
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com"}
 
     @pytest.mark.asyncio
     async def test_on_success_uses_end_user_id_for_distinct_id(
@@ -397,7 +400,7 @@ class TestPostHogCallback:
 
             call_kwargs = mock_client.capture.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-456"
-            assert call_kwargs["groups"] == {"project": 456}
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
 
             props = call_kwargs["properties"]
             assert props["$ai_trace_id"] == _normalize_trace_id("metadata-user-id")
@@ -427,6 +430,89 @@ class TestPostHogCallback:
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
             assert call_kwargs["properties"]["$ai_trace_id"] == _normalize_trace_id("trace-id-from-metadata")
             assert _is_uuid(call_kwargs["properties"]["$ai_trace_id"])
+
+    @pytest.mark.asyncio
+    async def test_on_success_uses_configured_region_url_in_groups(
+        self,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        callback = PostHogCallback(
+            api_key="eu-key",
+            host="https://eu.i.posthog.com",
+            region_url="https://eu.posthog.com",
+        )
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        call_kwargs = mock_client.capture.call_args.kwargs
+        assert call_kwargs["groups"] == {"instance": "https://eu.posthog.com", "project": 456}
+
+    @pytest.mark.asyncio
+    async def test_on_success_mirrors_to_secondary_destination_when_configured(
+        self,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+    ) -> None:
+        mock_client = MagicMock()
+        with patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client) as mock_cls:
+            callback = PostHogCallback(
+                api_key="eu-key",
+                host="https://eu.i.posthog.com",
+                region_url="https://eu.posthog.com",
+                secondary_api_key="us-key",
+                secondary_host="https://us.i.posthog.com",
+            )
+            kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+            with (
+                patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+                patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+            ):
+                await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            # One Posthog client constructed per destination, each captured once.
+            primary_call, secondary_call = mock_cls.call_args_list
+            assert primary_call.args == ("eu-key",)
+            assert primary_call.kwargs["host"] == "https://eu.i.posthog.com"
+            assert secondary_call.args == ("us-key",)
+            assert secondary_call.kwargs["host"] == "https://us.i.posthog.com"
+            assert mock_client.capture.call_count == 2
+
+            # Both copies carry the EU origin region so the US-region usage report
+            # filter ($group_1 = 'https://us.posthog.com') excludes the mirrored copy.
+            for capture_call in mock_client.capture.call_args_list:
+                assert capture_call.kwargs["groups"] == {
+                    "instance": "https://eu.posthog.com",
+                    "project": 456,
+                }
+
+    @pytest.mark.asyncio
+    async def test_on_success_skips_secondary_destination_when_unconfigured(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        mock_cls, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        assert mock_cls.call_count == 1
+        assert mock_client.capture.call_count == 1
 
 
 class TestNormalizeTraceId:
