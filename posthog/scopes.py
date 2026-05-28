@@ -132,6 +132,42 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_sessi
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
+# Server-side scope assignment string-set constants (see RFC: server-side scope
+# assignment for OAuthApplications). The OBJECT sets above
+# (INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS) remain canonical for
+# object-level checks; these `obj:action` STRING sets are the canonical surface
+# used by `OAuthApplication.scopes` and `UNPRIVILEGED_SCOPES` set arithmetic.
+
+# Every public `obj:action` scope string. Matches `get_scope_descriptions()`
+# keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
+ALL_SCOPES: frozenset[str] = frozenset(
+    f"{obj}:{action}"
+    for obj in API_SCOPE_OBJECTS
+    if obj not in INTERNAL_API_SCOPE_OBJECTS
+    for action in API_SCOPE_ACTIONS
+)
+
+# Privileged scopes only land on `OAuthApplication.scopes` via an admin-driven
+# path (Django admin, the Stripe HMAC seed list, first-party data migrations).
+# Filtered out of partner-facing self-serve registration (CIMD, DCR per
+# RFC 7591), so a partner cannot programmatically grant themselves
+# `llm_gateway:read`.
+PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read"})
+
+# String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
+# advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
+# alpha scope never reaches the broad default.
+HIDDEN_SCOPES: frozenset[str] = frozenset(
+    f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
+)
+
+# Everything safe to grant a generic OAuth client. The broad default for an
+# `OAuthApplication` with empty `scopes`: empty resolves to this set at
+# `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
+# they live in `OIDC_SCOPES` below and are accepted at `/authorize`
+# independently of `application.scopes`.
+UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - HIDDEN_SCOPES
+
 
 def get_scope_descriptions() -> dict[str, str]:
     return {

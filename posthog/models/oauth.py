@@ -96,6 +96,21 @@ class OAuthApplication(AbstractApplication):
         help_text="Branding to use on authentication pages",
     )
 
+    # Server-stored scope ceiling. Tokens issued for this app carry scopes from
+    # this field; an empty list resolves to UNPRIVILEGED_SCOPES at /authorize
+    # time (the broad default). Privileged scopes (llm_gateway:read) only land
+    # here via admin grant — self-serve registration (CIMD, DCR) is filtered.
+    scopes: ArrayField = ArrayField(
+        models.CharField(max_length=64),
+        default=list,
+        blank=True,
+        help_text=(
+            "Scope strings tokens issued for this app may carry. Authoritative "
+            "ceiling. Empty list resolves to the broad default (UNPRIVILEGED_SCOPES) "
+            "at /authorize time. Privileged scopes only land here via admin grant."
+        ),
+    )
+
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
     is_cimd_client: models.BooleanField = models.BooleanField(
         default=False,
@@ -305,6 +320,16 @@ class OAuthAccessToken(AbstractAccessToken):
         blank=True,
         related_name="+",
         db_index=True,
+    )
+
+    # Optional user-facing label set at mint time. Carried across refreshes so
+    # it persists for the life of the connection, not just one rotated token.
+    name: models.CharField = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Optional user-facing label so a user can identify a token (per-device, per-IP, or by purpose).",
     )
 
 
