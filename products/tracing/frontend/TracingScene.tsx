@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,6 +24,8 @@ import { TracingSparkline } from './TracingSparkline'
 import { TracingTabIdProvider, useTracingTabId } from './TracingTabContext'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
+
+const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
 
 export const scene: SceneExport<TracingSceneLogicProps> = {
     component: TracingScene,
@@ -151,6 +155,17 @@ function TracingSceneContents(): JSX.Element {
                     type: 'tracing',
                 }}
             />
+            <LemonBanner
+                type="warning"
+                dismissKey="tracing-alpha-notice"
+                action={{
+                    icon: <IconFeedback />,
+                    children: 'Share feedback',
+                    onClick: () => posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID),
+                }}
+            >
+                Tracing is in alpha. Expect bugs, missing features, and breaking changes.
+            </LemonBanner>
             <TracingSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
