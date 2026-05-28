@@ -23,6 +23,7 @@ from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
     CHQueryErrorNumberOfArgumentsDoesntMatch,
+    CHQueryErrorSamplingNotSupported,
     CHQueryErrorTooManyBytes,
     CHQueryErrorTypeMismatch,
     CHQueryErrorUnknownFunction,
@@ -104,6 +105,7 @@ USER_QUERY_ERRORS = (
     ResolutionError,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorUnknownTable,
+    CHQueryErrorSamplingNotSupported,
     ExcelColumnLimitExceeded,
 )
 

@@ -146,6 +146,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
+    elif name == "SAMPLING_NOT_SUPPORTED":
+        return CHQueryErrorSamplingNotSupported(err.message, code=err.code, code_name="sampling_not_supported")
 
     # all other errors
     else:
@@ -251,6 +253,10 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
 
 
 class CHQueryErrorUnknownTable(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorSamplingNotSupported(ExposedCHQueryError):
     pass
 
 
@@ -417,7 +423,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     137: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_CONFIG"),
     138: ErrorCodeMeta("EXCESSIVE_ELEMENT_IN_CONFIG"),
     139: ErrorCodeMeta("NO_ELEMENTS_IN_CONFIG"),
-    141: ErrorCodeMeta("SAMPLING_NOT_SUPPORTED"),
+    141: ErrorCodeMeta("SAMPLING_NOT_SUPPORTED", user_safe=True),
     142: ErrorCodeMeta("NOT_FOUND_NODE"),
     145: ErrorCodeMeta("UNKNOWN_OVERFLOW_MODE"),
     152: ErrorCodeMeta("UNKNOWN_DIRECTION_OF_SORTING"),
