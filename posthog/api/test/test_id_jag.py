@@ -192,8 +192,75 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             audience=_RESOURCE_URL,
             issuer=_AUTH_SERVER_URL,
         )
-        # The stamped sub preserves the IdP's opaque identifier.
+        # The stamped sub preserves the IdP's opaque identifier; the resolved
+        # PostHog user identity is stamped separately into `email` so the
+        # resource-side authenticator can find the User row without trying to
+        # parse an email out of `sub`.
         self.assertEqual(claims["sub"], f"{_PROVIDER_NAME}:{opaque_sub}")
+        self.assertEqual(claims["email"], "user@example.com")
+
+    def test_round_trip_with_opaque_sub_authenticates_on_resource_side(self) -> None:
+        # Regression: opaque-sub IdPs (Okta, Auth0, Entra) emit `sub` values
+        # that aren't emails. Issuance was already keyed off the `email`
+        # claim, but the resource-side authenticator was keying off the
+        # userSub half of `sub` — which 401'd every request. Drive the whole
+        # flow end-to-end here: real /id-jag/token → real /api/users/@me/.
+        assertion = _make_id_jag(
+            sub="auth0|opaque-id-abc123",
+            scope="user:read",
+            extra_claims={"email": "user@example.com", "email_verified": True},
+        )
+        issue_resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(issue_resp.status_code, status.HTTP_200_OK, issue_resp.content)
+        access_token = issue_resp.json()["access_token"]
+
+        api_resp = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.assertEqual(api_resp.status_code, status.HTTP_200_OK, api_resp.content)
+        self.assertEqual(api_resp.json()["email"], "user@example.com")
+
+    def test_rejects_when_email_claim_is_explicitly_unverified(self) -> None:
+        # OIDC Core §5.1 — the `email` claim is mutable; only the IdP's
+        # `email_verified` boolean signals ownership. Without this gate, a
+        # user authenticated under their own `sub` could set the `email`
+        # claim to a victim's address and slip past the membership check.
+        assertion = _make_id_jag(
+            sub="auth0|attacker",
+            extra_claims={"email": "user@example.com", "email_verified": False},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
+
+    def test_accepts_when_email_verified_is_true(self) -> None:
+        assertion = _make_id_jag(
+            sub="auth0|abc123",
+            extra_claims={"email": "user@example.com", "email_verified": True},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_accepts_when_email_verified_is_omitted(self) -> None:
+        # Many valid IdPs (notably Okta in some configs) omit `email_verified`
+        # rather than emitting `true`. Requiring it true would break them, so
+        # we only reject the explicit-false case.
+        assertion = _make_id_jag(
+            sub="auth0|abc123",
+            extra_claims={"email": "user@example.com"},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_email_verified_false_is_ignored_when_no_email_claim_is_present(self) -> None:
+        # The gate only matters when we're about to trust the `email` claim.
+        # If the IdP didn't send one, the membership lookup falls back to
+        # `sub` and `email_verified: false` is irrelevant.
+        assertion = _make_id_jag(
+            sub="user@example.com",
+            extra_claims={"email_verified": False},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_rejects_when_email_claim_domain_is_not_verified(self) -> None:
         # When the `email` claim is present it takes precedence — a verified-
@@ -691,6 +758,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self,
         *,
         sub: str | None = None,
+        email: str | None = None,
         aud: str = _RESOURCE_URL,
         iss: str = _AUTH_SERVER_URL,
         scope: str = "feature_flag:read",
@@ -704,6 +772,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         payload: dict[str, Any] = {
             "iss": iss,
             "sub": sub if sub is not None else f"{_PROVIDER_NAME}:{self.user.email}",
+            "email": email if email is not None else self.user.email,
             "aud": aud,
             "client_id": client_id,
             "scope": scope,
@@ -784,8 +853,41 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
     def test_unknown_user_email_rejected(self) -> None:
         token = self._mint_access_token(
             sub=f"{_PROVIDER_NAME}:no-such-user@nowhere.example.com",
+            email="no-such-user@nowhere.example.com",
             scope="user:read",
         )
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_opaque_sub_with_email_claim_authenticates_user(self) -> None:
+        # OIDC IdPs (Okta, Auth0, Entra) emit opaque `sub` values — the user's
+        # PostHog identity is in the separate `email` claim. The resource-side
+        # authenticator must key off `email`, not the userSub half of `sub`.
+        token = self._mint_access_token(
+            sub=f"{_PROVIDER_NAME}:auth0|opaque-id-abc123",
+            email=self.user.email,
+            scope="user:read",
+        )
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["email"], self.user.email)
+
+    def test_missing_email_claim_rejected(self) -> None:
+        # `email` is the authenticated identity — a token without it must not
+        # fall back to parsing `sub` for an email.
+        now = int(time.time())
+        payload = {
+            "iss": _AUTH_SERVER_URL,
+            "sub": f"{_PROVIDER_NAME}:{self.user.email}",
+            # email intentionally missing
+            "aud": _RESOURCE_URL,
+            "client_id": _RESOURCE_CLIENT_ID,
+            "scope": "user:read",
+            "org_id": str(self.organization.id),
+            "iat": now,
+            "exp": now + 300,
+        }
+        token = jwt.encode(payload, _AS_PRIVATE_KEY_PEM, algorithm="RS256", headers={"typ": ACCESS_TOKEN_TYPE})
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 

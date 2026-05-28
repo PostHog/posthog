@@ -532,7 +532,17 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                     issuer=site_url,
                     leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                     options={
-                        "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                        "require": [
+                            "iss",
+                            "sub",
+                            "email",
+                            "aud",
+                            "exp",
+                            "iat",
+                            "client_id",
+                            "scope",
+                            "org_id",
+                        ],
                         "verify_signature": True,
                         "verify_exp": True,
                         "verify_aud": True,
@@ -555,11 +565,14 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                 raise AuthenticationFailed(
                     detail="ID-JAG access token sub claim is not in the expected '{provider}:{userSub}' format."
                 )
-            _provider, user_sub = sub_parts
 
             organization_id = str(claims.get("org_id") or "")
             if not organization_id:
                 raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
+
+            token_email = str(claims.get("email") or "")
+            if not token_email:
+                raise AuthenticationFailed(detail="ID-JAG access token is missing the email claim.")
 
             # Resolve the user by (email, org_id) so the token only authenticates
             # against the specific organization it was minted for. This prevents
@@ -568,7 +581,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             # may have been removed from the org after the token was issued).
             user_qs = User.objects.filter(
                 is_active=True,
-                email__iexact=user_sub,
+                email__iexact=token_email,
                 organization_membership__organization_id=organization_id,
             ).distinct()
             users = list(user_qs[:2])

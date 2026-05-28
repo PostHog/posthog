@@ -104,6 +104,7 @@ class IdJagClaims(TypedDict, total=False):
     iss: str
     sub: str
     email: str | None
+    email_verified: bool
     aud: str | list[str]
     client_id: str
     scope: str
@@ -345,6 +346,16 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     else:
         logger.info("id_jag_assertion_missing_jti", issuer=expected_issuer)
 
+    # Some IdPs let a user set an arbitrary `email` with `email_verified: false`
+    if claims.get("email") is not None and claims.get("email_verified") is False:
+        logger.info(
+            "id_jag_token_rejected",
+            reason="email_not_verified",
+            issuer=expected_issuer,
+            stage="post_signature_email_verified_check",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+
     verified_email = claims.get("email") or claims.get("sub") or ""
 
     # The user must be an active member of the *specific* organization whose
@@ -370,6 +381,7 @@ def _construct_access_token_payload(
     provider_name: str,
     granted_scopes: list[str],
     organization_id: Any,
+    verified_email: str,
 ) -> dict[str, Any]:
     """
     Constructs the payload for the JWT access token which will be issued to the ID-JAG caller.
@@ -383,6 +395,7 @@ def _construct_access_token_payload(
     payload: dict[str, Any] = {
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
+        "email": verified_email,
         "aud": claims.get("resource"),
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
@@ -479,7 +492,10 @@ def issue_access_token(
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-    payload = _construct_access_token_payload(claims, provider_name, granted, org_domain.organization.pk)
+    verified_email = claims.get("email") or claims.get("sub") or ""
+    payload = _construct_access_token_payload(
+        claims, provider_name, granted, org_domain.organization.pk, cast(str, verified_email)
+    )
     token = _construct_access_token(payload)
     return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS
 
