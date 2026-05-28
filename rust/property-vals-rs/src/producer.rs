@@ -13,12 +13,12 @@ use tracing::warn;
 use crate::types::{PropertyType, TupleKey};
 
 #[derive(serde::Serialize)]
-struct Outgoing<'a> {
-    team_id: i64,
-    property_type: PropertyType,
-    property_key: &'a str,
-    property_value: &'a str,
-    property_count: u64,
+pub(crate) struct Outgoing<'a> {
+    pub team_id: i64,
+    pub property_type: PropertyType,
+    pub property_key: &'a str,
+    pub property_value: &'a str,
+    pub property_count: u64,
 }
 
 #[derive(Debug, Error)]
@@ -84,10 +84,22 @@ impl Producer for AggregatedProducer {
             })
             .collect();
 
+        // Full-tuple partition key. The same (team, type, key, value) tuple
+        // from any pod always lands on the same partition, so the merger on
+        // the consuming side can merge the per-pod duplicates that the
+        // events/groups workers emit across replicas.
         let send_fut = send_keyed_iter_to_kafka(
             &self.inner,
             &self.output_topic,
-            |m| Some(format!("{}:{}", m.team_id, m.property_key)),
+            |m| {
+                Some(format!(
+                    "{}:{}:{}:{}",
+                    m.team_id,
+                    m.property_type.as_kafka_key_segment(),
+                    m.property_key,
+                    m.property_value,
+                ))
+            },
             messages,
         );
 
