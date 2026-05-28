@@ -81,8 +81,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('relative flex-1 py-1 min-w-0 group', {
-                                'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
+                            className={cn('relative py-1 min-w-0 group', {
+                                'flex-1 pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             data-attr="new-account-menu-button"
                             tooltip={

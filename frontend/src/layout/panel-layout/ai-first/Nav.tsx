@@ -141,8 +141,9 @@ export function Nav(): JSX.Element {
                     )}
                 >
                     <div
-                        className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
-                            'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
+                        className={cn('flex rounded-md w-full px-2 pt-2 pb-1', {
+                            'gap-1': !isLayoutNavCollapsed,
+                            'flex-col items-center gap-px pt-2 pb-0': isLayoutNavCollapsed,
                         })}
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
@@ -166,7 +167,7 @@ export function Nav(): JSX.Element {
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
-                                className="group w-full justify-center"
+                                className="group"
                                 data-attr="nav-tab-chat-collapsed"
                                 iconOnly
                                 tooltip="Chat"
