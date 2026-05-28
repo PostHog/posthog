@@ -1165,9 +1165,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_llm_skill: {
         name: 'Create shared skill',
         description: 'Create shared skill to save a reusable workflow',
-        product: Scene.LLMAnalytics,
+        product: Scene.AIObservability,
         icon: <IconBook />,
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) =>
             skillStatusFormatter(toolCall, {
                 completedLabel: 'Created shared skill',
@@ -1178,9 +1178,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     update_llm_skill: {
         name: 'Update shared skill',
         description: 'Update shared skill by publishing a new version',
-        product: Scene.LLMAnalytics,
+        product: Scene.AIObservability,
         icon: <IconBook />,
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) =>
             skillStatusFormatter(toolCall, {
                 completedLabel: 'Updated shared skill',
@@ -1191,9 +1191,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     archive_llm_skill: {
         name: 'Archive shared skill',
         description: 'Archive shared skill to hide it from suggestions',
-        product: Scene.LLMAnalytics,
+        product: Scene.AIObservability,
         icon: <IconBook />,
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) =>
             skillStatusFormatter(toolCall, {
                 completedLabel: 'Archived shared skill',
