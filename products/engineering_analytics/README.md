@@ -63,14 +63,14 @@ That grounded, trended, segmented answer **is the product.** The read-only UI is
 PostHog already has the two ends of its own AI-to-prod loop:
 
 ```text
-PostHog Code              engineering_analytics              PostHog product analytics
-(generates code,      →   ( CI / review / merge / deploy )  →   ( events, errors, flags,
- opens PRs)               THE DARK MIDDLE, BECOMING LIGHT        surveys, replays )
-        ↑                                                                │
-        └────────────  feedback loop: signals to PostHog Code  ──────────┘
+PostHog Code              engineering_analytics            PostHog product analytics
+(generates code,      →   (CI / review / merge / deploy) →  (events, errors, flags,
+ opens PRs)                                                  surveys, replays)
+        ↑                                                            │
+        └───────────  signals feed back to PostHog Code  ───────────┘
 ```
 
-The middle — what happens to code between "PR opened" and "running in production" — is invisible to both ends today. Engineering analytics is the middle. It serves two consumers with the same tools:
+The middle — what happens to code between "PR opened" and "running in production" — is invisible to both ends today. Engineering analytics fills it, serving two consumers with the same tools:
 
 - **Engineers** driving an agent (Claude Code, Cursor, PostHog AI) asking about their monorepo. We dogfood on `PostHog/posthog` from day one.
 - **PostHog Code** itself, autonomously, calling the same tools on its own PRs — to diagnose why a PR is stuck, decide whether to retry, and eventually see how a merged change behaved in production.
