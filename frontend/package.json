@@ -328,7 +328,7 @@
         "ts-node": "^10.9.1",
         "tsconfig-paths": "^4.2.0",
         "typescript": "catalog:",
-        "vite": "^7.1.9",
+        "vite": "^7.3.3",
         "whatwg-fetch": "^3.6.2"
     },
     "optionalDependencies": {
