@@ -131,6 +131,33 @@ describe('TrendsLifecycleChart', () => {
         })
     })
 
+    it('renders the legend when lifecycleFilter.showLegend is true', async () => {
+        renderInsight({
+            query: buildLifecycleQuery({ lifecycleFilter: { showLegend: true } }) as unknown as InsightQuery,
+            featureFlags: HOG_CHARTS_FLAG,
+            mocks: { additionalMockResponses: lifecycleMocks },
+        })
+
+        await screen.findByTestId('trend-lifecycle-graph')
+        const legend = await screen.findByTestId('trend-lifecycle-legend')
+        // Lifecycle status names appear capitalized in the legend.
+        expect(legend.textContent).toMatch(/New/)
+        expect(legend.textContent).toMatch(/Returning/)
+        expect(legend.textContent).toMatch(/Resurrecting/)
+        expect(legend.textContent).toMatch(/Dormant/)
+    })
+
+    it('omits the legend when showLegend is not set', async () => {
+        renderInsight({
+            query: buildLifecycleQuery() as unknown as InsightQuery,
+            featureFlags: HOG_CHARTS_FLAG,
+            mocks: { additionalMockResponses: lifecycleMocks },
+        })
+
+        await screen.findByTestId('trend-lifecycle-graph')
+        expect(screen.queryByTestId('trend-lifecycle-legend')).not.toBeInTheDocument()
+    })
+
     it('falls back to the legacy renderer when the flag is off', async () => {
         renderInsight({
             query: buildLifecycleQuery() as unknown as InsightQuery,

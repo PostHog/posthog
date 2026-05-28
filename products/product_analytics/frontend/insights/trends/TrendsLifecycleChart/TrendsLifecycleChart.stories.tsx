@@ -119,9 +119,17 @@ interface LifecycleInsightOpts {
     shortId: string
     name?: string
     showValuesOnSeries?: boolean
+    showLegend?: boolean
 }
 
-function lifecycleInsight({ stacked, id, shortId, name, showValuesOnSeries }: LifecycleInsightOpts): object {
+function lifecycleInsight({
+    stacked,
+    id,
+    shortId,
+    name,
+    showValuesOnSeries,
+    showLegend,
+}: LifecycleInsightOpts): object {
     return {
         id,
         short_id: shortId,
@@ -157,7 +165,7 @@ function lifecycleInsight({ stacked, id, shortId, name, showValuesOnSeries }: Li
                 interval: 'day',
                 kind: 'LifecycleQuery',
                 series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
-                lifecycleFilter: { stacked, showValuesOnSeries },
+                lifecycleFilter: { stacked, showValuesOnSeries, showLegend },
                 version: 2,
             },
             full: true,
@@ -200,6 +208,20 @@ export const UnstackedWithValuesOnSeries: Story = {
                 shortId: 'lifecycleUnstackedValues',
                 name: 'Lifecycle unstacked (values on series)',
                 showValuesOnSeries: true,
+            })}
+        />
+    ),
+}
+
+export const StackedWithLegend: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: true,
+                id: 304,
+                shortId: 'lifecycleStackedLegend',
+                name: 'Lifecycle stacked (with legend)',
+                showLegend: true,
             })}
         />
     ),

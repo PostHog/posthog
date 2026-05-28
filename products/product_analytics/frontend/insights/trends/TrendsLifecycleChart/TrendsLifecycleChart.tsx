@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesBarChart } from 'lib/hog-charts'
+import { ChartLegendLayout, Legend, TimeSeriesBarChart, legendItemsFromSeries } from 'lib/hog-charts'
 import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -60,6 +60,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         hasPersonsModal,
         querySource,
         showValuesOnSeries,
+        showLegend,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
@@ -190,7 +191,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const showAnnotations = !inSharedMode
     const annotationsDates = currentPeriodResult?.days ?? []
 
-    return (
+    const chart = (
         <TimeSeriesBarChart<TrendsSeriesMeta>
             series={series}
             labels={labels}
@@ -204,5 +205,20 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         >
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
         </TimeSeriesBarChart>
+    )
+
+    if (!showLegend) {
+        return chart
+    }
+
+    const legendItems = legendItemsFromSeries(series, theme)
+    return (
+        <ChartLegendLayout
+            legend={<Legend items={legendItems} dataAttr="trend-lifecycle-legend" />}
+            position="top"
+            className="flex-1 min-h-0"
+        >
+            {chart}
+        </ChartLegendLayout>
     )
 }
