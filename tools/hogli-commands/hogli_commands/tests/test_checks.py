@@ -564,24 +564,14 @@ class TestProductYamlOwnersCheck:
         result = owners_check.run(ctx)
         assert not result.issues
 
-    def test_gh_unavailable_is_error_locally(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_gh_unavailable_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
         monkeypatch.setattr(gh_module, "_fetch_attempted", True)
         monkeypatch.setattr(gh_module, "_team_slugs", None)
         monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
         result = owners_check.run(ctx)
         assert result.issues
         assert any("gh CLI" in i for i in result.issues)
-
-    def test_gh_unavailable_skips_in_ci(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.setenv("GITHUB_ACTIONS", "true")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", None)
-        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
-        result = owners_check.run(ctx)
-        assert not result.issues
 
 
 # ---------------------------------------------------------------------------

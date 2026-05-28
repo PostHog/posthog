@@ -36,6 +36,16 @@ function fakeRedis(): RedisLike {
     }
 }
 
+function spyRedis(): RedisLike {
+    return {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => 'OK'),
+        del: vi.fn(async () => 0),
+        scan: vi.fn(async () => ['0', []] as [string, string[]]),
+        ...makeRedisRateLimitStubs(),
+    }
+}
+
 const env = {} as any
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -149,6 +159,52 @@ describe('RequestContext', () => {
             })
         })
 
+        it('adds stable session properties without replacing request properties', () => {
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({
+                    mcpClientName: 'Claude Desktop',
+                    mcpClientVersion: '2.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'request-consumer',
+                    mcpVendorClient: 'ClaudeAI',
+                    transport: 'streamable-http',
+                })
+            )
+            ctx.setMcpContexts(
+                {
+                    sessionId: 'sess-1',
+                    mcpClientName: 'Claude Desktop',
+                    mcpClientVersion: '2.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'request-consumer',
+                    mcpVendorClient: 'ClaudeAI',
+                    transport: 'streamable-http',
+                    mode: 'cli',
+                },
+                {
+                    mcpClientName: 'claude-code',
+                    mcpClientVersion: '1.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'session-consumer',
+                    mcpVendorClient: 'ClaudeCode',
+                }
+            )
+
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $mcp_client_name: 'Claude Desktop',
+                $mcp_client_version: '2.0',
+                $mcp_consumer: 'request-consumer',
+                mcp_vendor_client: 'ClaudeAI',
+                mcp_session_client_name: 'claude-code',
+                mcp_session_client_version: '1.0',
+                mcp_session_consumer: 'session-consumer',
+                mcp_session_vendor_client: 'ClaudeCode',
+            })
+        })
+
         it('omits undefined properties', () => {
             const ctx = new RequestContext(
                 fakeRedis(),
@@ -185,6 +241,34 @@ describe('RequestContext', () => {
         it('returns the same cache instance on repeated access', () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
             expect(ctx.cache).toBe(ctx.cache)
+        })
+
+        it('keeps MCP session cache entries on the default 7 day TTL', async () => {
+            const redis = spyRedis()
+            const ctx = new RequestContext(redis, env, makeProps({ mcpSessionId: 'mcp-session-1' }))
+
+            await ctx.sessionCache.set('mcpClientName', 'claude-code')
+
+            expect(redis.set).toHaveBeenCalledWith(
+                expect.stringMatching(/^mcp:session:/),
+                JSON.stringify('claude-code'),
+                'EX',
+                7 * 24 * 60 * 60
+            )
+        })
+
+        it('keeps token cache entries on the default 7 day TTL', async () => {
+            const redis = spyRedis()
+            const ctx = new RequestContext(redis, env, makeProps())
+
+            await ctx.tokenCache.set('distinctId', 'user-123')
+
+            expect(redis.set).toHaveBeenCalledWith(
+                'mcp:token:test-user:distinctId',
+                JSON.stringify('user-123'),
+                'EX',
+                7 * 24 * 60 * 60
+            )
         })
     })
 })

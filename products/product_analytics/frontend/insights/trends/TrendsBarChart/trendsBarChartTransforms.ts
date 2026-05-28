@@ -1,4 +1,5 @@
 import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
+import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
 import { hexToRGBA } from 'lib/utils'
 import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
 
@@ -64,6 +65,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     interval?: IntervalType | null
     timezone?: string
     allDays?: string[]
+    xAxisLabel?: string | null
+    yAxisLabel?: string | null
     goalLines?: SchemaGoalLine[] | null
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
@@ -77,11 +80,15 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {
         xAxis: {
+            label: normalizeAxisLabel(opts.xAxisLabel),
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
         },
-        yAxis,
+        yAxis: {
+            ...yAxis,
+            label: normalizeAxisLabel(opts.yAxisLabel),
+        },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         barLayout: opts.isPercentStackView ? 'percent' : opts.isGrouped ? 'grouped' : 'stacked',

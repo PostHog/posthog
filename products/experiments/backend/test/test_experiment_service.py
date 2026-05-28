@@ -16,10 +16,8 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.models import FeatureFlag, Team
+from posthog.models import Team
 from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -33,6 +31,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -1205,6 +1206,32 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, {"filters": {"properties": [{"key": "country", "value": "US"}]}})
 
         assert "global filter properties" in str(ctx.exception)
+
+    @parameterized.expand([("regex",), ("not_regex",)])
+    def test_update_experiment_allows_existing_invalid_regex_in_flag_filters(self, operator):
+        experiment = self._create_draft_experiment()
+        flag = experiment.feature_flag
+        flag.filters["groups"][0]["properties"] = [
+            {"key": "email", "value": "[unclosed", "operator": operator, "type": "person"}
+        ]
+        flag.save(update_fields=["filters"])
+
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                },
+            },
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == "[unclosed"
+        assert flag.filters["groups"][0]["properties"][0]["operator"] == operator
 
     def test_update_experiment_syncs_feature_flag_variants_for_draft(self):
         experiment = self._create_draft_experiment()

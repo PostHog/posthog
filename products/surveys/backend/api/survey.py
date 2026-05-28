@@ -1,4 +1,5 @@
 import re
+import json
 import builtins
 from collections import Counter
 from contextlib import contextmanager
@@ -10,7 +11,7 @@ from uuid import UUID
 from django.conf import settings
 from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import F, Min, Q, QuerySet, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse
@@ -43,12 +44,6 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
-from posthog.api.feature_flag import (
-    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
-    FeatureFlagSerializer,
-    MinimalFeatureFlagSerializer,
-    warn_if_missing_feature_flag_write_scope,
-)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -64,10 +59,8 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -77,6 +70,14 @@ from posthog.utils_cors import cors_response
 
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.feature_flags.backend.api.feature_flag import (
+    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    FeatureFlagSerializer,
+    MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
+)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
@@ -1453,7 +1454,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         translation_languages = sorted(translations.keys())
         has_question_translations = any(bool((q or {}).get("translations")) for q in questions)
 
-        ai_translation_status = self._classify_ai_translation_status(instance, translations, questions)
+        ai_translation_status = self._classify_ai_translation_status(
+            instance.ai_translations_snapshot or {}, translations, questions
+        )
         status_counts = Counter(ai_translation_status.values())
 
         return {
@@ -1476,8 +1479,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         }
 
     @staticmethod
-    def _classify_ai_translation_status(instance: Survey, translations: dict, questions: list) -> dict[str, str]:
-        snapshot = instance.ai_translations_snapshot or {}
+    def _classify_ai_translation_status(snapshot: dict, translations: dict, questions: list) -> dict[str, str]:
         used_languages = set(translations.keys())
         for q in questions:
             if isinstance(q, dict):
@@ -3008,7 +3010,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
 
         # Persist a snapshot of what the AI produced so we can later classify whether the saved
-        # survey still matches the AI output verbatim, was edited, or replaced manually.
+        # survey still matches the AI output verbatim, was edited, or replaced manually. Updated
+        # atomically via `jsonb_set` so concurrent generations for different languages cannot
+        # clobber each other's entries.
         target_language = data["target_language"]
         snapshot_entry = {
             "survey": (translations or {}).get(target_language, {}),
@@ -3018,10 +3022,20 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 if isinstance(q, dict) and q.get("id")
             },
         }
-        existing_snapshot = saved_survey.ai_translations_snapshot or {}
-        existing_snapshot[target_language] = snapshot_entry
-        saved_survey.ai_translations_snapshot = existing_snapshot
-        saved_survey.save(update_fields=["ai_translations_snapshot"])
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE posthog_survey
+                SET ai_translations_snapshot = jsonb_set(
+                    COALESCE(ai_translations_snapshot, '{}'::jsonb),
+                    ARRAY[%s],
+                    %s::jsonb,
+                    true
+                )
+                WHERE id = %s
+                """,
+                [target_language, json.dumps(snapshot_entry), saved_survey.id],
+            )
 
         posthoganalytics.capture(
             event="survey translations generated",
