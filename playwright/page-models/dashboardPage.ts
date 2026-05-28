@@ -70,6 +70,7 @@ export class DashboardPage {
                 '[data-attr="create-dashboard-from-template"], [data-attr="create-dashboard-from-template-featured"]'
             )
             .filter({ hasText: 'Website Metrics' })
+            .first()
         await expect(templateOption).toBeVisible()
         await templateOption.click()
 

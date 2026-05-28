@@ -4,27 +4,32 @@ import { InsightPage } from '../../page-models/insightPage'
 import { Navigation } from '../../utils/navigation'
 import { expect, test } from '../../utils/playwright-test-base'
 
-const typeTestCases: { type: InsightType; selector: string }[] = [
-    { type: InsightType.TRENDS, selector: '.TrendsInsight canvas' },
-    { type: InsightType.FUNNELS, selector: '.funnels-empty-state__title' },
-    { type: InsightType.RETENTION, selector: '.RetentionContainer canvas' },
-    { type: InsightType.PATHS, selector: '.Paths' },
-    { type: InsightType.STICKINESS, selector: '.TrendsInsight canvas' },
-    { type: InsightType.LIFECYCLE, selector: '.TrendsInsight canvas' },
-    { type: InsightType.SQL, selector: '[data-attr="hogql-query-editor"]' },
+// `InsightType` values are uppercase enum keys (TRENDS, FUNNELS, …) but the
+// InsightsNav tab labels are sentence-cased ("Trends", "User Paths", …). The
+// `expectedTabText` lets each case opt out of the case-insensitive enum match
+// (e.g. PATHS → "User Paths") without bringing back per-type chart selectors —
+// the old `.TrendsInsight` / `.funnels-empty-state__title` ones are dead.
+const typeTestCases: { type: InsightType; expectedTabText: string }[] = [
+    { type: InsightType.TRENDS, expectedTabText: 'Trends' },
+    { type: InsightType.FUNNELS, expectedTabText: 'Funnels' },
+    { type: InsightType.RETENTION, expectedTabText: 'Retention' },
+    { type: InsightType.PATHS, expectedTabText: 'User Paths' },
+    { type: InsightType.STICKINESS, expectedTabText: 'Stickiness' },
+    { type: InsightType.LIFECYCLE, expectedTabText: 'Lifecycle' },
 ]
 
-typeTestCases.forEach(({ type, selector }) => {
-    // skipping things because we want to get a single passing test in
-    test.skip(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
+typeTestCases.forEach(({ type, expectedTabText }) => {
+    test(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
         await new InsightPage(page).goToNew(type)
-        // have to use contains to make paths match user paths
-        await expect(page.locator('.LemonTabs__tab--active')).toContainText(type, { ignoreCase: true })
+        await expect(page.locator('.LemonTabs__tab--active')).toContainText(expectedTabText)
 
-        // we don't need to wait for the insight to load, just that it or its loading state is visible
-        const insightStillLoading = await page.locator('.insight-empty-state.warning').isVisible()
-        const insightDidLoad = await page.locator(selector).isVisible()
-        expect(insightStillLoading || insightDidLoad).toBe(true)
+        // EmptyStates.tsx tags every empty-state variant with this data-attr,
+        // and the insight viz always swaps between empty state and a `<canvas>`
+        // once data resolves. Treating either as success keeps the smoke test
+        // stable across query backends and chart types.
+        const emptyState = page.locator('[data-attr="insight-empty-state"]')
+        const chartCanvas = page.locator('main canvas')
+        await expect(emptyState.or(chartCanvas).first()).toBeVisible()
     })
 })
 

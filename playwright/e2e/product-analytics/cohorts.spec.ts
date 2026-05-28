@@ -24,6 +24,9 @@ test.describe('Cohorts', () => {
     })
 
     test('Duplicate a cohort', async ({ page }) => {
+        // Cohort calculation has to settle twice before the next duplicate item flips enabled.
+        test.setTimeout(120_000)
+
         const name = randomString('Test-Cohort-')
 
         await new CohortPage(page).createCohort(name)

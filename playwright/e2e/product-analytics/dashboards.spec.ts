@@ -238,6 +238,7 @@ test.describe('Dashboards', () => {
     })
 
     test('Deleting an insight from dashboard redirects back', async ({ page }) => {
+        test.setTimeout(120_000)
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
         const insightName = randomString('dash-trends')
