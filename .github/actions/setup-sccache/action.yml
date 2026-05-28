@@ -70,5 +70,18 @@ runs:
           run: |
               echo "$RUNNER_TEMP/sccache" >> "$GITHUB_PATH"
               echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
-              "$RUNNER_TEMP/sccache/sccache" --start-server
+              for i in 1 2 3; do
+                if "$RUNNER_TEMP/sccache/sccache" --start-server; then
+                  echo "sccache server started successfully"
+                  break
+                fi
+                if [ "$i" -eq 3 ]; then
+                  echo "::warning::sccache failed to start after 3 attempts, continuing without cache"
+                  echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+                  exit 0
+                fi
+                echo "sccache startup attempt $i failed, retrying in 5 seconds..."
+                "$RUNNER_TEMP/sccache/sccache" --stop-server 2>/dev/null || true
+                sleep 5
+              done
               "$RUNNER_TEMP/sccache/sccache" --version
