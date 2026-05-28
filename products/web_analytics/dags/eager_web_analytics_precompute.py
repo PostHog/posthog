@@ -24,16 +24,21 @@ Audience
 Source of truth is the `web-analytics-precompute-toggle` feature flag,
 the same flag the runtime lazy read path checks before serving from the
 precompute cache. The flag is structured as one group per enrolled
-organization (`Match organizations against id equals <uuid>`). The job
-extracts those UUIDs from the flag's filter groups and resolves them to
-the set of teams belonging to those organizations.
+organization (`Match organizations against id equals <uuid>`).
+
+The flag definition is read from the `posthoganalytics` SDK's local
+evaluation cache (`feature_flag_definitions()`), which mirrors the
+server's `/api/feature_flag/local_evaluation/` payload — same JSON shape
+the Django `FeatureFlag` model stores. Reading via the SDK keeps this
+module self-contained within `products.web_analytics`'s allowed tach
+dependencies and avoids any cross-product import.
 
 Reusing the runtime flag for the audience guarantees the eager warming
 audience never drifts from the audience the read path will actually
 serve — there is no second flag to keep in sync.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
-to avoid resolving a same-keyed flag on an unrelated tenant.
+where the SDK isn't configured against PostHog Cloud's project.
 
 Composition with the lazy read path
 -----------------------------------
@@ -51,6 +56,7 @@ import time
 
 import dagster
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.schema import WebStatsBreakdown
@@ -64,18 +70,12 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
 
 
 EAGER_FLAG_KEY = "web-analytics-precompute-toggle"
-# Team id of PostHog's internal dogfooding project on PostHog Cloud, where
-# this rollout flag lives. Coupled with the `is_cloud()` gate in
-# `get_eager_team_ids` so we never accidentally resolve a same-keyed flag
-# against a self-hosted tenant's team 2.
-EAGER_FLAG_TEAM_ID = 2
 
 # Single warming window: the trailing 28 days. The lazy precompute path
 # stores per-day buckets, so a 28-day warm naturally serves any user
@@ -137,8 +137,13 @@ EAGER_PRECOMPUTE_BASELINE_FAILED = Counter(
 )
 
 
-def _extract_organization_ids_from_flag(flag: FeatureFlag) -> list[str]:
-    """Pull `id equals <uuid>` values out of a flag's filter groups.
+def _extract_organization_ids_from_flag(flag: dict) -> list[str]:
+    """Pull `id equals <uuid>` values out of a flag definition's filter groups.
+
+    Accepts the SDK's flag-definition shape from
+    `posthoganalytics.feature_flag_definitions()`, which mirrors the
+    server's `/api/feature_flag/local_evaluation/` payload — same JSON
+    shape the Django `FeatureFlag` model stores in its `filters` column.
 
     Expects org-aggregated flags shaped as one group per enrolled org
     with a `{type: "group", key: "id", operator: "exact", value: <uuid>}`
@@ -151,7 +156,7 @@ def _extract_organization_ids_from_flag(flag: FeatureFlag) -> list[str]:
     """
     org_ids: list[str] = []
     try:
-        groups = (flag.filters or {}).get("groups", []) or []
+        groups = ((flag or {}).get("filters") or {}).get("groups", []) or []
         if not isinstance(groups, list):
             return []
         for group in groups:
@@ -179,20 +184,43 @@ def _extract_organization_ids_from_flag(flag: FeatureFlag) -> list[str]:
     return org_ids
 
 
+def _find_flag_definition(key: str) -> dict | None:
+    """Look up `key` in the posthoganalytics SDK's local flag-definition cache.
+
+    The cache is populated by the SDK's background poller against the
+    PostHog project the cloud deployment is configured for, so this
+    avoids importing the `FeatureFlag` Django model from another product
+    and stays self-contained within `products.web_analytics`'s allowed
+    tach dependencies.
+    """
+    definitions = posthoganalytics.feature_flag_definitions() or []
+    for flag in definitions:
+        if not isinstance(flag, dict):
+            continue
+        if flag.get("key") != key:
+            continue
+        if flag.get("deleted"):
+            continue
+        if flag.get("active") is False:
+            continue
+        return flag
+    return None
+
+
 def get_eager_team_ids() -> list[int]:
     """Resolve the audience: teams belonging to organizations rolled out
     on the `web-analytics-precompute-toggle` flag.
 
-    Returns `[]` for any of: not running on PostHog Cloud, flag absent,
-    flag inactive/deleted, no organization-id conditions parsed. The
-    empty-list result cleanly turns the warming op into a no-op.
+    Returns `[]` for any of: not running on PostHog Cloud, flag absent
+    from the SDK's local-evaluation cache (e.g. inactive/deleted), no
+    organization-id conditions parsed. The empty-list result cleanly
+    turns the warming op into a no-op.
     """
     if not is_cloud():
         return []
 
-    try:
-        flag = FeatureFlag.objects.get(team_id=EAGER_FLAG_TEAM_ID, key=EAGER_FLAG_KEY, active=True, deleted=False)
-    except FeatureFlag.DoesNotExist:
+    flag = _find_flag_definition(EAGER_FLAG_KEY)
+    if flag is None:
         return []
 
     org_ids = _extract_organization_ids_from_flag(flag)

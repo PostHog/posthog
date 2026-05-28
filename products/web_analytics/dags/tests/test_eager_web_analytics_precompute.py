@@ -10,7 +10,6 @@ from posthog.schema import WebStatsBreakdown
 
 from posthog.models import Organization, Team
 
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
@@ -29,14 +28,14 @@ _ORG_UUID_B = "22222222-2222-4222-8222-222222222222"
 _ORG_UUID_C = "33333333-3333-4333-8333-333333333333"
 
 
-def _make_flag(team: Team, *, groups: list[dict], active: bool = True, deleted: bool = False) -> FeatureFlag:
-    return FeatureFlag.objects.create(
-        team=team,
-        key=EAGER_FLAG_KEY,
-        active=active,
-        deleted=deleted,
-        filters={"groups": groups, "aggregation_group_type_index": 0},
-    )
+def _flag(*, groups: list[dict], active: bool = True, deleted: bool = False) -> dict:
+    """Build a flag-definition dict matching the SDK's local-evaluation shape."""
+    return {
+        "key": EAGER_FLAG_KEY,
+        "active": active,
+        "deleted": deleted,
+        "filters": {"groups": groups, "aggregation_group_type_index": 0},
+    }
 
 
 def _org_id_group(org_id: str, *, operator: str | None = "exact") -> dict:
@@ -48,173 +47,183 @@ def _org_id_group(org_id: str, *, operator: str | None = "exact") -> dict:
 
 class TestExtractOrganizationIdsFromFlag:
     @pytest.mark.parametrize(
-        "filters,expected",
+        "flag,expected",
         [
             pytest.param(
-                {"groups": [_org_id_group(_ORG_UUID_A)]},
+                _flag(groups=[_org_id_group(_ORG_UUID_A)]),
                 [_ORG_UUID_A],
                 id="single_group_single_org",
             ),
             pytest.param(
-                {"groups": [_org_id_group(_ORG_UUID_A), _org_id_group(_ORG_UUID_B), _org_id_group(_ORG_UUID_C)]},
+                _flag(groups=[_org_id_group(_ORG_UUID_A), _org_id_group(_ORG_UUID_B), _org_id_group(_ORG_UUID_C)]),
                 [_ORG_UUID_A, _ORG_UUID_B, _ORG_UUID_C],
                 id="multiple_groups_preserved_in_order",
             ),
             pytest.param(
                 {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "group",
-                                    "group_type_index": 0,
-                                    "value": [_ORG_UUID_A, _ORG_UUID_B],
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                        }
-                    ]
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {
+                                        "key": "id",
+                                        "type": "group",
+                                        "group_type_index": 0,
+                                        "value": [_ORG_UUID_A, _ORG_UUID_B],
+                                        "operator": "exact",
+                                    }
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
                 },
                 [_ORG_UUID_A, _ORG_UUID_B],
                 id="list_value",
             ),
             pytest.param(
-                {"groups": [_org_id_group(_ORG_UUID_A, operator=None)]},
+                _flag(groups=[_org_id_group(_ORG_UUID_A, operator=None)]),
                 [_ORG_UUID_A],
                 id="missing_operator_defaults_to_exact",
             ),
-            pytest.param({}, [], id="empty_filters"),
-            pytest.param({"groups": []}, [], id="empty_groups"),
+            pytest.param({"filters": {}}, [], id="empty_filters"),
+            pytest.param({"filters": {"groups": []}}, [], id="empty_groups"),
             pytest.param(
-                {"groups": [_org_id_group(_ORG_UUID_A, operator="icontains")]},
+                _flag(groups=[_org_id_group(_ORG_UUID_A, operator="icontains")]),
                 [],
                 id="ignores_non_exact_operator",
             ),
             pytest.param(
                 {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "name",
-                                    "type": "group",
-                                    "group_type_index": 0,
-                                    "value": "x",
-                                    "operator": "exact",
-                                },
-                            ]
-                        }
-                    ]
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {
+                                        "key": "name",
+                                        "type": "group",
+                                        "group_type_index": 0,
+                                        "value": "x",
+                                        "operator": "exact",
+                                    },
+                                ]
+                            }
+                        ]
+                    }
                 },
                 [],
                 id="ignores_non_id_key",
             ),
             pytest.param(
                 {
-                    "groups": [
-                        {
-                            "properties": [
-                                {"key": "id", "type": "person", "value": _ORG_UUID_A, "operator": "exact"},
-                            ]
-                        }
-                    ]
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "id", "type": "person", "value": _ORG_UUID_A, "operator": "exact"},
+                                ]
+                            }
+                        ]
+                    }
                 },
                 [],
                 id="ignores_person_type",
             ),
             # Malformed-shape defenses — should return [] not raise.
-            pytest.param({"groups": None}, [], id="groups_is_none"),
-            pytest.param({"groups": "not-a-list"}, [], id="groups_is_string"),
-            pytest.param({"groups": [None]}, [], id="group_is_none"),
-            pytest.param({"groups": ["not-a-dict"]}, [], id="group_is_string"),
-            pytest.param({"groups": [{"properties": None}]}, [], id="properties_is_none"),
-            pytest.param({"groups": [{"properties": "not-a-list"}]}, [], id="properties_is_string"),
-            pytest.param({"groups": [{"properties": [None]}]}, [], id="prop_is_none"),
-            pytest.param({"groups": [{"properties": ["string"]}]}, [], id="prop_is_string"),
+            pytest.param({"filters": {"groups": None}}, [], id="groups_is_none"),
+            pytest.param({"filters": {"groups": "not-a-list"}}, [], id="groups_is_string"),
+            pytest.param({"filters": {"groups": [None]}}, [], id="group_is_none"),
+            pytest.param({"filters": {"groups": ["not-a-dict"]}}, [], id="group_is_string"),
+            pytest.param({"filters": {"groups": [{"properties": None}]}}, [], id="properties_is_none"),
+            pytest.param({"filters": {"groups": [{"properties": "not-a-list"}]}}, [], id="properties_is_string"),
+            pytest.param({"filters": {"groups": [{"properties": [None]}]}}, [], id="prop_is_none"),
+            pytest.param({"filters": {"groups": [{"properties": ["string"]}]}}, [], id="prop_is_string"),
+            pytest.param({}, [], id="flag_has_no_filters_key"),
+            pytest.param({"filters": None}, [], id="filters_is_none"),
         ],
     )
-    def test_extracts_expected_org_ids(self, filters, expected):
-        flag = FeatureFlag(filters=filters)
+    def test_extracts_expected_org_ids(self, flag, expected):
         assert _extract_organization_ids_from_flag(flag) == expected
 
-    def test_handles_completely_none_filters(self):
-        flag = FeatureFlag(filters=None)
-        assert _extract_organization_ids_from_flag(flag) == []
+    def test_handles_completely_none_flag(self):
+        assert _extract_organization_ids_from_flag(None) == []  # type: ignore[arg-type]
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
+@patch("products.web_analytics.dags.eager_web_analytics_precompute.posthoganalytics.feature_flag_definitions")
 class TestGetEagerTeamIds(APIBaseTest):
-    """The flag is anchored to a fixed team id (EAGER_FLAG_TEAM_ID) in
-    production. In tests we patch that constant to point at the test team
-    so we can exercise the resolver end-to-end against the test DB.
-    `is_cloud` is patched to True at the class level — the production gate
-    refuses to resolve on self-hosted instances."""
-
-    def setUp(self):
-        super().setUp()
-        self.patcher = patch(
-            "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_FLAG_TEAM_ID",
-            self.team.pk,
-        )
-        self.patcher.start()
-        self.addCleanup(self.patcher.stop)
+    """The flag definition is read from the posthoganalytics SDK's local
+    evaluation cache. Tests patch the SDK accessor to return a stubbed
+    definitions list; `is_cloud` is forced True so the prod gate doesn't
+    refuse to resolve."""
 
     def _make_org_with_team(self, *, name: str = "Org") -> tuple[Team, str]:
-        """Create an org + team. Returns (team, str(org.id))."""
         org = Organization.objects.create(name=name)
         team = Team.objects.create(organization=org, name=f"{name}-team")
         return team, str(org.id)
 
-    def test_returns_empty_when_flag_absent(self, _is_cloud):
+    def test_returns_empty_when_flag_absent(self, defs, _is_cloud):
+        defs.return_value = []
         assert get_eager_team_ids() == []
 
-    def test_returns_empty_when_flag_inactive(self, _is_cloud):
+    def test_returns_empty_when_flag_inactive(self, defs, _is_cloud):
         _, org_id = self._make_org_with_team()
-        _make_flag(self.team, groups=[_org_id_group(org_id)], active=False)
+        defs.return_value = [_flag(groups=[_org_id_group(org_id)], active=False)]
         assert get_eager_team_ids() == []
 
-    def test_returns_empty_when_flag_deleted(self, _is_cloud):
+    def test_returns_empty_when_flag_deleted(self, defs, _is_cloud):
         _, org_id = self._make_org_with_team()
-        _make_flag(self.team, groups=[_org_id_group(org_id)], deleted=True)
+        defs.return_value = [_flag(groups=[_org_id_group(org_id)], deleted=True)]
         assert get_eager_team_ids() == []
 
-    def test_returns_empty_when_no_org_id_conditions(self, _is_cloud):
-        _make_flag(self.team, groups=[{"rollout_percentage": 100}])
+    def test_returns_empty_when_no_org_id_conditions(self, defs, _is_cloud):
+        defs.return_value = [_flag(groups=[{"rollout_percentage": 100}])]
         assert get_eager_team_ids() == []
 
-    def test_returns_empty_on_self_hosted(self, _is_cloud):
+    def test_returns_empty_on_self_hosted(self, defs, _is_cloud):
         _is_cloud.return_value = False
         _, org_id = self._make_org_with_team()
-        _make_flag(self.team, groups=[_org_id_group(org_id)])
+        defs.return_value = [_flag(groups=[_org_id_group(org_id)])]
         assert get_eager_team_ids() == []
 
-    def test_resolves_single_org_to_team(self, _is_cloud):
+    def test_returns_empty_when_sdk_returns_none(self, defs, _is_cloud):
+        defs.return_value = None
+        assert get_eager_team_ids() == []
+
+    def test_resolves_single_org_to_team(self, defs, _is_cloud):
         target, org_id = self._make_org_with_team(name="A")
         self._make_org_with_team(name="Other")
-        _make_flag(self.team, groups=[_org_id_group(org_id)])
+        defs.return_value = [_flag(groups=[_org_id_group(org_id)])]
         assert get_eager_team_ids() == [target.pk]
 
-    def test_unions_teams_across_multiple_org_groups(self, _is_cloud):
+    def test_unions_teams_across_multiple_org_groups(self, defs, _is_cloud):
         a, org_a = self._make_org_with_team(name="A")
         b, org_b = self._make_org_with_team(name="B")
         self._make_org_with_team(name="C")
-        _make_flag(self.team, groups=[_org_id_group(org_a), _org_id_group(org_b)])
+        defs.return_value = [_flag(groups=[_org_id_group(org_a), _org_id_group(org_b)])]
         assert get_eager_team_ids() == sorted([a.pk, b.pk])
 
-    def test_returns_all_teams_in_an_enrolled_org(self, _is_cloud):
+    def test_returns_all_teams_in_an_enrolled_org(self, defs, _is_cloud):
         org = Organization.objects.create(name="Multi")
         team_a = Team.objects.create(organization=org, name="multi-a")
         team_b = Team.objects.create(organization=org, name="multi-b")
-        _make_flag(self.team, groups=[_org_id_group(str(org.id))])
+        defs.return_value = [_flag(groups=[_org_id_group(str(org.id))])]
         assert get_eager_team_ids() == sorted([team_a.pk, team_b.pk])
 
-    def test_unknown_org_id_resolves_to_empty(self, _is_cloud):
+    def test_unknown_org_id_resolves_to_empty(self, defs, _is_cloud):
         # A flag listing an org UUID that no longer exists should not
         # crash; the resolver just returns no teams.
-        _make_flag(self.team, groups=[_org_id_group(str(uuid4()))])
+        defs.return_value = [_flag(groups=[_org_id_group(str(uuid4()))])]
         assert get_eager_team_ids() == []
+
+    def test_ignores_other_flags_in_the_sdk_cache(self, defs, _is_cloud):
+        target, org_id = self._make_org_with_team(name="Target")
+        defs.return_value = [
+            {"key": "some-other-flag", "active": True, "filters": {"groups": [_org_id_group(str(uuid4()))]}},
+            _flag(groups=[_org_id_group(org_id)]),
+            {"key": "yet-another-flag", "active": True, "filters": {"groups": [_org_id_group(str(uuid4()))]}},
+        ]
+        assert get_eager_team_ids() == [target.pk]
 
 
 class TestBaselineQueries:
@@ -289,31 +298,22 @@ class TestBaselineQueries:
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
+@patch("products.web_analytics.dags.eager_web_analytics_precompute.posthoganalytics.feature_flag_definitions")
 class TestWarmEagerBaselineOp(APIBaseTest):
     """Integration-shaped tests for the op. Query runners are patched so
     no ClickHouse traffic is needed — we assert orchestration semantics."""
 
-    def setUp(self):
-        super().setUp()
-        self.patcher = patch(
-            "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_FLAG_TEAM_ID",
-            self.team.pk,
-        )
-        self.patcher.start()
-        self.addCleanup(self.patcher.stop)
-
     def _enroll_org(self, *, name: str) -> tuple[Team, str]:
-        """Create an org + team, return the team and `str(org.id)` so it
-        can be added to the flag config."""
+        """Create an org + team, return the team and `str(org.id)`."""
         org = Organization.objects.create(name=name)
         return Team.objects.create(organization=org, name=f"{name}-team"), str(org.id)
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_one_team_failure_does_not_poison_other_teams(self, get_runner, tag_queries_mock, _is_cloud):
+    def test_one_team_failure_does_not_poison_other_teams(self, get_runner, tag_queries_mock, defs, _is_cloud):
         t1, org_a = self._enroll_org(name="A")
         t2, org_b = self._enroll_org(name="B")
-        _make_flag(self.team, groups=[_org_id_group(org_a), _org_id_group(org_b)])
+        defs.return_value = [_flag(groups=[_org_id_group(org_a), _org_id_group(org_b)])]
 
         ok_runner = Mock()
         ok_runner.run.return_value = None
@@ -347,8 +347,9 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         assert tag_queries_mock.call_count == per_team * 2
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_returns_zeroed_metadata_when_no_teams_enrolled(self, get_runner, _is_cloud):
+    def test_returns_zeroed_metadata_when_no_teams_enrolled(self, get_runner, defs, _is_cloud):
         # No flag → no teams → no runs.
+        defs.return_value = []
         context = dagster.build_op_context()
         result = warm_eager_baseline_op(context)
         assert result == {"teams": 0, "warmed": 0, "failed": 0, "skipped": 0}
@@ -356,10 +357,10 @@ class TestWarmEagerBaselineOp(APIBaseTest):
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute._MAX_ENROLLED_TEAMS", 1)
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_caps_audience_when_resolved_set_is_too_large(self, get_runner, _is_cloud):
+    def test_caps_audience_when_resolved_set_is_too_large(self, get_runner, defs, _is_cloud):
         _, org_a = self._enroll_org(name="A")
         _, org_b = self._enroll_org(name="B")
-        _make_flag(self.team, groups=[_org_id_group(org_a), _org_id_group(org_b)])
+        defs.return_value = [_flag(groups=[_org_id_group(org_a), _org_id_group(org_b)])]
 
         context = dagster.build_op_context()
         result = warm_eager_baseline_op(context)
