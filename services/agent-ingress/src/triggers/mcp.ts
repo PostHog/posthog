@@ -12,13 +12,16 @@
  */
 
 import { Request, Response, Router } from 'express'
+import { z } from 'zod'
 
 import { SessionQueue } from '@posthog/agent-shared'
 import { SessionEventBus } from '@posthog/agent-shared'
 
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { RevisionResolver } from '../routing/resolver'
+import { McpRequestBodySchema, McpStreamQuerySchema } from './mcp.schemas'
 import { resolveAgent } from './resolve'
+import type { TriggerModule } from './types'
 
 export interface McpTriggerDeps {
     resolver: RevisionResolver
@@ -45,6 +48,11 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
     const r = Router({ mergeParams: true })
 
     r.post('/mcp', async (req: Request, res: Response) => {
+        const parsed = McpRequestBodySchema.safeParse(req.body)
+        if (!parsed.success) {
+            res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
+            return
+        }
         const resolved = await resolveAgent(deps.resolver, req, res)
         if (!resolved) {
             if (!res.headersSent) {
@@ -52,7 +60,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
             }
             return
         }
-        const body = req.body as McpRequest
+        const body = parsed.data as McpRequest
         const id = body.id ?? null
         const reply = (result: unknown): McpResponse => ({ jsonrpc: '2.0', id, result })
         const errReply = (code: number, message: string): McpResponse => ({
@@ -135,11 +143,12 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
     })
 
     r.get('/mcp/stream', async (req: Request, res: Response) => {
-        const sessionId = String(req.query.session_id ?? '')
-        if (!sessionId) {
-            res.status(400).end()
+        const parsed = McpStreamQuerySchema.safeParse(req.query)
+        if (!parsed.success) {
+            res.status(400).json({ error: 'invalid_query', issues: parsed.error.issues })
             return
         }
+        const { session_id: sessionId } = parsed.data
         res.setHeader('Content-Type', 'text/event-stream')
         res.setHeader('Cache-Control', 'no-cache')
         res.flushHeaders()
@@ -150,4 +159,26 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
     })
 
     return r
+}
+
+/** Body is JSON-RPC 2.0 per the MCP transport spec. The `bodySchema` advertises
+ *  the envelope; `params` shape depends on the method and is documented in the
+ *  MCP spec (modelcontextprotocol.io). */
+export const mcpTrigger: TriggerModule = {
+    type: 'mcp',
+    router: mcpRouter,
+    routes: [
+        {
+            method: 'POST',
+            path: '/mcp',
+            bodySchema: z.toJSONSchema(McpRequestBodySchema),
+            auth: 'agent_spec',
+        },
+        {
+            method: 'GET',
+            path: '/mcp/stream',
+            querySchema: z.toJSONSchema(McpStreamQuerySchema),
+            auth: 'agent_spec',
+        },
+    ],
 }

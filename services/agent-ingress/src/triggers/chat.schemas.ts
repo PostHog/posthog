@@ -2,10 +2,11 @@
  * Body / query schemas for the chat trigger.
  *
  * Living source of truth: this file. The HTTP handlers `safeParse` against
- * these schemas at the trigger edge (so silent coercion of bad payloads to
- * empty strings can't happen), and `chatTriggerJsonSchemas` exposes the same
- * shapes via `GET /agents/<slug>/schemas` so callers can discover the
- * contract without grepping this file.
+ * these zod schemas at the trigger edge (so silent coercion of bad payloads
+ * to empty strings can't happen), and the `chatTrigger` module in `chat.ts`
+ * runs `z.toJSONSchema` over them to populate its `routes` array — which the
+ * ingress then publishes via `GET /agents/<slug>/schemas`. One source for the
+ * parse and for discovery.
  */
 
 import { z } from 'zod'
@@ -27,14 +28,3 @@ export const ChatCancelBodySchema = z.object({
 export const ChatListenQuerySchema = z.object({
     session_id: z.string().uuid('session_id must be a UUID'),
 })
-
-/**
- * Trigger-wide JSON Schema map served by the agent-level `/schemas` endpoint.
- * Computed once at module load — the zod schemas are static.
- */
-export const chatTriggerJsonSchemas = {
-    run: { body: z.toJSONSchema(ChatRunBodySchema) },
-    send: { body: z.toJSONSchema(ChatSendBodySchema) },
-    cancel: { body: z.toJSONSchema(ChatCancelBodySchema) },
-    listen: { query: z.toJSONSchema(ChatListenQuerySchema) },
-}

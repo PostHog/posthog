@@ -180,7 +180,9 @@ describe('ingress HTTP server (path mode)', () => {
     it('POST /run wrapped in {input: ...} returns 400 (the exact mistake from authoring)', async () => {
         const { revisions, app } = mk()
         await seedApp(revisions, 'x')
-        const res = await request(app).post('/agents/x/run').send({ input: { message: 'hi' } })
+        const res = await request(app)
+            .post('/agents/x/run')
+            .send({ input: { message: 'hi' } })
         expect(res.status).toBe(400)
         expect(res.body.error).toBe('invalid_body')
         expect(res.body.issues[0].path).toEqual(['message'])
@@ -195,21 +197,86 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.issues[0].path).toEqual(['session_id'])
     })
 
-    // Schema-publish: callers should be able to discover the trigger contract
-    // without grepping the trigger source. The agent-level /schemas endpoint
-    // returns just the trigger types this agent has in its spec.
-    it('GET /schemas publishes the chat trigger body shape', async () => {
+    // Schema-publish: every trigger the agent has should appear, with the
+    // auth requirement resolved against the agent's `spec.auth` — callers
+    // learn the full API surface (and how to authenticate to each route)
+    // from one GET. No grepping the trigger source.
+    it('GET /schemas cascades from spec.triggers across every trigger module', async () => {
         const { revisions, app } = mk()
         await seedApp(revisions, 'discoverable')
         const res = await request(app).get('/agents/discoverable/schemas')
         expect(res.status).toBe(200)
-        expect(res.body.agent.slug).toBe('discoverable')
-        expect(res.body.triggers.chat).toBeDefined()
-        expect(res.body.triggers.chat.run.body.properties.message).toMatchObject({
+        expect(res.body.agent).toEqual({ slug: 'discoverable', name: 'discoverable' })
+        const byType = Object.fromEntries(
+            (res.body.triggers as Array<{ type: string; routes: unknown[] }>).map((t) => [t.type, t])
+        )
+        // seedApp wires all four triggers; the registry should publish all of them.
+        expect(Object.keys(byType).sort()).toEqual(['chat', 'mcp', 'slack', 'webhook'])
+    })
+
+    it('GET /schemas publishes the chat trigger body shape + per-route auth', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'discoverable')
+        const res = await request(app).get('/agents/discoverable/schemas')
+        const chat = (res.body.triggers as Array<{ type: string; routes: unknown[] }>).find((t) => t.type === 'chat')!
+        const routesByPath = Object.fromEntries(
+            (
+                chat.routes as Array<{
+                    method: string
+                    path: string
+                    bodySchema?: { properties?: Record<string, unknown>; required?: string[] }
+                    querySchema?: unknown
+                    auth: { mode: string }
+                }>
+            ).map((r) => [`${r.method} ${r.path}`, r])
+        )
+        expect(routesByPath['POST /run'].bodySchema!.properties!.message).toMatchObject({
             type: 'string',
             minLength: 1,
         })
-        expect(res.body.triggers.chat.run.body.required).toContain('message')
+        expect(routesByPath['POST /run'].bodySchema!.required).toContain('message')
+        // seedApp's agent has no custom auth → spec.auth.mode defaults to public
+        // → every chat route advertises that to the caller.
+        expect(routesByPath['POST /run'].auth).toEqual({ mode: 'public' })
+        expect(routesByPath['GET /listen'].querySchema).not.toBeUndefined()
+    })
+
+    it('GET /schemas advertises slack signing auth on the slack route', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'discoverable')
+        const res = await request(app).get('/agents/discoverable/schemas')
+        const slack = (res.body.triggers as Array<{ type: string; routes: unknown[] }>).find((t) => t.type === 'slack')!
+        const route = (slack.routes as Array<{ path: string; auth: { mode: string; header?: string } }>)[0]
+        expect(route.path).toBe('/slack/events')
+        expect(route.auth).toEqual({ mode: 'slack_signing', header: 'X-Slack-Signature' })
+    })
+
+    // Edge validation on the non-chat triggers — same pattern as chat, just
+    // for the cases that actually have a contract worth enforcing.
+
+    it('POST /webhook with a non-object body returns 400 (instead of seeding "[]")', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'wh')
+        const res = await request(app).post('/agents/wh/webhook').send([])
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_body')
+    })
+
+    it('POST /mcp with the wrong jsonrpc version returns 400', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'm')
+        const res = await request(app).post('/agents/m/mcp').send({ jsonrpc: '1.0', id: 1, method: 'initialize' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_body')
+        expect(res.body.issues[0].path).toEqual(['jsonrpc'])
+    })
+
+    it('GET /mcp/stream without a session_id returns 400', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'm')
+        const res = await request(app).get('/agents/m/mcp/stream')
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_query')
     })
 
     it('GET /schemas 404s for an unknown agent', async () => {

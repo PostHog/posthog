@@ -19,13 +19,9 @@ import {
 } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { RevisionResolver } from '../routing/resolver'
-import {
-    ChatCancelBodySchema,
-    ChatListenQuerySchema,
-    ChatRunBodySchema,
-    ChatSendBodySchema,
-} from './chat.schemas'
+import { ChatCancelBodySchema, ChatListenQuerySchema, ChatRunBodySchema, ChatSendBodySchema } from './chat.schemas'
 import { hasTrigger, resolveAgent } from './resolve'
+import type { TriggerModule } from './types'
 
 /**
  * Turn a zod error into the structured 400 body. Same shape as the janitor's
@@ -173,4 +169,40 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
     })
 
     return r
+}
+
+/**
+ * Self-description of the chat trigger's HTTP surface. The ingress reads this
+ * to auto-publish the agent's API via `GET /agents/<slug>/schemas` — there's
+ * no separate place that has to be kept in sync with the handlers above.
+ */
+export const chatTrigger: TriggerModule = {
+    type: 'chat',
+    router: chatRouter,
+    routes: [
+        {
+            method: 'POST',
+            path: '/run',
+            bodySchema: z.toJSONSchema(ChatRunBodySchema),
+            auth: 'agent_spec',
+        },
+        {
+            method: 'POST',
+            path: '/send',
+            bodySchema: z.toJSONSchema(ChatSendBodySchema),
+            auth: 'agent_spec',
+        },
+        {
+            method: 'POST',
+            path: '/cancel',
+            bodySchema: z.toJSONSchema(ChatCancelBodySchema),
+            auth: 'agent_spec',
+        },
+        {
+            method: 'GET',
+            path: '/listen',
+            querySchema: z.toJSONSchema(ChatListenQuerySchema),
+            auth: 'agent_spec',
+        },
+    ],
 }

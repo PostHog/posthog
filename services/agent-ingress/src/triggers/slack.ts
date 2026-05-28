@@ -9,12 +9,15 @@
 
 import { createHmac, timingSafeEqual } from 'crypto'
 import { Request, Response, Router } from 'express'
+import { z } from 'zod'
 
 import { IdentityStore, SessionQueue } from '@posthog/agent-shared'
 
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { RevisionResolver } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
+import { SlackEventBodySchema } from './slack.schemas'
+import type { TriggerModule } from './types'
 
 export interface SlackTriggerDeps {
     resolver: RevisionResolver
@@ -132,4 +135,23 @@ export function verifySlackSignature(req: Request, signingSecret: string): boole
         return false
     }
     return timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
+}
+
+/** Published `bodySchema` covers only the two envelope shapes we route on
+ *  (`url_verification`, `event_callback`). The runtime handler is permissive
+ *  — Slack sends a long tail of event types we accept-and-no-op, so we
+ *  deliberately don't safeParse against the published schema. Callers
+ *  authoring against the schema get the contract; Slack's real traffic
+ *  doesn't get rejected. */
+export const slackTrigger: TriggerModule = {
+    type: 'slack',
+    router: slackRouter,
+    routes: [
+        {
+            method: 'POST',
+            path: '/slack/events',
+            bodySchema: z.toJSONSchema(SlackEventBodySchema),
+            auth: 'slack_signing',
+        },
+    ],
 }

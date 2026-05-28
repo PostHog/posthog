@@ -12,24 +12,44 @@ import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared
 const log = createLogger('ingress')
 
 import { SessionEventBus, MemorySessionEventBus } from '@posthog/agent-shared'
+import type { AgentSpec } from '@posthog/agent-shared'
 
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
-import { chatRouter } from '../triggers/chat'
-import { chatTriggerJsonSchemas } from '../triggers/chat.schemas'
-import { mcpRouter } from '../triggers/mcp'
+import { chatTrigger } from '../triggers/chat'
+import { mcpTrigger } from '../triggers/mcp'
 import { resolveAgent } from '../triggers/resolve'
-import { slackRouter } from '../triggers/slack'
-import { webhookRouter } from '../triggers/webhook'
+import { slackTrigger } from '../triggers/slack'
+import type { RouteAuthKind, TriggerModule } from '../triggers/types'
+import { webhookTrigger } from '../triggers/webhook'
 import { AmbiguousRevisionError, RevisionResolver, RoutingMode } from './resolver'
 
 /**
- * Map of `spec.triggers[].type` → published JSON Schemas for that trigger's
- * HTTP surface. The agent-level `GET /schemas` endpoint reads this to tell
- * callers exactly what to send to `/run`, `/send`, etc. — no grepping the
- * trigger source. New triggers plug their schemas in here.
+ * The full set of trigger modules the ingress knows about. Each module is
+ * self-describing — `router` for assembly, `routes` for `/schemas`. Adding a
+ * new trigger means writing one module file and dropping it in this array;
+ * mounting, schema publication, and auth advertisement all cascade.
  */
-const PUBLISHED_TRIGGER_SCHEMAS: Record<string, unknown> = {
-    chat: chatTriggerJsonSchemas,
+const TRIGGER_MODULES: TriggerModule[] = [chatTrigger, slackTrigger, webhookTrigger, mcpTrigger]
+
+/**
+ * Translate a route's auth kind into the concrete shape we publish to
+ * callers. Resolved per-agent so the response says, e.g., "this route needs
+ * a PAT" or "shared_secret in X-Acme-Secret header" — not just "uses agent
+ * auth, look it up yourself."
+ */
+function resolveRouteAuth(kind: RouteAuthKind, specAuth: AgentSpec['auth']): Record<string, string> {
+    if (kind === 'public') {
+        return { mode: 'public' }
+    }
+    if (kind === 'slack_signing') {
+        return { mode: 'slack_signing', header: 'X-Slack-Signature' }
+    }
+    // agent_spec
+    const out: Record<string, string> = { mode: specAuth.mode }
+    if (specAuth.header) {
+        out.header = specAuth.header
+    }
+    return out
 }
 
 export interface BuildAppOpts {
@@ -75,14 +95,25 @@ export function buildApp(opts: BuildAppOpts): Express {
     })
 
     const authProvider = opts.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
-    const triggerDeps = { resolver, queue: opts.queue, teamId: opts.teamId, bus, authProvider }
+    // Superset of every trigger's deps — each module's router picks what it
+    // needs. Slack uses `signingSecret`+`identities`; chat/webhook/mcp ignore
+    // them. Centralising the assembly here keeps the registry uniform.
+    const triggerDeps = {
+        resolver,
+        queue: opts.queue,
+        teamId: opts.teamId,
+        bus,
+        authProvider,
+        signingSecret: opts.slackSigningSecret,
+        identities: opts.identities,
+    }
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 
-    // Self-describing schemas — exposed BEFORE the trigger mounts so it can't
-    // collide with a trigger's own routes. Returns the published JSON Schemas
-    // for every trigger type this agent has in its spec; clients (curl, MCP,
-    // tests, future authoring AIs) hit this once to learn the exact body
-    // shape required by `/run`, `/send`, `/cancel`, `/listen`.
+    // Self-describing schemas. The response cascades from `spec.triggers` ∩
+    // `TRIGGER_MODULES`: only modules whose type is configured on this agent
+    // appear, and each route is rendered with its auth concretely resolved
+    // against the agent's `spec.auth`. There is no hand-maintained map of
+    // "which triggers have schemas" — it falls out of the module registry.
     app.get(`${mount}/schemas`, async (req: Request, res: Response) => {
         const resolved = await resolveAgent(resolver, req, res)
         if (!resolved) {
@@ -91,23 +122,26 @@ export function buildApp(opts: BuildAppOpts): Express {
             }
             return
         }
-        const triggers: Record<string, unknown> = {}
-        for (const t of resolved.revision.spec.triggers) {
-            const published = PUBLISHED_TRIGGER_SCHEMAS[t.type]
-            if (published !== undefined) {
-                triggers[t.type] = published
-            }
-        }
+        const configured = new Set(resolved.revision.spec.triggers.map((t) => t.type))
+        const triggers = TRIGGER_MODULES.filter((m) => configured.has(m.type)).map((m) => ({
+            type: m.type,
+            routes: m.routes.map((r) => ({
+                method: r.method,
+                path: r.path,
+                ...(r.bodySchema ? { bodySchema: r.bodySchema } : {}),
+                ...(r.querySchema ? { querySchema: r.querySchema } : {}),
+                auth: resolveRouteAuth(r.auth, resolved.revision.spec.auth),
+            })),
+        }))
         res.json({
             agent: { slug: resolved.application.slug, name: resolved.application.name },
             triggers,
         })
     })
 
-    app.use(mount, slackRouter({ ...triggerDeps, signingSecret: opts.slackSigningSecret, identities: opts.identities }))
-    app.use(mount, webhookRouter(triggerDeps))
-    app.use(mount, chatRouter(triggerDeps))
-    app.use(mount, mcpRouter(triggerDeps))
+    for (const m of TRIGGER_MODULES) {
+        app.use(mount, m.router(triggerDeps))
+    }
 
     app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
         if (err instanceof AmbiguousRevisionError) {

@@ -7,6 +7,7 @@
  */
 
 import { Request, Response, Router } from 'express'
+import { z } from 'zod'
 
 import { SessionQueue } from '@posthog/agent-shared'
 
@@ -14,6 +15,8 @@ import { authorize, AuthProvider, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER 
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { RevisionResolver } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
+import type { TriggerModule } from './types'
+import { WebhookBodySchema } from './webhook.schemas'
 
 export interface WebhookTriggerDeps {
     resolver: RevisionResolver
@@ -36,6 +39,11 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             res.status(404).json({ error: 'no_webhook_trigger' })
             return
         }
+        const parsed = WebhookBodySchema.safeParse(req.body)
+        if (!parsed.success) {
+            res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
+            return
+        }
         const auth = await authorize(
             req,
             resolved.application,
@@ -54,11 +62,28 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
                 application: resolved.application,
                 revision: resolved.revision,
                 externalKey,
-                seed: { role: 'user', content: JSON.stringify(req.body), timestamp: Date.now() },
+                seed: { role: 'user', content: JSON.stringify(parsed.data), timestamp: Date.now() },
                 principal: principalToSession(auth.principal),
             }
         )
         res.json({ ok: true, session_id: sessionId, resumed: isResume })
     })
     return r
+}
+
+/** The published `bodySchema` is intentionally loose — webhook accepts any
+ *  JSON object, and the agent's `agent.md` defines what the *content* of that
+ *  object should look like. We do reject null / non-object bodies at the edge
+ *  so the seed message isn't `"null"`. */
+export const webhookTrigger: TriggerModule = {
+    type: 'webhook',
+    router: webhookRouter,
+    routes: [
+        {
+            method: 'POST',
+            path: '/webhook',
+            bodySchema: z.toJSONSchema(WebhookBodySchema),
+            auth: 'agent_spec',
+        },
+    ],
 }
