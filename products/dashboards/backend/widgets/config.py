@@ -48,4 +48,4 @@ def validate_widget_date_range(date_range: object) -> dict[str, object] | None:
         allowed = ", ".join(sorted(WIDGET_DATE_FROM_VALUES))
         raise DRFValidationError({"config": f"dateRange.date_from must be one of: {allowed}."})
 
-    return {str(key): value for key, value in date_range.items()}
+    return {"date_from": date_from} if date_from is not None else None

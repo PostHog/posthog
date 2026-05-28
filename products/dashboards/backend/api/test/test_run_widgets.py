@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.dashboards.backend.widget_layouts import MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     get_widget_registry_entry,
@@ -51,6 +52,12 @@ class TestWidgetRegistry(APIBaseTest):
     def test_validate_error_tracking_list_config_rejects_unsupported_date_range(self) -> None:
         with self.assertRaises(Exception):
             validate_error_tracking_list_config({"dateRange": {"date_from": "-48h"}})
+
+    def test_validate_error_tracking_list_config_strips_unknown_date_range_keys(self) -> None:
+        validated = validate_error_tracking_list_config(
+            {"dateRange": {"date_from": "-7d", "date_to": "ignored", "evil": 1}}
+        )
+        assert validated["dateRange"] == {"date_from": "-7d"}
 
 
 class TestDashboardRunWidgets(APIBaseTest):
@@ -205,3 +212,74 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["widget_type"], "error_tracking_list")
         self.assertIsNone(body["results"][0]["result"])
         self.assertEqual(body["results"][0]["error"], "You do not have access to error tracking.")
+
+    def test_run_widgets_rejects_too_many_tile_ids(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        tile_ids = list(range(1, MAX_WIDGETS_BATCH_SIZE + 2))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
+            {"tile_ids": ",".join(str(tile_id) for tile_id in tile_ids)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(str(MAX_WIDGETS_BATCH_SIZE), response.json()["detail"])
+
+    @patch(
+        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
+    )
+    def test_run_widgets_deduplicates_tile_ids(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id, tile_id])
+
+        self.assertEqual(len(body["results"]), 1)
+        mock_calculate.assert_called_once()
+
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
+    def test_run_widgets_hides_query_exception_details(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.side_effect = Exception("SELECT * FROM secret_table")
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(
+            body["results"][0]["error"],
+            "Widget query failed. Please try again later.",
+        )
+        self.assertNotIn("secret_table", body["results"][0]["error"])
+
+    def test_run_widgets_denies_without_api_scope_on_personal_api_key(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="dashboard only",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["dashboard:read"],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
+            {"tile_ids": str(tile_id)},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["results"][0]["error"], "API key missing required scope 'error_tracking:read'")

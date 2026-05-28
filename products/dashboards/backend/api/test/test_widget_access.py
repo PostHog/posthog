@@ -1,13 +1,16 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
+    get_widget_api_scope_error,
     get_widget_product_access_denied_message,
     get_widget_product_access_error,
 )
@@ -62,3 +65,34 @@ class TestWidgetAccess(BaseTest):
             check_widget_tile_product_access(widget, user_access_control)
 
         self.assertIn("Unknown widget type", str(raised.exception))
+
+    def test_get_widget_api_scope_error_allows_session_auth(self) -> None:
+        entry = get_widget_registry_entry("error_tracking_list")
+        assert entry is not None
+        request = MagicMock()
+        request.successful_authenticator = None
+
+        self.assertIsNone(get_widget_api_scope_error(entry, request))
+
+    def test_get_widget_api_scope_error_denies_missing_scope_on_pat(self) -> None:
+        entry = get_widget_registry_entry("error_tracking_list")
+        assert entry is not None
+        authenticator = PersonalAPIKeyAuthentication()
+        authenticator.personal_api_key = PersonalAPIKey(scopes=["dashboard:read"])
+        request = MagicMock()
+        request.successful_authenticator = authenticator
+
+        self.assertEqual(
+            get_widget_api_scope_error(entry, request),
+            "API key missing required scope 'error_tracking:read'",
+        )
+
+    def test_get_widget_api_scope_error_allows_write_scope_for_read_requirement(self) -> None:
+        entry = get_widget_registry_entry("error_tracking_list")
+        assert entry is not None
+        authenticator = PersonalAPIKeyAuthentication()
+        authenticator.personal_api_key = PersonalAPIKey(scopes=["error_tracking:write"])
+        request = MagicMock()
+        request.successful_authenticator = authenticator
+
+        self.assertIsNone(get_widget_api_scope_error(entry, request))

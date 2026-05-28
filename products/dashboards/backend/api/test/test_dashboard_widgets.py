@@ -542,7 +542,7 @@ class TestDashboardWidgets(APIBaseTest):
         )
 
         tile = dashboard_json["tiles"][0]
-        assert tile["widget"]["widget_type"] == "error_tracking"
+        assert tile["widget"]["widget_type"] == "error_tracking_list"
         assert tile["widget"]["config"]["limit"] == 10
 
     @override_settings(IN_UNIT_TESTING=True)

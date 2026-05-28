@@ -84,7 +84,11 @@ from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.dashboards.backend.widget_access import check_widget_tile_product_access, get_widget_product_access_error
+from products.dashboards.backend.widget_access import (
+    check_widget_tile_product_access,
+    get_widget_api_scope_error,
+    get_widget_product_access_error,
+)
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
@@ -170,13 +174,13 @@ def _run_widget_query(team: Team, work_item: _RunWidgetQueryWorkItem) -> dict[st
             "result": result,
             "error": None,
         }
-    except Exception as exc:
+    except Exception:
         logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
         return {
             "tile_id": tile_id,
             "widget_type": widget_type,
             "result": None,
-            "error": str(exc),
+            "error": "Widget query failed. Please try again later.",
         }
 
 
@@ -1473,18 +1477,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
             else:
-                if get_widget_registry_entry(widget_type) is None:
+                canonical_widget_type = normalize_widget_type(str(widget_type))
+                if get_widget_registry_entry(canonical_widget_type) is None:
                     raise serializers.ValidationError({"widget": f"Unknown widget type: {widget_type}."})
                 probe_widget = DashboardWidget(
-                    widget_type=str(widget_type),
+                    widget_type=canonical_widget_type,
                     config=config,
                     team_id=instance.team_id,
                 )
                 DashboardSerializer._check_widget_tile_product_access(probe_widget, user_access_control)
-                config = validate_widget_config(widget_type, config)
+                config = validate_widget_config(canonical_widget_type, config)
                 widget = DashboardWidget.objects.create(
                     team_id=instance.team_id,
-                    widget_type=str(widget_type),
+                    widget_type=canonical_widget_type,
                     name=widget_name or None,
                     description=widget_description or "",
                     config=config,
@@ -1492,7 +1497,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     last_modified_by=last_modified_by,
                 )
             _, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
-            return "widget", created, widget_type
+            return "widget", created, widget.widget_type
         elif (
             "deleted" in tile_data
             or "color" in tile_data
@@ -2482,6 +2487,10 @@ class DashboardsViewSet(
         except ValueError as exc:
             raise exceptions.ValidationError("tile_ids must be a comma-separated list of integers.") from exc
 
+        tile_ids = list(dict.fromkeys(tile_ids))
+        if len(tile_ids) > MAX_WIDGETS_BATCH_SIZE:
+            raise exceptions.ValidationError(f"At most {MAX_WIDGETS_BATCH_SIZE} tile_ids may be requested at once.")
+
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
 
@@ -2524,6 +2533,16 @@ class DashboardsViewSet(
                     "widget_type": widget.widget_type,
                     "result": None,
                     "error": access_error,
+                }
+                continue
+
+            scope_error = get_widget_api_scope_error(registry_entry, request)
+            if scope_error:
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": scope_error,
                 }
                 continue
 
