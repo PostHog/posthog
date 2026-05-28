@@ -38,7 +38,6 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
-from posthog.settings.data_stores import is_enable_analyzer_team
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
@@ -95,6 +94,7 @@ _KILL_SWITCH_EXEMPT_USERS = frozenset(
         ClickHouseUser.BATCH_EXPORT,
         ClickHouseUser.MIGRATIONS,
         ClickHouseUser.OPS,
+        ClickHouseUser.BILLING,
     }
 )
 
@@ -147,17 +147,21 @@ def get_hedged_app_queries_enabled() -> bool:
 def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    try:
+        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    except Exception:
+        return False
 
 
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
 
-    value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
     try:
+        value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
         return KillSwitchLevel(value)
-    except ValueError:
+    except Exception:
+        # posthog_instancesetting may not exist yet during initial Postgres migrations
         return KillSwitchLevel.OFF
 
 
@@ -342,10 +346,6 @@ def sync_execute(
         **(settings or {}),
     }
 
-    # Only enable if not explicitly disabled — setdefault preserves existing value
-    if team_id is not None and is_enable_analyzer_team(team_id):
-        core_settings.setdefault("enable_analyzer", 1)
-
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
@@ -372,6 +372,8 @@ def sync_execute(
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
+    elif tags.product == Product.BILLING:
+        ch_user = ClickHouseUser.BILLING
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries

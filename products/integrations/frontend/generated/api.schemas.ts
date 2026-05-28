@@ -270,6 +270,8 @@ export interface SlackChannelsResponseApi {
      * @nullable
      */
     lastRefreshedAt?: string | null
+    /** Whether more channels match the current search beyond this page. */
+    has_more?: boolean
 }
 
 /**
@@ -516,6 +518,24 @@ export const IntegrationsListKind = {
     Twilio: 'twilio',
     Vercel: 'vercel',
 } as const
+
+export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string
+}
 
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**

@@ -499,6 +499,13 @@ export type AssistantTool =
     | 'run_hog_eval_test'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
+    | 'marketing_diagnose_setup'
+    | 'marketing_explain_conversion_goal'
+    | 'marketing_list_conversion_goals'
+    | 'marketing_list_data_sources'
+    | 'marketing_audit_utm'
+    | 'marketing_suggest_conversion_goals'
+    | 'marketing_suggest_utm_mappings'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -510,8 +517,9 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
+    UserInterview = 'user_interview',
 }
 
 export enum SlashCommandName {

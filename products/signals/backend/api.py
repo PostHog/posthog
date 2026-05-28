@@ -5,7 +5,6 @@ from typing import get_args
 from django.conf import settings
 
 import pydantic
-import tiktoken
 import structlog
 import temporalio
 import posthoganalytics
@@ -13,6 +12,7 @@ import posthoganalytics
 from posthog.schema import SignalInput
 
 from posthog.event_usage import groups
+from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -25,7 +25,6 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
-_tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
@@ -99,7 +98,7 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(_tiktoken_encoding.encode(description))
+    token_count = len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
             f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
@@ -131,7 +130,7 @@ async def emit_signal(
         }
     )
 
-    # Fire a "started" marker so direct callers (error tracking, LLM analytics evals, etc.)
+    # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
     # that don't go through the data-source pipeline still have a top-of-funnel event. The
     # gap to `signal_emitted` surfaces Temporal/dispatch failures.
     try:

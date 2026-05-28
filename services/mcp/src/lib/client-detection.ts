@@ -8,12 +8,11 @@
  *
  * The `MCPClientProfile` class owns all per-client behavior decisions:
  *
- * - `isCodingAgent()` matches coding agents that surface `structuredContent`
- *   to the model in preference to `content[].text`. Used to drop
- *   `structuredContent` when a `formatted_results` override is set, otherwise
- *   Claude Code (and friends) show raw JSON instead of the formatted table.
- *   Cursor is deliberately excluded — it reads text for the model and renders
- *   `structuredContent` in UI, so it does not need the workaround.
+ * - `isCodingAgent()` matches coding agents that should default to single-exec
+ *   mode and drop `structuredContent` when a `formatted_results` override is
+ *   set. Cursor is deliberately excluded — it reads text for the model and
+ *   renders `structuredContent` in UI, so it does not need single-exec mode or
+ *   the formatted-results workaround.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Code Tasks wrapper.
@@ -105,6 +104,10 @@ type MCPClientProfileInput = {
     clientVersion?: string | undefined
     consumer?: string | undefined
     oauthClientName?: string | undefined
+    // Per-request `x-anthropic-client` value (e.g. `ClaudeCode`, `ClaudeAI`).
+    // Anthropic pools MCP transports across products, so the live inner client
+    // can disagree with the session-pinned `clientName` from `initialize`.
+    vendorClient?: string | undefined
 }
 
 export class MCPClientProfile {
@@ -112,6 +115,7 @@ export class MCPClientProfile {
     readonly clientVersion: string | undefined
     readonly consumer: string | undefined
     readonly oauthClientName: string | undefined
+    readonly vendorClient: string | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -120,10 +124,11 @@ export class MCPClientProfile {
         this.clientVersion = input.clientVersion
         this.consumer = input.consumer
         this.oauthClientName = input.oauthClientName
+        this.vendorClient = input.vendorClient
     }
 
     isCodingAgent(): boolean {
-        return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+        return matchesAnyFragment(this.vendorClient ?? this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
     }
 
     isPostHogCodeConsumer(): boolean {

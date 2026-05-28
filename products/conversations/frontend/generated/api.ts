@@ -111,6 +111,24 @@ export const conversationsRetrieve = async (
     })
 }
 
+export const getConversationsDestroyUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/`
+}
+
+/**
+ * Delete a conversation.
+ */
+export const conversationsDestroy = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsDestroyUrl(projectId, conversation), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getConversationsAppendMessageCreateUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/append_message/`
 }
@@ -452,6 +470,14 @@ export const getConversationsTicketsBulkUpdateTagsCreateUrl = (projectId: string
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}

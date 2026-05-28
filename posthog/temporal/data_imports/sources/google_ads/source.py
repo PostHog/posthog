@@ -50,6 +50,10 @@ class GoogleAdsSource(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
+            # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
+            # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
+            # Retrying cannot recover — the user must reconnect their Google Ads account.
+            "invalid_grant": "Your Google Ads connection has expired or been revoked. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options

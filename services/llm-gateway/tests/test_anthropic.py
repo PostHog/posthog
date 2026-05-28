@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -999,7 +1000,10 @@ class TestAnthropicCircuitBreakerIntegration:
         assert response.status_code == 200
         assert mock_anthropic.call_count == 1
         forwarded_model = mock_anthropic.call_args.kwargs["model"]
-        assert forwarded_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
+        # The model is prefixed with 'bedrock/' for litellm routing
+        assert forwarded_model.startswith("bedrock/")
+        bedrock_model = forwarded_model.removeprefix("bedrock/")
+        assert bedrock_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
         breaker.record_outcome.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
@@ -1184,9 +1188,7 @@ class TestAnthropicCircuitBreakerIntegration:
         async def consume() -> list[bytes]:
             return [chunk async for chunk in wrapped.body_iterator]
 
-        import asyncio as _asyncio
-
-        chunks = _asyncio.get_event_loop().run_until_complete(consume())
+        chunks = asyncio.run(consume())
         assert len(chunks) == 2
         breaker.record_outcome.assert_awaited_with(success=True)
 
@@ -1216,7 +1218,5 @@ class TestAnthropicCircuitBreakerIntegration:
             except RuntimeError:
                 pass
 
-        import asyncio as _asyncio
-
-        _asyncio.get_event_loop().run_until_complete(consume())
+        asyncio.run(consume())
         breaker.record_outcome.assert_awaited_with(success=False)

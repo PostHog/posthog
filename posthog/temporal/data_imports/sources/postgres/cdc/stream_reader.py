@@ -21,7 +21,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.decoder import PgOutputD
 from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres, get_primary_key_columns
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
 

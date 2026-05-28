@@ -37,6 +37,7 @@
 ## Docs update
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
+<!-- Add the `skip-migration-service-check` label if every migration here is DB-noop (e.g. `SeparateDatabaseAndState` with empty `database_operations`, or pure `RunPython`) and it's safe to ship alongside service code. -->
 
 ## 🤖 Agent context
 
@@ -53,4 +54,5 @@
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
      - Agent-authored PRs always require human review — do not self-merge or auto-approve.
      - Do NOT claim manual testing you haven't done.
+     - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 -->

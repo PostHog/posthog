@@ -127,6 +127,8 @@ class TaskSerializer(serializers.ModelSerializer):
             "signal_report_task_relationship",
             "json_schema",
             "internal",
+            "archived",
+            "archived_at",
             "latest_run",
             "created_at",
             "updated_at",
@@ -137,6 +139,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "id",
             "task_number",
             "slug",
+            "archived_at",
             "created_at",
             "updated_at",
             "created_by",
@@ -266,6 +269,8 @@ class TaskSerializer(serializers.ModelSerializer):
         validated_data.pop("origin_product", None)
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
+        if "archived" in validated_data and validated_data["archived"] != instance.archived:
+            validated_data["archived_at"] = timezone.now() if validated_data["archived"] else None
         return super().update(instance, validated_data)
 
 
@@ -849,6 +854,14 @@ class TaskListQuerySerializer(serializers.Serializer):
     internal = serializers.BooleanField(
         required=False,
         help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+    )
+    archived = serializers.ChoiceField(
+        required=False,
+        choices=["true", "false", "all"],
+        help_text=(
+            "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only "
+            "archived tasks, 'false' for the default, or 'all' to include both."
+        ),
     )
 
 
@@ -1666,3 +1679,19 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class TaskPresenceBeaconRequestSerializer(serializers.Serializer):
+    """Request body for the presence beacon and beacon-leave endpoints.
+
+    `device_id` is the UUID of the caller's `UserPushToken` row, which the
+    client received when it registered for push via `/api/users/@me/push_tokens/`.
+    The client is expected to use the same identifier on the beacon and leave
+    calls; if the user has unregistered the underlying push token, the value
+    won't resolve and the call returns 404 — at which point pushes were
+    already not going there anyway.
+    """
+
+    device_id = serializers.UUIDField(
+        help_text="UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register).",
+    )

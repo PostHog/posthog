@@ -1,3 +1,4 @@
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -33,6 +34,7 @@ export function TaskTracker(): JSX.Element {
                 }}
             />
 
+            <AllowTrainingCallout featureName="Tasks" />
             <TasksList />
         </SceneContent>
     )

@@ -25,6 +25,7 @@ export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
 export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
 export const TRACE_SPAN_RESOURCE_URI = 'ui://posthog/trace-span.html'
 export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
+export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-snapshots.html'
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 
@@ -54,6 +55,7 @@ export type UiAppKey =
     | 'survey-stats'
     | 'trace-span'
     | 'trace-span-list'
+    | 'visual-review-snapshots'
     | 'workflow'
     | 'workflow-list'
 
@@ -83,6 +85,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'survey-stats': SURVEY_STATS_RESOURCE_URI,
     'trace-span': TRACE_SPAN_RESOURCE_URI,
     'trace-span-list': TRACE_SPAN_LIST_RESOURCE_URI,
+    'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
@@ -242,6 +245,12 @@ export const UI_APPS: Array<{
         uri: TRACE_SPAN_LIST_RESOURCE_URI,
         description: 'Trace Span List view',
         appDir: 'generated/trace-span-list',
+    },
+    {
+        name: 'PostHog Visual Review Snapshots',
+        uri: VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
+        description: 'Visual review run snapshots — diff viewer with approve/tolerate actions',
+        appDir: 'visual-review-snapshots',
     },
     {
         name: 'PostHog Workflow',

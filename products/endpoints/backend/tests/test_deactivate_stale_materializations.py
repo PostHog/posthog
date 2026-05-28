@@ -6,14 +6,14 @@ from unittest import mock
 
 from django.utils import timezone
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks import (
     STALE_THRESHOLD_DAYS,
     _deactivate_version_materialization,
     deactivate_stale_materializations,
 )
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 

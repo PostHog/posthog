@@ -262,6 +262,23 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown: boolean | null
+    /** @nullable */
+    readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
 
   * `bayesian` - Bayesian
@@ -336,6 +353,23 @@ export interface PatchedOrganizationApi {
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked?: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown?: boolean | null
+    /** @nullable */
+    readonly is_hipaa?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
   * `bayesian` - Bayesian
@@ -552,6 +586,8 @@ export interface ActivityLogApi {
      * @nullable
      */
     client?: string | null
+    /** @nullable */
+    ip_address?: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -879,6 +915,7 @@ export type ActivityLogListParams = {
 * `AlertSubscription` - AlertSubscription
 * `ExternalDataSource` - ExternalDataSource
 * `ExternalDataSchema` - ExternalDataSchema
+* `Evaluation` - Evaluation
 * `LLMTrace` - LLMTrace
 * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
 * `CustomerProfileConfig` - CustomerProfileConfig
@@ -887,6 +924,7 @@ export type ActivityLogListParams = {
 * `LogsExclusionRule` - LogsExclusionRule
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
+* `InstanceSetting` - InstanceSetting
  * @minLength 1
  */
     scope?: ActivityLogListScope
@@ -953,6 +991,7 @@ export const ActivityLogListScope = {
     AlertSubscription: 'AlertSubscription',
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
+    Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
@@ -961,6 +1000,7 @@ export const ActivityLogListScope = {
     LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    InstanceSetting: 'InstanceSetting',
 } as const
 
 /**
@@ -1014,6 +1054,7 @@ export const ActivityLogListScope = {
  * `AlertSubscription` - AlertSubscription
  * `ExternalDataSource` - ExternalDataSource
  * `ExternalDataSchema` - ExternalDataSchema
+ * `Evaluation` - Evaluation
  * `LLMTrace` - LLMTrace
  * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * `CustomerProfileConfig` - CustomerProfileConfig
@@ -1022,6 +1063,7 @@ export const ActivityLogListScope = {
  * `LogsExclusionRule` - LogsExclusionRule
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
+ * `InstanceSetting` - InstanceSetting
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1076,6 +1118,7 @@ export const ActivityLogListScopesItem = {
     AlertSubscription: 'AlertSubscription',
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
+    Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
@@ -1084,6 +1127,7 @@ export const ActivityLogListScopesItem = {
     LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    InstanceSetting: 'InstanceSetting',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1107,6 +1151,10 @@ export type AdvancedActivityLogsListParams = {
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string
+    /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[]
     /**
      * When set, filters rows authored by the system (no user).
      * @nullable

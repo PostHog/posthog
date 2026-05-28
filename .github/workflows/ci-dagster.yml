@@ -44,12 +44,12 @@ jobs:
         timeout-minutes: 5
         name: Validate dagster path filter coverage
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
@@ -70,7 +70,7 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
             # HEAD^2 (PR branch tip) is reachable for the merge-base step below
             # without the cost of fetching blobs.
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
@@ -120,11 +120,13 @@ jobs:
                         - 'ee/billing/**'
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
-                        # --- Only the 8 products that DAGs actually import from ---
+                        # --- Only the products that DAGs actually import from ---
+                        - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/ai_observability/backend/**/*.py'
                         - 'products/llm_analytics/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'
@@ -222,7 +224,7 @@ jobs:
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   clean: false
@@ -257,9 +259,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -276,7 +278,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: stable
                   components: cargo
@@ -307,7 +309,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz

@@ -1,30 +1,34 @@
 import { getPostHogClient } from './client'
 
-export async function isFeatureFlagEnabled(flagKey: string, distinctId: string): Promise<boolean> {
+// Group type → group key, matching the `$groups` shape from `buildMCPAnalyticsGroups`.
+export type FlagGroups = Record<string, string>
+
+export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, groups?: FlagGroups): Promise<boolean> {
     try {
         const client = getPostHogClient()
-        const result = await client.isFeatureEnabled(flagKey, distinctId)
+        const hasGroups = groups && Object.keys(groups).length > 0
+        const result = await client.isFeatureEnabled(flagKey, distinctId, hasGroups ? { groups } : undefined)
         return result === true
     } catch {
         return false
     }
 }
 
-/**
- * Evaluate multiple feature flags in parallel for the given user.
- * Returns a map of flag key → boolean.
- */
-export async function evaluateFeatureFlags(flagKeys: string[], distinctId: string): Promise<Record<string, boolean>> {
+export async function evaluateFeatureFlags(
+    flagKeys: string[],
+    distinctId: string,
+    groups?: FlagGroups
+): Promise<Record<string, boolean>> {
     if (flagKeys.length === 0) {
         return {}
     }
 
-    const results = await Promise.all(
-        flagKeys.map(async (key) => {
-            const enabled = await isFeatureFlagEnabled(key, distinctId)
-            return [key, enabled] as const
-        })
-    )
-
-    return Object.fromEntries(results)
+    const client = getPostHogClient()
+    const hasGroups = groups && Object.keys(groups).length > 0
+    const allFlags = await client.getAllFlags(distinctId, { flagKeys, ...(hasGroups ? { groups } : {}) })
+    const result: Record<string, boolean> = {}
+    for (const key of flagKeys) {
+        result[key] = allFlags[key] === true
+    }
+    return result
 }

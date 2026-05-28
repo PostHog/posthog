@@ -75,6 +75,10 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     members_can_use_personal_api_keys: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -105,6 +109,10 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     members_can_use_personal_api_keys: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -135,6 +143,10 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     members_can_use_personal_api_keys: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -241,6 +253,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
     client: zod.string().max(advancedActivityLogsExportCreateBodyClientMax).nullish(),
+    ip_address: zod.string().nullish(),
     activity: zod.string().max(advancedActivityLogsExportCreateBodyActivityMax),
     item_id: zod.string().max(advancedActivityLogsExportCreateBodyItemIdMax).nullish(),
     scope: zod.string().max(advancedActivityLogsExportCreateBodyScopeMax),
