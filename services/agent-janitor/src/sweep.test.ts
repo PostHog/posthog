@@ -1,4 +1,4 @@
-import { AgentSession, MemorySessionQueue } from '@posthog/agent-shared'
+import { AgentSession, EMPTY_USAGE_TOTAL, MemorySessionQueue } from '@posthog/agent-shared'
 
 import { sweepOnce } from './sweep'
 
@@ -14,6 +14,7 @@ function session(id: string, state: AgentSession['state'], updatedAt: string): A
         pending_inputs: [],
         principal: null,
         retry_count: 0,
+        usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: updatedAt,
         updated_at: updatedAt,
     }

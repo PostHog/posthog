@@ -427,8 +427,12 @@ export interface PatchedAgentApplicationApi {
 export interface AgentSessionUsageTotalApi {
     tokens_in: number
     tokens_out: number
+    cache_read: number
+    cache_write: number
     cost_input: number
     cost_output: number
+    cost_cache_read: number
+    cost_cache_write: number
     cost_total: number
 }
 

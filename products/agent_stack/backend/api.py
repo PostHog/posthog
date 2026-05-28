@@ -308,11 +308,19 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """GET passthrough for the preview-proxy — used for `/listen` SSE."""
         return self.preview_proxy(request, rest=rest, **kwargs)
 
+    # Mirrors `SessionUsageTotal` in services/agent-shared/src/spec/spec.ts.
+    # When that widens, widen this — the MCP + frontend codegen pulls from
+    # here. Cache fields are split because Anthropic prompt-caching bills
+    # them at different rates.
     _SESSION_USAGE_TOTAL_FIELDS = {
         "tokens_in": drf_serializers.IntegerField(),
         "tokens_out": drf_serializers.IntegerField(),
+        "cache_read": drf_serializers.IntegerField(),
+        "cache_write": drf_serializers.IntegerField(),
         "cost_input": drf_serializers.FloatField(),
         "cost_output": drf_serializers.FloatField(),
+        "cost_cache_read": drf_serializers.FloatField(),
+        "cost_cache_write": drf_serializers.FloatField(),
         "cost_total": drf_serializers.FloatField(),
     }
 

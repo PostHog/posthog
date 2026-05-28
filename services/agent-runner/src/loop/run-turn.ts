@@ -17,6 +17,7 @@
 import type { AssistantMessage, Context, Model, ToolCall } from '@earendil-works/pi-ai'
 
 import {
+    accumulateUsage,
     AgentRevision,
     AgentSession,
     AssistantMessageRecord,
@@ -69,6 +70,12 @@ export interface RunSessionDeps {
      * Production writes to ClickHouse via Kafka.
      */
     logs?: LogSink
+    /**
+     * When this session ran through PostHog's llm-gateway. Tokens are still
+     * trusted (provider response) but pi-ai's `cost.*` numbers are client-
+     * side estimates we ignore — the gateway tracks server-side cost.
+     */
+    useGatewayCost?: boolean
 }
 
 export type RunOutcome =
@@ -203,6 +210,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             timestamp: result.timestamp,
         }
         session.conversation.push(assistantRecord)
+        session.usage_total = accumulateUsage(session.usage_total, assistantRecord, {
+            useGatewayCost: deps.useGatewayCost,
+        })
         await deps.onTurnPersist?.(session)
 
         // Emit assistant text events for SSE listeners. One event per text

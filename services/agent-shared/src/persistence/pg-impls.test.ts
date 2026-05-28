@@ -11,7 +11,7 @@
 import { Pool } from 'pg'
 
 import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'
-import { AgentSpecSchema } from '../spec/spec'
+import { AgentSpecSchema, EMPTY_USAGE_TOTAL } from '../spec/spec'
 import { PgSessionQueue } from './pg-queue'
 import { PgRevisionStore } from './pg-revision-store'
 import { AUTHORING_DROP_SQL, AUTHORING_SCHEMA_SQL, DROP_SQL, SCHEMA_SQL } from './pg-schema'
@@ -137,6 +137,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 pending_inputs: [],
                 principal: null,
                 retry_count: 0,
+                usage_total: { ...EMPTY_USAGE_TOTAL },
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -176,6 +177,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             pending_inputs: [],
             principal: null,
             retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -214,6 +216,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             pending_inputs: [],
             principal: null,
             retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -249,6 +252,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             pending_inputs: [],
             principal: null,
             retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })

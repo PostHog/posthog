@@ -80,6 +80,12 @@ export interface WorkerDeps {
      * Tune against memory / sandbox-pool size / LLM rate limits.
      */
     maxConcurrency?: number
+    /**
+     * Set to true when calls go through PostHog's llm-gateway. The runner
+     * keeps token counts but drops pi-ai's `cost.*` accumulation — the
+     * gateway tracks cost server-side; client-side estimates are unreliable.
+     */
+    useGatewayCost?: boolean
 }
 
 export class Worker {
@@ -217,6 +223,7 @@ export class Worker {
                 bus: this.deps.bus,
                 logs: this.deps.logs,
                 shutdownSignal: this.shutdownController.signal,
+                useGatewayCost: this.deps.useGatewayCost,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs
@@ -224,6 +231,7 @@ export class Worker {
                     await this.deps.queue.update(s.id, {
                         conversation: s.conversation,
                         pending_inputs: s.pending_inputs,
+                        usage_total: s.usage_total,
                     })
                 },
             })
@@ -246,6 +254,7 @@ export class Worker {
                 state: newState,
                 conversation: session.conversation,
                 pending_inputs: session.pending_inputs,
+                usage_total: session.usage_total,
             })
         } catch (err) {
             sLog.error({ err: (err as Error).message, stack: (err as Error).stack }, 'session.crashed')
@@ -253,6 +262,7 @@ export class Worker {
                 state: 'failed',
                 conversation: session.conversation,
                 pending_inputs: session.pending_inputs,
+                usage_total: session.usage_total,
             })
         } finally {
             if (sandbox) {

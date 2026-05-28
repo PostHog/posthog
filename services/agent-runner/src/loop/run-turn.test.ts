@@ -4,12 +4,21 @@ import {
     AgentRevision,
     AgentSession,
     AgentSpecSchema,
+    EMPTY_USAGE_TOTAL,
     InProcessSandboxPool,
     MemoryBundleStore,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { endTurn, errorTurn, FauxPiClient, lengthCappedTurn, toolCall, toolUseTurn } from '../models/faux-pi-client'
+import {
+    endTurn,
+    errorTurn,
+    FauxPiClient,
+    lengthCappedTurn,
+    toolCall,
+    toolUseTurn,
+    withUsage,
+} from '../models/faux-pi-client'
 import { runSession } from './run-turn'
 
 // FauxPiClient ignores the model argument so a structural stub is fine.
@@ -41,6 +50,7 @@ function makeSession(): AgentSession {
         pending_inputs: [],
         principal: null,
         retry_count: 0,
+        usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -334,6 +344,72 @@ describe('runSession', () => {
             secrets: {},
         })
         expect(pi.calls[0].opts?.reasoning).toBeUndefined()
+    })
+
+    it('accumulates session.usage_total across turns', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([
+            withUsage(toolUseTurn([toolCall('@posthog/query', { query: 'x' })]), {
+                input: 100,
+                output: 20,
+                cacheRead: 5,
+                cacheWrite: 3,
+                totalTokens: 128,
+                cost: { input: 0.001, output: 0.0002, cacheRead: 0.00005, cacheWrite: 0.00003, total: 0.00128 },
+            }),
+            withUsage(endTurn('done'), {
+                input: 50,
+                output: 10,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 60,
+                cost: { input: 0.0005, output: 0.0001, cacheRead: 0, cacheWrite: 0, total: 0.0006 },
+            }),
+        ])
+        const rev = makeRev({ tools: [{ kind: 'native', id: '@posthog/query' }] })
+        const session = makeSession()
+        await runSession(rev, session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+        })
+        expect(session.usage_total.tokens_in).toBe(150)
+        expect(session.usage_total.tokens_out).toBe(30)
+        expect(session.usage_total.cache_read).toBe(5)
+        expect(session.usage_total.cache_write).toBe(3)
+        expect(session.usage_total.cost_total).toBeCloseTo(0.00188, 10)
+    })
+
+    it('drops cost but keeps tokens when useGatewayCost is true', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([
+            withUsage(endTurn('done'), {
+                input: 100,
+                output: 20,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 120,
+                cost: { input: 999, output: 999, cacheRead: 0, cacheWrite: 0, total: 1998 },
+            }),
+        ])
+        const session = makeSession()
+        await runSession(makeRev(), session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+            useGatewayCost: true,
+        })
+        expect(session.usage_total.tokens_in).toBe(100)
+        expect(session.usage_total.tokens_out).toBe(20)
+        expect(session.usage_total.cost_total).toBe(0)
     })
 
     it('calls onTurnPersist after each turn', async () => {

@@ -174,6 +174,30 @@ export interface SessionPrincipal {
     id?: string
 }
 
+export interface SessionUsageTotal {
+    tokens_in: number
+    tokens_out: number
+    cache_read: number
+    cache_write: number
+    cost_input: number
+    cost_output: number
+    cost_cache_read: number
+    cost_cache_write: number
+    cost_total: number
+}
+
+export const EMPTY_USAGE_TOTAL: SessionUsageTotal = {
+    tokens_in: 0,
+    tokens_out: 0,
+    cache_read: 0,
+    cache_write: 0,
+    cost_input: 0,
+    cost_output: 0,
+    cost_cache_read: 0,
+    cost_cache_write: 0,
+    cost_total: 0,
+}
+
 export interface AgentSession {
     id: string
     application_id: string
@@ -205,6 +229,13 @@ export interface AgentSession {
      * (poison-pill handling). 0 for fresh sessions.
      */
     retry_count: number
+    /**
+     * Append-only running totals updated by the runner after every assistant
+     * turn. Lets list / rollup queries read cost off a single column instead
+     * of walking the conversation JSONB. Backfilled from `conversation` for
+     * sessions created before this column existed.
+     */
+    usage_total: SessionUsageTotal
     created_at: string
     updated_at: string
 }
@@ -239,7 +270,7 @@ export interface AssistantMessageRecord {
         cacheRead?: number
         cacheWrite?: number
         totalTokens?: number
-        cost?: { input?: number; output?: number; total?: number }
+        cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number }
     }
     stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
     errorMessage?: string

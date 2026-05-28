@@ -19,6 +19,7 @@ import {
     AgentApplication,
     AgentRevision,
     ConversationMessage,
+    EMPTY_USAGE_TOTAL,
     SessionPrincipal,
     SessionQueue,
 } from '@posthog/agent-shared'
@@ -61,6 +62,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         pending_inputs: [],
         principal: input.principal ?? null,
         retry_count: 0,
+        usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }

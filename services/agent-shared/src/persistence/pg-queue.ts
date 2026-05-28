@@ -10,11 +10,12 @@
 
 import type { Pool, PoolClient } from 'pg'
 
-import { AgentSession, ConversationMessage } from '../spec/spec'
+import { AgentSession, ConversationMessage, EMPTY_USAGE_TOTAL, SessionUsageTotal } from '../spec/spec'
 import { ListSessionsOpts, SessionQueue } from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
-                     conversation, pending_inputs, principal, retry_count, created_at, updated_at`
+                     conversation, pending_inputs, principal, retry_count,
+                     usage_total, created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -23,12 +24,14 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(
             `INSERT INTO agent_session
                 (id, application_id, revision_id, team_id, external_key, state,
-                 conversation, pending_inputs, principal, retry_count, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12)
+                 conversation, pending_inputs, principal, retry_count,
+                 usage_total, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::jsonb, $12, $13)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
                 pending_inputs = EXCLUDED.pending_inputs,
+                usage_total = EXCLUDED.usage_total,
                 updated_at = EXCLUDED.updated_at`,
             [
                 session.id,
@@ -41,6 +44,7 @@ export class PgSessionQueue implements SessionQueue {
                 JSON.stringify(session.pending_inputs),
                 session.principal ? JSON.stringify(session.principal) : null,
                 session.retry_count,
+                JSON.stringify(session.usage_total ?? EMPTY_USAGE_TOTAL),
                 session.created_at,
                 session.updated_at,
             ]
@@ -110,6 +114,10 @@ export class PgSessionQueue implements SessionQueue {
         if (patch.external_key !== undefined) {
             sets.push(`external_key = $${i++}`)
             params.push(patch.external_key)
+        }
+        if (patch.usage_total !== undefined) {
+            sets.push(`usage_total = $${i++}::jsonb`)
+            params.push(JSON.stringify(patch.usage_total))
         }
         await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
     }
@@ -253,6 +261,7 @@ interface DbRow {
     pending_inputs: unknown
     principal: unknown
     retry_count: number
+    usage_total: unknown
     created_at: Date
     updated_at: Date
 }
@@ -269,7 +278,17 @@ function rowToSession(row: DbRow): AgentSession {
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],
         retry_count: row.retry_count,
+        usage_total: parseUsageTotal(row.usage_total),
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }
+}
+
+function parseUsageTotal(raw: unknown): SessionUsageTotal {
+    // Rows that predate the column default (or older snapshots in tests)
+    // surface as null — fall back to zeroes so the type stays exact.
+    if (!raw || typeof raw !== 'object') {
+        return { ...EMPTY_USAGE_TOTAL }
+    }
+    return { ...EMPTY_USAGE_TOTAL, ...(raw as Partial<SessionUsageTotal>) }
 }

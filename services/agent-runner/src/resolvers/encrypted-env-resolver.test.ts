@@ -1,4 +1,4 @@
-import { EncryptedFields, MemoryRevisionStore } from '@posthog/agent-shared'
+import { EMPTY_USAGE_TOTAL, EncryptedFields, MemoryRevisionStore } from '@posthog/agent-shared'
 
 import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
 
@@ -16,6 +16,7 @@ function freshSession(overrides: Record<string, unknown> = {}): never {
         conversation: [],
         pending_inputs: [],
         retry_count: 0,
+        usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
         ...overrides,

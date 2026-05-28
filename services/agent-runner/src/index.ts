@@ -99,6 +99,9 @@ async function main(): Promise<void> {
                       baseUrl: config.llmGatewayUrl,
                   })
             : undefined,
+        // On the gateway path pi-ai's cost numbers are client-side estimates;
+        // the gateway itself owns billing. We keep token counts.
+        useGatewayCost: config.useLlmGateway,
         maxConcurrency: config.maxConcurrency,
     })
 

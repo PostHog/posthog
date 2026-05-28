@@ -1,6 +1,7 @@
 import {
     AgentSession,
     AgentSpecSchema,
+    EMPTY_USAGE_TOTAL,
     InProcessSandboxPool,
     MemoryBundleStore,
     MemoryRevisionStore,
@@ -50,6 +51,7 @@ describe('Worker', () => {
             pending_inputs: [],
             principal: null,
             retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -108,6 +110,7 @@ describe('Worker', () => {
             pending_inputs: [],
             principal: null,
             retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }
@@ -159,6 +162,7 @@ describe('Worker', () => {
             pending_inputs: [],
             principal: null,
             retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
         }

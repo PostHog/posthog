@@ -17,6 +17,7 @@ import { Pool } from 'pg'
 import { FauxPiClient, InvokeOpts, Worker } from '@posthog/agent-runner'
 import {
     AgentSpecSchema,
+    EMPTY_USAGE_TOTAL,
     FsBundleStore,
     InProcessSandboxPool,
     PgRevisionStore,
@@ -134,6 +135,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 pending_inputs: [],
                 principal: null,
                 retry_count: 0,
+                usage_total: { ...EMPTY_USAGE_TOTAL },
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })
