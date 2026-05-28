@@ -1734,6 +1734,17 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     except Team.DoesNotExist:
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
+    # A config with a non-null application belongs to the partner that provisioned
+    # it; a null application is unclaimed (every team gets one by default) and is
+    # mutable by any in-scope caller. Reject only a cross-partner mutation.
+    owning_application_id = (
+        TeamProvisioningConfig.objects.filter(team_id=team_id).values_list("application_id", flat=True).first()
+    )
+    if owning_application_id is not None and owning_application_id != access_token.application_id:
+        return _error_response(
+            "forbidden", "Resource owned by a different provisioning partner", resource_id=resource_id, status=403
+        )
+
     service_id = request.data.get("service_id", "")
     if not service_id:
         return _error_response("missing_service_id", "service_id is required", resource_id=resource_id)
@@ -1842,7 +1853,12 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
         )
 
     try:
-        TeamProvisioningConfig.objects.filter(team_id=team_id).delete()
+        # Clear the mapping only if it is unclaimed or owned by the caller's
+        # application; an in-scope partner must not delete another partner's
+        # provisioning mapping for the same team.
+        config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
+        if config is not None and config.application_id in (None, access_token.application_id):
+            config.delete()
     except Exception:
         capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
         _capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")

@@ -626,6 +626,40 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
 
+    def test_remove_does_not_delete_other_partners_config(self):
+        # The base team is in the caller's scope, but its config belongs to a
+        # different partner. remove strips the caller's own scope but must leave
+        # the other partner's provisioning mapping intact.
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_partner = OAuthApplication.objects.create(
+            name="Other Partner",
+            client_id="other_partner_remove_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            provisioning_partner_type="other_partner",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team, defaults={"application": other_partner, "stripe_project_id": "proj_other_owner"}
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/remove",
+            token=token,
+        )
+        assert res.status_code == 200, res.json()
+
+        config = TeamProvisioningConfig.objects.get(team=self.team)
+        assert config.application_id == other_partner.id
+
+        # the caller's token only had this team in scope, so stripping it revokes the token
+        assert not OAuthAccessToken.objects.filter(token=token).exists()
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestCreateProvisionedPat(ProvisioningTestBase):
