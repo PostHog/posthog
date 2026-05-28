@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -516,6 +516,40 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * List sessions for this application, newest first. Strips the
+conversation transcript from each summary — fetch a single session
+via /sessions/<id>/ for the full body.
+ */
+export const AgentApplicationsSessionsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsSessionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional(),
+    offset: zod.number().optional(),
+})
+
+/**
+ * Fetch one session's full state, including the conversation transcript.
+The runner-side queue DB is the source of truth for this — the response
+shape mirrors `AgentSession`.
+ */
+export const AgentApplicationsSessionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    session_id: zod.string().describe('UUID of the session to fetch (must belong to this application).'),
 })
 
 /**

@@ -6,6 +6,7 @@
  * Endpoints (grouped):
  *
  *   Session lifecycle (existing):
+ *     GET    /sessions?application_id=  list sessions for one application (newest first)
  *     GET    /sessions/:id              full session state
  *     POST   /sessions/:id/cancel       mark failed
  *     POST   /sweep                     trigger a sweep (tests / debug)
@@ -74,6 +75,32 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     })
 
     /* ───────────────────────────── sessions ───────────────────────────── */
+
+    app.get('/sessions', async (req, res) => {
+        const applicationId = typeof req.query.application_id === 'string' ? req.query.application_id : ''
+        if (!applicationId) {
+            res.status(400).json({ error: 'missing_application_id' })
+            return
+        }
+        const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined
+        const offset = req.query.offset ? parseInt(String(req.query.offset), 10) : undefined
+        const sessions = await opts.queue.listByApplication(applicationId, { limit, offset })
+        // Conversation can be large; strip it from the list view. Callers can
+        // fetch one with /sessions/:id when they want the full transcript.
+        const summaries = sessions.map((s) => ({
+            id: s.id,
+            application_id: s.application_id,
+            revision_id: s.revision_id,
+            state: s.state,
+            external_key: s.external_key,
+            principal: s.principal,
+            turns: s.conversation.length,
+            retry_count: s.retry_count,
+            created_at: s.created_at,
+            updated_at: s.updated_at,
+        }))
+        res.json({ sessions: summaries })
+    })
 
     app.get('/sessions/:id', async (req, res) => {
         const s = await opts.queue.get(req.params.id)

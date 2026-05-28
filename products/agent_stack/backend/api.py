@@ -112,7 +112,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "agent_application"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "set_env"]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "sessions_list", "sessions_retrieve"]
     serializer_class = AgentApplicationSerializer
     queryset = AgentApplication.objects.all()
 
@@ -155,6 +155,90 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application.encrypted_env = json.dumps(env_map)
         application.save(update_fields=["encrypted_env", "updated_at"])
         return Response({"ok": True})
+
+    @extend_schema(
+        operation_id="agent_applications_sessions_list",
+        parameters=[
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApplicationSessionsListResponse",
+                fields={
+                    "sessions": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentSessionSummary",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "application_id": drf_serializers.UUIDField(),
+                                "revision_id": drf_serializers.UUIDField(),
+                                "state": drf_serializers.CharField(),
+                                "external_key": drf_serializers.CharField(allow_null=True),
+                                "principal": drf_serializers.DictField(allow_null=True),
+                                "turns": drf_serializers.IntegerField(),
+                                "retry_count": drf_serializers.IntegerField(),
+                                "created_at": drf_serializers.DateTimeField(),
+                                "updated_at": drf_serializers.DateTimeField(),
+                            },
+                        ),
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="sessions")
+    def sessions_list(self, request: Request, **kwargs) -> Response:
+        """List sessions for this application, newest first. Strips the
+        conversation transcript from each summary — fetch a single session
+        via /sessions/<id>/ for the full body."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        limit_param = request.query_params.get("limit")
+        offset_param = request.query_params.get("offset")
+        try:
+            limit = int(limit_param) if limit_param is not None else None
+            offset = int(offset_param) if offset_param is not None else None
+        except ValueError:
+            raise ValidationError("limit and offset must be integers")
+        try:
+            payload = _janitor().list_sessions(str(application.id), limit=limit, offset=offset)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_sessions_retrieve",
+        parameters=[
+            OpenApiParameter(
+                "session_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                required=True,
+                description="UUID of the session to fetch (must belong to this application).",
+            ),
+        ],
+        request=None,
+    )
+    @action(detail=True, methods=["get"], url_path="sessions/(?P<session_id>[^/.]+)")
+    def sessions_retrieve(self, request: Request, session_id: str = "", **kwargs) -> Response:
+        """Fetch one session's full state, including the conversation transcript.
+        The runner-side queue DB is the source of truth for this — the response
+        shape mirrors `AgentSession`."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().get_session(session_id)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        # Cross-check ownership: the janitor doesn't know about teams. Reject
+        # if the session belongs to a different application than the URL says.
+        if payload.get("application_id") != str(application.id):
+            raise NotFound("Session not found")
+        return Response(payload)
 
 
 @extend_schema(tags=["agent_stack"])

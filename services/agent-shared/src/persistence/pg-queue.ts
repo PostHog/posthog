@@ -157,6 +157,23 @@ export class PgSessionQueue implements SessionQueue {
         return rowToSession(r.rows[0])
     }
 
+    async listByApplication(
+        applicationId: string,
+        opts: { limit?: number; offset?: number } = {}
+    ): Promise<AgentSession[]> {
+        const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
+        const offset = Math.max(0, opts.offset ?? 0)
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE application_id = $1
+             ORDER BY created_at DESC
+             LIMIT $2 OFFSET $3`,
+            [applicationId, limit, offset]
+        )
+        return r.rows.map(rowToSession)
+    }
+
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
         // Two-step: re-queue stuck sessions that still have retries left,
         // then poison-pill those that don't. Single transaction so a session

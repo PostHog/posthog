@@ -100,6 +100,19 @@ class JanitorClient:
     def validate(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/validate")
 
+    # ── sessions ───────────────────────────────────────────────────────────
+
+    def list_sessions(self, application_id: str, limit: int | None = None, offset: int | None = None) -> dict:
+        params: dict[str, Any] = {"application_id": application_id}
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        return self._call("GET", "/sessions", params=params)
+
+    def get_session(self, session_id: str) -> dict:
+        return self._call("GET", f"/sessions/{session_id}")
+
     def clone_from(self, target_revision_id: str, source_revision_id: str) -> dict:
         return self._call(
             "POST",

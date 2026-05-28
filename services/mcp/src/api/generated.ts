@@ -3747,6 +3747,30 @@ export namespace Schemas {
     }
 
     /**
+     * @nullable
+     */
+    export type AgentSessionSummaryPrincipal = { [key: string]: unknown } | null;
+
+    export interface AgentSessionSummary {
+      id: string;
+      application_id: string;
+      revision_id: string;
+      state: string;
+      /** @nullable */
+      external_key: string | null;
+      /** @nullable */
+      principal: AgentSessionSummaryPrincipal;
+      turns: number;
+      retry_count: number;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface AgentApplicationSessionsListResponse {
+      sessions: AgentSessionSummary[];
+    }
+
+    /**
      * * `product_analytics` - product_analytics
     * `sql` - sql
     * `session_replay` - session_replay
@@ -43167,6 +43191,11 @@ export namespace Schemas {
      * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
      */
     path: string;
+    };
+
+    export type AgentApplicationsSessionsListParams = {
+    limit?: number;
+    offset?: number;
     };
 
     export type AlertsListParams = {

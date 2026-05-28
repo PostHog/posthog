@@ -176,6 +176,30 @@ export interface PatchedAgentApplicationApi {
     readonly updated_at?: string
 }
 
+/**
+ * @nullable
+ */
+export type AgentSessionSummaryApiPrincipal = { [key: string]: unknown } | null
+
+export interface AgentSessionSummaryApi {
+    id: string
+    application_id: string
+    revision_id: string
+    state: string
+    /** @nullable */
+    external_key: string | null
+    /** @nullable */
+    principal: AgentSessionSummaryApiPrincipal
+    turns: number
+    retry_count: number
+    created_at: string
+    updated_at: string
+}
+
+export interface AgentApplicationSessionsListResponseApi {
+    sessions: AgentSessionSummaryApi[]
+}
+
 export type SetEnvRequestApiEnv = { [key: string]: string }
 
 /**
@@ -240,4 +264,9 @@ export type AgentApplicationsRevisionsFileDestroyParams = {
      * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
      */
     path: string
+}
+
+export type AgentApplicationsSessionsListParams = {
+    limit?: number
+    offset?: number
 }

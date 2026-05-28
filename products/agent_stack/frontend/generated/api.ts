@@ -10,11 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AgentApplicationApi,
+    AgentApplicationSessionsListResponseApi,
     AgentApplicationsListParams,
     AgentApplicationsRevisionsFileDestroyParams,
     AgentApplicationsRevisionsFileRetrieveParams,
     AgentApplicationsRevisionsFileUpdateParams,
     AgentApplicationsRevisionsListParams,
+    AgentApplicationsSessionsListParams,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
     AgentRevisionValidateResponseApi,
@@ -810,6 +812,67 @@ export const agentApplicationsDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getAgentApplicationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsSessionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AgentApplicationsSessionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/sessions/`
+}
+
+/**
+ * List sessions for this application, newest first. Strips the
+conversation transcript from each summary — fetch a single session
+via /sessions/<id>/ for the full body.
+ */
+export const agentApplicationsSessionsList = async (
+    projectId: string,
+    id: string,
+    params?: AgentApplicationsSessionsListParams,
+    options?: RequestInit
+): Promise<AgentApplicationSessionsListResponseApi> => {
+    return apiMutator<AgentApplicationSessionsListResponseApi>(
+        getAgentApplicationsSessionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsSessionsRetrieveUrl = (projectId: string, id: string, sessionId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/sessions/${sessionId}/`
+}
+
+/**
+ * Fetch one session's full state, including the conversation transcript.
+The runner-side queue DB is the source of truth for this — the response
+shape mirrors `AgentSession`.
+ */
+export const agentApplicationsSessionsRetrieve = async (
+    projectId: string,
+    id: string,
+    sessionId: string,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSessionsRetrieveUrl(projectId, id, sessionId), {
+        ...options,
+        method: 'GET',
     })
 }
 

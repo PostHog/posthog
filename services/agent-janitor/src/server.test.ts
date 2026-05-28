@@ -43,6 +43,30 @@ describe('janitor HTTP', () => {
         expect(res.status).toBe(200)
     })
 
+    it('GET /sessions?application_id= returns summaries, newest first', async () => {
+        const { queue, app } = mk()
+        const a = { ...session('s-a'), application_id: 'app-1', created_at: '2026-05-01T00:00:00Z' }
+        const b = { ...session('s-b'), application_id: 'app-1', created_at: '2026-05-02T00:00:00Z' }
+        const c = { ...session('s-c'), application_id: 'other', created_at: '2026-05-03T00:00:00Z' }
+        await queue.enqueue(a)
+        await queue.enqueue(b)
+        await queue.enqueue(c)
+        const res = await request(app).get('/sessions').query({ application_id: 'app-1' })
+        expect(res.status).toBe(200)
+        const ids = (res.body.sessions as Array<{ id: string }>).map((s) => s.id)
+        expect(ids).toEqual(['s-b', 's-a'])
+        // Summaries strip the heavy conversation body.
+        expect(Object.keys(res.body.sessions[0])).not.toContain('conversation')
+        expect(res.body.sessions[0]).toMatchObject({ turns: 1, state: 'running' })
+    })
+
+    it('GET /sessions without application_id returns 400', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/sessions')
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('missing_application_id')
+    })
+
     it('GET /sessions/:id returns session, 404 if missing', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s1'))

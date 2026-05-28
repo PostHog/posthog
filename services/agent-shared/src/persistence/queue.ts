@@ -23,6 +23,12 @@ export interface SessionQueue {
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
     /**
+     * List sessions for one application, newest first. `limit` defaults to 100
+     * so a buggy caller can't accidentally page through every session in the
+     * project; supply an explicit larger value if needed.
+     */
+    listByApplication(applicationId: string, opts?: { limit?: number; offset?: number }): Promise<AgentSession[]>
+    /**
      * Re-queue sessions stuck in 'running' beyond the TTL (their worker
      * probably crashed). The session's conversation is preserved; a sibling
      * worker picks it up via the normal claim path.
@@ -98,6 +104,17 @@ export class MemorySessionQueue implements SessionQueue {
             }
         }
         return null
+    }
+
+    async listByApplication(
+        applicationId: string,
+        opts: { limit?: number; offset?: number } = {}
+    ): Promise<AgentSession[]> {
+        const limit = opts.limit ?? 100
+        const offset = opts.offset ?? 0
+        const matches = [...this.sessions.values()].filter((s) => s.application_id === applicationId)
+        matches.sort((a, b) => b.created_at.localeCompare(a.created_at))
+        return matches.slice(offset, offset + limit)
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {

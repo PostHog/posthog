@@ -302,6 +302,35 @@ tools:
             native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the
             bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a
             draft before calling `agent-applications-revisions-freeze-create`.
+    agent-applications-sessions-list:
+        operation: agent_applications_sessions_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List sessions for an agent
+        description: >
+            Newest-first list of every session ever run against this agent — across all revisions. Returns id, state
+            (queued/running/waiting/completed/failed), revision_id, principal, turn count, retry count, timestamps. Skip
+            the transcript body in this list view; use `agent-applications-sessions-retrieve` for a single session's
+            full conversation. Supports `limit` (default 100, max 500) and `offset` for paging.
+    agent-applications-sessions-retrieve:
+        operation: agent_applications_sessions_retrieve
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get one session
+        description: >
+            Returns the full `AgentSession` row: state, principal, full `conversation` JSONB (user / assistant / toolResult
+            messages), pending_inputs, retry_count, timestamps. Use after `agent-applications-sessions-list` to drill into
+            one row — for example to read the assistant's last reply or audit tool calls.
     agent-applications-set-env-create:
         operation: agent_applications_set_env_create
         enabled: true

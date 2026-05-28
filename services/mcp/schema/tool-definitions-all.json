@@ -578,6 +578,36 @@
             "readOnlyHint": true
         }
     },
+    "agent-applications-sessions-list": {
+        "description": "Newest-first list of every session ever run against this agent — across all revisions. Returns id, state (queued/running/waiting/completed/failed), revision_id, principal, turn count, retry count, timestamps. Skip the transcript body in this list view; use `agent-applications-sessions-retrieve` for a single session's full conversation. Supports `limit` (default 100, max 500) and `offset` for paging.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List sessions for an agent",
+        "title": "List sessions for an agent",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-sessions-retrieve": {
+        "description": "Returns the full `AgentSession` row: state, principal, full `conversation` JSONB (user / assistant / toolResult messages), pending_inputs, retry_count, timestamps. Use after `agent-applications-sessions-list` to drill into one row — for example to read the assistant's last reply or audit tool calls.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Get one session",
+        "title": "Get one session",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "agent-applications-set-env-create": {
         "description": "Body `{ env: { KEY: \"value\", … } }`. The whole env is replaced (not patched); pass the full set you want available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).",
         "category": "Agent stack",
