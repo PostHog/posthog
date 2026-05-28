@@ -21,10 +21,13 @@ import pg from 'pg'
 const { Pool } = pg
 
 import {
+    AnalyticsSink,
     createLogger,
     EncryptedFields,
     FsBundleStore,
     installProcessHandlers,
+    KafkaAnalyticsSink,
+    NoopAnalyticsSink,
     NoopSessionEventBus,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -79,6 +82,21 @@ async function main(): Promise<void> {
         bus = redis
     }
 
+    // LLM analytics sink. Writes `$ai_generation` + `$ai_span` to the
+    // dedicated `agent_ai_events` Kafka topic. A future consumer forwards
+    // these into the canonical `clickhouse_ai_events_json` topic with the
+    // platform-origin / "free" billing flag attached — see
+    // docs/agent-platform/plans/platform-llm-analytics.md.
+    let analytics: AnalyticsSink = new NoopAnalyticsSink()
+    if (config.kafkaBrokers) {
+        const kafka = new KafkaAnalyticsSink({
+            brokers: config.kafkaBrokers,
+            topic: config.analyticsTopic,
+        })
+        await kafka.connect()
+        analytics = kafka
+    }
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -102,6 +120,7 @@ async function main(): Promise<void> {
         // On the gateway path pi-ai's cost numbers are client-side estimates;
         // the gateway itself owns billing. We keep token counts.
         useGatewayCost: config.useLlmGateway,
+        analytics,
         maxConcurrency: config.maxConcurrency,
     })
 

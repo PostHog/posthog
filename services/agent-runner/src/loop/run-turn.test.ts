@@ -5,6 +5,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
+    InMemoryAnalyticsSink,
     InProcessSandboxPool,
     MemoryBundleStore,
 } from '@posthog/agent-shared'
@@ -432,5 +433,106 @@ describe('runSession', () => {
         })
         // At least one persist per turn (assistant message + post-tool dispatch)
         expect(persisted.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('emits one $ai_generation per turn + one $ai_span per tool call', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([
+            withUsage(toolUseTurn([toolCall('@posthog/query', { query: 'x' }, 'tc_1')]), {
+                input: 100,
+                output: 20,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 120,
+                cost: { input: 0.001, output: 0.0002, cacheRead: 0, cacheWrite: 0, total: 0.0012 },
+            }),
+            withUsage(endTurn('done'), {
+                input: 50,
+                output: 10,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 60,
+                cost: { input: 0.0005, output: 0.0001, cacheRead: 0, cacheWrite: 0, total: 0.0006 },
+            }),
+        ])
+        const analytics = new InMemoryAnalyticsSink()
+        const rev = makeRev({ tools: [{ kind: 'native', id: '@posthog/query' }] })
+        const session = makeSession()
+        await runSession(rev, session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+            analytics,
+        })
+        const generations = analytics.generations(session.id)
+        const spans = analytics.spans(session.id)
+        expect(generations).toHaveLength(2)
+        expect(spans).toHaveLength(1)
+        // Trace + span ids chain consistently — span parent matches the generation that produced the toolCall.
+        expect(spans[0].parent_span_id).toBe(generations[0].span_id)
+        // Per-turn token counts are passed through.
+        expect(generations[0].input_tokens).toBe(100)
+        expect(generations[1].input_tokens).toBe(50)
+        // Tool span carries the original tool name (not the provider-safe form).
+        expect(spans[0].tool_name).toBe('@posthog/query')
+        expect(spans[0].tool_call_id).toBe('tc_1')
+    })
+
+    it('drops cost_usd on the gateway path while keeping token counts', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([
+            withUsage(endTurn('done'), {
+                input: 100,
+                output: 20,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 120,
+                cost: { input: 999, output: 999, cacheRead: 0, cacheWrite: 0, total: 1998 },
+            }),
+        ])
+        const analytics = new InMemoryAnalyticsSink()
+        await runSession(makeRev(), makeSession(), {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+            analytics,
+            useGatewayCost: true,
+        })
+        const [gen] = analytics.generations()
+        expect(gen.input_tokens).toBe(100)
+        expect(gen.output_tokens).toBe(20)
+        expect(gen.cost_usd).toBeUndefined()
+    })
+
+    it('records a failed $ai_generation when pi.invoke throws', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([
+            (() => {
+                throw new Error('rate_limit')
+            }) as never,
+        ])
+        const analytics = new InMemoryAnalyticsSink()
+        const out = await runSession(makeRev(), makeSession(), {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+            analytics,
+        })
+        expect(out.state).toBe('failed')
+        const [gen] = analytics.generations()
+        expect(gen.is_error).toBe(true)
+        expect(gen.error).toBe('rate_limit')
     })
 })

@@ -20,12 +20,16 @@ import {
     accumulateUsage,
     AgentRevision,
     AgentSession,
+    AnalyticsSink,
+    analyticsDistinctId,
     AssistantMessageRecord,
     BundleStore,
     createLogger,
+    generationSpanId,
     IntegrationCredentials,
     LogLevel,
     LogSink,
+    NoopAnalyticsSink,
     NoopLogSink,
     NoopSessionEventBus,
     Sandbox,
@@ -71,6 +75,12 @@ export interface RunSessionDeps {
      */
     logs?: LogSink
     /**
+     * LLM analytics sink — `$ai_generation` per model call, `$ai_span` per
+     * tool dispatch. Defaults to NoopAnalyticsSink. Production wires the
+     * dedicated `agent_ai_events` Kafka topic. See `analytics-sink.ts`.
+     */
+    analytics?: AnalyticsSink
+    /**
      * When this session ran through PostHog's llm-gateway. Tokens are still
      * trusted (provider response) but pi-ai's `cost.*` numbers are client-
      * side estimates we ignore — the gateway tracks server-side cost.
@@ -97,6 +107,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     }
     const bus: SessionEventBus = deps.bus ?? new NoopSessionEventBus()
     const logs: LogSink = deps.logs ?? new NoopLogSink()
+    const analytics: AnalyticsSink = deps.analytics ?? new NoopAnalyticsSink()
+    const distinctId = analyticsDistinctId(session)
     let turns = 0
     // Per-session logger — every record carries session_id + application_id so
     // you can grep one session's full lifecycle out of a busy log stream.
@@ -164,6 +176,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         runLog.debug({ turn: turns, messages: context.messages.length, tools: tools.length }, 'pi.invoke.begin')
         let result: AssistantMessage
         const piStart = Date.now()
+        const generationSpan = generationSpanId(session.id, turns)
         try {
             result = await deps.pi.invoke(deps.model, context, {
                 apiKey: deps.apiKey,
@@ -180,6 +193,31 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 runLog.debug({ turn: turns }, 'pi.invoke.aborted')
                 return { state: 'suspended', reason: 'shutdown', turns }
             }
+            // Best-effort analytics emission for the failed call so error rate
+            // is visible in LLM Analytics. Provider/model come off the resolved
+            // pi-ai Model since `result` isn't available here.
+            await analytics.write([
+                {
+                    kind: 'generation',
+                    ts: new Date().toISOString(),
+                    team_id: session.team_id,
+                    application_id: session.application_id,
+                    revision_id: rev.id,
+                    session_id: session.id,
+                    turn: turns,
+                    span_id: generationSpan,
+                    distinct_id: distinctId,
+                    model: deps.model.id,
+                    provider: deps.model.provider,
+                    input: context.messages,
+                    output: null,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    latency_ms: Date.now() - piStart,
+                    is_error: true,
+                    error: e.message ?? 'pi-ai_error',
+                },
+            ])
             runLog.error({ turn: turns, err: e.message }, 'pi.invoke.failed')
             return { state: 'failed', reason: e.message ?? 'pi-ai_error', turns }
         }
@@ -213,6 +251,35 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         session.usage_total = accumulateUsage(session.usage_total, assistantRecord, {
             useGatewayCost: deps.useGatewayCost,
         })
+        // Emit `$ai_generation` per call. cost_usd is suppressed on the
+        // gateway path (pi-ai's numbers there are client-side estimates).
+        await analytics.write([
+            {
+                kind: 'generation',
+                ts: new Date(result.timestamp).toISOString(),
+                team_id: session.team_id,
+                application_id: session.application_id,
+                revision_id: rev.id,
+                session_id: session.id,
+                turn: turns,
+                span_id: generationSpan,
+                distinct_id: distinctId,
+                model: result.model ?? deps.model.id,
+                provider: result.provider ?? deps.model.provider,
+                input: context.messages,
+                output: result.content,
+                input_tokens: result.usage?.input ?? 0,
+                output_tokens: result.usage?.output ?? 0,
+                cache_read_tokens: result.usage?.cacheRead,
+                cache_write_tokens: result.usage?.cacheWrite,
+                total_tokens: result.usage?.totalTokens,
+                latency_ms: Date.now() - piStart,
+                cost_usd: deps.useGatewayCost ? undefined : result.usage?.cost?.total,
+                stop_reason: result.stopReason,
+                is_error: result.stopReason === 'error',
+                error: result.stopReason === 'error' ? result.errorMessage : undefined,
+            },
+        ])
         await deps.onTurnPersist?.(session)
 
         // Emit assistant text events for SSE listeners. One event per text
@@ -260,6 +327,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 runLog,
                 log,
                 emit,
+                analytics,
+                parentSpanId: generationSpan,
+                distinctId,
                 toolNameMap,
                 turn: turns,
             })

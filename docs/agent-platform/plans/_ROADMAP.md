@@ -241,7 +241,10 @@ judge infrastructure, and lands a draft for human review.
   PostHog's existing LLM analytics surface for agent users today.
   Tag every `$ai_generation` and `$ai_span` event with
   `$agent_application_id` + `$agent_revision_id`. This is the
-  single biggest pre-D.2 piece of work.
+  single biggest pre-D.2 piece of work. **Promoted to its own plan
+  ([`platform-llm-analytics.md`](platform-llm-analytics.md)); v0
+  (runner emits to dedicated `agent_ai_events` Kafka topic) ✅
+  shipped; v1 (forwarder consumer + free-flag billing logic) pending.**
 
 ## E. Human surfaces — **Ben**
 
@@ -326,8 +329,10 @@ Assuming no parallelism, a reasonable order:
    B.5 draft-preview-auth ✅ shipped early — closes the draft-invoke
    gap independent of the strict-principal extraction._
 5. **D.2 §11 v0** — wire LLM analytics emission from the runner.
-   Unlocks observability for agents in production today, independent
-   of the rest of self-healing. **← next up.**
+   _Promoted to its own plan
+   ([`platform-llm-analytics.md`](platform-llm-analytics.md)); v0
+   runner-side emitter ✅ shipped — next ask is the v1 forwarder
+   consumer + free-flag logic._
 6. **C.1** — sandboxed inference. `repo-readonly` first, then
    `repo-write`, then `repo-pr`. Each tier expands trust and depends
    on the prior layers' enforcement.

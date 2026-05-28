@@ -1,0 +1,168 @@
+import {
+    analyticsDistinctId,
+    generationSpanId,
+    InMemoryAnalyticsSink,
+    PLATFORM_ORIGIN,
+    toAnalyticsWire,
+    toolSpanId,
+    type AnalyticsGenerationEvent,
+    type AnalyticsSpanEvent,
+} from './analytics-sink'
+
+function makeGeneration(overrides: Partial<AnalyticsGenerationEvent> = {}): AnalyticsGenerationEvent {
+    return {
+        kind: 'generation',
+        ts: '2026-05-28T00:00:00.000Z',
+        team_id: 1,
+        application_id: 'app-uuid',
+        revision_id: 'rev-uuid',
+        session_id: 'sess-uuid',
+        turn: 1,
+        span_id: 'sess-uuid:gen:1',
+        distinct_id: 'agent:app-uuid',
+        model: 'claude-haiku-4-5',
+        provider: 'anthropic',
+        input: [{ role: 'user', content: 'hi' }],
+        output: [{ type: 'text', text: 'hello' }],
+        input_tokens: 10,
+        output_tokens: 5,
+        latency_ms: 1234,
+        cost_usd: 0.0007,
+        stop_reason: 'stop',
+        ...overrides,
+    }
+}
+
+function makeSpan(overrides: Partial<AnalyticsSpanEvent> = {}): AnalyticsSpanEvent {
+    return {
+        kind: 'span',
+        ts: '2026-05-28T00:00:01.000Z',
+        team_id: 1,
+        application_id: 'app-uuid',
+        revision_id: 'rev-uuid',
+        session_id: 'sess-uuid',
+        turn: 1,
+        span_id: 'sess-uuid:tool:1:tc_xyz',
+        parent_span_id: 'sess-uuid:gen:1',
+        distinct_id: 'agent:app-uuid',
+        tool_name: '@posthog/query',
+        tool_call_id: 'tc_xyz',
+        input: { query: 'select 1' },
+        output: { rows: [], columns: [] },
+        latency_ms: 42,
+        ...overrides,
+    }
+}
+
+describe('analyticsDistinctId', () => {
+    it('uses <kind>:<id> when the principal is fully populated', () => {
+        const id = analyticsDistinctId({
+            application_id: 'app-uuid',
+            principal: { kind: 'pat', id: 'user-7' },
+        })
+        expect(id).toBe('pat:user-7')
+    })
+
+    it('falls back to agent:<application_id> when there is no principal', () => {
+        const id = analyticsDistinctId({ application_id: 'app-uuid', principal: null })
+        expect(id).toBe('agent:app-uuid')
+    })
+
+    it('falls back to agent:<application_id> when the principal has no id', () => {
+        const id = analyticsDistinctId({
+            application_id: 'app-uuid',
+            principal: { kind: 'anonymous' },
+        })
+        expect(id).toBe('agent:app-uuid')
+    })
+})
+
+describe('span id helpers', () => {
+    it('namespace generation spans under session + turn', () => {
+        expect(generationSpanId('sess', 3)).toBe('sess:gen:3')
+    })
+
+    it('chain tool spans under their generation via the tool_call_id', () => {
+        expect(toolSpanId('sess', 3, 'tc_abc')).toBe('sess:tool:3:tc_abc')
+    })
+})
+
+describe('toAnalyticsWire — generation', () => {
+    it('produces a ClickHouse-event-shaped wire row with $ai_* properties', () => {
+        const wire = toAnalyticsWire(makeGeneration())
+        expect(wire.event).toBe('$ai_generation')
+        expect(wire.distinct_id).toBe('agent:app-uuid')
+        expect(wire.team_id).toBe(1)
+        // The wire `properties` is JSON-encoded; round-trip and check shape.
+        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        expect(props.$ai_model).toBe('claude-haiku-4-5')
+        expect(props.$ai_provider).toBe('anthropic')
+        expect(props.$ai_input_tokens).toBe(10)
+        expect(props.$ai_output_tokens).toBe(5)
+        // Latency is recorded as seconds (matches the $ai_latency CH column).
+        expect(props.$ai_latency).toBe(1.234)
+        expect(props.$ai_total_cost_usd).toBe(0.0007)
+        expect(props.$ai_trace_id).toBe('sess-uuid')
+        expect(props.$ai_span_id).toBe('sess-uuid:gen:1')
+        expect(props.$agent_application_id).toBe('app-uuid')
+        expect(props.$agent_revision_id).toBe('rev-uuid')
+        // Platform-origin marker — the future "free" billing flag keys on this.
+        // Removing or renaming this property will desync the consumer.
+        expect(props.$ai_origin).toBe(PLATFORM_ORIGIN)
+        // Default `person_mode: 'propertyless'` lets the consumer skip person-store lookups.
+        expect(wire.person_mode).toBe('propertyless')
+    })
+
+    it('omits cost when not provided (gateway path)', () => {
+        const wire = toAnalyticsWire(makeGeneration({ cost_usd: undefined }))
+        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        expect(props.$ai_total_cost_usd).toBeUndefined()
+    })
+
+    it('sets $ai_is_error + $ai_error on failed calls', () => {
+        const wire = toAnalyticsWire(
+            makeGeneration({ is_error: true, error: 'rate_limit', output: null, stop_reason: undefined })
+        )
+        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        expect(props.$ai_is_error).toBe(true)
+        expect(props.$ai_error).toBe('rate_limit')
+        expect(props.$ai_stop_reason).toBeUndefined()
+    })
+
+    it('includes Anthropic prompt-cache token splits when present', () => {
+        const wire = toAnalyticsWire(makeGeneration({ cache_read_tokens: 7, cache_write_tokens: 3 }))
+        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        expect(props.$ai_cache_read_input_tokens).toBe(7)
+        expect(props.$ai_cache_creation_input_tokens).toBe(3)
+    })
+})
+
+describe('toAnalyticsWire — span', () => {
+    it('produces $ai_span events with parent + tool metadata', () => {
+        const wire = toAnalyticsWire(makeSpan())
+        expect(wire.event).toBe('$ai_span')
+        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        expect(props.$ai_span_name).toBe('@posthog/query')
+        expect(props.$ai_tool_call_id).toBe('tc_xyz')
+        expect(props.$ai_parent_id).toBe('sess-uuid:gen:1')
+        expect(props.$ai_origin).toBe(PLATFORM_ORIGIN)
+        expect(props.$ai_latency).toBe(0.042)
+    })
+
+    it('records error spans on tool failures', () => {
+        const wire = toAnalyticsWire(makeSpan({ is_error: true, error: 'tool_not_found', output: null }))
+        const props = JSON.parse(wire.properties) as Record<string, unknown>
+        expect(props.$ai_is_error).toBe(true)
+        expect(props.$ai_error).toBe('tool_not_found')
+    })
+})
+
+describe('InMemoryAnalyticsSink', () => {
+    it('separates generations from spans for per-session assertions', async () => {
+        const sink = new InMemoryAnalyticsSink()
+        await sink.write([makeGeneration(), makeSpan(), makeSpan({ session_id: 'other' })])
+        expect(sink.generations('sess-uuid')).toHaveLength(1)
+        expect(sink.spans('sess-uuid')).toHaveLength(1)
+        expect(sink.spans('other')).toHaveLength(1)
+    })
+})

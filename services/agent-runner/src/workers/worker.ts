@@ -21,6 +21,7 @@ import type { Model } from '@earendil-works/pi-ai'
 
 import {
     AgentSession,
+    AnalyticsSink,
     BundleStore,
     createLogger,
     LogSink,
@@ -68,6 +69,11 @@ export interface WorkerDeps {
      * persistent store (ClickHouse via Kafka in prod).
      */
     logs?: LogSink
+    /**
+     * Optional LLM analytics sink. Production wires `KafkaAnalyticsSink`
+     * to the dedicated `agent_ai_events` topic. Tests default to noop.
+     */
+    analytics?: AnalyticsSink
     /**
      * Optional durable sandbox-instance log. When present the worker
      * writes a row at acquire and updates it at release / failure, so a
@@ -250,6 +256,7 @@ export class Worker {
                 broker: this.deps.broker,
                 bus: this.deps.bus,
                 logs: this.deps.logs,
+                analytics: this.deps.analytics,
                 shutdownSignal: this.shutdownController.signal,
                 useGatewayCost: this.deps.useGatewayCost,
                 onTurnPersist: async (s) => {

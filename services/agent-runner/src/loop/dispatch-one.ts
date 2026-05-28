@@ -19,12 +19,15 @@ import type { ToolCall } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    AnalyticsSink,
     BundleStore,
     IntegrationCredentials,
     Logger,
+    NoopAnalyticsSink,
     Sandbox,
     SessionEventKind,
     ToolResultMessage,
+    toolSpanId,
 } from '@posthog/agent-shared'
 
 import { dispatchTool } from './tool-dispatch'
@@ -42,6 +45,12 @@ export interface DispatchOneDeps {
     log: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
     /** Lifecycle event publisher — bus + log-sink mirror. */
     emit: (kind: SessionEventKind, data?: Record<string, unknown>) => Promise<void>
+    /** LLM analytics sink — one `$ai_span` per tool dispatch. Optional; defaults to noop. */
+    analytics?: AnalyticsSink
+    /** Span id of the generation that emitted this tool call. Used as `$ai_parent_id` on the span. */
+    parentSpanId: string
+    /** Composite distinct_id resolved by the caller (`analyticsDistinctId`). */
+    distinctId: string
     /** Provider-safe → internal-id reverse map for THIS turn. */
     toolNameMap: Map<string, string>
     turn: number
@@ -93,6 +102,31 @@ export async function dispatchOne(call: ToolCall, deps: DispatchOneDeps): Promis
         ok: outcome.kind === 'ok',
         error: outcome.kind === 'error' ? outcome.message : undefined,
     })
+    const analytics: AnalyticsSink = deps.analytics ?? new NoopAnalyticsSink()
+    await analytics.write([
+        {
+            kind: 'span',
+            ts: new Date().toISOString(),
+            team_id: deps.session.team_id,
+            application_id: deps.session.application_id,
+            revision_id: deps.rev.id,
+            session_id: deps.session.id,
+            turn: deps.turn,
+            span_id: toolSpanId(deps.session.id, deps.turn, call.id),
+            parent_span_id: deps.parentSpanId,
+            distinct_id: deps.distinctId,
+            tool_name: originalName,
+            tool_call_id: call.id,
+            // Arguments come from the model. `dispatchTool` substitutes nonces
+            // for secret values before calling the tool, so what the model
+            // emitted here may still contain nonces — never plaintext secrets.
+            input: call.arguments,
+            output: outcome.kind === 'ok' ? outcome.result : null,
+            latency_ms: Date.now() - t0,
+            is_error: outcome.kind === 'error',
+            error: outcome.kind === 'error' ? outcome.message : undefined,
+        },
+    ])
     const toolResult: ToolResultMessage = {
         role: 'toolResult',
         toolCallId: call.id,

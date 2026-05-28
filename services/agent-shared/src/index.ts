@@ -34,6 +34,7 @@ export * from './sandbox/sandbox-selector'
 export * from './sandbox/sandbox-instance-store'
 export * from './sandbox/secret-broker'
 
+export * from './runtime/analytics-sink'
 export * from './runtime/bus'
 export * from './runtime/log-sink'
 export * from './runtime/logger'

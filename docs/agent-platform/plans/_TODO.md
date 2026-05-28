@@ -62,6 +62,14 @@ file (and out of this list) once the design lands.
       endpoint. Replaces the derive-from-conversation summary helper
       for live reads, unblocks cost rollups + budget admission.
 
+- [x] ~~**Platform LLM analytics emission**~~ — see
+      [`platform-llm-analytics.md`](platform-llm-analytics.md). Runner
+      emits `$ai_generation` per pi-ai call + `$ai_span` per tool
+      dispatch to a dedicated `agent_ai_events` Kafka topic. v0
+      (emitter) shipped; v1 (forwarder consumer + free-flag billing
+      logic) tracked in the plan §5. Marker:
+      `$ai_origin: 'agent_platform_runner'` on every event.
+
 - [x] ~~**Typed config loader for env vars**~~ — see
       [`typed-config-loader.md`](typed-config-loader.md). One zod
       schema per service; `process.env.*` outside `config.ts` blocked
