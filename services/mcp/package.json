@@ -35,6 +35,7 @@
         "generate-mcp-types": "node scripts/generate-mcp-types.mjs",
         "generate-orval-schemas": "node scripts/generate-orval-schemas.mjs",
         "generate-tools": "tsx scripts/generate-tools.ts",
+        "generate-cli-conformance": "tsx scripts/generate-cli-conformance.ts",
         "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
         "lint-tool-names": "tsx scripts/lint-tool-names.ts",
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""

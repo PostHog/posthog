@@ -21,6 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
+import { generateCliManifest } from './generate-cli-manifest'
 import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
@@ -40,6 +41,7 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
+const CLI_MANIFEST_PATH = path.resolve(MCP_ROOT, 'schema/cli-manifest.json')
 const TOOL_DEFINITIONS_V1_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const TOOL_DEFINITIONS_V2_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-v2.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
@@ -736,6 +738,45 @@ function composeToolSchema(
         renamedFields,
         paramFallbacks,
     }
+}
+
+/**
+ * Top-level body-field metadata (default + scalar type) from the OpenAPI request schema.
+ * The MCP framework applies defaults via zod `.default()` during parse before the handler runs,
+ * so the CLI manifest must carry them; the type drives flag-eligibility in the CLI UX.
+ */
+function extractBodyFieldMeta(
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec
+): Record<string, { default?: unknown; type?: string }> {
+    const meta: Record<string, { default?: unknown; type?: string }> = {}
+    if (!['POST', 'PATCH', 'PUT'].includes(resolved.method)) {
+        return meta
+    }
+    const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
+    if (!bodySchemaRef) {
+        return meta
+    }
+    const bodySchema = resolveSchema(spec, bodySchemaRef)
+    if (!bodySchema?.properties) {
+        return meta
+    }
+    for (const [name, prop] of Object.entries(bodySchema.properties)) {
+        if (prop.readOnly) {
+            continue
+        }
+        const entry: { default?: unknown; type?: string } = {}
+        if (prop.default !== undefined) {
+            entry.default = prop.default
+        }
+        if (typeof prop.type === 'string') {
+            entry.type = prop.type
+        }
+        if (Object.keys(entry).length > 0) {
+            meta[name] = entry
+        }
+    }
+    return meta
 }
 
 // ------------------------------------------------------------------
@@ -1720,6 +1761,14 @@ function main(): void {
 
     // Accumulate query wrapper definitions separately
     const queryWrapperDefinitions: Record<string, unknown> = {}
+    // Standalone query-wrapper YAMLs (e.g. definitions/query-wrappers.yaml) take a separate
+    // code path from product CategoryConfig files; collect their wrappers for the CLI manifest.
+    const cliWrapperBundles: {
+        config: { feature: string; category: string }
+        enabledTools: never[]
+        enabledWrappers: [string, EnabledQueryWrapperToolConfig][]
+        yamlDir: string
+    }[] = []
     let querySchema: JsonSchemaRoot | undefined
 
     for (const def of definitionSources) {
@@ -1754,6 +1803,12 @@ function main(): void {
                     generateQueryWrapperDefinitionsJson(config, enabledWrappers, path.dirname(def.filePath))
                 )
                 process.stdout.write(`Generated ${enabledWrappers.length} query wrapper(s) from ${label}\n`)
+                cliWrapperBundles.push({
+                    config: { feature: config.feature, category: config.category },
+                    enabledTools: [],
+                    enabledWrappers,
+                    yamlDir: path.dirname(def.filePath),
+                })
             }
             continue
         }
@@ -1816,6 +1871,20 @@ ${spreads}
     const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
     const allDefinitions = sortKeys({ ...v1Definitions, ...v2Definitions, ...definitions })
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
+
+    // Agent CLI manifest — declarative source of truth for cli/src/agent.
+    // Emitted from the same resolved inputs as the MCP handlers so the CLI stays in lockstep.
+    const cliQuerySchema = querySchema ?? loadQuerySchema()
+    const cliManifest = generateCliManifest([...allCategories, ...cliWrapperBundles], cliQuerySchema, {
+        composeToolSchema: (config, resolved) =>
+            composeToolSchema(config, resolved as unknown as ResolvedOperation, spec, () => cliQuerySchema),
+        resolveDescription,
+        extractKindFromSchemaRef,
+        bodyMeta: (resolved) => extractBodyFieldMeta(resolved as unknown as ResolvedOperation, spec),
+    })
+    const cliManifestOut = { version: 1, tools: cliManifest }
+    fs.writeFileSync(CLI_MANIFEST_PATH, JSON.stringify(cliManifestOut, null, 2) + '\n')
+    process.stdout.write(`Generated cli-manifest.json with ${Object.keys(cliManifest).length} tool(s)\n`)
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
     const totalQueryWrappers = Object.keys(queryWrapperDefinitions).length

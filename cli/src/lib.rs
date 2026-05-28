@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod api;
 pub mod commands;
 pub mod download;

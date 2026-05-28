@@ -108,6 +108,12 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
+    /// Agent-first API access generated from the MCP pipeline (Phase 0 spike)
+    Agent {
+        #[command(subcommand)]
+        cmd: crate::agent::command::AgentCommand,
+    },
+
     // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
     #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
@@ -146,26 +152,59 @@ pub enum SchemaCommand {
     Status,
 }
 
+fn handle_run_result(result: Result<(), CapturedError>, no_fail: bool) -> Result<(), CapturedError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let msg = match &e.exception_id {
+                Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
+                None => format!("Oops! {:?}", e.inner),
+            };
+            error!(msg);
+            if no_fail {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
 impl Cli {
     pub fn run() -> Result<(), CapturedError> {
-        let command = Cli::parse();
-        let no_fail = command.no_fail;
+        use clap::{CommandFactory, FromArgMatches};
 
-        match command.run_impl() {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                let msg = match &e.exception_id {
-                    Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
-                    None => format!("Oops! {:?}", e.inner),
-                };
-                error!(msg);
-                if no_fail {
-                    Ok(())
-                } else {
-                    Err(e)
+        // Merge the generated per-category agent commands into the top-level CLI so
+        // `posthog-cli feature-flag create --key x` works alongside the hand-written commands.
+        let manifest = crate::agent::manifest::load_manifest().ok();
+        let mut cmd = Cli::command();
+        if let Some(m) = &manifest {
+            cmd = crate::agent::command::augment_with_categories(cmd, m);
+        }
+        let matches = cmd.get_matches();
+
+        // Dynamic per-category dispatch (bypasses the derived command structure).
+        if let Some(m) = &manifest {
+            if let Some((sub_name, sub_matches)) = matches.subcommand() {
+                if crate::agent::command::is_category(m, sub_name) {
+                    let host = matches.get_one::<String>("host").cloned();
+                    let result = (|| -> Result<(), CapturedError> {
+                        init_context(host, false, None)?;
+                        crate::agent::command::dispatch_category(m, sub_name, sub_matches)?;
+                        if INVOCATION_CONTEXT.get().is_some() {
+                            context().finish();
+                        }
+                        Ok(())
+                    })();
+                    return handle_run_result(result, false);
                 }
             }
         }
+
+        let command = Cli::from_arg_matches(&matches)
+            .map_err(|e| CapturedError::from(anyhow::anyhow!(e.to_string())))?;
+        let no_fail = command.no_fail;
+        handle_run_result(command.run_impl(), no_fail)
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
@@ -249,6 +288,9 @@ impl Cli {
                     crate::experimental::query::command::query_command(&cmd)?
                 }
                 ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
+                }
+                ExpCommand::Agent { cmd } => {
                     cmd.run()?;
                 }
                 // TODO(sept 2026): remove these backward-compat aliases
