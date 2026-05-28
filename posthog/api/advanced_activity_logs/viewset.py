@@ -212,10 +212,23 @@ class JSONStringFilterField(serializers.JSONField):
 
 
 _IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
-
+_IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 def _validate_ip_or_wildcard(value: str) -> None:
-    if not _IP_FILTER_RE.match(value or ""):
+    v = (value or "").strip()
+    if not v or not _IP_FILTER_RE.match(v):
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+    if "*" in v:
+        return  # wildcard patterns are accepted as-is
+    if _IPV4_RE.match(v):
+        if not all(int(octet) <= 255 for octet in v.split(".")):
+            raise serializers.ValidationError(
+                "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+            )
+        return
+    if ":" not in v:
         raise serializers.ValidationError(
             "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
         )
