@@ -35,6 +35,20 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
 
 
 class AgentRevisionSerializer(serializers.ModelSerializer):
+    spec = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text=(
+            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema "
+            "(zod) in services/agent-shared/src/spec/spec.ts. "
+            "Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). "
+            "Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, "
+            "`integrations`, `secrets`, `limits`, `entrypoint`, `auth`. "
+            "Do NOT pass `name` / `description` here — those belong on "
+            "AgentApplication, not on the revision spec."
+        ),
+    )
+
     class Meta:
         model = AgentRevision
         fields = [

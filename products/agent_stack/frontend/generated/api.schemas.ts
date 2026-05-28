@@ -59,6 +59,7 @@ export interface AgentRevisionApi {
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256: string | null
+    /** Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec. */
     spec?: unknown
     /** @nullable */
     readonly created_by: number | null
@@ -84,6 +85,7 @@ export interface PatchedAgentRevisionApi {
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256?: string | null
+    /** Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services/agent-shared/src/spec/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` / `description` here — those belong on AgentApplication, not on the revision spec. */
     spec?: unknown
     /** @nullable */
     readonly created_by?: number | null

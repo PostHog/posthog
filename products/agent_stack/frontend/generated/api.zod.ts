@@ -65,7 +65,12 @@ export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
     bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
+    spec: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services\/agent-shared\/src\/spec\/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic\/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` \/ `description` here — those belong on AgentApplication, not on the revision spec."
+        ),
 })
 
 /**
@@ -77,7 +82,12 @@ export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
 export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
     bundle_uri: zod.string().default(agentApplicationsRevisionsUpdateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
+    spec: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services\/agent-shared\/src\/spec\/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic\/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` \/ `description` here — those belong on AgentApplication, not on the revision spec."
+        ),
 })
 
 /**
@@ -112,7 +122,12 @@ export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
     bundle_uri: zod.string().default(agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault),
-    spec: zod.unknown().optional(),
+    spec: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Runtime config the runner consumes. Authoritative shape: AgentSpecSchema (zod) in services\/agent-shared\/src\/spec\/spec.ts. Required: `model` (non-empty string, e.g. 'anthropic\/claude-haiku-4-5'). Optional with defaults: `triggers`, `tools`, `mcps`, `skills`, `integrations`, `secrets`, `limits`, `entrypoint`, `auth`. Do NOT pass `name` \/ `description` here — those belong on AgentApplication, not on the revision spec."
+        ),
 })
 
 /**
