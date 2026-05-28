@@ -7,10 +7,16 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconChevronDown, IconPencil, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconPencil, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonSearchableSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
-import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -284,30 +290,20 @@ function CategoryPicker({
     activeKey: AccountColumnGroupKey
     onChange: (key: AccountColumnGroupKey) => void
 }): JSX.Element {
-    const activeLabel = groups.find((g) => g.key === activeKey)?.label ?? activeKey
-
     return (
-        <LemonMenu
-            items={groups.map((group) => ({
-                key: group.key,
+        <LemonSearchableSelect
+            size="xsmall"
+            value={activeKey}
+            options={groups.map((group) => ({
+                value: group.key,
                 label: group.label,
-                active: group.key === activeKey,
                 'data-attr': `accounts-columns-group-item-${group.key}`,
-                onClick: () => onChange(group.key),
             }))}
-            placement="bottom-end"
-            className={CLICK_OUTSIDE_BLOCK_CLASS}
-        >
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                sideIcon={<IconChevronDown />}
-                data-attr="accounts-columns-group"
-                className={CLICK_OUTSIDE_BLOCK_CLASS}
-            >
-                {activeLabel}
-            </LemonButton>
-        </LemonMenu>
+            onChange={(key) => key && onChange(key as AccountColumnGroupKey)}
+            searchPlaceholder="Search categories"
+            dropdownPlacement="bottom-end"
+            data-attr="accounts-columns-group"
+        />
     )
 }
 
