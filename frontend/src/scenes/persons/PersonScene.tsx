@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -211,6 +212,26 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
 
+    // Pinned filter for the Logs tab: scopes every log query to this person. Rendered
+    // without an X in the filter bar so the user can't accidentally drop the scope and
+    // see project-wide logs on what's meant to be a per-person view.
+    const logsDistinctIdAttributeKey = currentTeam?.logs_distinct_id_attribute_key || 'distinct_id'
+    const personDistinctIds = person?.distinct_ids
+    const logsPinnedFilters = useMemo(
+        () => ({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    key: logsDistinctIdAttributeKey,
+                    type: PropertyFilterType.LogAttribute,
+                    operator: PropertyOperator.Exact,
+                    value: personDistinctIds ?? [],
+                } as any,
+            ],
+        }),
+        [logsDistinctIdAttributeKey, personDistinctIds]
+    )
+
     if (personError) {
         return <NotFound object="person" meta={{ urlId }} />
     }
@@ -386,26 +407,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                             <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[25rem]">
                                 <LogsViewer
                                     id={`person-${person.uuid ?? person.id}`}
-                                    initialFilters={{
-                                        filterGroup: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            key:
-                                                                currentTeam?.logs_distinct_id_attribute_key ||
-                                                                'distinct_id',
-                                                            type: PropertyFilterType.LogAttribute,
-                                                            operator: PropertyOperator.Exact,
-                                                            value: person.distinct_ids,
-                                                        } as any,
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    }}
+                                    pinnedFilters={logsPinnedFilters}
                                     showFullScreenButton={false}
                                     showSavedViewsButton={false}
                                 />

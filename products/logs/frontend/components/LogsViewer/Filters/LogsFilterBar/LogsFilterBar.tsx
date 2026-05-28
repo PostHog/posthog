@@ -1,5 +1,6 @@
 import './LogsFilterBar.scss'
 
+import equal from 'fast-deep-equal'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -226,6 +227,7 @@ const LogsFilterSearch = (): JSX.Element => {
 const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const { pinnedFilters } = useValues(logsViewerFiltersLogic)
 
     if (filterGroup.values.length === 0) {
         return null
@@ -234,6 +236,7 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
+                const isPinned = pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
@@ -243,7 +246,7 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
+                        onRemove={isPinned ? undefined : () => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
                     />
