@@ -7,10 +7,12 @@ use crate::error::UnhandledError;
 /// by the remote resolution client. Keeping a dedicated struct lets the pool,
 /// DNS, and resolver modules be exercised in tests without touching cymbal's
 /// full env-var surface.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RemoteResolutionConfig {
     pub host: String,
     pub port: u16,
+    /// Shared secret attached to every cymbal-resolution gRPC request.
+    pub internal_api_secret: String,
     pub dns_refresh: Duration,
     pub request_deadline: Duration,
     pub connect_timeout: Duration,
@@ -47,9 +49,15 @@ impl RemoteResolutionConfig {
                 "remote resolution enabled but CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
             ));
         }
+        if config.internal_api_secret.trim().is_empty() {
+            return Err(UnhandledError::Other(
+                "remote resolution enabled but INTERNAL_API_SECRET is empty".to_string(),
+            ));
+        }
         Ok(Self {
             host: config.remote_resolution_host.clone(),
             port: config.remote_resolution_port,
+            internal_api_secret: config.internal_api_secret.clone(),
             dns_refresh: Duration::from_secs(config.remote_resolution_dns_refresh_secs.max(1)),
             request_deadline: Duration::from_millis(config.remote_resolution_deadline_ms.max(1)),
             connect_timeout: Duration::from_millis(

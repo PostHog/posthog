@@ -452,6 +452,7 @@ async fn run_with_retries(
             handle.channel.clone(),
             chunk.to_request(),
             ctx.config.request_deadline,
+            &ctx.config.internal_api_secret,
         )
         .await;
         let elapsed_ms = start.elapsed().as_millis() as f64;

@@ -171,6 +171,7 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on
 | `CYMBAL_REMOTE_RESOLUTION_ENABLED`            | `false` | Master switch. `true` routes exception resolution through the remote pool.               |
 | `CYMBAL_REMOTE_RESOLUTION_HOST`               | _empty_ | Service hostname resolved via DNS. Required when enabled; empty value fails boot.        |
 | `CYMBAL_REMOTE_RESOLUTION_PORT`               | `50061` | gRPC port the pods listen on. Must match the server-side `GRPC_ADDRESS` port.            |
+| `INTERNAL_API_SECRET`                         | _empty_ | Shared secret sent as `X-Internal-Api-Secret` on every `Resolve` and `Subscribe` RPC. Required when remote mode is enabled. |
 | `CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS`   | `30`    | How often DNS is re-resolved and the pool reconciled.                                    |
 | `CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS`        | `15000` | Per-call deadline. Caller cancels in-flight RPCs that exceed this.                       |
 | `CYMBAL_REMOTE_RESOLUTION_CONNECT_TIMEOUT_MS` | `1000`  | Per-endpoint TCP/HTTP2 connect timeout.                                                  |
@@ -186,6 +187,7 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on
 | ------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------- |
 | `GRPC_ADDRESS`                 | `0.0.0.0:50061`  | Bind address for the gRPC server.                                                                             |
 | `METRICS_PORT`                 | `9101`           | HTTP port for `/_liveness`, `/_readiness`, and `/metrics`.                                                    |
+| `INTERNAL_API_SECRET`          | _empty_          | Shared secret required as `X-Internal-Api-Secret` metadata on every gRPC request. Empty configuration rejects all RPCs. |
 | `MAX_CONCURRENT_REQUESTS`      | `256`            | Hard cap on in-flight gRPC requests. Excess returns `UNAVAILABLE` (fast load shed). `0` disables the cap.     |
 | `SYMBOL_RESOLUTION_CONCURRENCY`| `64`             | Cap on concurrent symbol-resolution operations across all in-flight requests (shared `Semaphore`).            |
 | `MAX_ITEM_CONCURRENCY`         | `64`             | Process-wide cap on concurrent item (exception) processing across all in-flight `Resolve` RPCs. Replaces the per-request `REQUEST_ITEM_CONCURRENCY`. Drives the `LoadEvent.in_flight` / `max_in_flight` signal the caller pool routes against. |
@@ -196,7 +198,8 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on
 | `SUBSCRIBE_MAX_TICK_MS`        | `10000`          | Upper bound for the Subscribe tick cadence — hints above this are clamped down.                               |
 
 In addition, the server inherits the **narrow** subset of cymbal's env-var
-surface needed by `build_symbol_resolver` — Postgres (`DATABASE_URL`,
+surface needed by `build_symbol_resolver` and internal gRPC authentication —
+`INTERNAL_API_SECRET`, Postgres (`DATABASE_URL`,
 `MAX_PG_CONNECTIONS`), object storage (`OBJECT_STORAGE_*`,
 `AWS_*`), the symbol-store cache and resolver tuning (`SYMBOL_STORE_CACHE_MAX_BYTES`,
 `FRAME_CACHE_TTL_SECONDS`, `FRAME_RESULT_TTL_MINUTES`, `SS_PREFIX`,
@@ -204,6 +207,8 @@ surface needed by `build_symbol_resolver` — Postgres (`DATABASE_URL`,
 **not** connect to Kafka, Redis, or the signals API — those belong to
 cymbal's fingerprinting/issue path and are skipped here. See
 [`cymbal/src/config.rs`](../cymbal/src/config.rs) for full definitions.
+
+Shared-secret callers are service-scoped today, so authenticated cymbal pods are permitted to resolve all teams. If future callers carry a team-scoped identity, the `Resolve` handler must reject any `ExceptionResolutionItem.team_id` outside the caller's allowed team set before scheduling resolution work.
 
 ## Operator guidance
 

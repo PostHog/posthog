@@ -2692,6 +2692,7 @@ dependencies = [
  "personhog-common",
  "prost 0.13.5",
  "serde_json",
+ "subtle",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",

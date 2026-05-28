@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use envconfig::Envconfig;
 
-#[derive(Envconfig, Clone, Debug)]
+#[derive(Envconfig, Clone)]
 pub struct Config {
     /// gRPC bind address for the cymbal.resolution.v1 server.
     #[envconfig(from = "GRPC_ADDRESS", default = "0.0.0.0:50061")]
@@ -11,6 +11,10 @@ pub struct Config {
     /// HTTP bind port for liveness, readiness, and Prometheus metrics.
     #[envconfig(from = "METRICS_PORT", default = "9101")]
     pub metrics_port: u16,
+
+    /// Shared secret required on every gRPC request via X-Internal-Api-Secret.
+    #[envconfig(from = "INTERNAL_API_SECRET", default = "")]
+    pub internal_api_secret: String,
 
     /// Cap on concurrent gRPC requests accepted by the server before fast
     /// load shedding kicks in. Beyond this, callers receive `UNAVAILABLE`

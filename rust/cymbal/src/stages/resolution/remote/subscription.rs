@@ -27,6 +27,8 @@ use tracing::{debug, info, warn};
 
 use crate::metric_consts::REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS;
 
+use super::client::with_internal_api_secret;
+
 /// Snapshot of an endpoint's server-reported load. Stored in an `Arc<Mutex<…>>`
 /// per endpoint and refreshed by the subscription task.
 #[derive(Clone, Debug)]
@@ -91,6 +93,7 @@ pub fn spawn_subscription(
     cell: LoadCell,
     tick_hint: Duration,
     reconnect_backoff: Duration,
+    internal_api_secret: String,
 ) -> SubscriptionHandle {
     let cancel = Arc::new(Notify::new());
     let cancel_clone = cancel.clone();
@@ -105,6 +108,7 @@ pub fn spawn_subscription(
                 tick_hint,
                 subscriber_id.clone(),
                 cancel_clone.clone(),
+                internal_api_secret.clone(),
             )
             .await;
             match outcome {
@@ -156,6 +160,7 @@ async fn run_subscription_once(
     tick_hint: Duration,
     subscriber_id: String,
     cancel: Arc<Notify>,
+    internal_api_secret: String,
 ) -> SubscriptionExit {
     let mut client = CymbalResolutionClient::new(channel);
     let request = SubscribeRequest {
@@ -163,7 +168,13 @@ async fn run_subscription_once(
         tick_hint_ms: u32::try_from(tick_hint.as_millis()).unwrap_or(u32::MAX),
     };
 
-    let subscribe = client.subscribe(Request::new(request));
+    let request = match with_internal_api_secret(Request::new(request), &internal_api_secret) {
+        Ok(request) => request,
+        Err(status) => {
+            return SubscriptionExit::Reconnect(format!("subscribe auth metadata error: {status}"))
+        }
+    };
+    let subscribe = client.subscribe(request);
     let response = tokio::select! {
         _ = cancel.notified() => return SubscriptionExit::Cancelled,
         res = subscribe => res,

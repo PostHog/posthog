@@ -167,6 +167,7 @@ impl EndpointPool {
                     state.load.clone(),
                     config.subscribe_tick_hint,
                     config.subscribe_reconnect_backoff,
+                    config.internal_api_secret.clone(),
                 ));
             }
             inner.endpoints.insert(*addr, state);
@@ -212,6 +213,7 @@ impl EndpointPool {
                             state.load.clone(),
                             self.config.subscribe_tick_hint,
                             self.config.subscribe_reconnect_backoff,
+                            self.config.internal_api_secret.clone(),
                         ));
                     }
                     inner.endpoints.insert(*addr, state);
@@ -582,6 +584,7 @@ mod test {
         RemoteResolutionConfig {
             host: "cymbal-resolution.test".to_string(),
             port: 50061,
+            internal_api_secret: "test-secret".to_string(),
             dns_refresh: Duration::from_secs(1),
             request_deadline: Duration::from_secs(5),
             connect_timeout: Duration::from_millis(500),

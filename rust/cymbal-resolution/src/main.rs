@@ -4,6 +4,7 @@ use axum::{routing::get, Router};
 use cymbal::config::Config as CymbalConfig;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
 use cymbal_resolution::app_context::AppContext;
+use cymbal_resolution::auth::InternalApiSecretInterceptor;
 use cymbal_resolution::config::Config;
 use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use envconfig::Envconfig;
@@ -43,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.max_item_concurrency as u32,
         service_config,
     );
+    let auth_interceptor = InternalApiSecretInterceptor::new(config.internal_api_secret.clone());
 
     let listener = tokio::net::TcpListener::bind(config.grpc_address).await?;
     let incoming = tracked_tcp_incoming(listener);
@@ -59,7 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // tonic's 4 MiB per-message default; an oversized chunk (single event
         // with many large exceptions) surfaces as `InvalidArgument`. Future:
         // signal "send smaller" back via `LoadEvent`.
-        .add_service(CymbalResolutionServer::new(service))
+        .add_service(CymbalResolutionServer::with_interceptor(
+            service,
+            move |request| auth_interceptor.authenticate(request),
+        ))
         .serve_with_incoming(incoming)
         .await?;
 

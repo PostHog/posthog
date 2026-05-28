@@ -11,13 +11,12 @@ personhog-common = { path = "../personhog-common" }
 common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
 
-async-trait = { workspace = true }
 axum = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 metrics = { workspace = true }
-prost = { workspace = true }
 serde_json = { workspace = true }
+subtle = "2.6"
 tokio = { workspace = true }
 tokio-stream = "0.1"
 tonic = { workspace = true }
@@ -27,6 +26,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+prost = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1"
 

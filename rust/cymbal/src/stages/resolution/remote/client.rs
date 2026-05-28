@@ -1,11 +1,15 @@
+use std::str::FromStr;
 use std::time::Duration;
 
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_client::CymbalResolutionClient;
 use cymbal_proto::cymbal::resolution::v1::{Outcome, ResolveRequest};
 use futures::StreamExt;
 use thiserror::Error;
+use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
+
+pub const INTERNAL_API_SECRET_HEADER: &str = "x-internal-api-secret";
 
 /// Errors observable by the remote resolver's retry logic. The `retryable`
 /// half is what cymbal will retry against another endpoint; `terminal` is
@@ -76,8 +80,10 @@ pub async fn resolve(
     channel: Channel,
     request: ResolveRequest,
     deadline: Duration,
+    internal_api_secret: &str,
 ) -> Result<Vec<Outcome>, RemoteCallError> {
-    let mut tonic_request = Request::new(request);
+    let mut tonic_request = with_internal_api_secret(Request::new(request), internal_api_secret)
+        .map_err(classify_status)?;
     tonic_request.set_timeout(deadline);
 
     let mut client = CymbalResolutionClient::new(channel);
@@ -107,6 +113,24 @@ pub async fn resolve(
     Ok(outcomes)
 }
 
+pub(crate) fn with_internal_api_secret<T>(
+    mut request: Request<T>,
+    internal_api_secret: &str,
+) -> Result<Request<T>, Status> {
+    let secret = internal_api_secret.trim();
+    if secret.is_empty() {
+        return Err(Status::unauthenticated(
+            "internal API secret is not configured",
+        ));
+    }
+    let value = MetadataValue::from_str(secret)
+        .map_err(|_| Status::unauthenticated("invalid internal API secret metadata"))?;
+    request
+        .metadata_mut()
+        .insert(INTERNAL_API_SECRET_HEADER, value);
+    Ok(request)
+}
+
 fn classify_status(status: Status) -> RemoteCallError {
     match status.code() {
         // Transport/availability/timeouts → retry against another endpoint.
@@ -120,5 +144,30 @@ fn classify_status(status: Status) -> RemoteCallError {
         // Everything else (InvalidArgument, NotFound, PermissionDenied, …) is
         // terminal; retrying will keep failing the same way.
         _ => RemoteCallError::Terminal(status),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_internal_api_secret_adds_expected_metadata() {
+        let request = with_internal_api_secret(Request::new(()), " test-secret\n").unwrap();
+        assert_eq!(
+            request
+                .metadata()
+                .get(INTERNAL_API_SECRET_HEADER)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "test-secret"
+        );
+    }
+
+    #[test]
+    fn with_internal_api_secret_rejects_empty_secret() {
+        let err = with_internal_api_secret(Request::new(()), " ").unwrap_err();
+        assert_eq!(err.code(), Code::Unauthenticated);
     }
 }
