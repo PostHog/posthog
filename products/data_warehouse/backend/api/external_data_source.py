@@ -1267,29 +1267,35 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             # Postgres has its own location resolver (dotted-name fallback, `public` default).
             # Other SQL sources take the driver-discovered values verbatim from `SourceSchema`.
-            resolved_source_catalog: str | None
-            resolved_source_schema: str | None
-            resolved_source_table_name: str | None
+            # `postgres_db_*` are the Postgres-only resolved values (guaranteed `str` by the
+            # wrapper) used by the CDC publication + direct-postgres paths below, which only
+            # run for Postgres anyway.
+            metadata_source_catalog: str | None
+            metadata_source_schema: str | None
+            metadata_source_table_name: str | None
+            postgres_db_schema: str = ""
+            postgres_db_table_name: str = ""
             if source_type_model == ExternalDataSourceType.POSTGRES:
-                resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
-                    get_postgres_source_table_location(
-                        schema_name=schema_name,
-                        source_schema=source_schema,
-                        default_schema=default_source_schema,
-                    )
+                postgres_catalog, postgres_db_schema, postgres_db_table_name = get_postgres_source_table_location(
+                    schema_name=schema_name,
+                    source_schema=source_schema,
+                    default_schema=default_source_schema,
                 )
+                metadata_source_catalog = postgres_catalog
+                metadata_source_schema = postgres_db_schema
+                metadata_source_table_name = postgres_db_table_name
             else:
-                resolved_source_catalog = source_schema.source_catalog if source_schema else None
-                resolved_source_schema = source_schema.source_schema if source_schema else None
-                resolved_source_table_name = source_schema.source_table_name if source_schema else None
+                metadata_source_catalog = source_schema.source_catalog if source_schema else None
+                metadata_source_schema = source_schema.source_schema if source_schema else None
+                metadata_source_table_name = source_schema.source_table_name if source_schema else None
 
             schema_metadata = (
                 sql_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
+                    source_catalog=metadata_source_catalog,
+                    source_schema=metadata_source_schema,
+                    source_table_name=metadata_source_table_name,
                 )
                 if source_type_model in _SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION
                 else {}
@@ -1349,8 +1355,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     self._add_table_to_cdc_publication(
                         new_source_model,
                         cdc_config.publication_name,
-                        resolved_source_schema,
-                        resolved_source_table_name,
+                        postgres_db_schema,
+                        postgres_db_table_name,
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -1367,9 +1373,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
                     ),
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
+                    source_catalog=metadata_source_catalog,
+                    source_schema=postgres_db_schema,
+                    source_table_name=postgres_db_table_name,
                 )
                 schema_model.save(update_fields=["table"])
 
