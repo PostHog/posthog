@@ -1780,7 +1780,7 @@ class DashboardsViewSet(
         request=UpdateTextTileRequestSerializer,
         responses={200: DashboardTileSerializer},
     )
-    @action(methods=["PATCH"], detail=True, required_scopes=["dashboard:write"])
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
     def update_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the markdown body, layout, or color of an existing text tile on a dashboard."""
         dashboard = self.get_object()

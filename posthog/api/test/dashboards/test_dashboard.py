@@ -3369,7 +3369,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 1}},
         )
 
-        response = self.client.patch(
+        response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/update_text_tile/",
             {
                 "tile_id": tile.pk,
@@ -3398,7 +3398,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             layouts={"sm": {"x": 1, "y": 2, "w": 6, "h": 1}},
         )
 
-        response = self.client.patch(
+        response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/update_text_tile/",
             {"tile_id": tile.pk, "body": "new body"},
             content_type="application/json",
@@ -3421,7 +3421,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         text = Text.objects.create(body="original", team=self.team)
         tile = DashboardTile.objects.create(dashboard=dashboard, text=text)
 
-        response = self.client.patch(
+        response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/update_text_tile/",
             {"tile_id": tile.pk, "body": body},
             content_type="application/json",
@@ -3436,7 +3436,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.create(team=self.team, name="Insight 1")
         tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        response = self.client.patch(
+        response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/update_text_tile/",
             {"tile_id": tile.pk, "body": "should fail"},
             content_type="application/json",
@@ -3456,7 +3456,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_update_text_tile_returns_404_for_unknown_tile(self):
         for name, dashboard_pk, tile_id in self._make_unknown_tile_id_args():
             with self.subTest(name):
-                response = self.client.patch(
+                response = self.client.post(
                     f"/api/environments/{self.team.pk}/dashboards/{dashboard_pk}/update_text_tile/",
                     {"tile_id": tile_id, "body": "should fail"},
                     content_type="application/json",

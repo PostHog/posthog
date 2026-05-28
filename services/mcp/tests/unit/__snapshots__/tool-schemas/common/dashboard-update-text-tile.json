@@ -78,6 +78,6 @@
             "type": "number"
         }
     },
-    "required": ["id"],
+    "required": ["id", "tile_id"],
     "type": "object"
 }

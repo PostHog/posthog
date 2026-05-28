@@ -7184,9 +7184,9 @@ export interface RunInsightsResponseApi {
     results: DashboardTileResultApi[]
 }
 
-export interface PatchedUpdateTextTileRequestApi {
+export interface UpdateTextTileRequestApi {
     /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
-    tile_id?: number
+    tile_id: number
     /**
      * New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.
      * @minLength 1
@@ -7545,14 +7545,14 @@ export const DashboardsStreamTilesRetrieveLayoutSize = {
     Xs: 'xs',
 } as const
 
-export type DashboardsUpdateTextTilePartialUpdateParams = {
-    format?: DashboardsUpdateTextTilePartialUpdateFormat
+export type DashboardsUpdateTextTileCreateParams = {
+    format?: DashboardsUpdateTextTileCreateFormat
 }
 
-export type DashboardsUpdateTextTilePartialUpdateFormat =
-    (typeof DashboardsUpdateTextTilePartialUpdateFormat)[keyof typeof DashboardsUpdateTextTilePartialUpdateFormat]
+export type DashboardsUpdateTextTileCreateFormat =
+    (typeof DashboardsUpdateTextTileCreateFormat)[keyof typeof DashboardsUpdateTextTileCreateFormat]
 
-export const DashboardsUpdateTextTilePartialUpdateFormat = {
+export const DashboardsUpdateTextTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

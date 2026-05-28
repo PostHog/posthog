@@ -283,7 +283,7 @@ tools:
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
     dashboard-update-text-tile:
-        operation: dashboards_update_text_tile_partial_update
+        operation: dashboards_update_text_tile_create
         enabled: true
         scopes:
             - dashboard:write

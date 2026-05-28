@@ -286,7 +286,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
 /**
  * Update the markdown body, layout, or color of an existing text tile on a dashboard.
  */
-export const DashboardsUpdateTextTilePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -295,23 +295,20 @@ export const DashboardsUpdateTextTilePartialUpdateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const DashboardsUpdateTextTilePartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsUpdateTextTileCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const dashboardsUpdateTextTilePartialUpdateBodyBodyMax = 4000
+export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
-export const dashboardsUpdateTextTilePartialUpdateBodyColorMax = 400
+export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
-export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.object({
-    tile_id: zod
-        .number()
-        .optional()
-        .describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
+export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
     body: zod
         .string()
         .min(1)
-        .max(dashboardsUpdateTextTilePartialUpdateBodyBodyMax)
+        .max(dashboardsUpdateTextTileCreateBodyBodyMax)
         .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
     layouts: zod
@@ -339,7 +336,7 @@ export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
     color: zod
         .string()
-        .max(dashboardsUpdateTextTilePartialUpdateBodyColorMax)
+        .max(dashboardsUpdateTextTileCreateBodyColorMax)
         .nullish()
         .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
 })

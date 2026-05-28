@@ -36,7 +36,7 @@ import type {
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
-    DashboardsUpdateTextTilePartialUpdateParams,
+    DashboardsUpdateTextTileCreateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
@@ -44,10 +44,10 @@ import type {
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
-    PatchedUpdateTextTileRequestApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     SharingConfigurationApi,
+    UpdateTextTileRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -744,10 +744,10 @@ export const dashboardsStreamTilesRetrieve = async (
     })
 }
 
-export const getDashboardsUpdateTextTilePartialUpdateUrl = (
+export const getDashboardsUpdateTextTileCreateUrl = (
     projectId: string,
     id: number,
-    params?: DashboardsUpdateTextTilePartialUpdateParams
+    params?: DashboardsUpdateTextTileCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -767,18 +767,18 @@ export const getDashboardsUpdateTextTilePartialUpdateUrl = (
 /**
  * Update the markdown body, layout, or color of an existing text tile on a dashboard.
  */
-export const dashboardsUpdateTextTilePartialUpdate = async (
+export const dashboardsUpdateTextTileCreate = async (
     projectId: string,
     id: number,
-    patchedUpdateTextTileRequestApi?: PatchedUpdateTextTileRequestApi,
-    params?: DashboardsUpdateTextTilePartialUpdateParams,
+    updateTextTileRequestApi: UpdateTextTileRequestApi,
+    params?: DashboardsUpdateTextTileCreateParams,
     options?: RequestInit
 ): Promise<DashboardTileApi> => {
-    return apiMutator<DashboardTileApi>(getDashboardsUpdateTextTilePartialUpdateUrl(projectId, id, params), {
+    return apiMutator<DashboardTileApi>(getDashboardsUpdateTextTileCreateUrl(projectId, id, params), {
         ...options,
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUpdateTextTileRequestApi),
+        body: JSON.stringify(updateTextTileRequestApi),
     })
 }
 

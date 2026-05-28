@@ -212,8 +212,8 @@ tools:
     dashboards-update:
         operation: dashboards_update
         enabled: false
-    dashboards-update-text-tile-partial-update:
-        operation: dashboards_update_text_tile_partial_update
+    dashboards-update-text-tile-create:
+        operation: dashboards_update_text_tile_create
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update

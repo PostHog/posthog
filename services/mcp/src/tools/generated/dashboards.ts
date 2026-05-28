@@ -16,8 +16,8 @@ import {
     DashboardsRetrieveQueryParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
-    DashboardsUpdateTextTilePartialUpdateBody,
-    DashboardsUpdateTextTilePartialUpdateParams,
+    DashboardsUpdateTextTileCreateBody,
+    DashboardsUpdateTextTileCreateParams,
 } from '@/generated/dashboards/api'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -384,9 +384,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
     },
 })
 
-const DashboardUpdateTextTileSchema = DashboardsUpdateTextTilePartialUpdateParams.omit({ project_id: true })
-    .extend(DashboardsUpdateTextTilePartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateTextTilePartialUpdateParams.shape['id']) })
+const DashboardUpdateTextTileSchema = DashboardsUpdateTextTileCreateParams.omit({ project_id: true })
+    .extend(DashboardsUpdateTextTileCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateTextTileCreateParams.shape['id']) })
 
 const dashboardUpdateTextTile = (): ToolBase<
     typeof DashboardUpdateTextTileSchema,
@@ -410,7 +410,7 @@ const dashboardUpdateTextTile = (): ToolBase<
             body['color'] = params.color
         }
         const result = await context.api.request<Schemas.DashboardTile>({
-            method: 'PATCH',
+            method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/update_text_tile/`,
             body,
         })
