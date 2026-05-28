@@ -153,7 +153,12 @@ export function useChartDraw({
                 hoverRafRef.current = null
             }
         }
-        // series/labels/theme/hoverPosition/drawHover are read via refs — see top of hook.
+        // hoverPosition is in the dep array (not the ref) so the overlay redraws when the
+        // cursor moves *within* the same band — bar charts decide on a hit per-frame in
+        // `drawHover`, and entering a bar from canvas-empty-space doesn't change hoverIndex.
+        // The fade timer only resets on hoverIndex change (see check above), so re-running
+        // the effect per mousemove doesn't restart the animation.
+        // series/labels/theme/drawHover are read via refs — see top of hook.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [overlayCtx, dimensions, scales, hoverIndex, hoverAnimationMs])
+    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs])
 }

@@ -6,6 +6,7 @@ from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
+import posthoganalytics
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
@@ -25,7 +26,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.models import User
+from posthog.models import Cohort, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -41,6 +42,30 @@ from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
+
+HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+
+
+def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                HEATMAPS_COHORT_FILTER_FLAG,
+                str(distinct_id),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
 
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
@@ -109,6 +134,30 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     )
     filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
     hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
+    cohort_ids = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+    def validate_cohort_ids(self, value: str | None) -> list[int]:
+        if value is None or value == "":
+            return []
+        try:
+            cohort_ids = loads(value)
+        except JSONDecodeError:
+            raise serializers.ValidationError("cohort_ids must be valid JSON")
+        if not isinstance(cohort_ids, list) or not all(isinstance(cid, int) for cid in cohort_ids):
+            raise serializers.ValidationError("cohort_ids must be a JSON array of integers")
+        if not cohort_ids:
+            return []
+        team_cohort_ids = set(
+            Cohort.objects.filter(
+                id__in=cohort_ids,
+                team__project_id=self.context["team"].project_id,
+                deleted=False,
+            ).values_list("id", flat=True)
+        )
+        missing = [cid for cid in cohort_ids if cid not in team_cohort_ids]
+        if missing:
+            raise serializers.ValidationError(f"Cohort(s) not found or deleted: {missing}")
+        return cohort_ids
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -240,8 +289,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
-        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
-        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+        if request_serializer.validated_data.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
+            cast(User, request.user), self.team
+        ):
+            request_serializer.validated_data.pop("cohort_ids")
+        placeholders = self._build_placeholders(request_serializer.validated_data)
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
@@ -300,6 +352,18 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @staticmethod
+    def _build_placeholders(validated_data: dict[str, Any]) -> dict[str, Expr]:
+        placeholders: dict[str, Expr] = {}
+        for key, value in validated_data.items():
+            if key == "cohort_ids":
+                if value:
+                    placeholders[key] = ast.Array(exprs=[Constant(value=cid) for cid in value])
+                continue
+            placeholders[key] = Constant(value=value)
+        placeholders.setdefault("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+        return placeholders
+
+    @staticmethod
     def _predicate_expressions(placeholders: dict[str, Expr]) -> List[ast.Expr]:  # noqa: UP006
         predicate_expressions: list[ast.Expr] = []
 
@@ -320,6 +384,17 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if predicate_key in predicate_mapping:
                 predicate_expressions.append(
                     parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
+                )
+
+        cohort_ids_expr = placeholders.get("cohort_ids")
+        if isinstance(cohort_ids_expr, ast.Array):
+            for cohort_id_expr in cohort_ids_expr.exprs:
+                predicate_expressions.append(
+                    parse_expr(
+                        "distinct_id IN (SELECT distinct_id FROM person_distinct_ids "
+                        "WHERE person_id IN COHORT {cohort_id})",
+                        {"cohort_id": cohort_id_expr},
+                    )
                 )
 
         if len(predicate_expressions) == 0:
@@ -377,9 +452,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
         validated_data.pop("hide_zero_coordinates", None)
+        if validated_data.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
+            cast(User, request.user), self.team
+        ):
+            validated_data.pop("cohort_ids")
 
-        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
-        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
+        placeholders = self._build_placeholders(validated_data)
 
         exprs = self._predicate_expressions(placeholders)
 

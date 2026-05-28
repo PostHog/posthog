@@ -260,6 +260,11 @@ class EventViewSet(
                 deprecated=True,
             ),
             PropertiesSerializer(required=False),
+            OpenApiParameter(
+                "include_person",
+                OpenApiTypes.BOOL,
+                description="Include person details for each event. Default: false.",
+            ),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -388,13 +393,14 @@ class EventViewSet(
                         action_id=request.GET.get("action_id"),
                     )
 
+            context = {**restricted_context}
+            if request.query_params.get("include_person", "").lower() in ("true", "1"):
+                context["people"] = self._get_people(query_result, team)
+
             result = ClickhouseEventSerializer(
                 query_result[0:limit],
                 many=True,
-                context={
-                    "people": self._get_people(query_result, team),
-                    **restricted_context,
-                },
+                context=context,
             ).data
 
             next_url: Optional[str] = None
@@ -421,7 +427,14 @@ class EventViewSet(
         return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     @extend_schema(
-        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "include_person",
+                OpenApiTypes.BOOL,
+                description="Include person details for the event. Default: false.",
+            ),
+        ],
         responses={200: OpenApiTypes.OBJECT},
     )
     def retrieve(
@@ -450,7 +463,7 @@ class EventViewSet(
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
         query_context = {**self._get_restricted_properties_context(request, self.team)}
-        if request.query_params.get("include_person", False):
+        if request.query_params.get("include_person", "").lower() in ("true", "1"):
             query_context["people"] = self._get_people(query_result, self.team)
 
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data

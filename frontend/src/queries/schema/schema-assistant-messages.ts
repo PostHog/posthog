@@ -195,6 +195,8 @@ export interface AssistantMessageMetadata {
     form?: AssistantForm
     /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
+    /** Provenance for non-LLM-authored messages. Format: `slash_command:<name>`. */
+    source?: string
 }
 
 export interface AssistantToolCall {
@@ -499,6 +501,13 @@ export type AssistantTool =
     | 'run_hog_eval_test'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
+    | 'marketing_diagnose_setup'
+    | 'marketing_explain_conversion_goal'
+    | 'marketing_list_conversion_goals'
+    | 'marketing_list_data_sources'
+    | 'marketing_audit_utm'
+    | 'marketing_suggest_conversion_goals'
+    | 'marketing_suggest_utm_mappings'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -510,7 +519,7 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
     UserInterview = 'user_interview',
 }

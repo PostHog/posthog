@@ -163,12 +163,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("client_id=gh_client_123", url)
         self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
-    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
-    @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
-    def test_github_start_returns_install_url_even_when_team_has_github_integration(self, _mock_settings):
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com")
+    def test_github_start_web_fast_path_returns_oauth_url_when_team_has_github_integration(self):
         Integration.objects.create(
             team=self.team,
             kind="github",
@@ -181,8 +177,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("install_url", data)
-        self.assertEqual(data.get("connect_flow"), "app_install")
-        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+        self.assertEqual(data.get("connect_flow"), "oauth_authorize")
+        url = data["install_url"]
+        self.assertIn("github.com/login/oauth/authorize", url)
+        self.assertIn("client_id=gh_client_123", url)
+        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"

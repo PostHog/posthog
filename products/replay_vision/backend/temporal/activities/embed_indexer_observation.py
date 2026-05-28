@@ -16,6 +16,7 @@ from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EmbedIndexerObservationInputs
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +29,7 @@ _KAFKA_DELIVERY_TIMEOUT_S = 10.0
 
 
 @activity.defn
+@track_activity()
 async def embed_indexer_observation_activity(inputs: EmbedIndexerObservationInputs) -> None:
     """One embedding per non-empty indexer facet (intent / outcome / friction_points / keywords)."""
     out = inputs.indexer_output
