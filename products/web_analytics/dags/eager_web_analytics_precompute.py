@@ -62,8 +62,9 @@ from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import FeatureFlag, Team
+from posthog.models import Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)

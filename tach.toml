@@ -569,6 +569,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.feature_flags",
 ]
 layer = "modules"
 

@@ -8,8 +8,9 @@ import dagster
 
 from posthog.schema import WebStatsBreakdown
 
-from posthog.models import FeatureFlag, Organization, Team
+from posthog.models import Organization, Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
