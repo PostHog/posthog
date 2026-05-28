@@ -1,21 +1,24 @@
-import { IncomingEvent } from '../../../types'
+import { EventHeaders } from '../../../types'
 import { ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
 import { createSendToDlqStep } from './send-to-dlq'
 
 /**
- * DLQs any event whose name is in the deny list. Use this in a
- * consumer's pipeline to block specific event types that belong in a
- * different consumer — anything matching the list is misrouted and
- * goes to the DLQ for investigation.
+ * DLQs any event whose header `event` name is in the deny list. Reads
+ * from the parsed Kafka headers so it can run before message-body
+ * parsing — use in a consumer's pipeline to block specific event types
+ * that belong in a different consumer. Anything matching the list is
+ * misrouted and goes to the DLQ for investigation. Events with no
+ * `event` header pass through (no name to match against).
  */
-export function createDenyEventsStep<T extends { event: IncomingEvent }>(
+export function createDenyEventsStep<T extends { headers: EventHeaders }>(
     denied: readonly string[]
 ): ProcessingStep<T, T> {
     const deniedSet = new Set(denied)
     const sendToDlq = createSendToDlqStep<T>('event_in_denylist')
     return function denyEventsStep(input) {
-        if (deniedSet.has(input.event.event.event)) {
+        const name = input.headers.event
+        if (name !== undefined && deniedSet.has(name)) {
             return sendToDlq(input)
         }
         return Promise.resolve(ok(input))

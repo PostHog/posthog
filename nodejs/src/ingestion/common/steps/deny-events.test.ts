@@ -2,24 +2,14 @@ import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
 import { dlq, ok } from '../../pipelines/results'
 import { createDenyEventsStep } from './deny-events'
 
-function makeInput(eventName: string) {
+function makeInput(eventName: string | undefined) {
     return {
-        event: {
-            event: {
-                event: eventName,
-                distinct_id: 'user123',
-                team_id: 1,
-                ip: '127.0.0.1',
-                site_url: 'https://example.com',
-                now: '2021-01-01T00:00:00Z',
-                uuid: '123e4567-e89b-12d3-a456-426614174000',
-            },
-            headers: createTestEventHeaders({
-                token: 'token123',
-                distinct_id: 'user123',
-                timestamp: '2021-01-01T00:00:00Z',
-            }),
-        },
+        headers: createTestEventHeaders({
+            token: 'token123',
+            distinct_id: 'user123',
+            timestamp: '2021-01-01T00:00:00Z',
+            event: eventName,
+        }),
     }
 }
 
@@ -40,6 +30,14 @@ describe('createDenyEventsStep', () => {
 
     it('passes through events whose name is not in the deny list', async () => {
         const input = makeInput('$pageview')
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+    })
+
+    it('passes through events with no event header (no name to match)', async () => {
+        const input = makeInput(undefined)
 
         const result = await step(input)
 
