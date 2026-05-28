@@ -528,6 +528,38 @@ snapshots:
         hash: v1.k794b7964.c154af270a078cbbb060543de422c6f2f2a2ae2134ffb797be0fb07f4e9c77bf.0gi1GO81ELv-U16NxXdiJF3VbtVBZaYK81G92hf8g_k
     components-hogcharts-boxplot--with-gaps--light:
         hash: v1.k794b7964.17739e468a4911b2bdfe16f13059a9b832e87386e3339ffb3a51c1c38ecfe821.9zttDtobDMs7E45HWOOxGwbEKOCRWDa2BqtMW8GSXcQ
+    components-hogcharts-legend--horizontal--dark:
+        hash: v1.k794b7964.5d39636c62e9f666902a6eba9478531a5326385494ae1a754ab1c133f546b3e1.knlLoncURwS3ntN36nlVwLODHi5eZonBGOOwIvLx5I8
+    components-hogcharts-legend--horizontal--light:
+        hash: v1.k794b7964.82d79f7e0a07c188f597a89fbc0a479e1b9605d007ba6f5fb71087a312fc0764.ENVTf91ekYBrR2zzMYiFkilFzL5adW_itJFXc3eZo-w
+    components-hogcharts-legend--interactive--dark:
+        hash: v1.k794b7964.5d39636c62e9f666902a6eba9478531a5326385494ae1a754ab1c133f546b3e1.yN8df5f_O9LA7ppecXLLDnoTO9CbnJT8QhazW0m0xkU
+    components-hogcharts-legend--interactive--light:
+        hash: v1.k794b7964.82d79f7e0a07c188f597a89fbc0a479e1b9605d007ba6f5fb71087a312fc0764.kFDhmb2BkonZoo3bR5snWR-aN_yY6R2-utLZ5ify3_E
+    components-hogcharts-legend--layout-bottom--dark:
+        hash: v1.k794b7964.6f34c5c79807ea26a631024458558c84093ab248138fbb7cba4d24deccda210d.xJ098X5I0o1k6yvWtmYXYJGlgsrbw5TpIN8C-osCojY
+    components-hogcharts-legend--layout-bottom--light:
+        hash: v1.k794b7964.ebb34148784fd49f208e59207fcfc3aa1476aeddd0af0cc3987543af514e6f0c.ygBJg6yMPl8-arZKotkxgO5XzM4AkWb_HsYkcTOkqes
+    components-hogcharts-legend--layout-left--dark:
+        hash: v1.k794b7964.e5ffa84c0c4612544185166fd7127e091f743d0a4e80e610021e9898cf68c16c.RWP2gB5lEXOaZJk2wYPvfCzAeDRDCBd59flzROZBj_E
+    components-hogcharts-legend--layout-left--light:
+        hash: v1.k794b7964.88db7c4f4fab4b0fee6b0be8b1508c91798270e69c17b507e046fc530dd2fafd.Yn1GAbiBehr5i16TVhPR01gSC2GpOfBnmo5LHnmCWqs
+    components-hogcharts-legend--layout-right--dark:
+        hash: v1.k794b7964.501db0b97c4d897a816cf08afba0f837a54be6f3533dd253b8410f34c57528d5.iT0_3sNr9zqZPacv3XSvc7iFxAhpejg9l26-8ek1wCA
+    components-hogcharts-legend--layout-right--light:
+        hash: v1.k794b7964.81902d1fc7bc428f1455585a08aa7667b409fe0edbf56f269ad38b56e21c53e0.nXCrZLvGoncvjvDYQ0Iq7VmbmorY7jNA6e1qCirbzbQ
+    components-hogcharts-legend--layout-top--dark:
+        hash: v1.k794b7964.07957a22916e5a09eedba69d385c07646d97d3d9483b3fc8d56ae0fae6eea448.4uZJgPeHOc567hzQaIzohLOCyS3dXMJOKB-boXjbYVA
+    components-hogcharts-legend--layout-top--light:
+        hash: v1.k794b7964.efd2345115e956ad9a0c4267248d90c40aade934d5dd896e10fad79f2afb425d.1JqrR7X4fPy38s0mKd20fHKfgLjrdwSNa05lG5GPcHA
+    components-hogcharts-legend--many-items-wraps--dark:
+        hash: v1.k794b7964.f6c2b82b8d93c25d9c21b9afc1d914d041138d25836485cf2d76a577d55a37c5.Ut_YYVfVrtgFs0gV16xnW-pxSADhDhx9tsfA_XEPirQ
+    components-hogcharts-legend--many-items-wraps--light:
+        hash: v1.k794b7964.376cc3f2d00b32edd65a5bc74b43ad4a22bb5d5befc0d7be5e10767717bf792f.cBQPCb5144l7YdeI5UPYc8saSV_mQiXEvGnOmA0xGuw
+    components-hogcharts-legend--vertical--dark:
+        hash: v1.k794b7964.8f9cdc0ce4c1529c1f95cf226b16fb3d28ebdf2a2eed7f57bb8b1e086fa54edf.iKnCYMI4351HMtNeZht7XjoxmFkbF8N0eIX9b8rIOQc
+    components-hogcharts-legend--vertical--light:
+        hash: v1.k794b7964.613d93ab14bd635185a8f3f5eabfaa884a3a8f7b418cdbdec94478b2bc3da2d2.poxwlxr4MP5HbhAC8JKzXCBFxGSJwc8uUXs26xUUcHU
     components-hogcharts-linechart--combined-overlays--dark:
         hash: v1.k794b7964.38753d5c6bab2f9d1be492d0e191aca21265953e220c0f37714913c89d7caf42.0wzgqeeUqe_bxIfIbS861HknzpuGVzxC664U1GTe9S8
     components-hogcharts-linechart--combined-overlays--light:
