@@ -646,6 +646,65 @@
         }
     },
     {
+        "model": "anthropic/claude-opus-4.8",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "amazon-bedrock-eu-west-1": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "amazon-bedrock-us": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "anthropic-2": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-opus-4.8-fast",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00005,
+                "cache_read_token": 0.000001,
+                "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00005,
+                "cache_read_token": 0.000001,
+                "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-sonnet-4",
         "cost": {
             "default": {
@@ -973,19 +1032,6 @@
             "novita-fp16": {
                 "prompt_token": 4.2e-7,
                 "completion_token": 0.00000125
-            }
-        }
-    },
-    {
-        "model": "baidu/qianfan-ocr-fast",
-        "cost": {
-            "default": {
-                "prompt_token": 6.8e-7,
-                "completion_token": 0.00000281
-            },
-            "baidu-fp8": {
-                "prompt_token": 6.8e-7,
-                "completion_token": 0.00000281
             }
         }
     },
@@ -2331,7 +2377,7 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 3.5e-7,
+                "prompt_token": 2.2e-7,
                 "completion_token": 5.9e-7
             }
         }
@@ -7456,11 +7502,13 @@
         "cost": {
             "default": {
                 "prompt_token": 1.25e-7,
-                "completion_token": 8.4e-7
+                "completion_token": 8.5e-7,
+                "cache_read_token": 6e-8
             },
             "io-net-fp8": {
                 "prompt_token": 1.25e-7,
-                "completion_token": 8.4e-7
+                "completion_token": 8.5e-7,
+                "cache_read_token": 6e-8
             },
             "novita-bf16": {
                 "prompt_token": 1.3e-7,
