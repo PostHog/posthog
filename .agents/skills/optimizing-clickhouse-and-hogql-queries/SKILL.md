@@ -30,11 +30,11 @@ For `INSERT` statements specifically, HogQL has no `INSERT` statement (intention
 
 ## Background: read these once
 
-Start with the handbook context for the conceptual model:
+Start with the handbook context for the conceptual model (these files are the source the public posthog.com/handbook pages are built from):
 
-- [Query performance optimization](https://posthog.com/handbook/engineering/databases/query-performance-optimization) covers how to find and fix slow queries across both stores.
-- [HogQL in Python](https://posthog.com/handbook/engineering/databases/hogql-python) explains the printer pipeline and how to drive HogQL programmatically.
-- [ClickHouse queries for new products](https://posthog.com/handbook/engineering/databases/clickhouse-queries-new-products) is the authoritative guide for designing tables and writing query runners; useful even when you're tuning existing ones.
+- [`query-performance-optimization.md`](../../../docs/published/handbook/engineering/databases/query-performance-optimization.md) covers how to find and fix slow queries across both stores.
+- [`hogql-python.md`](../../../docs/published/handbook/engineering/databases/hogql-python.md) explains the printer pipeline and how to drive HogQL programmatically.
+- [`clickhouse-queries-new-products.md`](../../../docs/published/handbook/engineering/databases/clickhouse-queries-new-products.md) is the authoritative guide for designing tables and writing query runners; useful even when you're tuning existing ones.
 
 Then read the table schema files so you know what columns, sort keys, partition keys, and skip indexes already exist. Do not read them line-by-line; skim for `ORDER BY`, `PARTITION BY`, `INDEX`, and materialized column declarations.
 
