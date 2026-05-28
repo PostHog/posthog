@@ -9,6 +9,7 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 
@@ -62,13 +63,27 @@ class SummarizeReplayVisionSummariesTool(MaxTool):
                 e,
                 properties={"team_id": self._team.id, "user_id": self._user.id, "scanner_id": str(resolved_id)},
             )
-            return f"Failed to load summaries: {str(e)}", {"error": "fetch_failed", "details": str(e)}
+            # Generic content — Max may relay it to the user, so don't surface the raw exception.
+            # Raw detail stays in the artifact (not user-visible) for debugging.
+            return "Something went wrong loading the summaries. Please try again.", {
+                "error": "fetch_failed",
+                "details": str(e),
+            }
 
     @database_sync_to_async
     def _fetch_and_format(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
+        # Gate on the product flag, matching the Vision API viewsets — the tool must not return
+        # data when Replay Vision is disabled for the org.
+        if not is_replay_vision_enabled(self._user, self._team):
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+
         scanner = ReplayScanner.objects.filter(team_id=self._team.id, id=scanner_id).first()
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        # Summaries inherit the scanner's RBAC — a team member without viewer access to this scanner
+        # must not read its recording-derived output. Treat as not-found so we don't leak existence.
+        if not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+            return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
         if scanner.scanner_type != ScannerType.SUMMARIZER:
             return (
                 f'Scanner "{scanner.name}" is a {scanner.scanner_type} scanner, not a summarizer.',
