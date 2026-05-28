@@ -601,3 +601,33 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
+    """Serializer for metrics recalculation status responses."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
+    experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
+    status = serializers.ChoiceField(
+        choices=["pending", "in_progress", "completed", "failed"],
+        read_only=True,
+        help_text="Current status of the recalculation job",
+    )
+    total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    completed_metrics = serializers.IntegerField(
+        read_only=True, help_text="Number of metrics successfully recalculated"
+    )
+    failed_metrics = serializers.IntegerField(read_only=True, help_text="Number of metrics that failed to recalculate")
+    # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
+    metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    trigger = serializers.ChoiceField(
+        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        read_only=True,
+        help_text="What triggered this recalculation",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
+    completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    is_existing = serializers.BooleanField(
+        read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )
