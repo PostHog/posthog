@@ -1,0 +1,31 @@
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import type { TeamType } from '~/types'
+
+export type ErrorTrackingWidgetResult = {
+    results?: ErrorTrackingIssue[]
+    hasMore?: boolean
+    limit?: number
+}
+
+/** Issue rows that fit in the default h:5 tile without clipping; independent of fetch `limit`. */
+export const ERROR_TRACKING_WIDGET_LOADING_SKELETON_ROW_COUNT = 4
+
+export const ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS = [
+    { value: 'occurrences', label: 'Occurrences' },
+    { value: 'last_seen', label: 'Last seen' },
+    { value: 'first_seen', label: 'First seen' },
+    { value: 'users', label: 'Users' },
+    { value: 'sessions', label: 'Sessions' },
+] as const
+
+/** True when the project can query error tracking issues (matches tile setup prompt gating). */
+export function canConfigureErrorTrackingWidgetIssues(
+    team: TeamType | null | undefined,
+    hasSentExceptionEvent: boolean | undefined
+): boolean {
+    if (!team) {
+        return false
+    }
+
+    return hasSentExceptionEvent === true || !!team.autocapture_exceptions_opt_in
+}

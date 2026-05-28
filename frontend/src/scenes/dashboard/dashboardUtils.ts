@@ -2,6 +2,10 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import {
+    getDashboardWidgetCatalogEntry,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
+
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
@@ -15,6 +19,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
+    DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardType,
@@ -71,18 +76,52 @@ export function dashboardToSaveableTemplate(
                         color: tile.color,
                     }
                 }
+                if (tile.widget) {
+                    return {
+                        type: 'WIDGET' as const,
+                        widget_type: tile.widget.widget_type,
+                        config: tile.widget.config,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
                 throw new Error('Unknown tile type')
             }),
         variables: [],
     }
 }
 
+export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsightModel>): string {
+    if (tile.insight) {
+        return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
+    }
+    if (tile.widget) {
+        const customName = tile.widget.name?.trim()
+        if (customName) {
+            return customName
+        }
+        const catalogEntry = getDashboardWidgetCatalogEntry(tile.widget.widget_type)
+        return catalogEntry?.headerTitle ?? catalogEntry?.label ?? tile.widget.widget_type
+    }
+    if (tile.text) {
+        return 'Text card'
+    }
+    if (tile.button_tile) {
+        return tile.button_tile.text || 'Button'
+    }
+
+    return 'Tile'
+}
+
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile'>
+    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
+    }
+    if (tile.widget) {
+        return 'widget'
     }
     if (tile.text) {
         return 'text'
@@ -94,6 +133,11 @@ export function getDashboardWidgetType(
     throw new Error(
         'Dashboard tile has no widget payload. If a new widget type was added to `DashboardTile`, handle it in getDashboardWidgetType.'
     )
+}
+
+/** Widget tiles are not shown on shared/public/export dashboard views. */
+export function isWidgetTileVisibleOnPlacement(placement: DashboardPlacement): boolean {
+    return placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
 }
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
