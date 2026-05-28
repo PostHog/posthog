@@ -489,6 +489,7 @@ jobs:
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ github.ref == 'refs/heads/master' }}
+              continue-on-error: true
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -517,6 +518,7 @@ jobs:
             - name: Upload snapshot patch
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              continue-on-error: true
               with:
                   name: snapshot-patch-Products-${{ strategy.job-index }}
                   path: /tmp/patches/
@@ -1005,6 +1007,7 @@ jobs:
             - name: Upload migration analysis artifact
               if: always() && github.event_name == 'pull_request'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              continue-on-error: true
               with:
                   name: migration-analysis
                   path: |
@@ -1035,6 +1038,7 @@ jobs:
             - name: Upload migrated schema artifact
               if: github.event_name == 'push'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              continue-on-error: true
               with:
                   name: migrated-schema
                   path: schema.sql.gz
@@ -1804,6 +1808,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
               if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+              continue-on-error: true
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -1837,6 +1842,7 @@ jobs:
               # Only in UPDATE mode
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              continue-on-error: true
               with:
                   name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}
                   path: /tmp/patches/
@@ -1846,6 +1852,7 @@ jobs:
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat
+              continue-on-error: true
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
@@ -1853,6 +1860,7 @@ jobs:
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
+              continue-on-error: true
               with:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
@@ -2125,6 +2133,7 @@ jobs:
             - name: Upload verdict
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              continue-on-error: true
               with:
                   name: test-selection-verdict-pr${{ github.event.pull_request.number }}
                   path: /tmp/verdict/
@@ -2232,6 +2241,7 @@ jobs:
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
+              continue-on-error: true
               with:
                   name: junit-results-async-migrations
                   path: junit.xml
