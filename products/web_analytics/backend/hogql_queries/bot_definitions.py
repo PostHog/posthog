@@ -533,6 +533,16 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AmazonSellerInitiatedListing": BotDefinition(
         "Amazon Seller Initiated Listing", "http_client", "Automation", "Amazon"
     ),
+    # Production-validated batch (prod-eu 7d, $pageview, patterns unique to EU traffic)
+    "Splunk Synthetics": BotDefinition("Splunk Synthetics", "monitoring", "Bot", "Splunk"),
+    "Detectify": BotDefinition("Detectify", "monitoring", "Bot", "Detectify"),
+    "Ghost Inspector": BotDefinition("Ghost Inspector", "monitoring", "Bot", "Ghost Inspector"),
+    "Monsidobot": BotDefinition("Monsido", "monitoring", "Bot", "Monsido"),
+    "SearchAtlas Bot": BotDefinition("SearchAtlas", "seo_crawler", "Bot", "SearchAtlas"),
+    "VelenPublicWebCrawler": BotDefinition("Velen", "ai_crawler", "AI Agent", "Velen"),
+    "Cookiebot": BotDefinition("Cookiebot", "monitoring", "Bot", "Cookiebot"),
+    "nmap": BotDefinition("nmap", "http_client", "Automation", "Nmap"),
+    "MicrosoftPreview": BotDefinition("Microsoft Preview", "social_crawler", "Bot", "Microsoft"),
     # Prefetch/Proxy
     "Chrome Privacy Preserving Prefetch Proxy": BotDefinition(
         "Chrome Prefetch Proxy",
