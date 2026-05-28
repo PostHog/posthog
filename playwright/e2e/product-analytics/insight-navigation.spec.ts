@@ -2,7 +2,17 @@ import { InsightType } from '~/types'
 
 import { InsightPage } from '../../page-models/insightPage'
 import { Navigation } from '../../utils/navigation'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
+
+let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+test.beforeAll(async ({ playwrightSetup }) => {
+    workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+})
+
+test.beforeEach(async ({ page, playwrightSetup }) => {
+    await playwrightSetup.login(page, workspace!)
+})
 
 // `InsightType` values are uppercase enum keys (TRENDS, FUNNELS, …) but the
 // InsightsNav tab labels are sentence-cased ("Trends", "User Paths", …). The
