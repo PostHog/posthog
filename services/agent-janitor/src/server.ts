@@ -106,11 +106,45 @@ const FilePathQuerySchema = z.object({
     path: z.string().min(1, 'missing_path'),
 })
 
+// Per-file ceiling, well below the express.json() 8MB limit. The 8MB cap
+// lets a single ~7MB file path slip through; this stops that. Bundles
+// containing files larger than this should land via S3 presigned URLs
+// (future work — see typed-config-loader.md notes).
+const MAX_FILE_BYTES = 1_000_000 // 1 MB per file
+// Per-bundle ceiling — sum of all file content. Defends against a bulk
+// push with many under-limit files that still exhausts disk / memory.
+const MAX_BUNDLE_BYTES = 4_000_000 // 4 MB across all files in one push
+
+function utf8Bytes(s: string): number {
+    return Buffer.byteLength(s, 'utf8')
+}
+
 const FileUpdateBodySchema = z.object({
-    content: z.string(),
+    content: z
+        .string()
+        .refine((s) => utf8Bytes(s) <= MAX_FILE_BYTES, { message: `file content exceeds ${MAX_FILE_BYTES} bytes` }),
 })
 
-const BundleFilesSchema = z.record(z.string(), z.string())
+const BundleFilesSchema = z.record(z.string(), z.string()).superRefine((files, ctx) => {
+    let total = 0
+    for (const [path, content] of Object.entries(files)) {
+        const bytes = utf8Bytes(content)
+        if (bytes > MAX_FILE_BYTES) {
+            ctx.addIssue({
+                code: 'custom',
+                path: [path],
+                message: `file content exceeds ${MAX_FILE_BYTES} bytes`,
+            })
+        }
+        total += bytes
+    }
+    if (total > MAX_BUNDLE_BYTES) {
+        ctx.addIssue({
+            code: 'custom',
+            message: `bundle total exceeds ${MAX_BUNDLE_BYTES} bytes`,
+        })
+    }
+})
 const BundlePutBodySchema = z.object({
     files: BundleFilesSchema,
     mode: z.enum(['replace', 'merge']).default('replace'),

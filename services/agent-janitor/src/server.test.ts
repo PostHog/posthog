@@ -103,6 +103,43 @@ describe('janitor HTTP', () => {
         expect(res.body.error).toBe('invalid_request')
     })
 
+    it('PUT /revisions/:id/file rejects content over the per-file size cap', async () => {
+        // Pre-cap, a single 7MB file would slip through the express.json 8MB
+        // limit and land on disk.
+        const { app, revisionId } = await mkRevisionApp()
+        const tooLarge = 'a'.repeat(1_000_001)
+        const res = await request(app).put(`/revisions/${revisionId}/file?path=big.md`).send({ content: tooLarge })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
+        expect((res.body.issues as Array<{ message: string }>)[0].message).toMatch(/exceeds.*1000000/)
+    })
+
+    it('PUT /revisions/:id/bundle rejects a single file over the per-file cap', async () => {
+        const { app, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/bundle`)
+            .send({ files: { 'big.md': 'a'.repeat(1_000_001) } })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
+        // Issue path points at the offending file so the caller knows which one.
+        const issues = res.body.issues as Array<{ path: (string | number)[]; message: string }>
+        expect(issues.some((i) => i.path.includes('big.md'))).toBe(true)
+    })
+
+    it('PUT /revisions/:id/bundle rejects many under-limit files that sum past the bundle cap', async () => {
+        const { app, revisionId } = await mkRevisionApp()
+        // Five 900KB files = 4.5MB total. Each one fits under the 1MB
+        // per-file cap; the bundle exceeds the 4MB total cap.
+        const half = 'a'.repeat(900_000)
+        const files: Record<string, string> = {}
+        for (let i = 0; i < 5; i++) {
+            files[`f${i}.md`] = half
+        }
+        const res = await request(app).put(`/revisions/${revisionId}/bundle`).send({ files })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
+    })
+
     it('GET /sessions supports state / revision_id / created_after filters', async () => {
         const { queue, app } = mk()
         await queue.enqueue({

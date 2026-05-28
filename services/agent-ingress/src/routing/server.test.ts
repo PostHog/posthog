@@ -285,4 +285,15 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.status).toBe(404)
         expect(res.body.error).toBe('no_agent')
     })
+
+    // Regression: malformed JSON used to produce express's default HTML
+    // SyntaxError page. The global errorHandler now translates it to a
+    // structured 400.
+    it('POST /run with malformed JSON returns 400 invalid_json', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app).post('/agents/x/run').set('Content-Type', 'application/json').send('{not json')
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_json')
+    })
 })

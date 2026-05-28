@@ -116,26 +116,52 @@ file (and out of this list) once the design lands.
         closes the `parseInt('abc')` → `NaN` → `app.listen(NaN)`
         silent-bind footgun. Same pattern needs porting to runner +
         ingress (still touches `process.env` directly).
-      - [ ] **bundle bulk-push has no per-file size cap** beyond the
-        8MB JSON limit; a single 7MB file path slips through and
-        lands on disk. Add a per-path and per-bundle ceiling on the
-        `PUT /revisions/:id/bundle` and `PUT /revisions/:id/file`
-        endpoints.
-      - [ ] **port the janitor `errorHandler` improvements back to
-        ingress.** Ingress has a global error handler at
-        [`routing/server.ts:66`](../../../services/agent-ingress/src/routing/server.ts)
-        but doesn't distinguish `ZodError` and doesn't wrap async
-        routes in `asyncHandler`. Same hardening pattern applies.
-        Ingress validates webhook / chat / slack bodies inside
-        per-router code; some paths are already covered, but the
-        consistent shape would be a wrapper + a single error
-        middleware.
-      - [ ] **runner has no equivalent.** The runner has no HTTP
-        surface, but the worker loop has try/catch around individual
-        sessions. Audit: does a malformed `conversation` JSONB or a
-        broken `spec` blob in PG crash the loop, or just fail the
-        one session? If the former, add a per-session error
-        boundary.
+      - [x] ~~**bundle bulk-push has no per-file size cap**~~ —
+        shipped 1MB-per-file + 4MB-per-bundle caps in
+        [`server.ts`](../../../services/agent-janitor/src/server.ts)
+        with zod `superRefine` issues pointing at the offending file.
+      - [x] ~~**port the janitor `errorHandler` improvements back to
+        ingress**~~ — shipped via
+        [`http-utils.ts`](../../../services/agent-ingress/src/routing/http-utils.ts);
+        every trigger route now wrapped in `asyncHandler`; ZodError /
+        malformed JSON / AmbiguousRevisionError mapped to structured 400s.
+      - [x] ~~**runner per-session error boundary**~~ — shipped: the
+        whole pre-flight (revision load, secrets, sandbox acquire) now
+        sits inside `runOne`'s try/catch so a malformed `spec` JSONB
+        (ZodError out of `PgRevisionStore.rowToRev`) fails the one
+        session instead of crashing the loop. Main loop's `claim()` is
+        wrapped too — transient PG errors get logged and the loop
+        keeps spinning.
+      - [ ] **graceful-shutdown guarantees need explicit test
+        coverage.** SIGTERM today flips the `shutdownController`,
+        which propagates into pi-ai via the AbortSignal — the
+        in-flight turn cancels, `runSession` returns
+        `state: suspended`, the worker writes the session back as
+        `queued`, and `loop()` only returns once every in-flight
+        promise settles. There's no test that **proves** all of that
+        end-to-end under realistic load (a fleet of sessions in
+        different states — mid-turn, between turns, waiting on a
+        tool, parked). Add cases covering:
+        (a) shutdown mid-LLM-call — every in-flight session lands in
+        `queued` (not `running`) with its conversation persisted, and
+        no rows are lost / double-claimed by a sibling;
+        (b) shutdown between turns — same invariant;
+        (c) shutdown while a custom tool is executing — the sandbox
+        is released, the session is requeued, the next worker can
+        finish the tool call cleanly;
+        (d) `loop()` doesn't return early — the promise it returns
+        only resolves once every `inflight` entry has settled and
+        written its state back to PG;
+        (e) repeat-claim safety — a session left in `running` with
+        a stale `claimed_at` is reaped by the sweep into `queued`,
+        and the requeued instance behaves identically to a fresh one.
+        **Deployment note:** k8s `terminationGracePeriodSeconds`
+        must comfortably exceed the largest plausible LLM turn time
+        + tool-call timeout (target an order of magnitude — minutes,
+        not seconds). A too-short grace period turns SIGTERM into
+        SIGKILL mid-turn; the safety net is the janitor's stuck-
+        running sweep, but you don't want every rolling deploy to
+        bounce sessions off that net.
 
 - [ ] **Slug-with-revision-suffix triggers for non-live revisions.**
       Today draft / ready revisions are reachable via
