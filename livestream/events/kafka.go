@@ -256,7 +256,11 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 		if c.Broker != nil {
 			c.Broker.Publish(ctx, phEvent)
 		} else {
-			c.outgoingChan <- phEvent
+			select {
+			case c.outgoingChan <- phEvent:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }
