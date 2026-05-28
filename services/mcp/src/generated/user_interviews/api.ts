@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -135,6 +135,18 @@ export const UserInterviewTopicsAddIntervieweeCreateBody = /* @__PURE__ */ zod.o
  * Generate one public interview link per targeted interviewee. Materializes an IntervieweeContext row for every identifier on the topic (without overwriting existing per-person context), and an enabled SharingConfiguration with a unique access token. The URL resolves to the public interview viewer with no PostHog auth required.
  */
 export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Same materialization as generate_links, returned as a downloadable CSV. Intended for users who want to mail-merge the per-person interview links into their own email tooling.
+ */
+export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
@@ -293,6 +305,45 @@ export const UserInterviewTopicsIntervieweesDestroyParams = /* @__PURE__ */ zod.
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
     topic_id: zod.string(),
+})
+
+/**
+ * Create up to 500 interviewee context rows for a topic in a single request. Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces an `inserted_count`, a `skipped_count`, and the `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch.
+ */
+export const UserInterviewTopicsIntervieweesBulkCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    topic_id: zod.string(),
+})
+
+export const userInterviewTopicsIntervieweesBulkCreateBodyItemsItemIntervieweeIdentifierMax = 400
+
+export const userInterviewTopicsIntervieweesBulkCreateBodyItemsItemAgentContextMax = 10000
+
+export const UserInterviewTopicsIntervieweesBulkCreateBody = /* @__PURE__ */ zod.object({
+    items: zod
+        .array(
+            zod.object({
+                interviewee_identifier: zod
+                    .string()
+                    .max(userInterviewTopicsIntervieweesBulkCreateBodyItemsItemIntervieweeIdentifierMax)
+                    .describe(
+                        "Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids."
+                    ),
+                agent_context: zod
+                    .string()
+                    .max(userInterviewTopicsIntervieweesBulkCreateBodyItemsItemAgentContextMax)
+                    .describe(
+                        "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'."
+                    ),
+            })
+        )
+        .describe(
+            'List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request.'
+        ),
 })
 
 export const UserInterviewsListParams = /* @__PURE__ */ zod.object({

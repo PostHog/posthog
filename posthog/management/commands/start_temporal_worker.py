@@ -20,6 +20,16 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
+from posthog.temporal.ai_observability import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
+)
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
@@ -73,16 +83,6 @@ from posthog.temporal.health_checks import (
 from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
-)
-from posthog.temporal.llm_analytics import (
-    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
-    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
-    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
-    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
-    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
@@ -519,7 +519,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        # Max AI traces span the Django request and the Temporal activity that runs the agent loop.
+        # Without the OTel plugin on the worker, every span emitted from an activity is a root span
+        # and the conversation trace splits across disconnected pieces. Force-enable for that queue
+        # so investigations don't depend on an operator flipping TEMPORAL_OTEL_PLUGIN_ENABLED.
+        enable_otel = (
+            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True or task_queue == settings.MAX_AI_TASK_QUEUE
+        ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore

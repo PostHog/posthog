@@ -106,6 +106,31 @@ describe('ValueLabels', () => {
         })
     })
 
+    it('vertical: flips a top-clipping label inside the bar instead of expanding margins', () => {
+        // yScale(100) = 16, so an above-placed label would render with top=16-22=-6 and get
+        // clipped by the wrapper's `overflow: hidden`. The overlay flips it below the bar top.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [100] }]
+        const { container } = renderInChart(makeContext(series, { labels: ['Mon'] }), <ValueLabels />)
+        const divs = labelDivs(container)
+        expect(divs).toHaveLength(1)
+        expect(divs[0].style.transform).toBe('translateX(-50%)')
+        expect(divs[0].style.top).toBe('16px')
+    })
+
+    it('horizontal: flips a right-clipping label inside the bar instead of expanding margins', () => {
+        // Place the value-coord 4px from the right wrapper edge so the label (>4px wide) would
+        // overflow when anchored on its leading edge; flip to anchor on its trailing edge instead.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [1] }]
+        const ctx = makeContext(series, {
+            axisOrientation: 'horizontal',
+            labels: ['Mon'],
+            scales: { x: () => 60, y: () => 796, yTicks: () => [0, 1] },
+        })
+        const divs = labelDivs(renderInChart(ctx, <ValueLabels />).container)
+        expect(divs).toHaveLength(1)
+        expect(divs[0].style.transform).toBe('translate(-100%, -50%)')
+    })
+
     it('drops overlapping labels via greedy collision avoidance', () => {
         // Two points at the same x: only one should survive.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
@@ -212,11 +237,11 @@ describe('ValueLabels', () => {
 
     it('positions labels at the resolved (e.g. stacked) y, not the raw series.data y', () => {
         // Raw value 25 sits at y=278 on the left axis; stacking lifts it to top-of-stack=75 → y=104.
-        // The resolveValue closure mimics what LineChart provides for stacked series.
+        // The resolvePositionValue closure mimics what LineChart provides for stacked series.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [25] }]
         const stackedTops: Record<string, number[]> = { s: [75] }
-        const resolveValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
-        const ctx = makeContext(series, { labels: ['Mon'], resolveValue })
+        const resolvePositionValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
+        const ctx = makeContext(series, { labels: ['Mon'], resolvePositionValue })
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(1)
@@ -287,10 +312,37 @@ describe('ValueLabels', () => {
         })
     })
 
-    it('isPercent on context is informational — consumers supply their own formatter', () => {
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [0.25, 0.5, 0.75] }]
-        const ctx = makeContext(series, { isPercent: true, labels: ['Mon', 'Tue', 'Wed'] })
-        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => `${(v * 100).toFixed(1)}%`} />)
-        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['25.0%', '50.0%', '75.0%'])
+    it('in percent layout, formatter receives each segment fraction (0..1), not raw data', () => {
+        // Both series have non-zero values in both bands so we exercise the `raw / total`
+        // division, not the trivial single-segment-per-band 100% path.
+        // Band totals: Mon = 100, Tue = 100. Expected fractions: a = [0.2, 0.6], b = [0.8, 0.4].
+        const series: ResolvedSeries[] = [
+            { key: 'a', label: 'A', color: '#f00', data: [20, 60] },
+            { key: 'b', label: 'B', color: '#0f0', data: [80, 40] },
+        ]
+        // Custom yScale on 0..1 (matches percent layout) so segment centers don't collide.
+        const percentScales: ChartScales = {
+            x: xScale,
+            y: (v: number) => 368 - v * 352,
+            yTicks: () => [0, 0.5, 1],
+        }
+        // Stacked tops per series in 0..1 space — matches d3.stackOffsetExpand output.
+        const positionByKey: Record<string, number[]> = {
+            a: [0.2, 0.6],
+            b: [1.0, 1.0],
+        }
+        const resolvePositionValue: ResolveValueFn = (s, i) => positionByKey[s.key]?.[i] ?? 0
+        const ctx = makeContext(series, {
+            isPercent: true,
+            labels: ['Mon', 'Tue'],
+            scales: percentScales,
+            resolvePositionValue,
+        })
+        const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => `${(v * 100).toFixed(0)}%`} />)
+        expect(
+            labelDivs(container)
+                .map((d) => d.textContent)
+                .sort()
+        ).toEqual(['20%', '40%', '60%', '80%'])
     })
 })

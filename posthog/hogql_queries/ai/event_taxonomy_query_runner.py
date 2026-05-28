@@ -17,7 +17,8 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Action
+
+from products.actions.backend.models.action import Action
 
 DEFAULT_LIMIT = 500
 
@@ -49,6 +50,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 query_type="EventTaxonomyQuery",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

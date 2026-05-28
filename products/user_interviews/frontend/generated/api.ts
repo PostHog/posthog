@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkIntervieweeContextRequestApi,
+    BulkIntervieweeContextResponseApi,
     IntervieweeContextApi,
     IntervieweeIdentifierRequestApi,
     PaginatedInterviewInviteResultListApi,
@@ -20,6 +22,7 @@ import type {
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
     SendInvitesRequestApi,
+    TestInterviewLinkApi,
     UserInterviewApi,
     UserInterviewSearchRequestApi,
     UserInterviewSearchResultApi,
@@ -213,6 +216,24 @@ export const userInterviewTopicsGenerateLinksCreate = async (
     })
 }
 
+export const getUserInterviewTopicsLinksCsvCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/links_csv/`
+}
+
+/**
+ * Same materialization as generate_links, returned as a downloadable CSV. Intended for users who want to mail-merge the per-person interview links into their own email tooling.
+ */
+export const userInterviewTopicsLinksCsvCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getUserInterviewTopicsLinksCsvCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getUserInterviewTopicsRemoveIntervieweeCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interview_topics/${id}/remove_interviewee/`
 }
@@ -256,6 +277,24 @@ export const userInterviewTopicsSendInvitesCreate = async (
             body: JSON.stringify(sendInvitesRequestApi),
         }
     )
+}
+
+export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/test_link/`
+}
+
+/**
+ * Return the calling user's personal dogfood interview link for this topic, plus the latest test interview they have recorded against it. Lazily get-or-creates a per-caller IntervieweeContext + enabled SharingConfiguration the first time it's called, then returns the same stable URL on subsequent calls. The caller's identifier is intentionally not added to the topic's targeting arrays — each user dogfoods under their own row, so test calls never mint a public share token on someone else's behalf.
+ */
+export const userInterviewTopicsTestLinkRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TestInterviewLinkApi> => {
+    return apiMutator<TestInterviewLinkApi>(getUserInterviewTopicsTestLinkRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getUserInterviewTopicsIntervieweesListUrl = (
@@ -400,6 +439,30 @@ export const userInterviewTopicsIntervieweesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getUserInterviewTopicsIntervieweesBulkCreateUrl = (projectId: string, topicId: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${topicId}/interviewees/bulk/`
+}
+
+/**
+ * Create up to 500 interviewee context rows for a topic in a single request. Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces an `inserted_count`, a `skipped_count`, and the `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch.
+ */
+export const userInterviewTopicsIntervieweesBulkCreate = async (
+    projectId: string,
+    topicId: string,
+    bulkIntervieweeContextRequestApi: BulkIntervieweeContextRequestApi,
+    options?: RequestInit
+): Promise<BulkIntervieweeContextResponseApi> => {
+    return apiMutator<BulkIntervieweeContextResponseApi>(
+        getUserInterviewTopicsIntervieweesBulkCreateUrl(projectId, topicId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(bulkIntervieweeContextRequestApi),
+        }
+    )
 }
 
 export const getUserInterviewsListUrl = (projectId: string, params?: UserInterviewsListParams) => {

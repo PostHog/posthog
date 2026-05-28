@@ -1,6 +1,6 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
-import type { BarChartConfig, ChartTheme, Series } from '../../core/types'
+import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { renderHogChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
@@ -153,6 +153,23 @@ describe('BarChart', () => {
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
         })
 
+        it('renders custom axis titles in horizontal orientation', () => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        axisOrientation: 'horizontal',
+                        xAxisLabel: 'Total events',
+                        yAxisLabel: 'Series',
+                    }}
+                />
+            )
+            expect(chart.xAxisLabel()).toBe('Total events')
+            expect(chart.yAxisLabel()).toBe('Series')
+        })
+
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
             const { chart } = renderHogChart(
@@ -204,7 +221,105 @@ describe('BarChart', () => {
             const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
-            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
+            // Stacked/percent order is cursor-resolved, so assert membership not declaration order.
+            expect(new Set(tooltip.seriesData.map((s) => s.series.key))).toEqual(new Set(expectedKeys))
+        })
+
+        it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
+            // At index 1: a=20 (bottom) and b=15 stacked on top. b's stacked top is 35, but the
+            // tooltip must report b's own 15 — the segment, not the running total.
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.series.a.value).toBe(20)
+            expect(tooltip.series.b.value).toBe(15)
+        })
+
+        it('stacked tooltip bubbles the cursor-resolved segment to seriesData[0]', async () => {
+            // At index 1: a=20 (bottom of stack), b=15 (on top). Mid-plot lands in b's range.
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            chart.hoverAtIndex(1)
+            const tipB = await chart.waitForTooltip()
+            expect(tipB.seriesData[0].series.key).toBe('b')
+            const step = dimensions.plotWidth / LABELS.length
+            // Just inside the bottom edge of the plot, well below b's top to land in a's segment.
+            const NEAR_BOTTOM_OFFSET_PX = 8
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1.5,
+                clientY: dimensions.plotTop + dimensions.plotHeight - NEAR_BOTTOM_OFFSET_PX,
+            })
+            const tipA = await chart.waitForTooltip()
+            expect(tipA.seriesData[0].series.key).toBe('a')
+        })
+
+        it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked' }}
+                    onPointClick={onPointClick}
+                />
+            )
+            const step = dimensions.plotWidth / LABELS.length
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1.5,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            fireEvent.click(chart.element)
+            const clickB: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickB.series.key).toBe('b')
+            expect(clickB.value).toBe(15)
+            expect(clickB.seriesIndex).toBe(1)
+
+            onPointClick.mockClear()
+            const NEAR_BOTTOM_OFFSET_PX = 8
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1.5,
+                clientY: dimensions.plotTop + dimensions.plotHeight - NEAR_BOTTOM_OFFSET_PX,
+            })
+            fireEvent.click(chart.element)
+            const clickA: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickA.series.key).toBe('a')
+            expect(clickA.value).toBe(20)
+            expect(clickA.seriesIndex).toBe(0)
+        })
+
+        it('percent tooltip shows each series own fraction, not the cumulative fraction', async () => {
+            // At index 1: a=20, b=15 → total 35. b sits on top of a, so b's cumulative top is 1.0,
+            // but the tooltip must report b's own 15/35 fraction — the segment, not the running total.
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.series.a.value).toBeCloseTo(20 / 35, 5)
+            expect(tooltip.series.b.value).toBeCloseTo(15 / 35, 5)
+        })
+
+        it('stacked onPointClick reports each series own value, not the cumulative stack total', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked' }}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(1)
+            const clickData: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickData.crossSeriesData.map((d) => ({ key: d.series.key, value: d.value }))).toEqual([
+                { key: 'a', value: 20 },
+                { key: 'b', value: 15 },
+            ])
         })
 
         it.each<[string, BarChartConfig]>([

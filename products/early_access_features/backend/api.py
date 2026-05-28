@@ -12,17 +12,22 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.exceptions import generate_exception_response
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
+
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
+)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .models import EarlyAccessFeature
 
@@ -111,6 +116,13 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
         if instance.stage != stage:
+            if "stage" in self.initial_data and instance.feature_flag is not None:
+                warn_if_missing_feature_flag_write_scope(
+                    request,
+                    action="early_access_feature.stage_change",
+                    team_id=instance.team_id,
+                    feature_flag_id=instance.feature_flag.id,
+                )
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
@@ -265,6 +277,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
 
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="early_access_feature.create",
+            team_id=self.context["team_id"],
+            feature_flag_id=validated_data.get("feature_flag_id"),
+        )
+
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
         default_condition = [
@@ -349,6 +368,12 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         related_feature_flag = instance.feature_flag
 
         if related_feature_flag:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="early_access_feature.destroy",
+                team_id=instance.team_id,
+                feature_flag_id=related_feature_flag.id,
+            )
             related_feature_flag.filters = {
                 **related_feature_flag.filters,
                 "super_groups": None,

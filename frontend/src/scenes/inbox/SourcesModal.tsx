@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
@@ -23,6 +24,7 @@ const SIGNAL_SOURCE_REQUIRED_TABLES: Partial<Record<ExternalDataSourceType, stri
     Github: ['issues'],
     Linear: ['issues'],
     Zendesk: ['tickets'],
+    PgAnalyze: ['issues', 'servers'],
 }
 
 export function SourcesModal(): JSX.Element {
@@ -75,6 +77,7 @@ export function SourcesModal(): JSX.Element {
                     )}
                 </LemonModal.Header>
                 <LemonModal.Content className={sessionAnalysisSetupOpen ? 'p-0 rounded-b' : ''}>
+                    <AllowTrainingCallout featureName="Inbox" className="mb-5" />
                     {isDataSourceSetupOpen ? (
                         <DataSourceSetup product={dataSourceSetupProduct} onComplete={handleDataSourceComplete} />
                     ) : sessionAnalysisSetupOpen ? (

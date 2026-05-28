@@ -173,6 +173,16 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+    if TEST:
+        # The persons DB schema is built by sqlx (rust/persons_migrations), not Django —
+        # PersonDBRouter.allow_migrate blocks every Django migration on it. Without MIGRATE=False,
+        # pytest-django's setup_databases still walks and records all ~1,300 Django migrations
+        # against the empty persons test database on every shard (~300s of pure overhead, scaling
+        # with migration count), even though the router skips the actual DDL. Skipping migrate here
+        # leaves conftest.run_persons_sqlx_migrations to build the real schema.
+        DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
+        DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
+
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
@@ -208,11 +218,23 @@ for route in product_routes:
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
-        # Tell Django's test runner to create an independent test database and run
-        # migrations (via the router). Without this, test databases are created
-        # but left empty. Reader shares the writer's test database so reads inside
-        # a write transaction see uncommitted data.
-        DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
+        # Skip the global migration-graph walk during test DB setup. Without
+        # `MIGRATE: False`, Django's `create_test_db` calls `migrate --database
+        # <alias>` with no app filter, which walks the full ~1300-migration
+        # graph for `state_forwards` on every alias — even though
+        # `ProductDBRouter.allow_migrate` gates DDL to just the owning product
+        # app. The state-machine walk runs regardless of the router and burns
+        # ~5 min per affected shard on a fresh test DB.
+        #
+        # `MIGRATE: False` makes `create_test_db` skip migrations and fall
+        # through to `run_syncdb=True`, which creates tables directly from the
+        # current model definitions for any app that `allow_migrate` permits.
+        # For Django-owned product DBs (`managed=True` models), that yields
+        # the same final-schema tables in milliseconds instead of minutes.
+        #
+        # Reader shares the writer's test database so reads inside a write
+        # transaction see uncommitted data.
+        DATABASES[writer_alias]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
 
     if DISABLE_SERVER_SIDE_CURSORS:
@@ -291,6 +313,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
+# respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
+# so a per-cluster topology can actually exercise routing.
+MULTINODE_CLICKHOUSE: bool = get_from_env("MULTINODE_CLICKHOUSE", False, type_cast=str_to_bool)
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -352,6 +378,9 @@ CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
 CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION", "warpstream_shared"
 )
+CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION", "warpstream_cyclotron"
+)
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
 # routing. Keys should be strings, not numbers.
@@ -365,23 +394,6 @@ try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
-
-
-def is_enable_analyzer_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_enable_analyzer_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        value = get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
-        return value if isinstance(value, list) else []
-    except Exception:
-        return []
 
 
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
@@ -521,6 +533,12 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+# Bearer token for marking Django -> Rust /flags calls as internal (non-billable).
+# When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this
+# as `Authorization: Bearer …` so the Rust service skips per-team billing and quota limits.
+# Must match `INTERNAL_REQUEST_TOKEN` in the feature-flags service env.
+INTERNAL_REQUEST_TOKEN = os.getenv("INTERNAL_REQUEST_TOKEN", "")
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day

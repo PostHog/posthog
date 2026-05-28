@@ -1,9 +1,12 @@
 from datetime import timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pytest_asyncio
@@ -18,11 +21,17 @@ from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
+from products.endpoints.backend.materialization import build_endpoint_hogql
+from products.endpoints.backend.services.endpoint_materialization_service import (
+    OrphanedEndpointSavedQueryError,
+    prepare_executable_query,
+)
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -1307,7 +1316,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, hogql_text)
 
     def test_materialization_failure_after_query_change_returns_success_with_error(self):
-        from products.data_warehouse.backend.models import DataWarehouseTable
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
         endpoint = create_endpoint_with_version(
@@ -1379,6 +1388,75 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_materialized_relative_date_range_advances_on_refresh(self):
+        _create_event(team=self.team, event="$pageview", distinct_id="u1")
+        flush_persons_and_events()
+
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "-30d"},
+            "interval": "day",
+        }
+
+        with freeze_time("2026-04-20T12:00:00Z"):
+            endpoint = create_endpoint_with_version(
+                name="relative_dates_stay_fresh",
+                team=self.team,
+                query=trends_query,
+                created_by=self.user,
+                is_active=True,
+            )
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+            version = endpoint.versions.first()
+            version.refresh_from_db()
+            saved_query = version.saved_query
+            assert saved_query is not None
+            self.assertIn("2026-04-20", saved_query.query["query"])
+
+        with freeze_time("2026-04-30T12:00:00Z"):
+            prepare_executable_query(saved_query)
+
+            saved_query.refresh_from_db()
+            hogql = saved_query.query["query"]
+            self.assertIn("2026-04-30", hogql)
+            self.assertNotIn("2026-04-20", hogql)
+
+    def test_prepare_executable_query_raises_when_no_linked_version(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="orphan_saved_query",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+
+        with self.assertRaises(OrphanedEndpointSavedQueryError):
+            prepare_executable_query(saved_query)
+
+    def test_build_endpoint_hogql_performs_no_db_writes(self):
+        _create_event(team=self.team, event="$pageview", distinct_id="u1")
+        flush_persons_and_events()
+
+        insight_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "-7d"},
+        }
+
+        with CaptureQueriesContext(connection) as ctx:
+            build_endpoint_hogql(insight_query, self.team)
+
+        write_prefixes = ("insert", "update", "delete")
+        writes = [q["sql"] for q in ctx.captured_queries if q["sql"].lstrip().lower().startswith(write_prefixes)]
+        self.assertEqual(writes, [], f"build_endpoint_hogql wrote to Postgres: {writes}")
 
 
 @pytest.mark.asyncio

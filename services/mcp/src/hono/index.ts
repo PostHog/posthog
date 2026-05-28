@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
 
 import { createApp } from './app'
+import { redisOperationsTotal } from './metrics'
 import { registerShutdownHandlers } from './shutdown'
 
 const PORT = parseInt(process.env.PORT || '3001', 10)
@@ -33,10 +34,12 @@ const redis = new Redis(resolveRedisUrl(), {
 
 redis.on('error', (err: Error) => {
     console.error('[MCP] Redis connection error:', err.message)
+    redisOperationsTotal.inc({ operation: 'connect', status: 'error' })
 })
 
 redis.on('connect', () => {
     console.info('[MCP] Redis connected')
+    redisOperationsTotal.inc({ operation: 'connect', status: 'success' })
 })
 
 async function main(): Promise<void> {
@@ -47,7 +50,9 @@ async function main(): Promise<void> {
         process.exit(1)
     }
 
-    const { app, lifecycle } = createApp(redis as unknown as Parameters<typeof createApp>[0])
+    const { app, lifecycle, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
+
+    await warmup()
 
     const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
         console.info(`[MCP] Server started on ${HOST}:${info.port}`)

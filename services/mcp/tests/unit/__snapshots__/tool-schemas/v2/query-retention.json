@@ -556,7 +556,7 @@
                 "aggregationPropertyType": {
                     "default": "event",
                     "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {

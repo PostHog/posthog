@@ -26,7 +26,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BatchQueue, PendingBatch
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)

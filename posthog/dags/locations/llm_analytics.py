@@ -1,6 +1,6 @@
 import dagster
 
-from products.llm_analytics.dags.daily_metrics.main import (
+from products.ai_observability.dags.daily_metrics.main import (
     llma_metrics_daily,
     llma_metrics_daily_job,
     llma_metrics_daily_schedule,

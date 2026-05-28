@@ -38,6 +38,15 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  property-vals-rs)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export BIND_PORT=3303 # avoid local-dev clashes on 3302 (cymbal) and the property-defs-rs default
+    export KAFKA_CONSUMER_OFFSET_RESET=earliest
+    export DEBUG=1
+    ;;
+
   capture)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
@@ -94,7 +103,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export BIND_HOST=0.0.0.0
     export BIND_PORT=4320 # Offset from 4318 to avoid conflict with otel-collector host port mapping
-    export MANAGEMENT_BIND_PORT=8081 # Avoid clash with other Rust services on 8080
+    export MANAGEMENT_BIND_PORT=3304 # Park alongside the other Rust services (3301-3309); 8080/8081 clash with local infra (temporal-ui)
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=logs_ingestion
     export KAFKA_METRICS_TOPIC=metrics_ingestion
@@ -104,8 +113,6 @@ case "$RS_SVC" in
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export OBJECT_STORAGE_BUCKET=posthog
-    export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-    export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     export FRAME_CACHE_TTL_SECONDS=1
     export FRAME_RESULT_TTL_MINUTES=0
     export ASSIGNMENT_RULE_CACHE_TTL_SECS=0
@@ -154,6 +161,7 @@ case "$RS_SVC" in
     export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
     ;;
 
   hypercache-server)
