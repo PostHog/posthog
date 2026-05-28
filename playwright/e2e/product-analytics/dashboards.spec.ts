@@ -115,7 +115,7 @@ test.describe('Dashboards', () => {
         })
     })
 
-    test.skip('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
+    test('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const newTileName = randomString('tile-name')
 

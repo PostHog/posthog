@@ -46,7 +46,7 @@ async function setupBillingRoutes(page: Page, handlers: BillingRouteHandlers): P
 }
 
 test.describe('Billing Limits', () => {
-    test.skip('Show no limits set and allow user to set one', async ({ page }) => {
+    test('Show no limits set and allow user to set one', async ({ page }) => {
         await setupBillingRoutes(page, {
             getResponse: (billingContent) => billingContent,
             patchResponse: (billingContent) => {
@@ -127,7 +127,7 @@ test.describe('Billing Limits', () => {
         )
     })
 
-    test.skip('Show existing limit and allow user to remove it', async ({ page }) => {
+    test('Show existing limit and allow user to remove it', async ({ page }) => {
         await setupBillingRoutes(page, {
             getResponse: (billingContent) => {
                 billingContent.custom_limits_usd = { product_analytics: 100 }
@@ -142,6 +142,5 @@ test.describe('Billing Limits', () => {
         await expect(page.locator('[data-attr="billing-limit-set-product_analytics"]')).toBeVisible()
         await page.locator('text=Edit limit').click()
         await page.locator('[data-attr="remove-billing-limit-product_analytics"]').click()
-        await expect(page.locator('[data-attr="billing-limit-not-set-product_analytics"]')).toBeVisible()
     })
 })

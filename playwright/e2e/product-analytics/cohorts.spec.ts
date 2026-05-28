@@ -23,8 +23,7 @@ test.describe('Cohorts', () => {
         await expect(page.locator('tbody')).toContainText(name)
     })
 
-    // works locally fails in CI
-    test.skip('Duplicate a cohort', async ({ page }) => {
+    test('Duplicate a cohort', async ({ page }) => {
         const name = randomString('Test-Cohort-')
 
         await new CohortPage(page).createCohort(name)
@@ -32,20 +31,26 @@ test.describe('Cohorts', () => {
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
 
-        // navigate to the page
         await page.click('tbody >> text=' + name)
-        await expect(page.getByTestId('top-bar-name').getByText('Test-Cohort--')).toBeVisible()
-        await page.click('.TopBar3000 [data-attr="more-button"]', { force: true })
-        // click edit
-        await page.click('.Popover__content >> text=Duplicate as dynamic cohort')
-        await page.click('.Toastify__toast-body >> text=View cohort')
+        await expect(page.locator('[data-attr="scene-name"]')).toContainText(name)
 
-        await page.click('.TopBar3000 [data-attr="more-button"]')
-        await page.click('.Popover__content >> text=Duplicate as static cohort')
-        await page.click('.Toastify__toast-body >> text=View cohort')
+        // Open the panel once, then just wait for each item to flip enabled
+        await page.locator('[data-attr=open-context-panel-button]').first().click()
 
-        await page.click('[data-attr="more-button"]')
-        await page.click('.Popover__content >> text=Delete cohort')
+        const dynamicItem = page.getByRole('button', { name: 'Duplicate as dynamic cohort' })
+        await expect(dynamicItem).toBeEnabled({ timeout: 30_000 })
+        await dynamicItem.click()
+        await page.locator('.Toastify__toast-body').getByRole('button', { name: 'View cohort' }).click()
+
+        const staticItem = page.getByRole('button', { name: 'Duplicate as static cohort' })
+        await expect(staticItem).toBeEnabled({ timeout: 30_000 })
+        await staticItem.click()
+        await page.locator('.Toastify__toast-body').getByRole('button', { name: 'View cohort' }).click()
+
+        await page.locator('[data-attr="cohort-delete"]').click()
+        const deleteDialog = page.locator('.LemonModal__layout').filter({ hasText: 'Delete cohort?' })
+        await expect(deleteDialog).toBeVisible()
+        await deleteDialog.getByRole('button', { name: 'Delete' }).click()
 
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
