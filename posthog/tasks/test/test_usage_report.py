@@ -1711,6 +1711,87 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
         )
 
 
+class TestTrimOversizeUsageReportPayload(TestCase):
+    def test_returns_dict_unchanged_when_under_limit(self) -> None:
+        from posthog.tasks.usage_report import _trim_oversize_usage_report_payload
+
+        small_report = {
+            "team_count": 2,
+            "event_count_in_period": 100,
+            "teams": {"1": {"event_count_in_period": 60}, "2": {"event_count_in_period": 40}},
+        }
+
+        result = _trim_oversize_usage_report_payload(small_report)
+
+        assert result is small_report
+
+    def test_drops_teams_and_sets_marker_when_over_limit(self) -> None:
+        from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, _trim_oversize_usage_report_payload
+
+        # Build a payload whose `teams` dict alone pushes us past the limit, while
+        # the org-level totals stay realistic.
+        per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
+        teams = {str(team_id): per_team_counters for team_id in range(600)}
+        oversize_report = {
+            "team_count": len(teams),
+            "event_count_in_period": 7_777,
+            "organization_name": "Big Customer",
+            "teams": teams,
+        }
+        assert len(json.dumps(oversize_report)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+        result = _trim_oversize_usage_report_payload(oversize_report)
+
+        assert result is not oversize_report  # Original kept intact for the SQS path.
+        assert oversize_report["teams"] == teams
+        assert result["teams"] == {}
+        assert result["teams_omitted_due_to_size"] is True
+        assert result["team_count"] == len(teams)
+        assert result["event_count_in_period"] == 7_777
+        assert result["organization_name"] == "Big Customer"
+        assert len(json.dumps(result)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestCaptureReportTrimsOversizePayload(TestCase):
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_capture_report_drops_teams_when_payload_too_large(self, mock_client: MagicMock) -> None:
+        from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, capture_report
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        org = Organization.objects.create(name="Big Customer")
+
+        per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
+        teams = {str(team_id): per_team_counters for team_id in range(600)}
+        full_report_dict = {
+            "team_count": len(teams),
+            "event_count_in_period": 7_777,
+            "organization_user_count": 1,
+            "dashboard_count": 0,
+            "ff_count": 0,
+            "survey_count": 0,
+            "teams": teams,
+        }
+        assert len(json.dumps(full_report_dict)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+        capture_report(organization_id=str(org.id), full_report_dict=full_report_dict)
+
+        capture_calls = [
+            call
+            for call in mock_posthog.capture.call_args_list
+            if call.kwargs.get("event") == "organization usage report"
+        ]
+        assert len(capture_calls) == 1
+        captured_properties = capture_calls[0].kwargs["properties"]
+        assert captured_properties["teams"] == {}
+        assert captured_properties["teams_omitted_due_to_size"] is True
+        assert captured_properties["team_count"] == len(teams)
+        assert captured_properties["event_count_in_period"] == 7_777
+        assert len(json.dumps(captured_properties, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+
 @freeze_time("2022-01-10T00:01:00Z")
 class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:

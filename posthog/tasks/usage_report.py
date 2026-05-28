@@ -86,6 +86,11 @@ QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
+# Kafka's default `message.max.bytes` is ~1 MiB. For orgs with several hundred
+# teams the per-team breakdown under `teams` makes the report payload exceed
+# that limit, and the event is dropped at the broker — silently.
+MAX_USAGE_REPORT_PAYLOAD_BYTES = 900_000
+
 USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
     "ignore_result": True,
@@ -1793,6 +1798,19 @@ def get_teams_with_sdk_logs_records_in_period(
     return by_sdk
 
 
+def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
+    """Drop the per-team breakdown when the serialized report would exceed Kafka's
+    message size limit, so the org-level roll-up still makes it through ingestion.
+
+    Returns the original dict when no trimming is needed. The trimmed copy keeps
+    `team_count` and every org-level counter intact and sets
+    `teams_omitted_due_to_size=True` so downstream consumers can detect the drop.
+    """
+    if len(json.dumps(full_report_dict, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES:
+        return full_report_dict
+    return {**full_report_dict, "teams": {}, "teams_omitted_due_to_size": True}
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 @skip_team_scope_audit
 def capture_report(
@@ -1811,7 +1829,7 @@ def capture_report(
             pha_client=pha_client,
             name="organization usage report",
             organization_id=organization_id,
-            properties=full_report_dict,
+            properties=_trim_oversize_usage_report_payload(full_report_dict),
             timestamp=at_date,
         )
     except Exception as err:
