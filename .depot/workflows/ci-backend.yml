@@ -1,9 +1,24 @@
-# Depot CI Migration
-# Source: .github/workflows/ci-backend.yml
+# Depot CI shadow of .github/workflows/ci-backend.yml. Lives under .depot/ so
+# GitHub Actions ignores it; only Depot CI parses this file. Statuses posted
+# from here are non-blocking; canonical is the authoritative signal.
 #
-# Changes made:
-# - Rewrote .github/ path references to .depot/
-# - Changed GitHub runs-on labels to their Depot equivalents
+# Apples-to-apples is the whole point — keep action pins, env vars, runner
+# sizes, and pytest flags in sync with the canonical workflow. A drift-check
+# job in .github/workflows/ci-backend-shadow-drift.yml fails when canonical
+# changes without a matching depot bump.
+#
+# Intentional deltas vs canonical:
+# - runs-on: depot-* labels instead of ubuntu-latest
+# - action paths: ./.depot/actions/... instead of ./.github/actions/...
+# - permissions: pull-requests:read (no comment/auto-commit side effects)
+# - Stripped side effects: artifact uploads, PR comment posters, snapshot
+#   auto-commit (handle-snapshots), OpenAPI auto-commit, app-token issuance,
+#   posthog-github-action telemetry, --store-durations, test-selection verdict
+# - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
+#   so shared keys with canonical (schema, rust-cache, uv, pnpm) do not collide
+# - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
+# - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
+# - Path-filter persons-SQL folded into migrations; product_yamls dropped
 
 # This workflow runs all of our backend django tests.
 #
@@ -31,6 +46,14 @@ env:
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
+    # Restricted `autoresearch` user defined in docker/clickhouse/users-dev.xml,
+    # pointed at the CI test DB (posthog_test, not `default` as in regular dev).
+    CLICKHOUSE_TEST_CLUSTER_HOST: 'localhost'
+    CLICKHOUSE_TEST_CLUSTER_DATABASE: 'posthog_test'
+    CLICKHOUSE_TEST_CLUSTER_USER: 'autoresearch'
+    CLICKHOUSE_TEST_CLUSTER_PASSWORD: 'autoresearchpass'
+    CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
+    CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
@@ -76,7 +99,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -104,7 +127,7 @@ jobs:
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
             - name: Compute schema cache key from merge-base
@@ -122,7 +145,7 @@ jobs:
                       echo "::notice::merge-base not found — schema cache will be skipped"
                   fi
             - name: Setup pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -165,7 +188,7 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
             # used by core-tests/django which achieves ~1s wait times.
@@ -180,12 +203,12 @@ jobs:
                   compose-profiles: temporal,azure
                   services: db redis7 clickhouse zookeeper kafka objectstorage feature-flags temporal elasticsearch objectstorage-azure
                   cache-key-suffix: turbo-tests
-                  clickhouse-server-image: clickhouse/clickhouse-server:26.3.9.8
+                  clickhouse-server-image: clickhouse/clickhouse-server:26.3.10.60
             - name: Start services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   # nohup detaches the launch so it survives Depot's step-shell teardown
@@ -195,7 +218,7 @@ jobs:
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Setup pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -207,15 +230,15 @@ jobs:
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile --filter=@posthog/root
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -223,12 +246,12 @@ jobs:
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -248,7 +271,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
                   bin/ci-wait-for-docker wait objectstorage \
@@ -292,23 +315,18 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
-        name: Repo checks (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Repo checks (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Lint product structure
@@ -332,7 +350,7 @@ jobs:
         name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -363,7 +381,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -373,12 +391,12 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -387,7 +405,7 @@ jobs:
               uses: ./.depot/actions/setup-sqlx-cli
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   clean: false
@@ -412,7 +430,7 @@ jobs:
                   #   sqlx migrate run --source rust/persons_migrations/
             # Shadow trial: OpenAPI app-token step stripped (secret not available on Depot).
             - name: Checkout this PR
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
@@ -463,7 +481,7 @@ jobs:
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
             - name: Set up Node.js
@@ -598,7 +616,7 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.build_django_matrix.outputs.include) }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -653,9 +671,9 @@ jobs:
                   python-version: ${{ matrix.python-version }}
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -666,13 +684,13 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -806,7 +824,7 @@ jobs:
               run: | # async_migrations covered in ci-async-migrations.yml
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
-                  pytest -v --tb=short --reuse-db ${{
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
                       matrix.compat
                       && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                       || (
@@ -820,7 +838,7 @@ jobs:
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                      ${{ (matrix.person-on-events || matrix.compat) && '--snapshot-update --snapshot-warn-unused' || '' }} \
+                      --snapshot-update --snapshot-warn-unused \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 \
                       --splitting-algorithm=duration_based_chunks \
@@ -876,10 +894,14 @@ jobs:
                   # (verified via boto3 LIST/CREATE/HEAD), so root cause is env-specific and not yet
                   # isolated (tracked for follow-up). All three tests below run that materialize path; the
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
-                  pytest -v --tb=short --reuse-db --timeout=1200 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
+                  # safety net (matches canonical — the per-test guillotine added nothing over it,
+                  # since --timeout-method=thread os._exit()s the whole process anyway).
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                       --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                       --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
+                      --snapshot-update --snapshot-warn-unused \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 \
                       --splitting-algorithm=duration_based_chunks \
@@ -914,7 +936,7 @@ jobs:
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
@@ -1016,13 +1038,12 @@ jobs:
 
                   echo "All checks passed."
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -1030,12 +1051,11 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   clean: false
@@ -1067,9 +1087,9 @@ jobs:
                   python-version-file: 'pyproject.toml'
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1079,12 +1099,12 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
