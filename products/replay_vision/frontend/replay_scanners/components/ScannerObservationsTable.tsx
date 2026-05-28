@@ -37,6 +37,28 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'no', label: 'No' },
 ]
 
+// Nulls (no model output) sort last regardless of direction.
+function compareByScore(a: ReplayObservationApi, b: ReplayObservationApi): number {
+    const sa = readScore(a)
+    const sb = readScore(b)
+    if (sa === null || sb === null) {
+        return sa === sb ? 0 : sa === null ? 1 : -1
+    }
+    return sa - sb
+}
+
+function compareByVerdict(a: ReplayObservationApi, b: ReplayObservationApi): number {
+    const va = readVerdict(a)
+    const vb = readVerdict(b)
+    if (va === vb) {
+        return 0
+    }
+    if (va === null || vb === null) {
+        return va === null ? 1 : -1
+    }
+    return va ? -1 : 1
+}
+
 export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId, tabId })
     const {
@@ -91,38 +113,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                 </div>
             ),
             sorter:
-                scannerType === 'scorer'
-                    ? (a, b) => {
-                          const sa = readScore(a)
-                          const sb = readScore(b)
-                          if (sa === null && sb === null) {
-                              return 0
-                          }
-                          if (sa === null) {
-                              return 1
-                          }
-                          if (sb === null) {
-                              return -1
-                          }
-                          return sa - sb
-                      }
-                    : scannerType === 'monitor'
-                      ? (a, b) => {
-                            const va = readVerdict(a)
-                            const vb = readVerdict(b)
-                            if (va === vb) {
-                                return 0
-                            }
-                            if (va === null) {
-                                return 1
-                            }
-                            if (vb === null) {
-                                return -1
-                            }
-                            // Yes (true) sorts before No (false) ascending.
-                            return va ? -1 : 1
-                        }
-                      : undefined,
+                scannerType === 'scorer' ? compareByScore : scannerType === 'monitor' ? compareByVerdict : undefined,
         },
         {
             title: 'Triggered by',

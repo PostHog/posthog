@@ -41,6 +41,16 @@ export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
 export type ObservationVerdictValue = 'yes' | 'no'
 
+function quantile(sorted: number[], q: number): number {
+    if (sorted.length === 1) {
+        return sorted[0]
+    }
+    const pos = (sorted.length - 1) * q
+    const lo = Math.floor(pos)
+    const hi = Math.ceil(pos)
+    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
+}
+
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
         return { prompt: '', length: 'medium' }
@@ -401,43 +411,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 return items
             },
         ],
-        scorerHistogram: [
-            (s) => [s.scorerScores, s.succeededObservations],
+        scorerSummary: [
+            (s) => [s.scorerScores],
             (
-                scores: number[],
-                observations: ReplayObservationApi[]
-            ): { counts: number[]; labels: string[]; scaleMin: number; scaleMax: number } => {
+                scores: number[]
+            ): { min: number; p25: number; median: number; mean: number; p75: number; max: number } | null => {
                 if (scores.length === 0) {
-                    return { counts: [], labels: [], scaleMin: 0, scaleMax: 1 }
+                    return null
                 }
-                // Bucket against the configured scale so sparse data lines up against the full range.
-                const cfg = observations[0]?.scanner_snapshot?.scanner_config
-                const scale =
-                    cfg && typeof cfg === 'object' && 'scale' in cfg ? (cfg as { scale?: unknown }).scale : null
-                const scaleMin =
-                    scale && typeof (scale as { min?: unknown }).min === 'number'
-                        ? (scale as { min: number }).min
-                        : scores[0]
-                const rawMax =
-                    scale && typeof (scale as { max?: unknown }).max === 'number'
-                        ? (scale as { max: number }).max
-                        : scores[scores.length - 1]
-                const scaleMax = rawMax > scaleMin ? rawMax : scaleMin + 1
-                const bucketCount = 10
-                const step = (scaleMax - scaleMin) / bucketCount
-                const counts = Array.from({ length: bucketCount }, () => 0)
-                for (const score of scores) {
-                    const clamped = Math.max(scaleMin, Math.min(scaleMax, score))
-                    const index = Math.min(bucketCount - 1, Math.floor((clamped - scaleMin) / step))
-                    counts[index] += 1
+                return {
+                    min: scores[0],
+                    p25: quantile(scores, 0.25),
+                    median: quantile(scores, 0.5),
+                    mean: scores.reduce((a, b) => a + b, 0) / scores.length,
+                    p75: quantile(scores, 0.75),
+                    max: scores[scores.length - 1],
                 }
-                const decimals = step >= 1 ? 0 : 1
-                const labels = Array.from(
-                    { length: bucketCount },
-                    (_, i) =>
-                        `${(scaleMin + i * step).toFixed(decimals)}–${(scaleMin + (i + 1) * step).toFixed(decimals)}`
-                )
-                return { counts, labels, scaleMin, scaleMax }
             },
         ],
         // Distinct sessions scanned: last 14 days and total. Surfaces sweep-job coverage.

@@ -90,6 +90,15 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                   : `${Math.floor(durationMs / 60_000)}m ${Math.floor((durationMs % 60_000) / 1000)}s`
             : null
 
+    const seekEmbeddedPlayer = (ms: number): void => {
+        sessionRecordingPlayerLogic
+            .findMounted({
+                playerKey: `vision-observation-${observation.id}`,
+                sessionRecordingId: observation.session_id,
+            })
+            ?.actions.seekToTime(ms)
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -124,14 +133,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                             <ObservationPrimaryOutput
                                 observation={observation}
                                 showPrompt={false}
-                                onSeek={(ms) => {
-                                    sessionRecordingPlayerLogic
-                                        .findMounted({
-                                            playerKey: `vision-observation-${observation.id}`,
-                                            sessionRecordingId: observation.session_id,
-                                        })
-                                        ?.actions.seekToTime(ms)
-                                }}
+                                onSeek={seekEmbeddedPlayer}
                             />
                         </div>
                     )}
@@ -150,14 +152,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                             <p className="text-sm whitespace-pre-wrap m-0">
                                 <CitedText
                                     parts={parseCitedText(reasoning, observation.scanner_result?.event_id_mapping)}
-                                    onSeek={(ms) => {
-                                        sessionRecordingPlayerLogic
-                                            .findMounted({
-                                                playerKey: `vision-observation-${observation.id}`,
-                                                sessionRecordingId: observation.session_id,
-                                            })
-                                            ?.actions.seekToTime(ms)
-                                    }}
+                                    onSeek={seekEmbeddedPlayer}
                                 />
                             </p>
                         ) : (

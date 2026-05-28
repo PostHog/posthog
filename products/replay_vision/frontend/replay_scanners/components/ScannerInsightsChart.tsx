@@ -3,8 +3,15 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { Query } from '~/queries/Query/Query'
-import { AnyPropertyFilter, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
+import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+} from '~/types'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerType } from '../types'
@@ -74,7 +81,7 @@ function buildQuery(
                 },
             ],
             breakdownFilter: {
-                // Union fixed (`scanner_output_tags`) and freeform (`scanner_output_tags_freeform`); arrayJoin gives each tag its own series.
+                // Union fixed + freeform tags; arrayJoin gives each tag its own series.
                 breakdown:
                     "arrayJoin(arrayConcat(JSONExtract(ifNull(properties.scanner_output_tags, '[]'), 'Array(String)'), JSONExtract(ifNull(properties.scanner_output_tags_freeform, '[]'), 'Array(String)')))",
                 breakdown_type: 'hogql',
