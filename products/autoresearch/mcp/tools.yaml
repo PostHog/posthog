@@ -351,41 +351,6 @@ tools:
             synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training run object with
             status, iteration_count, and best_holdout_score. After training completes, call autoresearch-score-create to
             run inference and emit prediction events. You can optionally override the iteration_budget for this run.
-    autoresearch-training-runs-create:
-        operation: autoresearch_training_runs_create
-        enabled: true
-        scopes:
-            - autoresearch:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        mcp_version: 2
-        title: Open a training run
-        description: >
-            Open a new training run for a pipeline and return its id. An agent (your own, the in-house sandbox,
-            or a scheduled job) then records iterations against this run with
-            autoresearch-training-runs-iterations-create and finalizes it with
-            autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally override the
-            iteration_budget for this run.
-    autoresearch-training-runs-iterations-create:
-        operation: autoresearch_training_runs_iterations_create
-        enabled: true
-        scopes:
-            - autoresearch:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        mcp_version: 2
-        title: Record a training iteration
-        description: >
-            Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same
-            number updates that iteration in place. The recipe is validated server-side: model_class in
-            model_spec must be in the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a
-            read-only SELECT keyed on person_id. Use status='kept' if the iteration improved on the best score,
-            'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose
-            the champion.
     autoresearch-training-runs-complete-create:
         operation: autoresearch_training_runs_complete_create
         enabled: true
@@ -395,15 +360,47 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Complete a training run
         description: >
             Finalize a training run. The backend selects the best iteration (highest holdout_score, or the
             best_iteration_id you name), decides champion vs challenger via the promotion ladder (cold-start
-            preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot
-            set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to
-            see the resulting champion/challenger. Optionally pass model_explanation (top features and
-            directionality) for the model card.
+            preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the
+            champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting
+            champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card.
+        mcp_version: 2
+    autoresearch-training-runs-create:
+        operation: autoresearch_training_runs_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Open a training run
+        description: >
+            Open a new training run for a pipeline and return its id. An agent (your own, the in-house sandbox, or a
+            scheduled job) then records iterations against this run with autoresearch-training-runs-iterations-create
+            and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally
+            override the iteration_budget for this run.
+        mcp_version: 2
+    autoresearch-training-runs-iterations-create:
+        operation: autoresearch_training_runs_iterations_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Record a training iteration
+        description: >
+            Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number
+            updates that iteration in place. The recipe is validated server-side: model_class in model_spec must be in
+            the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a read-only SELECT keyed on
+            person_id. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed'
+            on failure. Iterations are picked up at completion time to choose the champion.
+        mcp_version: 2
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list
         enabled: true
