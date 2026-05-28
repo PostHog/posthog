@@ -150,10 +150,9 @@ fn build_query_wrapper_request(
             .and_then(|s| s.get("kind"))
             .and_then(|k| k.as_str())
             .ok_or_else(|| anyhow::anyhow!("Actors query requires `source.kind`"))?;
-        let variant = actors
-            .source_kind_map
-            .get(source_kind)
-            .ok_or_else(|| anyhow::anyhow!("Unsupported source kind for actors query: {source_kind}"))?;
+        let variant = actors.source_kind_map.get(source_kind).ok_or_else(|| {
+            anyhow::anyhow!("Unsupported source kind for actors query: {source_kind}")
+        })?;
 
         let mut select: Vec<Value> = variant.select.iter().cloned().map(Value::String).collect();
         if let Some(field) = &actors.include_recordings_field {
@@ -169,7 +168,14 @@ fn build_query_wrapper_request(
         wrapped.insert("select".to_string(), Value::Array(select));
         wrapped.insert(
             "orderBy".to_string(),
-            Value::Array(variant.order_by.iter().cloned().map(Value::String).collect()),
+            Value::Array(
+                variant
+                    .order_by
+                    .iter()
+                    .cloned()
+                    .map(Value::String)
+                    .collect(),
+            ),
         );
         wrapped.insert("limit".to_string(), json!(variant.limit));
         wrapped
@@ -258,7 +264,9 @@ fn encode_uri_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         let c = b as char;
-        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '!' | '~' | '*' | '\'' | '(' | ')') {
+        if c.is_ascii_alphanumeric()
+            || matches!(c, '-' | '_' | '.' | '!' | '~' | '*' | '\'' | '(' | ')')
+        {
             out.push(c);
         } else {
             out.push_str(&format!("%{b:02X}"));
@@ -277,7 +285,8 @@ mod tests {
     // Wire-level goldens captured from the REAL MCP handlers by
     // services/mcp/scripts/generate-cli-conformance.ts. Asserting against these makes
     // request parity with the MCP a CI-enforced invariant, not a re-derivation.
-    const CONFORMANCE_GOLDENS: &str = include_str!("../../../services/mcp/schema/cli-conformance-goldens.json");
+    const CONFORMANCE_GOLDENS: &str =
+        include_str!("../../../services/mcp/schema/cli-conformance-goldens.json");
 
     fn req(tool_name: &str, params: Value) -> ResolvedRequest {
         let manifest = load_manifest().expect("manifest parses");
@@ -288,7 +297,10 @@ mod tests {
     #[test]
     fn manifest_parses_and_is_nonempty() {
         let manifest = load_manifest().expect("generated manifest parses");
-        assert!(manifest.tools.len() > 100, "expected the full generated tool set");
+        assert!(
+            manifest.tools.len() > 100,
+            "expected the full generated tool set"
+        );
     }
 
     // Golden expectations are derived from the authoritative MCP source:
@@ -321,7 +333,10 @@ mod tests {
     #[test]
     fn get_all_builds_query_in_handler_order_with_casts() {
         // Input order is intentionally reversed; output must follow manifest (handler) order.
-        let r = req("feature-flag-get-all", json!({ "search": "foo", "limit": "10" }));
+        let r = req(
+            "feature-flag-get-all",
+            json!({ "search": "foo", "limit": "10" }),
+        );
         assert_eq!(r.method, "GET");
         assert_eq!(r.path, "/api/projects/2/feature_flags/");
         assert_eq!(
@@ -341,7 +356,10 @@ mod tests {
             json!({ "tags": ["a", "b"], "excluded_properties": [] }),
         );
         // empty array dropped, non-empty array JSON-stringified
-        assert_eq!(r.query, vec![("tags".to_string(), r#"["a","b"]"#.to_string())]);
+        assert_eq!(
+            r.query,
+            vec![("tags".to_string(), r#"["a","b"]"#.to_string())]
+        );
     }
 
     #[test]
@@ -356,7 +374,9 @@ mod tests {
         let manifest = load_manifest().unwrap();
         let tool = manifest.tools.get("feature-flag-get-definition").unwrap();
         let err = build_request(tool, &json!({}), PROJECT_ID).unwrap_err();
-        assert!(err.to_string().contains("Missing required path parameter: id"));
+        assert!(err
+            .to_string()
+            .contains("Missing required path parameter: id"));
     }
 
     #[test]
@@ -426,7 +446,10 @@ mod tests {
 
     #[test]
     fn query_trends_actors_omits_recordings_when_not_requested() {
-        let r = req("query-trends-actors", json!({ "source": { "kind": "TrendsQuery" } }));
+        let r = req(
+            "query-trends-actors",
+            json!({ "source": { "kind": "TrendsQuery" } }),
+        );
         let select = &r.body.unwrap()["query"]["select"];
         assert_eq!(select, &json!(["actor", "event_count"]));
     }
@@ -434,7 +457,10 @@ mod tests {
     #[test]
     fn query_lifecycle_actors_uses_lifecycle_variant() {
         // Same tool family, different source.kind → different select/orderBy (mirrors client.ts).
-        let r = req("query-lifecycle-actors", json!({ "source": { "kind": "LifecycleQuery" } }));
+        let r = req(
+            "query-lifecycle-actors",
+            json!({ "source": { "kind": "LifecycleQuery" } }),
+        );
         let query = &r.body.unwrap()["query"];
         assert_eq!(query["select"], json!(["actor"]));
         assert_eq!(query["orderBy"], json!([]));
@@ -445,14 +471,22 @@ mod tests {
     fn actors_unsupported_source_kind_errors() {
         let manifest = load_manifest().unwrap();
         let tool = manifest.tools.get("query-trends-actors").unwrap();
-        let err = build_request(tool, &json!({ "source": { "kind": "PathsQuery" } }), PROJECT_ID).unwrap_err();
+        let err = build_request(
+            tool,
+            &json!({ "source": { "kind": "PathsQuery" } }),
+            PROJECT_ID,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("Unsupported source kind"));
     }
 
     #[test]
     fn persons_property_delete_applies_rename() {
         // rename_params: agent passes `unset`, the wire sends `$unset`.
-        let r = req("persons-property-delete", json!({ "id": "abc", "unset": ["email"] }));
+        let r = req(
+            "persons-property-delete",
+            json!({ "id": "abc", "unset": ["email"] }),
+        );
         assert_eq!(r.method, "POST");
         assert_eq!(r.path, "/api/projects/2/persons/abc/delete_property/");
         assert_eq!(r.body, Some(json!({ "$unset": ["email"] })));
@@ -460,7 +494,10 @@ mod tests {
 
     #[test]
     fn external_data_sources_create_injects_body_and_applies_default() {
-        let r = req("external-data-sources-create", json!({ "source_type": "Stripe" }));
+        let r = req(
+            "external-data-sources-create",
+            json!({ "source_type": "Stripe" }),
+        );
         let body = r.body.unwrap();
         assert_eq!(body["source_type"], json!("Stripe"));
         assert_eq!(body["created_via"], json!("mcp")); // inject_body
@@ -483,7 +520,10 @@ mod tests {
         let goldens: serde_json::Map<String, Value> =
             serde_json::from_str(CONFORMANCE_GOLDENS).expect("goldens parse");
         let manifest = load_manifest().unwrap();
-        assert!(goldens.len() >= 5, "expected a meaningful conformance corpus");
+        assert!(
+            goldens.len() >= 5,
+            "expected a meaningful conformance corpus"
+        );
 
         for (name, entry) in &goldens {
             let params = &entry["params"];
@@ -492,16 +532,29 @@ mod tests {
                 .tools
                 .get(name)
                 .unwrap_or_else(|| panic!("golden tool {name} missing from manifest"));
-            let r = build_request(tool, params, PROJECT_ID).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let r =
+                build_request(tool, params, PROJECT_ID).unwrap_or_else(|e| panic!("{name}: {e}"));
 
-            assert_eq!(r.method, expected["method"].as_str().unwrap(), "method mismatch for {name}");
-            assert_eq!(r.path, expected["path"].as_str().unwrap(), "path mismatch for {name}");
+            assert_eq!(
+                r.method,
+                expected["method"].as_str().unwrap(),
+                "method mismatch for {name}"
+            );
+            assert_eq!(
+                r.path,
+                expected["path"].as_str().unwrap(),
+                "path mismatch for {name}"
+            );
             let r_query: serde_json::Map<String, Value> = r
                 .query
                 .iter()
                 .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                 .collect();
-            assert_eq!(Value::Object(r_query), expected["query"], "query mismatch for {name}");
+            assert_eq!(
+                Value::Object(r_query),
+                expected["query"],
+                "query mismatch for {name}"
+            );
             let r_body = r.body.clone().unwrap_or(Value::Null);
             assert_eq!(r_body, expected["body"], "body mismatch for {name}");
         }

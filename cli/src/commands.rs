@@ -52,6 +52,13 @@ pub enum Commands {
         cmd: ExpCommand,
     },
 
+    /// Write the PostHog CLI steering block into an agent instructions file (default AGENTS.md)
+    Init {
+        /// Target file to write the steering block into
+        #[arg(long, default_value = "AGENTS.md")]
+        path: String,
+    },
+
     #[command(about = "Upload a directory of bundled chunks to PostHog")]
     Sourcemap {
         #[command(subcommand)]
@@ -152,7 +159,10 @@ pub enum SchemaCommand {
     Status,
 }
 
-fn handle_run_result(result: Result<(), CapturedError>, no_fail: bool) -> Result<(), CapturedError> {
+fn handle_run_result(
+    result: Result<(), CapturedError>,
+    no_fail: bool,
+) -> Result<(), CapturedError> {
     match result {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -211,6 +221,7 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                | Commands::Init { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
                 }
@@ -227,6 +238,9 @@ impl Cli {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
+            }
+            Commands::Init { path } => {
+                crate::agent::init::run(&path)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {

@@ -39,12 +39,18 @@ fn leak(s: &str) -> &'static str {
 /// Add a subcommand per category (e.g. `feature-flag`) with a sub-subcommand per verb
 /// (e.g. `create`), exposing scalar params as `--flags` plus a `--json` escape hatch.
 pub fn augment_with_categories(mut cmd: Command, manifest: &Manifest) -> Command {
-    let existing: std::collections::HashSet<String> =
-        cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
+    let existing: std::collections::HashSet<String> = cmd
+        .get_subcommands()
+        .map(|s| s.get_name().to_string())
+        .collect();
 
-    let mut by_category: std::collections::BTreeMap<&str, Vec<&Tool>> = std::collections::BTreeMap::new();
+    let mut by_category: std::collections::BTreeMap<&str, Vec<&Tool>> =
+        std::collections::BTreeMap::new();
     for tool in manifest.tools.values() {
-        by_category.entry(tool.category.as_str()).or_default().push(tool);
+        by_category
+            .entry(tool.category.as_str())
+            .or_default()
+            .push(tool);
     }
 
     for (category, tools) in by_category {
@@ -60,11 +66,18 @@ pub fn augment_with_categories(mut cmd: Command, manifest: &Manifest) -> Command
         for tool in tools {
             let mut verb_cmd = Command::new(leak(&tool.verb))
                 .about(format!("{} {}", tool.method, tool.path))
-                .long_about(format!("{} {}\nMCP tool: {}", tool.method, tool.path, tool.mcp_name));
+                .long_about(format!(
+                    "{} {}\nMCP tool: {}",
+                    tool.method, tool.path, tool.mcp_name
+                ));
 
             for p in all_params(tool) {
                 if p.flag_eligible {
-                    let value_name = if p.ty.is_empty() { "VALUE".to_string() } else { p.ty.to_uppercase() };
+                    let value_name = if p.ty.is_empty() {
+                        "VALUE".to_string()
+                    } else {
+                        p.ty.to_uppercase()
+                    };
                     verb_cmd = verb_cmd.arg(
                         Arg::new(leak(&p.name))
                             .long(leak(&p.name))
@@ -93,7 +106,11 @@ pub fn augment_with_categories(mut cmd: Command, manifest: &Manifest) -> Command
 }
 
 /// Run a per-category invocation. `context()` must already be initialized.
-pub fn dispatch_category(manifest: &Manifest, category: &str, cat_matches: &ArgMatches) -> Result<()> {
+pub fn dispatch_category(
+    manifest: &Manifest,
+    category: &str,
+    cat_matches: &ArgMatches,
+) -> Result<()> {
     let (verb, verb_matches) = cat_matches
         .subcommand()
         .ok_or_else(|| anyhow::anyhow!("Expected a subcommand under `{category}`"))?;
@@ -116,7 +133,11 @@ pub fn dispatch_category(manifest: &Manifest, category: &str, cat_matches: &ArgM
     for p in all_params(tool) {
         if p.flag_eligible {
             if let Some(raw) = verb_matches.get_one::<String>(&p.name) {
-                let ty = if p.ty.is_empty() { None } else { Some(p.ty.as_str()) };
+                let ty = if p.ty.is_empty() {
+                    None
+                } else {
+                    Some(p.ty.as_str())
+                };
                 params.insert(p.name.clone(), flag_value_to_json(raw, ty));
             }
         }
@@ -168,8 +189,8 @@ fn execute_tool(tool: &Tool, params: Value, dry_run: bool) -> Result<()> {
         }
     }
 
-    let method =
-        Method::from_bytes(request.method.as_bytes()).with_context(|| format!("Invalid HTTP method: {}", request.method))?;
+    let method = Method::from_bytes(request.method.as_bytes())
+        .with_context(|| format!("Invalid HTTP method: {}", request.method))?;
 
     let body = request.body.clone();
     let response = context()
@@ -212,17 +233,29 @@ impl AgentCommand {
         match self {
             AgentCommand::List => {
                 for (name, tool) in &manifest.tools {
-                    let flag = if tool.annotations.read_only { "ro" } else { "rw" };
-                    println!("{}\t{} {}\t[{flag}]\t{} {}", tool.category, tool.verb, name, tool.method, tool.path);
+                    let flag = if tool.annotations.read_only {
+                        "ro"
+                    } else {
+                        "rw"
+                    };
+                    println!(
+                        "{}\t{} {}\t[{flag}]\t{} {}",
+                        tool.category, tool.verb, name, tool.method, tool.path
+                    );
                 }
                 Ok(())
             }
-            AgentCommand::Run { tool, json, dry_run } => {
+            AgentCommand::Run {
+                tool,
+                json,
+                dry_run,
+            } => {
                 let tool_def = manifest
                     .tools
                     .get(tool)
                     .ok_or_else(|| anyhow::anyhow!("Unknown tool: {tool}"))?;
-                let params: Value = serde_json::from_str(json).context("--json must be a valid JSON object")?;
+                let params: Value =
+                    serde_json::from_str(json).context("--json must be a valid JSON object")?;
                 execute_tool(tool_def, params, *dry_run)
             }
         }
