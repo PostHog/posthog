@@ -1042,7 +1042,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
         )
 
-        cdc_enabled = payload.get("cdc_enabled", False) and is_cdc_enabled_for_team(self.team)
+        # CDC is Postgres-only today — fold the source-type check in here so every downstream
+        # `if cdc_enabled` block is safe without repeating it.
+        cdc_enabled = (
+            payload.get("cdc_enabled", False)
+            and source_type_model == ExternalDataSourceType.POSTGRES
+            and is_cdc_enabled_for_team(self.team)
+        )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
         if is_direct_postgres:
@@ -1102,7 +1108,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
-        if cdc_enabled and source_type_model == ExternalDataSourceType.POSTGRES:
+        if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
             for schema in payload_schemas:
