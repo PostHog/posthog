@@ -1,0 +1,330 @@
+# Design — draft preview via Django proxy (preview-proxy path)
+
+**Status:** draft. **Owner:** ben.
+
+> Confirmed PoC: today an `auth.mode: 'public'` draft is invokable
+> anonymously via `?revision_id=<uuid>` or the `<slug>-<prefix>`
+> form. A live revision can be locked down with `auth.mode: 'pat'`
+> and the draft still answers anyone who knows (or guesses) its
+> UUID prefix.
+
+## 1. Problem
+
+The override-resolution paths
+([`revision-routing.md`](revision-routing.md)) point at a non-live
+revision, then run `authorize()` against **that revision's**
+`spec.auth.mode`. If the draft says `public`, anyone who knows the
+URL invokes it anonymously — even if the live revision requires a
+PAT, an internal header, or a shared secret. Live auth doesn't
+protect the draft surface.
+
+The right contract is that the draft's _own_ `spec.auth.mode` still
+governs **what runs against it once invoked** (authors keep `public`
+during dev so they don't have to set up a PAT loop), but **getting
+to the draft surface at all** requires a trusted authoring source.
+
+## 2. Why a proxy, not a token-in-URL
+
+An earlier shape of this plan minted HMAC-signed tokens embedded in
+the preview URL. We rejected it because:
+
+- **LLM safety.** An authoring AI handling preview URLs would have
+  to handle a secret-bearing token. Even with TTLs and HMAC the
+  raw URL trivially leaks into LLM transcripts, Slack pastes, log
+  files. One leaked URL is a working credential until its expiry.
+- **No good URL-redaction story.** Tokens look enough like
+  opaque-ID-blobs that ingress / janitor log scrubbers would have
+  to learn a new shape.
+- **Operational rotation.** Rotating the HMAC secret invalidates
+  every outstanding preview URL — same hazard as rotating
+  `SECRET_KEY`, but the URLs sit in customer Slack threads forever.
+
+Instead, Django proxies. The ingress already has `INTERNAL_SECRET`
+that Django sends to the janitor on every bundle proxy call —
+re-use the same trust boundary for draft invokes:
+
+```text
+   MCP / UI / teammate
+          │
+          │  POST  /api/projects/X/agent_applications/<app>/preview-proxy/run
+          │  (authenticated as a Django user)
+          ▼
+        Django proxy
+          │
+          │  POST  /agents/<slug>/run?revision_id=<uuid>
+          │  x-agent-preview-secret: $INTERNAL_SECRET
+          ▼
+        Ingress  ─►  verify header for non-live  →  enqueue
+```
+
+The secret never leaves the Django ↔ ingress server-server boundary.
+LLMs / browsers / Slack URLs only ever see PostHog's normal Django
+URLs and PostHog's normal auth flow.
+
+## 3. The Django proxy endpoint
+
+New nested action on `AgentApplicationViewSet`:
+
+```text
+ANY  /api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>?revision_id=<uuid>
+```
+
+Routes:
+
+- Auth: the **standard** Django auth (session cookie or PAT) — same
+  scopes as `agent_application:read`. Users without read on the
+  agent can't invoke its drafts.
+- Validate that `<rest>` matches one of the allowlisted ingress
+  paths: `run` (POST), `send` (POST), `cancel` (POST),
+  `listen` (GET, SSE), and the webhook trigger
+  `webhook/<path>` (POST). Anything else 404s without forwarding.
+- Resolve the revision: `revision_id` must be present in the query
+  string and must belong to `<app>`. Refuse if it does — no
+  cross-app reuse.
+- Refuse if `revision_id == application.live_revision_id`. Live
+  invocation has its own public ingress URL; the proxy is
+  draft-only by contract. Forces a hard separation between
+  "production traffic" and "preview traffic" in metrics and logs.
+- Forward to `INGRESS_URL/agents/<slug>/<rest>?revision_id=<uuid>`,
+  attaching:
+  - `x-agent-preview-secret: $INTERNAL_SECRET` (the marker the
+    ingress trusts)
+  - the request body, headers (minus `Host`, `Authorization`,
+    `Cookie` — those identify the _Django_ caller, not the agent's
+    caller)
+  - a `x-agent-preview-issuer` header capturing the resolved
+    Django user id, for activity-log attribution
+
+The response streams back to the original caller. `StreamingHttpResponse`
+handles SSE (`listen`) cleanly under granian / ASGI; chunked
+proxying for the rest. Connection close on the original side
+propagates to the upstream call via `requests.get(stream=True)` plus
+`.close()` semantics.
+
+## 4. The ingress gate
+
+```typescript
+async resolveBySlug(
+    rawSlug: string,
+    opts?: { revisionId?: string }
+): Promise<ResolvedAgent | null> {
+    const resolved = /* existing resolution logic */
+    if (!resolved) {
+        return null
+    }
+    if (resolved.revision.id !== resolved.application.live_revision_id) {
+        // Non-live invoke — require the preview-secret header.
+        if (!this.opts.previewSecret) {
+            // Misconfigured deployment.
+            return null
+        }
+        const provided = req.headers['x-agent-preview-secret']
+        if (!provided || !timingSafeEqual(provided, this.opts.previewSecret)) {
+            throw new MissingPreviewSecretError()
+        }
+    }
+    return resolved
+}
+```
+
+(The actual API plumbs the header into `resolveAgent()` since the
+resolver doesn't have `req`. Same shape as the existing
+ambiguous-revision check — throw, error-middleware translates to
+401.)
+
+The `previewSecret` value comes from `AGENT_PREVIEW_SECRET` env on
+the ingress, matching `AGENT_PREVIEW_SECRET` on the Django side.
+For v0 we reuse the already-existing `INTERNAL_SECRET` value (the
+janitor secret) since the trust boundary is identical — Django ↔
+node services. Document this as the convention; split into a
+distinct secret only if a use case demands rotation independent of
+the janitor relationship.
+
+## 5. What about Slack / webhook drafts?
+
+A Slack-trigger or webhook-trigger draft can't be tested via the
+proxy because external callers (Slack event subscriptions, customer
+Zapier flows) need to hit a stable public URL — they can't be
+asked to authenticate through Django first.
+
+Three options for those cases:
+
+1. **Promote-to-test.** Draft a new app slug, promote it, test
+   against that. Once verified, archive the test app. Heavy but
+   clean.
+2. **Slack app per environment.** Register a separate Slack app
+   for staging; each draft is wired to its dedicated Slack app
+   URL. Standard Slack dev workflow anyway.
+3. **Time-bound exception URL.** A future plan could mint
+   per-draft URLs for Slack / webhook with the token-in-URL
+   approach for _this narrow case only_. Out of scope for v0 —
+   tackle when a customer asks.
+
+We expect (1) and (2) to cover the vast majority of dev workflows.
+The proxy path covers (a) authoring-AI test runs, (b) UI preview
+buttons, (c) human teammate-review of a chat draft — which are the
+high-value cases.
+
+## 6. Inner auth contract — unchanged
+
+After the gate passes, `authorize()` runs against
+`resolved.revision.spec.auth.mode` exactly as today. A draft with
+`mode: 'public'` still treats the proxied invocation as anonymous —
+but only callers who passed through Django's auth and the
+preview-secret check ever reach `authorize()` for the draft.
+
+This preserves the existing two-layer model:
+
+1. **Ingress entry gate** — "who can talk to this surface at all".
+   For live: the public DNS shape. For drafts: must come through
+   Django's proxy (carrying the secret).
+2. **Spec auth gate** — "what principal the session runs under".
+   `spec.auth.mode` unchanged.
+
+For the **live** path nothing changes. A live revision with
+`auth.mode: 'public'` keeps being publicly invokable on its
+ingress URL.
+
+## 7. MCP integration
+
+A new MCP tool `agent-applications-revisions-invoke-create`:
+
+```text
+agent-applications-revisions-invoke-create {
+    "id": "<app-uuid>",
+    "session_id": "<existing-uuid-or-omit-for-new>",
+    "revision_id": "<draft-uuid>",
+    "message": "string"
+}
+```
+
+The tool calls the Django `preview-proxy/run` endpoint (for new
+sessions) or `preview-proxy/send` (for follow-ups). MCP's auth is
+already the user's PAT, which has team-scoped read access, so the
+authorization-via-Django chain works naturally.
+
+The authoring AI can now build, validate, and invoke drafts entirely
+through MCP — no need to ever construct an ingress URL manually.
+
+This makes the suggestion in
+[`agent-authoring-flow.md`](agent-authoring-flow.md) §5 concrete:
+the AI's "run a test against the draft" step is one tool call, not
+a URL-construction exercise.
+
+## 8. Surfaces that change
+
+- **agent-ingress** — `previewSecret` on `ResolverOpts`; the gate
+  inside `resolveBySlug`; env wiring for `AGENT_PREVIEW_SECRET`
+  (reuses `INTERNAL_SECRET` value by convention in v0).
+- **Django (`products/agent_stack/backend/api.py`)** — new
+  `preview_proxy` action on `AgentApplicationViewSet`; uses
+  `requests` with `stream=True` so SSE works. Same allowlist of
+  `<rest>` paths shipped in code.
+- **MCP YAML** — `agent-applications-revisions-invoke-create`
+  tool entry. The proxy-path itself isn't a great MCP surface (it's
+  too generic); the invoke tool wraps it as a chat-trigger send.
+- **agent-tests harness** — no change required. The harness drives
+  the ingress directly with an in-process `RevisionResolver`; the
+  gate can be opt-in (`previewSecret: undefined` skips the check
+  in dev).
+
+## 9. Rollout
+
+**v0 — observe.**
+
+- Ingress gate added but in advisory mode: log a warning when a
+  non-live invoke arrives without the preview-secret header, do
+  not refuse the request.
+- Django proxy endpoint shipped; MCP tool wired.
+- Authoring UI's "preview" button calls through the proxy.
+- Operators watch the warning log to spot any non-compliant
+  callers (legacy bookmarks, undocumented automation).
+
+**v1 — enforce.**
+
+- Flip the verifier to fail-closed. Non-live invokes without the
+  header return 401.
+- `AGENT_PREVIEW_ENFORCED=true` env knob per environment so the
+  cutover is explicit per deployment. Production sets it; the
+  harness defaults off so test code stays simple.
+
+**v2 — activity-log + observability.**
+
+- Successful preview invokes write to the activity log (cross-cut
+  introduced by B.1) with `preview_issuer` (Django user id),
+  `application_id`, `revision_id`. So "who hit my draft" is
+  answerable from PostHog.
+- Per-team metric: count of preview invokes by issuer + revision,
+  for dashboards.
+
+## 10. Operational concerns
+
+1. **Secret rotation.** `AGENT_PREVIEW_SECRET` rotates like the
+   existing `INTERNAL_SECRET`: deploy the new secret first to the
+   ingress (accepting either of two values during overlap), then
+   to Django. No URLs to invalidate — secret lives only between
+   Django and ingress.
+2. **Cross-region.** US-deployment Django proxies to US ingress;
+   EU Django to EU ingress. The proxy URL is `posthog.com`-scoped
+   per region anyway.
+3. **Latency.** Every preview invoke adds one Django hop. Acceptable
+   for human-driven UI clicks; the authoring-AI testing loop is the
+   higher-volume case but it's also the case where one extra hop
+   inside a multi-second model call is noise. Stream-through the
+   SSE response so `/listen` doesn't double-buffer.
+4. **Audit logging.** The proxy lives inside Django so we get the
+   PostHog request audit trail (user, IP, project) for free. The
+   ingress side adds the agent-platform activity-log entry. Two
+   logs join cleanly on `application_id + revision_id + ts`.
+5. **Header allowlist.** Don't forward `Host`, `Authorization`,
+   `Cookie` upstream — they reference Django session state, not
+   the agent's caller. Do forward `Content-Type`, custom headers
+   the body uses. Allowlist-not-blocklist.
+
+## 11. Open questions
+
+1. **`x-posthog-mcp-conversation-id` carry-through.** When MCP
+   invokes a draft via the proxy, the conversation ID should
+   propagate so the resulting session is linkable back to the MCP
+   conversation that started it. Need to forward this header in
+   the proxy path (allowlisted).
+2. **Multipart bodies.** Webhook drafts could in theory accept
+   multipart payloads. Django's proxy needs to stream the body
+   without buffering. Skip for v0 — drafts are JSON-only.
+3. **Long-lived `/listen` SSE under granian.** The proxy holds an
+   upstream connection open. granian + ASGI can do this, but it
+   ties up a worker. Worth benchmarking once we have a handful of
+   simultaneous preview streams.
+4. **Concurrency limits on the proxy.** Should the proxy share
+   per-team rate-limit budget with the live ingress, or have its
+   own? Composes with
+   [`rate-limiting-sessions.md`](rate-limiting-sessions.md). Plan:
+   preview invokes count against the same budget by default;
+   teams that want to test heavily can lift the cap themselves.
+
+## 12. Dependencies + what this enables
+
+**Hard depends on:** nothing. Django proxy + ingress gate are new
+code; the `INTERNAL_SECRET` reuse means no new env wiring.
+
+**Composes with:**
+
+- [`revision-routing.md`](revision-routing.md) — the proxy still
+  resolves drafts via the same `?revision_id` mechanism. The
+  subdomain / suffix forms remain as the _public_ surface for live
+  agents; drafts move to the proxy URL.
+- [`per-session-access-elevation.md`](per-session-access-elevation.md)
+  §8 — activity-log integration captures `preview_issuer`.
+- [`agent-authoring-flow.md`](agent-authoring-flow.md) — the
+  authoring AI's "test the draft" step uses the new MCP tool.
+- [`rate-limiting-sessions.md`](rate-limiting-sessions.md) —
+  preview invokes share team budget by default.
+
+**What this unblocks:**
+
+- Closing the anonymous-draft-invoke gap surfaced in the audit.
+- A real "preview" button in the authoring UI that doesn't
+  require constructing or sharing secret URLs.
+- MCP-driven `build → validate → invoke draft` as a single
+  closed loop without ever exposing routing-layer secrets to the
+  LLM.

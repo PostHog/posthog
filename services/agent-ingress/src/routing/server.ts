@@ -18,7 +18,7 @@ import { chatRouter } from '../triggers/chat'
 import { mcpRouter } from '../triggers/mcp'
 import { slackRouter } from '../triggers/slack'
 import { webhookRouter } from '../triggers/webhook'
-import { RevisionResolver, RoutingMode } from './resolver'
+import { AmbiguousRevisionError, RevisionResolver, RoutingMode } from './resolver'
 
 export interface BuildAppOpts {
     revisions: RevisionStore
@@ -64,6 +64,16 @@ export function buildApp(opts: BuildAppOpts): Express {
     app.use(mount, mcpRouter(triggerDeps))
 
     app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+        if (err instanceof AmbiguousRevisionError) {
+            res.status(400).json({
+                error: 'ambiguous_revision',
+                prefix: err.prefix,
+                application_id: err.applicationId,
+                candidates: err.candidates,
+                detail: 'Multiple revisions match this prefix; re-issue with a longer prefix or pass ?revision_id.',
+            })
+            return
+        }
         log.error({ err: err.message, stack: err.stack, path: req.path, method: req.method }, 'unhandled')
         res.status(500).json({ error: 'internal_error' })
     })

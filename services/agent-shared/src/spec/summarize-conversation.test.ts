@@ -1,7 +1,7 @@
-import { ConversationMessage } from './spec'
+import { AssistantMessageRecord, ConversationMessage, UserMessage } from './spec'
 import { lastAssistantTextPreview, totalConversationUsage } from './summarize-conversation'
 
-function user(content: string): ConversationMessage {
+function user(content: string): UserMessage {
     return { role: 'user', content, timestamp: Date.now() }
 }
 
@@ -19,7 +19,7 @@ function assistant({
     output = 0,
     costIn = 0,
     costOut = 0,
-}: AssistantOpts = {}): ConversationMessage {
+}: AssistantOpts = {}): AssistantMessageRecord {
     return {
         role: 'assistant',
         content: text ? [{ type: 'text', text }] : [],
@@ -100,9 +100,11 @@ describe('totalConversationUsage', () => {
     })
 
     it('ignores user / toolResult messages and assistant turns missing usage', () => {
+        const noUsage = assistant({ text: 'no-usage reply' })
+        noUsage.usage = undefined
         const c: ConversationMessage[] = [
             user('q'),
-            { ...assistant({ text: 'no-usage reply' }), usage: undefined },
+            noUsage,
             assistant({ text: 'counted reply', input: 7, output: 1, costIn: 0, costOut: 0 }),
         ]
         const total = totalConversationUsage(c)

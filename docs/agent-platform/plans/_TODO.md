@@ -48,33 +48,32 @@ file (and out of this list) once the design lands.
       radius; `agent_cron_firing` table dedups across replicas; firings
       coalesce into long-running sessions via `external_key_reuse`.
 
-- [ ] **Streaming deltas into SessionEventBus.** Today `run-turn.ts`
-      calls `pi.invoke()` and waits for the full `AssistantMessage`,
-      then emits one `assistant_text` event per text block. Swap to
-      `stream()` and forward `text_delta` / `thinking_delta` /
-      `toolcall_delta` events into `bus.publish` so `/listen` SSE
-      consumers see tokens live. Tool dispatch still waits for
-      `toolcall_end` (full args). Add `assistant_text_delta` +
-      `assistant_thinking` event kinds; `PiClient` grows a `stream()`
-      method alongside `invoke()`.
+- [x] ~~**Streaming deltas + unified reasoning knob**~~ — see
+      [`streaming-and-reasoning.md`](streaming-and-reasoning.md).
+      `PiClient.stream()` alongside `invoke()`; new event kinds for
+      text/thinking/toolcall deltas; `spec.reasoning?: 'low' | 'medium'
+  | 'high'` plumbed through `InvokeOpts`. Two features in one plan
+      because they share the pi-ai stream surface.
 
-- [ ] **Per-turn cost capture on the session row.** pi-ai populates
-      `result.usage.cost.{input,output,total}` and the runner currently
-      drops it — only `tokensIn`/`tokensOut` get logged. Accumulate
-      per-turn tokens + cost onto the session row (new `usage_total`
-      jsonb column on `agent_session_v2`, persist via `onTurnPersist`).
-      Foundation for cost-attribution / budgets surface (a future plan
-      hinted at across rate-limiting / sandboxed / self-healing).
+- [x] ~~**Per-turn cost capture on the session row**~~ — see
+      [`per-turn-cost-capture.md`](per-turn-cost-capture.md). New
+      `usage_total` JSONB column on `agent_session`; runner accumulates
+      tokens + cost on every `onTurnPersist`; backfill via a janitor
+      endpoint. Replaces the derive-from-conversation summary helper
+      for live reads, unblocks cost rollups + budget admission.
 
-- [ ] **Unified `reasoning` knob on `AgentSpec`.** Reasoning models
-      (Anthropic extended thinking, OpenAI o-series, Gemini thinking)
-      get only provider defaults today. Add optional
-      `spec.reasoning?: 'low' | 'medium' | 'high'`; runner forwards it
-      to pi-ai via `completeSimple()` / `SimpleStreamOptions.reasoning`.
-      One config, all providers.
+- [x] ~~**Typed config loader for env vars**~~ — see
+      [`typed-config-loader.md`](typed-config-loader.md). One zod
+      schema per service; `process.env.*` outside `config.ts` blocked
+      by lint; generated deploy-runbook from the schemas. Pilots on
+      agent-janitor first (smallest surface), sweeps to the rest.
 
-- [ ] Clean up all env vars django or nodejs side
-      Some env vars do direct process.env access - this should all be abstracted to a typed config loader or the standard django settings concept with sensible defaults
+- [x] ~~**Revision routing (subdomain + suffix)**~~ — see
+      [`revision-routing.md`](revision-routing.md). Production:
+      `<revision-prefix>.<slug>.agents.posthog.com/...`. Local dev:
+      `/agents/<slug>-<revision-prefix>/...`. Both forms collapse into
+      the same resolver path; existing `?revision_id=<uuid>` override
+      stays as the canonical "I know the full UUID" form.
 
 - [ ] **MCP tools for invoking a created agent.** The `agent_stack`
       MCP surface today is authoring-only (`agent-applications-*`,
@@ -90,46 +89,53 @@ file (and out of this list) once the design lands.
 
 - [ ] **Defensive programming across the three node services.** A
       malformed request to the janitor today can take the process down.
-      Initial pass landed; remaining gaps captured here. - [x] ~~janitor global express error handler~~ — shipped at
-      [`server.ts:438`](../../../services/agent-janitor/src/server.ts)
-      via `errorHandler(log)` in
-      [`http-utils.ts`](../../../services/agent-janitor/src/http-utils.ts).
-      Distinguishes `ZodError` (400 with structured issues) from
-      unknown errors (500). All async routes wrapped in
-      `asyncHandler` so rejections funnel through it. - [x] ~~zod-validate bodies + query at the edge~~ — every
-      janitor endpoint now parses inputs via zod; the
-      `typeof null === 'object'` hole on `PUT /revisions/:id/bundle`
-      and the non-string content variant are covered by regression
-      tests in
-      [`server.test.ts`](../../../services/agent-janitor/src/server.test.ts). - [x] ~~process-level guards in all three services~~ —
-      `installProcessHandlers(log)` in
-      [`process-handlers.ts`](../../../services/agent-shared/src/runtime/process-handlers.ts);
-      wired into the three `index.ts` files.
-      `unhandledRejection` logs at error and continues;
-      `uncaughtException` logs at fatal then exits (Node docs say
-      continuing after this is unsafe). - [ ] **`parseInt(process.env.PORT ?? '8082', 10)` yields `NaN`** if
-      `PORT="abc"`, and `app.listen(NaN)` silently binds a random
-      port. Same pattern for `STUCK_RUNNING_MS`, `STUCK_WAITING_MS`,
-      `MAX_RETRIES`, `SWEEP_INTERVAL_MS`, `AGENT_MAX_CONCURRENCY`.
-      Validate envs at boot (fail loud) — ties into the
-      “clean up all env vars” bullet above; a typed config loader
-      is the natural home. - [ ] **bundle bulk-push has no per-file size cap** beyond the 8MB
-      JSON limit; a single 7MB file path slips through and lands on
-      disk. Add a per-path and per-bundle ceiling on the
-      `PUT /revisions/:id/bundle` and `PUT /revisions/:id/file`
-      endpoints. - [ ] **port the janitor `errorHandler` improvements back to
-      ingress.** Ingress has a global error handler at
-      [`routing/server.ts:66`](../../../services/agent-ingress/src/routing/server.ts)
-      but doesn't distinguish `ZodError` and doesn't wrap async
-      routes in `asyncHandler`. Same hardening pattern applies.
-      Ingress validates webhook / chat / slack bodies inside
-      per-router code; some paths are already covered, but the
-      consistent shape would be a wrapper + a single error
-      middleware. - [ ] **runner has no equivalent.** The runner has no HTTP
-      surface, but the worker loop has try/catch around individual
-      sessions. Audit: does a malformed `conversation` JSONB or a
-      broken `spec` blob in PG crash the loop, or just fail the one
-      session? If the former, add a per-session error boundary.
+      Initial pass landed; remaining gaps captured here.
+
+      - [x] ~~janitor global express error handler~~ — shipped via
+        `errorHandler(log)` in
+        [`http-utils.ts`](../../../services/agent-janitor/src/http-utils.ts).
+        Distinguishes `ZodError` (400 with structured issues) from
+        unknown errors (500). All async routes wrapped in
+        `asyncHandler` so rejections funnel through it.
+      - [x] ~~zod-validate bodies + query at the edge~~ — every
+        janitor endpoint now parses inputs via zod; the
+        `typeof null === 'object'` hole on `PUT /revisions/:id/bundle`
+        and the non-string content variant are covered by regression
+        tests in
+        [`server.test.ts`](../../../services/agent-janitor/src/server.test.ts).
+      - [x] ~~process-level guards in all three services~~ —
+        `installProcessHandlers(log)` in
+        [`process-handlers.ts`](../../../services/agent-shared/src/runtime/process-handlers.ts);
+        wired into the three `index.ts` files. `unhandledRejection`
+        logs at error and continues; `uncaughtException` logs at
+        fatal then exits (Node docs say continuing after this is
+        unsafe).
+      - [x] ~~typed config loader for envs~~ — shipped on the janitor
+        in
+        [`config.ts`](../../../services/agent-janitor/src/config.ts);
+        closes the `parseInt('abc')` → `NaN` → `app.listen(NaN)`
+        silent-bind footgun. Same pattern needs porting to runner +
+        ingress (still touches `process.env` directly).
+      - [ ] **bundle bulk-push has no per-file size cap** beyond the
+        8MB JSON limit; a single 7MB file path slips through and
+        lands on disk. Add a per-path and per-bundle ceiling on the
+        `PUT /revisions/:id/bundle` and `PUT /revisions/:id/file`
+        endpoints.
+      - [ ] **port the janitor `errorHandler` improvements back to
+        ingress.** Ingress has a global error handler at
+        [`routing/server.ts:66`](../../../services/agent-ingress/src/routing/server.ts)
+        but doesn't distinguish `ZodError` and doesn't wrap async
+        routes in `asyncHandler`. Same hardening pattern applies.
+        Ingress validates webhook / chat / slack bodies inside
+        per-router code; some paths are already covered, but the
+        consistent shape would be a wrapper + a single error
+        middleware.
+      - [ ] **runner has no equivalent.** The runner has no HTTP
+        surface, but the worker loop has try/catch around individual
+        sessions. Audit: does a malformed `conversation` JSONB or a
+        broken `spec` blob in PG crash the loop, or just fail the
+        one session? If the former, add a per-session error
+        boundary.
 
 - [ ] **Slug-with-revision-suffix triggers for non-live revisions.**
       Today draft / ready revisions are reachable via
@@ -141,3 +147,37 @@ file (and out of this list) once the design lands.
       with the existing `?revision_id` override (uuid wins, suffix is
       shorthand). Useful for Slack mentions / webhook URLs where you
       want to share a draft link without exposing the full UUID.
+
+- [ ] **Auto-chaining via a gateway agent (Slack-first).** Today Slack
+      mentions are routed 1:1 — `@my-helpdesk-agent` triggers
+      `my-helpdesk-agent` and nothing else. Spec out a "gateway agent"
+      pattern: a single `@posthog` (or similar) Slack-mentioned agent
+      is the single entry point that routes the user's message to one
+      of N downstream agents and forwards results back into the same
+      Slack thread. Open design questions: (a) routing — does the
+      gateway use an LLM classifier, declarative routes
+      (`spec.routes[]`), or both? (b) chaining semantics — fire-and-
+      forget vs await-and-relay vs streaming relay; (c) identity
+      passthrough — the originating Slack user's principal must flow
+      to the downstream session so the existing strict-principal +
+      ACL machinery (per `per-session-access-elevation.md`) applies
+      uniformly; the downstream `session.principal` should be the
+      Slack user, not the gateway; (d) thread continuity — downstream
+      replies thread under the same `slack:<channel>:<ts>`
+      `external_key` so a single conversation appears unified;
+      (e) generalization beyond Slack — the same pattern applies to
+      webhook + chat-UI triggers (a single API endpoint dispatches
+      across many agents). Composes with rate-limiting (a fan-out
+      gateway burns capacity quickly), approval-gating (downstream
+      tool calls retain their gates), and the cron trigger (a
+      gateway agent _is_ the natural shape for an org-wide
+      assistant). Promote to its own plan when picked up.
+
+- [x] ~~**Draft preview auth (via Django proxy)**~~ — see
+      [`draft-preview-auth.md`](draft-preview-auth.md). Closes a
+      confirmed gap where a draft with `auth.mode: 'public'` is
+      invokable anonymously via the override paths regardless of the
+      live revision's auth. Django proxies non-live invokes and
+      attaches a signed `INTERNAL_SECRET`-style header; ingress
+      refuses non-live invokes without it. Draft's own
+      `spec.auth.mode` is unchanged — this is a layer above it.

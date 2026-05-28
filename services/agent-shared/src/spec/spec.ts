@@ -108,6 +108,17 @@ export const AuthConfigSchema = z.object({
     header: z.string().optional(),
 })
 
+/**
+ * Normalized reasoning-effort knob. Matches pi-ai's `ThinkingLevel` exactly,
+ * so the runner can forward `spec.reasoning` straight to
+ * `completeSimple()` without translation. Provider-specific mappings
+ * (Anthropic extended thinking, OpenAI o-series, Gemini thinking) are
+ * handled inside pi-ai. Omitting the field uses the provider default —
+ * important so existing agents don't get reasoning charges they didn't
+ * opt into.
+ */
+export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -119,6 +130,7 @@ export const AgentSpecSchema = z.object({
     limits: SpecLimitsSchema.default({ max_turns: 50, max_tool_calls: 200, max_wall_seconds: 15 * 60 }),
     entrypoint: z.string().default('agent.md'),
     auth: AuthConfigSchema.default({ mode: 'public' }),
+    reasoning: ReasoningEffortSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
@@ -126,6 +138,7 @@ export type Trigger = z.infer<typeof TriggerSchema>
 export type ToolRef = z.infer<typeof ToolRefSchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type SkillRef = z.infer<typeof SkillRefSchema>
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
 
 export type RevisionState = 'draft' | 'ready' | 'live' | 'archived'
 

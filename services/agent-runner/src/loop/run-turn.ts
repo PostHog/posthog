@@ -162,6 +162,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 apiKey: deps.apiKey,
                 maxTokens: 4096,
                 signal: deps.shutdownSignal,
+                // `spec.reasoning` is opt-in; omitted means provider default
+                // (no thinking). pi-ai silently ignores it for non-reasoning
+                // models, so we can forward unconditionally.
+                reasoning: rev.spec.reasoning,
             })
         } catch (err) {
             const e = err as Error & { name?: string }

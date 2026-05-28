@@ -25,9 +25,11 @@ export interface WebhookTriggerDeps {
 export function webhookRouter(deps: WebhookTriggerDeps): Router {
     const r = Router({ mergeParams: true })
     r.post('/webhook', async (req: Request, res: Response) => {
-        const resolved = await resolveAgent(deps.resolver, req)
+        const resolved = await resolveAgent(deps.resolver, req, res)
         if (!resolved) {
-            res.status(404).json({ error: 'no_agent' })
+            if (!res.headersSent) {
+                res.status(404).json({ error: 'no_agent' })
+            }
             return
         }
         if (!hasTrigger(resolved, 'webhook')) {

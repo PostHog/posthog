@@ -14,6 +14,14 @@ export interface RevisionStore {
 
     getRevision(revisionId: string): Promise<AgentRevision | null>
     listRevisions(applicationId: string): Promise<AgentRevision[]>
+    /**
+     * Resolve revisions on an application whose id starts with the given hex
+     * prefix. Used by the ingress resolver to map an ergonomic
+     * `<revision-prefix>` URL fragment (e.g. `019e6f25`) to the underlying
+     * UUID. Caller decides what to do with collisions — typically refuse the
+     * request rather than guess.
+     */
+    listRevisionsByIdPrefix(applicationId: string, idPrefix: string): Promise<AgentRevision[]>
     createRevision(input: NewRevision): Promise<AgentRevision>
     updateSpec(revisionId: string, spec: AgentSpec): Promise<void>
     setRevisionState(revisionId: string, state: RevisionState, sha256?: string): Promise<void>
@@ -92,6 +100,15 @@ export class MemoryRevisionStore implements RevisionStore {
         return [...this.revs.values()]
             .filter((r) => r.application_id === applicationId)
             .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    }
+
+    async listRevisionsByIdPrefix(applicationId: string, idPrefix: string): Promise<AgentRevision[]> {
+        // Strip dashes so callers can use either the dashed UUID form or the
+        // dash-less hex form interchangeably.
+        const needle = idPrefix.replace(/-/g, '').toLowerCase()
+        return [...this.revs.values()].filter(
+            (r) => r.application_id === applicationId && r.id.replace(/-/g, '').toLowerCase().startsWith(needle)
+        )
     }
 
     async createRevision(input: NewRevision): Promise<AgentRevision> {

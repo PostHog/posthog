@@ -301,6 +301,41 @@ describe('runSession', () => {
         expect(out.state).toBe('suspended')
     })
 
+    it('forwards spec.reasoning to PiClient.invoke()', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([endTurn('ok')])
+        const rev = makeRev({ reasoning: 'high' })
+        const session = makeSession()
+        await runSession(rev, session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+        })
+        expect(pi.calls).toHaveLength(1)
+        expect(pi.calls[0].opts?.reasoning).toBe('high')
+    })
+
+    it('omits reasoning when spec.reasoning is not set (provider default)', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([endTurn('ok')])
+        const rev = makeRev() // no reasoning field
+        const session = makeSession()
+        await runSession(rev, session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+        })
+        expect(pi.calls[0].opts?.reasoning).toBeUndefined()
+    })
+
     it('calls onTurnPersist after each turn', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')

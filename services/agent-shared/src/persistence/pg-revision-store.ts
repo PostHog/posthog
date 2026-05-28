@@ -81,6 +81,28 @@ export class PgRevisionStore implements RevisionStore {
         return r.rows.map(rowToRev)
     }
 
+    async listRevisionsByIdPrefix(applicationId: string, idPrefix: string): Promise<AgentRevision[]> {
+        // Strip dashes so the prefix can match the dash-less form (`019e6f25`)
+        // or the dashed form (`019e6f25-0185`) — Postgres uuid::text always
+        // emits the dashed canonical, so we compare on `replace(id::text, '-', '')`.
+        // The functional comparison won't use the PK index but the row count
+        // per app is small enough (tens of revs) that a Seq Scan within one
+        // application_id is fine.
+        const needle = idPrefix.replace(/-/g, '').toLowerCase()
+        if (needle.length === 0) {
+            return []
+        }
+        const r = await this.pool.query(
+            `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
+                    bundle_uri, bundle_sha256, spec
+             FROM agent_revision
+             WHERE application_id = $1
+               AND replace(lower(id::text), '-', '') LIKE $2 || '%'`,
+            [applicationId, needle]
+        )
+        return r.rows.map(rowToRev)
+    }
+
     async createRevision(input: NewRevision): Promise<AgentRevision> {
         const id = uuidv4()
         await this.pool.query(

@@ -45,9 +45,11 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
     const r = Router({ mergeParams: true })
 
     r.post('/mcp', async (req: Request, res: Response) => {
-        const resolved = await resolveAgent(deps.resolver, req)
+        const resolved = await resolveAgent(deps.resolver, req, res)
         if (!resolved) {
-            res.status(404).json({ error: 'no_agent' })
+            if (!res.headersSent) {
+                res.status(404).json({ error: 'no_agent' })
+            }
             return
         }
         const body = req.body as McpRequest
