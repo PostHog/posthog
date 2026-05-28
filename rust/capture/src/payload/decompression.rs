@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use bytes::Bytes;
 use flate2::read::GzDecoder;
 use metrics;
-use tracing::{debug, instrument, warn, Span};
+use tracing::{debug, info, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
@@ -182,9 +182,20 @@ pub fn decompress_payload(
                         }
                         unwrapped_payload
                     }
-                    Err(_) => payload,
+                    Err(e) => {
+                        info!(
+                            "decompress_payload: failed UTF8 conversion after post-decode base64: {e:#}"
+                        );
+                        payload
+                    }
                 },
-                Err(_) => payload,
+                Err(e) => {
+                    info!(
+                        path = path,
+                        "decompress_payload: failed post-decode base64 unwrap: {e:#}"
+                    );
+                    payload
+                }
             }
         } else {
             debug!("decompress_payload: payload may be LZ64 or other after decoding step");
