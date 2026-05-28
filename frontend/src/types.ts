@@ -2309,6 +2309,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     insight?: T
     text?: TextModel
     button_tile?: ButtonTileModel
+    widget?: DashboardWidgetModel
     deleted?: boolean
     is_cached?: boolean
     order?: number
@@ -2321,7 +2322,20 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     transparent_background?: boolean | null
 }
 
-export type DashboardWidgetType = 'insight' | 'text' | 'button_tile'
+export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
+
+export interface DashboardWidgetModel {
+    id: string
+    widget_type: string
+    name?: string | null
+    description?: string
+    config: Record<string, unknown>
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at?: string
+    team?: number
+    dashboard_tiles?: DashboardTileBasicType[] | null
+}
 
 export interface DashboardTileBasicType {
     id: number

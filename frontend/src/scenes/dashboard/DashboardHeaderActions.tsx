@@ -90,8 +90,8 @@ export function FullscreenModeActions(): JSX.Element {
 }
 
 export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
-    const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
+    const { dashboard, canEditDashboard, tiles, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { setDashboardMode, loadDashboard, setAddWidgetModalOpen } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
     if (!dashboard) {
@@ -173,6 +173,16 @@ export function ViewModeActions(): JSX.Element {
                                 onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
                                 'data-attr': 'dashboard-add-button-tile',
                             },
+                            ...(dashboardWidgetsEnabled
+                                ? [
+                                      {
+                                          label: 'Widget',
+                                          tag: 'new' as const,
+                                          onClick: () => setAddWidgetModalOpen(true),
+                                          'data-attr': 'dashboard-add-widget',
+                                      },
+                                  ]
+                                : []),
                         ]}
                     >
                         <LemonButton

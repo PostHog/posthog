@@ -9,6 +9,8 @@ import { TerraformExportModal } from 'lib/components/TerraformExporter/Terraform
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { AddWidgetModal } from '@posthog/products-dashboards/frontend/widgets/AddWidgetModal'
+
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -29,8 +31,11 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         showButtonTileModal,
         buttonTileId,
         terraformModalOpen,
+        addWidgetModalOpen,
+        dashboardWidgetsEnabled,
+        addWidgetTileLoading,
     } = useValues(dashboardLogic)
-    const { setTerraformModalOpen } = useActions(dashboardLogic)
+    const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles } = useActions(dashboardLogic)
     const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
@@ -65,6 +70,19 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                         dashboard={dashboard}
                         buttonTileId={buttonTileId}
                     />
+                    {dashboardWidgetsEnabled && (
+                        <AddWidgetModal
+                            isOpen={addWidgetModalOpen}
+                            onClose={() => setAddWidgetModalOpen(false)}
+                            loading={addWidgetTileLoading}
+                            onAdd={async (widgets) => {
+                                await addWidgetTiles({
+                                    dashboardId: dashboard.id,
+                                    widgets,
+                                })
+                            }}
+                        />
+                    )}
                     <DeleteDashboardModal />
                     <DuplicateDashboardModal />
                     <DashboardInsightColorsModal />
