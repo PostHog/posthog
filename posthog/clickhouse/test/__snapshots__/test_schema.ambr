@@ -4634,6 +4634,51 @@
   
   '''
 # ---
+# name: test_create_table_query[retention_actor_event_day]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS retention_actor_event_day
+  (
+      team_id            Int64,
+      job_id             UUID,
+  
+      -- Daily UTC bucket; reads filter by [date_from, date_to). Day granularity is the
+      -- finest retention shows in the UI, and matches the per-day grouping in the raw
+      -- events retention path (`toStartOfDay(timestamp)`).
+      day                Date,
+  
+      -- Actor identity. Raw `events.person_id` — overrides resolved at READ time via
+      -- the same `events__override` join the raw events retention path uses, so a
+      -- person merge after this row is written stays correct without re-materialisation.
+      actor_id           UUID,
+  
+      -- Retention aggregation target. -1 = person retention (the default); 0..4 = group
+      -- retention by group_type_index. Group retention's `$group_N` column is captured
+      -- in actor_id when group_type_index >= 0.
+      group_type_index   Int8 DEFAULT -1,
+  
+      -- Event name. LowCardinality halves on-disk size since teams typically retain
+      -- against a small set of events ($pageview, $screen, etc.) even when their
+      -- overall event volume is high.
+      event              LowCardinality(String),
+  
+      -- Earliest timestamp this (team, day, actor, event) was observed at. Used by
+      -- first-occurrence-matching-filters retention to compute the actor's cohort
+      -- anchor day across the queried window: `min(first_ts)` over the actor's days.
+      first_ts           DateTime64(6, 'UTC'),
+  
+      -- ReplacingMergeTree version. Re-materialisation of a (team, day) bumps the
+      -- job_id and writes rows with a later computed_at; reads filter to
+      -- `job_id IN (latest set)` so the newer materialisation wins.
+      computed_at        DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day TTL so the framework can attach short TTLs (e.g. 15 min for "today")
+      -- and have parts drop atomically when all rows in them expire.
+      expires_at         DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_retention_actor_event_day', sipHash64(team_id, actor_id))
+  
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -5956,6 +6001,56 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_retention_actor_event_day]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_retention_actor_event_day
+  (
+      team_id            Int64,
+      job_id             UUID,
+  
+      -- Daily UTC bucket; reads filter by [date_from, date_to). Day granularity is the
+      -- finest retention shows in the UI, and matches the per-day grouping in the raw
+      -- events retention path (`toStartOfDay(timestamp)`).
+      day                Date,
+  
+      -- Actor identity. Raw `events.person_id` — overrides resolved at READ time via
+      -- the same `events__override` join the raw events retention path uses, so a
+      -- person merge after this row is written stays correct without re-materialisation.
+      actor_id           UUID,
+  
+      -- Retention aggregation target. -1 = person retention (the default); 0..4 = group
+      -- retention by group_type_index. Group retention's `$group_N` column is captured
+      -- in actor_id when group_type_index >= 0.
+      group_type_index   Int8 DEFAULT -1,
+  
+      -- Event name. LowCardinality halves on-disk size since teams typically retain
+      -- against a small set of events ($pageview, $screen, etc.) even when their
+      -- overall event volume is high.
+      event              LowCardinality(String),
+  
+      -- Earliest timestamp this (team, day, actor, event) was observed at. Used by
+      -- first-occurrence-matching-filters retention to compute the actor's cohort
+      -- anchor day across the queried window: `min(first_ts)` over the actor's days.
+      first_ts           DateTime64(6, 'UTC'),
+  
+      -- ReplacingMergeTree version. Re-materialisation of a (team, day) bumps the
+      -- job_id and writes rows with a later computed_at; reads filter to
+      -- `job_id IN (latest set)` so the newer materialisation wins.
+      computed_at        DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day TTL so the framework can attach short TTLs (e.g. 15 min for "today")
+      -- and have parts drop atomically when all rows in them expire.
+      expires_at         DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.retention_actor_event_day', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, day, event, group_type_index, actor_id)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -9436,6 +9531,56 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_retention_actor_event_day]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_retention_actor_event_day
+  (
+      team_id            Int64,
+      job_id             UUID,
+  
+      -- Daily UTC bucket; reads filter by [date_from, date_to). Day granularity is the
+      -- finest retention shows in the UI, and matches the per-day grouping in the raw
+      -- events retention path (`toStartOfDay(timestamp)`).
+      day                Date,
+  
+      -- Actor identity. Raw `events.person_id` — overrides resolved at READ time via
+      -- the same `events__override` join the raw events retention path uses, so a
+      -- person merge after this row is written stays correct without re-materialisation.
+      actor_id           UUID,
+  
+      -- Retention aggregation target. -1 = person retention (the default); 0..4 = group
+      -- retention by group_type_index. Group retention's `$group_N` column is captured
+      -- in actor_id when group_type_index >= 0.
+      group_type_index   Int8 DEFAULT -1,
+  
+      -- Event name. LowCardinality halves on-disk size since teams typically retain
+      -- against a small set of events ($pageview, $screen, etc.) even when their
+      -- overall event volume is high.
+      event              LowCardinality(String),
+  
+      -- Earliest timestamp this (team, day, actor, event) was observed at. Used by
+      -- first-occurrence-matching-filters retention to compute the actor's cohort
+      -- anchor day across the queried window: `min(first_ts)` over the actor's days.
+      first_ts           DateTime64(6, 'UTC'),
+  
+      -- ReplacingMergeTree version. Re-materialisation of a (team, day) bumps the
+      -- job_id and writes rows with a later computed_at; reads filter to
+      -- `job_id IN (latest set)` so the newer materialisation wins.
+      computed_at        DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day TTL so the framework can attach short TTLs (e.g. 15 min for "today")
+      -- and have parts drop atomically when all rows in them expire.
+      expires_at         DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.retention_actor_event_day', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, day, event, group_type_index, actor_id)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
