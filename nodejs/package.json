@@ -170,7 +170,7 @@
         "jest": "^30.0.0",
         "jest-environment-node": "^30.0.0",
         "pino-pretty": "^9.1.0",
-        "prettier": "^3.6.2",
+        "prettier": "~3.6.2",
         "supertest": "^7.2.2",
         "ts-jest": "^29.4.9",
         "ts-node": "^10.9.1",
