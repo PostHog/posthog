@@ -42,11 +42,13 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // DJANGO_OVERHEAD_SECONDS covers the fixed per-shard cost outside test work:
 //   job setup (checkout, deps, docker)  ~1.9 min
 //   pytest collection/splitting         ~1.1 min
-//   Django migration (per-shard DB setup) ~6.5 min
-// Note: if per-shard migration is eliminated (pre-migrated DB template),
-// reduce this to ~3.0 min — the durations file will also drop accordingly
-// since migration tax won't inflate first-test timings.
-const DJANGO_OVERHEAD_SECONDS = 9.5 * 60
+//   Django migration (per-shard DB setup) ~1.0 min
+// The migration portion shrank after the persons DB and product DB test setup
+// fixes stopped Django from walking the full migration graph on every alias —
+// what used to be ~6.5 min of state_forwards work is now closer to 1 min of
+// default-DB migrate (or near-zero on a schema-cache hit). Retune once a master
+// run produces fresh first-test-per-shard JUnit data.
+const DJANGO_OVERHEAD_SECONDS = 4 * 60
 const DJANGO_TARGET_WALL_SECONDS = 20 * 60
 const DJANGO_SAFETY_FACTOR = 1.3
 const DJANGO_MIN_SHARDS = 3
