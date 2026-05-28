@@ -112,6 +112,7 @@ from posthog.hogql.database.schema.preaggregation_results import PreaggregationR
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
+from posthog.hogql.database.schema.retention_actor_event_day import RetentionActorEventDayTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -239,6 +240,7 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "experiment_metric_events_preaggregated": TableNode(
         name="experiment_metric_events_preaggregated", table=ExperimentMetricEventsPreaggregatedTable()
     ),
+    "retention_actor_event_day": TableNode(name="retention_actor_event_day", table=RetentionActorEventDayTable()),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
     "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),

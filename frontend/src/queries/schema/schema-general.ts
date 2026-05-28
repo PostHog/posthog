@@ -428,6 +428,8 @@ export interface HogQLQueryModifiers {
     sessionIdPushdown?: boolean
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
+    /** Route retention queries through the `retention_actor_event_day` pre-aggregation when the v1 gate accepts them (recurring or first-occurrence-matching-filters, person retention, no entity property filter, no property aggregation). Default off; falls back to raw events for any query the gate rejects or when materialisation fails. */
+    useRetentionPreAggregation?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean

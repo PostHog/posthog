@@ -34,9 +34,11 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
+from posthog.hogql_queries.insights.retention.retention_base_query_preagg import build_preagg_base_query
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
 )
+from posthog.hogql_queries.insights.retention.retention_lazy_precompute import ensure_retention_precomputed
 from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
@@ -412,11 +414,59 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return refresh_frequency
 
+    @cached_property
+    def should_use_retention_preagg(self) -> bool:
+        # v1 routing gate for retention_actor_event_day. Conservative on purpose —
+        # every condition rules out a shape the v1 pre-agg table can't answer correctly.
+        # Expand by extending the pre-agg schema (group_type_index, property columns,
+        # first-ever companion table) — not by relaxing safety checks here.
+        if not self.modifiers.useRetentionPreAggregation:
+            return False
+        # FIRST_EVER needs all-time lookback for the actor's first qualifying event;
+        # the pre-agg only has data inside the materialised window.
+        if self.is_first_ever_occurrence:
+            return False
+        # 24h windows and custom brackets have different per-interval shapes that the
+        # v1 pre-agg builder doesn't reproduce.
+        if self.is_24h_window_calculation or self.is_custom_bracket_retention:
+            return False
+        # v1 materialises person retention only (group_type_index = -1).
+        if self.group_type_index is not None:
+            return False
+        # Property aggregation needs event property values the pre-agg doesn't store.
+        if self.has_property_aggregation:
+            return False
+        # minimum_occurrences > 1 uses groupArrayIf with duplicates — different shape.
+        if (self.query.retentionFilter.minimumOccurrences or 1) > 1:
+            return False
+        # Entity-level property filters need event properties the pre-agg doesn't store.
+        # Pre-agg's event-name pre-filter only catches the raw event name.
+        if self.start_event.properties or self.return_event.properties:
+            return False
+        # v1 only supports raw event entities; actions and DWH entities have richer
+        # filter shapes that the v1 pre-agg builder doesn't translate yet.
+        if self.start_event.type != EntityType.EVENTS or self.return_event.type != EntityType.EVENTS:
+            return False
+        # Same constraints as above for the query-level properties filter — anything
+        # event-property-shaped can't be answered from the pre-agg alone.
+        if self.query.properties:
+            return False
+        return True
+
     def _base_query(
         self,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
+        if self.should_use_retention_preagg:
+            preagg_query = self._build_preagg_base_query(
+                start_interval_index_filter=start_interval_index_filter,
+                selected_breakdown_value=selected_breakdown_value,
+            )
+            if preagg_query is not None:
+                return preagg_query
+            # Materialisation failed — fall through to raw events. The pre-agg path is
+            # a hint, not a contract; raw events are always correct.
         builder_class = (
             RetentionRollingIntervalBaseQueryBuilder
             if self.is_24h_window_calculation
@@ -426,6 +476,28 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             start_interval_index_filter=start_interval_index_filter,
             selected_breakdown_value=selected_breakdown_value,
         )
+
+    def _build_preagg_base_query(
+        self,
+        start_interval_index_filter: Optional[int] = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery | None:
+        # start_interval_index_filter and selected_breakdown_value are HAVING-clause
+        # post-filters; for v1 we don't reproduce them on the pre-agg path and let
+        # the outer retention query handle filtering. If a caller passes them, fall
+        # through to raw events to avoid silently returning unfiltered results.
+        if start_interval_index_filter is not None or selected_breakdown_value is not None:
+            return None
+
+        materialisation = ensure_retention_precomputed(
+            team=self.team,
+            time_range_start=self.query_date_range.date_from(),
+            time_range_end=self.query_date_range.date_to(),
+        )
+        if not materialisation.ready or not materialisation.job_ids:
+            return None
+        builder = RetentionFixedIntervalBaseQueryBuilder(self)
+        return build_preagg_base_query(builder, materialisation.job_ids)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):

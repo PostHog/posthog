@@ -7456,6 +7456,16 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
+    useRetentionPreAggregation: bool | None = Field(
+        default=None,
+        description=(
+            "Route retention queries through the `retention_actor_event_day`"
+            " pre-aggregation when the v1 gate accepts them (recurring or"
+            " first-occurrence-matching-filters, person retention, no entity property"
+            " filter, no property aggregation). Default off; falls back to raw events"
+            " for any query the gate rejects or when materialisation fails."
+        ),
+    )
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
