@@ -45,6 +45,7 @@ import { BarTooltip } from './BarTooltip'
 import {
     type BarLayout,
     type BarsAtCursorArgs,
+    barContainsPoint,
     barContainsPointOnBandAxis,
     cursorOutsideBarFillExtent,
     iterBarsAtCursor,
@@ -398,6 +399,13 @@ function BarChartInner<Meta = unknown>({
             type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
             const items: DrawItem[] = []
             let composition = ''
+            // Stacked/percent layouts: every segment in a band shares the same band-axis
+            // extent, so a band-axis-only hit-test picks every overlapping series at once and
+            // the last-drawn bar (the largest) ends up painting the highlight color over the
+            // whole row. Use full-rect containment so only the segment under the cursor is
+            // highlighted. Grouped keeps the band-axis check so cursor-above-bar still picks
+            // the correct sub-band.
+            const stackedHighlight = isStackedLayout(barLayout)
             for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
                 series: coloredSeries,
                 label: hoveredLabel,
@@ -408,8 +416,13 @@ function BarChartInner<Meta = unknown>({
                 stackedData,
                 topStackedKeyByAxis,
             })) {
-                if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
-                    continue
+                if (hoverPosition) {
+                    const contained = stackedHighlight
+                        ? barContainsPoint(bar, hoverPosition)
+                        : barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)
+                    if (!contained) {
+                        continue
+                    }
                 }
                 const isTrackHighlight =
                     barTrack === true &&
