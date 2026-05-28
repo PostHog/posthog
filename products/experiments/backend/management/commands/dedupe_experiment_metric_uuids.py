@@ -15,7 +15,7 @@ Run with ``--dry-run`` first to confirm the affected count before writing.
 from copy import deepcopy
 from uuid import uuid4
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from django.db import connection, transaction
 
 import structlog
@@ -34,8 +34,6 @@ WITH metrics_unnested AS (
     FROM posthog_experiment e
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(e.metrics, '[]'::jsonb)) AS elem
     WHERE e.deleted IS NOT TRUE AND elem->>'uuid' IS NOT NULL
-        {team_filter}
-        {experiment_filter}
 
     UNION ALL
 
@@ -43,8 +41,6 @@ WITH metrics_unnested AS (
     FROM posthog_experiment e
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(e.metrics_secondary, '[]'::jsonb)) AS elem
     WHERE e.deleted IS NOT TRUE AND elem->>'uuid' IS NOT NULL
-        {team_filter}
-        {experiment_filter}
 
     UNION ALL
 
@@ -53,8 +49,6 @@ WITH metrics_unnested AS (
     JOIN posthog_experimenttosavedmetric link ON link.experiment_id = e.id
     JOIN posthog_experimentsavedmetric sm ON sm.id = link.saved_metric_id
     WHERE e.deleted IS NOT TRUE AND sm.query->>'uuid' IS NOT NULL
-        {team_filter}
-        {experiment_filter}
 )
 SELECT experiment_id
 FROM metrics_unnested
@@ -128,50 +122,12 @@ class Command(BaseCommand):
             default=False,
             help="Report what would change without writing.",
         )
-        parser.add_argument(
-            "--team-id",
-            type=int,
-            default=None,
-            help="Restrict the backfill to a single team.",
-        )
-        parser.add_argument(
-            "--experiment-id",
-            type=int,
-            default=None,
-            help="Restrict the backfill to a single experiment.",
-        )
-        parser.add_argument(
-            "--batch-size",
-            type=int,
-            default=500,
-            help="Number of experiments per chunk (default: 500).",
-        )
 
     def handle(self, *args, **options):
         dry_run: bool = options["dry_run"]
-        team_id: int | None = options["team_id"]
-        experiment_id: int | None = options["experiment_id"]
-        batch_size: int = options["batch_size"]
-
-        if batch_size < 1:
-            raise CommandError("--batch-size must be a positive integer")
-
-        # Build the SQL filters and the parameterized values.
-        team_filter = "AND e.team_id = %s" if team_id is not None else ""
-        experiment_filter = "AND e.id = %s" if experiment_id is not None else ""
-        sql = _AFFECTED_IDS_SQL.format(team_filter=team_filter, experiment_filter=experiment_filter)
-
-        # Each filter appears three times in the CTE (one per UNION branch), so
-        # the params must repeat to match.
-        params: list[int] = []
-        for _ in range(3):
-            if team_id is not None:
-                params.append(team_id)
-            if experiment_id is not None:
-                params.append(experiment_id)
 
         with connection.cursor() as cursor:
-            cursor.execute(sql, params)
+            cursor.execute(_AFFECTED_IDS_SQL)
             affected_ids = sorted({row[0] for row in cursor.fetchall()})
 
         if not affected_ids:
@@ -184,110 +140,107 @@ class Command(BaseCommand):
         failed = 0
         skipped = 0
 
-        for start in range(0, len(affected_ids), batch_size):
-            chunk_ids = affected_ids[start : start + batch_size]
+        # The affected set is small (a few hundred rows), so a single pass with no
+        # chunking keeps the command simple.
+        saved_uuids_by_experiment: dict[int, set[str]] = {}
+        for link in (
+            ExperimentToSavedMetric.objects.filter(experiment_id__in=affected_ids)
+            .select_related("saved_metric")
+            .only("experiment_id", "saved_metric__query")
+        ):
+            sm = link.saved_metric
+            if sm and sm.query:
+                uuid = sm.query.get("uuid")
+                if uuid:
+                    saved_uuids_by_experiment.setdefault(link.experiment_id, set()).add(uuid)
 
-            saved_uuids_by_experiment: dict[int, set[str]] = {}
-            for link in (
-                ExperimentToSavedMetric.objects.filter(experiment_id__in=chunk_ids)
-                .select_related("saved_metric")
-                .only("experiment_id", "saved_metric__query")
-            ):
-                sm = link.saved_metric
-                if sm and sm.query:
-                    uuid = sm.query.get("uuid")
-                    if uuid:
-                        saved_uuids_by_experiment.setdefault(link.experiment_id, set()).add(uuid)
+        qs = Experiment.objects.filter(id__in=affected_ids).only(
+            "id",
+            "metrics",
+            "metrics_secondary",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
+        )
+        for experiment in qs.iterator():
+            try:
+                # Saved-metric uuids are fixed points: they seed dedup's
+                # uniqueness space and are never removed from the orderings.
+                saved_metric_uuids: set[str] = set(saved_uuids_by_experiment.get(experiment.id, set()))
+                seen: set[str] = set(saved_metric_uuids)
 
-            qs = Experiment.objects.filter(id__in=chunk_ids).only(
-                "id",
-                "metrics",
-                "metrics_secondary",
-                "primary_metrics_ordered_uuids",
-                "secondary_metrics_ordered_uuids",
-            )
-            for experiment in qs.iterator():
-                try:
-                    # Saved-metric uuids are fixed points: they seed dedup's
-                    # uniqueness space and are never removed from the orderings.
-                    saved_metric_uuids: set[str] = set(saved_uuids_by_experiment.get(experiment.id, set()))
-                    seen: set[str] = set(saved_metric_uuids)
+                original_primary_uuids: set[str] = {uuid for m in (experiment.metrics or []) if (uuid := m.get("uuid"))}
+                original_secondary_uuids: set[str] = {
+                    uuid for m in (experiment.metrics_secondary or []) if (uuid := m.get("uuid"))
+                }
 
-                    original_primary_uuids: set[str] = {
-                        uuid for m in (experiment.metrics or []) if (uuid := m.get("uuid"))
-                    }
-                    original_secondary_uuids: set[str] = {
-                        uuid for m in (experiment.metrics_secondary or []) if (uuid := m.get("uuid"))
-                    }
+                new_primary, primary_changed = _dedupe_metrics(experiment.metrics, seen)
+                new_secondary, secondary_changed = _dedupe_metrics(experiment.metrics_secondary, seen)
 
-                    new_primary, primary_changed = _dedupe_metrics(experiment.metrics, seen)
-                    new_secondary, secondary_changed = _dedupe_metrics(experiment.metrics_secondary, seen)
-
-                    if not (primary_changed or secondary_changed):
-                        # Reached either because rows changed between the SELECT
-                        # and now, or because the only duplication is across two
-                        # saved metrics — which this command can't fix (it only
-                        # rewrites inline metrics, treating saved-metric uuids as
-                        # fixed points). Skip and warn so re-runs aren't expected
-                        # to drive the affected count to zero in that case.
-                        skipped += 1
-                        logger.warning(
-                            "experiment_metric_uuid_dedupe_skipped",
-                            experiment_id=experiment.id,
-                            reason="no_inline_change",
-                        )
-                        continue
-
-                    new_primary_uuids: set[str] = {uuid for m in (new_primary or []) if (uuid := m.get("uuid"))}
-                    new_secondary_uuids: set[str] = {uuid for m in (new_secondary or []) if (uuid := m.get("uuid"))}
-
-                    new_primary_ordering = _reconcile_ordering(
-                        experiment.primary_metrics_ordered_uuids,
-                        original_primary_uuids,
-                        new_primary_uuids,
-                        saved_metric_uuids,
-                    )
-                    new_secondary_ordering = _reconcile_ordering(
-                        experiment.secondary_metrics_ordered_uuids,
-                        original_secondary_uuids,
-                        new_secondary_uuids,
-                        saved_metric_uuids,
-                    )
-
-                    logger.info(
-                        "experiment_metric_uuid_dedupe_planned",
+                if not (primary_changed or secondary_changed):
+                    # Reached either because rows changed between the SELECT
+                    # and now, or because the only duplication is across two
+                    # saved metrics — which this command can't fix (it only
+                    # rewrites inline metrics, treating saved-metric uuids as
+                    # fixed points). Skip and warn so re-runs aren't expected
+                    # to drive the affected count to zero in that case.
+                    skipped += 1
+                    logger.warning(
+                        "experiment_metric_uuid_dedupe_skipped",
                         experiment_id=experiment.id,
-                        primary_changed=primary_changed,
-                        secondary_changed=secondary_changed,
-                        dry_run=dry_run,
+                        reason="no_inline_change",
                     )
+                    continue
 
-                    if dry_run:
-                        updated += 1
-                        continue
+                new_primary_uuids: set[str] = {uuid for m in (new_primary or []) if (uuid := m.get("uuid"))}
+                new_secondary_uuids: set[str] = {uuid for m in (new_secondary or []) if (uuid := m.get("uuid"))}
 
-                    experiment.metrics = new_primary
-                    experiment.metrics_secondary = new_secondary
-                    experiment.primary_metrics_ordered_uuids = new_primary_ordering
-                    experiment.secondary_metrics_ordered_uuids = new_secondary_ordering
-                    with transaction.atomic():
-                        experiment.save(
-                            update_fields=[
-                                "metrics",
-                                "metrics_secondary",
-                                "primary_metrics_ordered_uuids",
-                                "secondary_metrics_ordered_uuids",
-                            ]
-                        )
+                new_primary_ordering = _reconcile_ordering(
+                    experiment.primary_metrics_ordered_uuids,
+                    original_primary_uuids,
+                    new_primary_uuids,
+                    saved_metric_uuids,
+                )
+                new_secondary_ordering = _reconcile_ordering(
+                    experiment.secondary_metrics_ordered_uuids,
+                    original_secondary_uuids,
+                    new_secondary_uuids,
+                    saved_metric_uuids,
+                )
+
+                logger.info(
+                    "experiment_metric_uuid_dedupe_planned",
+                    experiment_id=experiment.id,
+                    primary_changed=primary_changed,
+                    secondary_changed=secondary_changed,
+                    dry_run=dry_run,
+                )
+
+                if dry_run:
                     updated += 1
-                except Exception as e:
-                    failed += 1
-                    logger.error(
-                        "experiment_metric_uuid_dedupe_failed",
-                        experiment_id=experiment.id,
-                        error=str(e),
-                        exc_info=True,
+                    continue
+
+                experiment.metrics = new_primary
+                experiment.metrics_secondary = new_secondary
+                experiment.primary_metrics_ordered_uuids = new_primary_ordering
+                experiment.secondary_metrics_ordered_uuids = new_secondary_ordering
+                with transaction.atomic():
+                    experiment.save(
+                        update_fields=[
+                            "metrics",
+                            "metrics_secondary",
+                            "primary_metrics_ordered_uuids",
+                            "secondary_metrics_ordered_uuids",
+                        ]
                     )
+                updated += 1
+            except Exception as e:
+                failed += 1
+                logger.error(
+                    "experiment_metric_uuid_dedupe_failed",
+                    experiment_id=experiment.id,
+                    error=str(e),
+                    exc_info=True,
+                )
 
         verb = "Would update" if dry_run else "Updated"
         suffix = f" {skipped} skipped (saved-metric-only duplicates, not fixable here)." if skipped else ""

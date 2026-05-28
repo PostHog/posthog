@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from django.core.management import call_command
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -65,28 +67,37 @@ class TestDedupeExperimentMetricUuids(APIBaseTest):
 
         assert "No experiments to dedupe." in output
 
-    def test_dedupes_duplicate_uuid_within_primary_metrics(self):
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_dedupes_duplicate_uuid_within_a_single_metric_list(self, _name, metrics_field, ordering_field):
         dup = "aaaaaaaa-0000-0000-0000-000000000001"
         experiment = self._create_experiment(
-            "inline-dup",
-            metrics=[self._metric(dup, "first"), self._metric(dup, "second")],
-            primary_metrics_ordered_uuids=[dup],
+            f"inline-dup-{metrics_field}",
+            **{
+                metrics_field: [self._metric(dup, "first"), self._metric(dup, "second")],
+                ordering_field: [dup],
+            },
         )
 
         self._run()
         experiment.refresh_from_db()
 
-        primary_uuids = self._uuids(experiment.metrics)
+        metrics = getattr(experiment, metrics_field)
+        ordering = getattr(experiment, ordering_field)
+        uuids = self._uuids(metrics)
         # First occurrence keeps the original uuid; the second is regenerated.
-        assert primary_uuids[0] == dup
-        assert primary_uuids[1] != dup
-        assert len(set(primary_uuids)) == 2
+        assert uuids[0] == dup
+        assert uuids[1] != dup
+        assert len(set(uuids)) == 2
         # The regenerated uuid is appended to the ordering; the incumbent stays.
-        assert experiment.primary_metrics_ordered_uuids == [dup, primary_uuids[1]]
+        assert ordering == [dup, uuids[1]]
         # The order of the metrics themselves and their events is preserved.
-        assert experiment.metrics is not None
-        assert experiment.metrics[0]["source"]["event"] == "first"
-        assert experiment.metrics[1]["source"]["event"] == "second"
+        assert metrics[0]["source"]["event"] == "first"
+        assert metrics[1]["source"]["event"] == "second"
 
     def test_dedupes_duplicate_uuid_across_primary_and_secondary(self):
         dup = "bbbbbbbb-0000-0000-0000-000000000001"
@@ -212,58 +223,6 @@ class TestDedupeExperimentMetricUuids(APIBaseTest):
         # left looking unprocessed.
         assert "1 skipped" in output
         assert experiment.metrics == []
-
-    def test_restricts_to_team_id(self):
-        dup = "11111111-0000-0000-0000-000000000001"
-        other_team = self.organization.teams.create(name="Other")
-        other_flag = FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-flag", name="other")
-        other_experiment = Experiment.objects.create(
-            team=other_team,
-            created_by=self.user,
-            feature_flag=other_flag,
-            name="Other",
-            start_date=timezone.now(),
-            metrics=[self._metric(dup, "a"), self._metric(dup, "b")],
-            primary_metrics_ordered_uuids=[dup],
-        )
-        in_scope = self._create_experiment(
-            "in-scope",
-            metrics=[self._metric(dup, "a"), self._metric(dup, "b")],
-            primary_metrics_ordered_uuids=[dup],
-        )
-
-        self._run(f"--team-id={self.team.id}")
-        in_scope.refresh_from_db()
-        other_experiment.refresh_from_db()
-
-        assert len(set(self._uuids(in_scope.metrics))) == 2
-        # The out-of-scope team's duplicate is left alone.
-        assert self._uuids(other_experiment.metrics) == [dup, dup]
-
-    def test_restricts_to_experiment_id(self):
-        dup = "22222222-0000-0000-0000-000000000001"
-        target = self._create_experiment(
-            "target",
-            metrics=[self._metric(dup, "a"), self._metric(dup, "b")],
-            primary_metrics_ordered_uuids=[dup],
-        )
-        bystander = self._create_experiment(
-            "bystander",
-            metrics=[self._metric(dup, "a"), self._metric(dup, "b")],
-            primary_metrics_ordered_uuids=[dup],
-        )
-
-        self._run(f"--experiment-id={target.id}")
-        target.refresh_from_db()
-        bystander.refresh_from_db()
-
-        assert len(set(self._uuids(target.metrics))) == 2
-        assert self._uuids(bystander.metrics) == [dup, dup]
-
-    def test_rejects_non_positive_batch_size(self):
-        with self.assertRaises(Exception) as ctx:
-            self._run("--batch-size=0")
-        assert "--batch-size must be a positive integer" in str(ctx.exception)
 
     def test_is_restart_safe_after_a_full_run(self):
         dup = "33333333-0000-0000-0000-000000000001"
