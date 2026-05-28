@@ -75,6 +75,29 @@ const makeWorkflow = (fromValue: any): HogFlow => ({
 // function-action branch in `actionValidationErrorsById` doesn't clobber the email block.
 const hangingTemplatesEndpoint = (): Promise<unknown> => new Promise(() => {})
 
+// Matches the production template-email definition closely enough for validation:
+// a single required `native_email` input. Used to reproduce the loaded-templates state.
+const loadedTemplatesResponse = {
+    results: [
+        {
+            id: 'template-email',
+            name: 'Email',
+            type: 'destination',
+            status: 'hidden',
+            free: false,
+            inputs_schema: [
+                {
+                    type: 'native_email',
+                    key: 'email',
+                    label: 'Email message',
+                    required: true,
+                },
+            ],
+        },
+    ],
+    count: 1,
+}
+
 describe('workflowLogic email step "from" validation', () => {
     let logic: ReturnType<typeof workflowLogic.build>
 
@@ -152,6 +175,23 @@ describe('workflowLogic email step "from" validation', () => {
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.errors.email).toBeUndefined()
         expect(result?.valid).toBe(true)
+    })
+
+    it('keeps the email-block error after templates load (function-action branch must not clobber it)', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
+                '/api/projects/:team_id/hog_function_templates/': loadedTemplatesResponse,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadHogFunctionTemplatesByIdSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.errors.email).toBe('Choose who to send this email from')
     })
 
     it('propagates the step error into workflowHasActionErrors', async () => {
