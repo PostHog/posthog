@@ -2077,6 +2077,13 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /**
+     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
+     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     * Accumulated across every HogQL execution that contributes to this response — so insights backed
+     * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
+     */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 interface CachedQueryResponseMixin {
@@ -3473,6 +3480,8 @@ export interface ExperimentTrendsQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
@@ -3488,6 +3497,8 @@ export interface ExperimentFunnelsQueryResponse {
     expected_loss: number
     credible_intervals: Record<string, [number, number]>
     stats_version?: integer
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -3833,6 +3844,9 @@ export interface ExperimentQueryResponse {
 
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
+
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3847,6 +3861,8 @@ export interface LegacyExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export interface ExperimentActorsQuery extends InsightActorsQueryBase {
@@ -3938,6 +3954,8 @@ export interface NewExperimentQueryResponse {
     breakdown_results?: ExperimentBreakdownResult[]
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -3968,6 +3986,8 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -4151,6 +4171,8 @@ export interface InsightActorsQueryOptionsResponse {
         label: string
         value: string
     }[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 export const insightActorsQueryOptionsResponseKeys: string[] = [
     'day',
@@ -4668,6 +4690,8 @@ export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQuer
 
 export interface SuggestedQuestionsQueryResponse {
     questions: string[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
@@ -4927,6 +4951,8 @@ export interface TraceNeighborsQueryResponse {
     olderTimestamp?: string
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
@@ -6441,6 +6467,7 @@ export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
     AI_ENGINEERING = 'AI engineering',
     BEHAVIOR = 'Behavior',
+    APP_MONITORING = 'App monitoring',
     FEATURES = 'Features',
     TOOLS = 'Tools',
     SCHEMA = 'Schema',
@@ -6484,6 +6511,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
     COHORTS = 'cohorts',
@@ -6505,7 +6533,6 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
-    LLM_ANALYTICS = 'llm_analytics',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',

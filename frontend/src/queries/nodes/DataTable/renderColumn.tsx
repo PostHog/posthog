@@ -43,7 +43,7 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
+import { aiObservabilityColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
@@ -52,7 +52,7 @@ export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
-    ...llmAnalyticsColumnRenderers,
+    ...aiObservabilityColumnRenderers,
     ...sessionColumnRenderers,
 }
 

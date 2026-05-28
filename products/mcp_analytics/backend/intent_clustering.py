@@ -128,13 +128,14 @@ def fetch_intent_corpus(
     ``intent_by_session`` is exposed so callers can later join session-level
     data (e.g. journey aggregation) back to the cluster a session belongs to.
 
-    ``lookback_days`` bounds both stores to the same window: sessions are
-    filtered by ``session_end`` (the index on ``(team, -session_end)`` makes
-    this cheap), and the joined ClickHouse query filters by event timestamp.
+    ``lookback_days`` bounds both stores to the same window: session intent
+    rows are filtered by ``created_at`` (when the intent was generated, since
+    intents are produced on demand), and the joined ClickHouse query filters by
+    event timestamp.
     """
     window_start = timezone.now() - timedelta(days=lookback_days)
     session_rows = list(
-        MCPSession.objects.filter(team=team, session_end__gte=window_start).values_list("session_id", "intent")
+        MCPSession.objects.filter(team=team, created_at__gte=window_start).values_list("session_id", "intent")
     )
     if not session_rows:
         return [], {}
