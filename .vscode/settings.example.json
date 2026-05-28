@@ -19,11 +19,6 @@
     },
     "mypy-type-checker.importStrategy": "fromEnvironment",
     "mypy-type-checker.preferDaemon": true,
-    // The repo uses `flox activate` as its environment entry point. Disable
-    // VS Code's auto-activation so it doesn't export VIRTUAL_ENV pointing at
-    // an arbitrary system Python (e.g. Homebrew's python@3.13 framework
-    // prefix has no bare `bin/python`, which breaks `$VIRTUAL_ENV/bin/python`
-    // call sites in bin/hogli and elsewhere).
     "python.terminal.activateEnvironment": false,
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",

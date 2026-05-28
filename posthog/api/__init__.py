@@ -46,7 +46,7 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
-from products.agent_stack.backend.api import AgentApplicationViewSet, AgentRevisionViewSet
+from products.agent_stack.backend.api import AgentApplicationViewSet, AgentNativeToolsViewSet, AgentRevisionViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1441,6 +1441,12 @@ agent_applications_router.register(
     AgentRevisionViewSet,
     "project_agent_application_revisions",
     ["project_id", "application_id"],
+)
+projects_router.register(
+    r"agent_native_tools",
+    AgentNativeToolsViewSet,
+    "project_agent_native_tools",
+    ["project_id"],
 )
 # Session reads go to the runtime DB via the janitor (GET /sessions/:id) —
 # Django's API doesn't expose them, see products/agent_stack/README.md.

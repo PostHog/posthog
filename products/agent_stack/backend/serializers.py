@@ -80,3 +80,37 @@ class PromoteRevisionRequestSerializer(serializers.Serializer):
     `live_revision`. Left as a body-bearing endpoint so we can add fields
     later (rollback target, audit comment) without changing the URL shape.
     """
+
+
+class WriteFileRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/file/. `path` lives in the query
+    string (matches the janitor wire format); `content` is the new file body."""
+
+    content = serializers.CharField(allow_blank=True, trim_whitespace=False)
+
+
+class WriteBundleRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.
+
+    `files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the
+    existing bundle before writing the new set; `'merge'` upserts."""
+
+    files = serializers.DictField(child=serializers.CharField(allow_blank=True, trim_whitespace=False))
+    mode = serializers.ChoiceField(choices=["replace", "merge"], default="replace")
+
+
+class CloneFromRequestSerializer(serializers.Serializer):
+    """Body shape for POST /revisions/<id>/clone_from/ — copy every file
+    from `source_revision_id` into this (draft) revision."""
+
+    source_revision_id = serializers.UUIDField()
+
+
+class NewDraftRevisionRequestSerializer(serializers.Serializer):
+    """Body shape for POST /revisions/clone_from/ — atomically create a new
+    draft revision under `application_id` and clone its initial bundle from
+    `source_revision_id`. Convenience for the "edit live" flow so the MCP
+    doesn't have to do create-then-clone-from in two calls."""
+
+    application_id = serializers.UUIDField()
+    source_revision_id = serializers.UUIDField()

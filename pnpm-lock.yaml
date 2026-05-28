@@ -3628,6 +3628,9 @@ importers:
       '@posthog/agent-shared':
         specifier: workspace:*
         version: link:../agent-shared
+      '@posthog/agent-tools':
+        specifier: workspace:*
+        version: link:../agent-tools
       express:
         specifier: ^4.21.1
         version: 4.22.2

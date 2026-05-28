@@ -20,6 +20,7 @@
     },
     "dependencies": {
         "@posthog/agent-shared": "workspace:*",
+        "@posthog/agent-tools": "workspace:*",
         "express": "^4.21.1",
         "pg": "^8.6.0",
         "tsx": "^4.7.0"

@@ -9,17 +9,22 @@ feature: agent_stack
 url_prefix: /agent_applications
 ui_apps: {}
 tools:
-    agent-applications-complete-upload-create:
-        operation: agent_applications_complete_upload_create
-        enabled: false
     agent-applications-create:
         operation: agent_applications_create
-        enabled: false
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create an agent application
+        description: >
+            Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no
+            revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze +
+            promote.
     agent-applications-destroy:
         operation: agent_applications_destroy
-        enabled: false
-    agent-applications-disable-revision-create:
-        operation: agent_applications_disable_revision_create
         enabled: true
         scopes:
             - agent_application:write
@@ -27,28 +32,11 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Disable revision
+        title: Archive an agent application
         description: >
-            Pull a revision out of traffic by setting its deployment_status to `disabled`. Use this to roll back a
-            broken live or preview revision. Idempotent — disabling an already-disabled revision is a no-op. Allowed
-            from any state (does not require state=ready).
-    agent-applications-env-partial-update:
-        operation: agent_applications_env_partial_update
-        enabled: true
-        scopes:
-            - agent_application:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Patch secrets
-        description: >
-            Set or remove individual environment variables on an application. Body shape: `{ keys: { FOO: "bar", OLD:
-            null } }` — `null` removes the key. Returns the application with `env_redacted` updated. Required for
-            promoting a revision when the manifest declares new secrets that aren't yet set.
-    agent-applications-env-update:
-        operation: agent_applications_env_update
-        enabled: false
+            Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further
+            CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped
+            to `archived=false`).
     agent-applications-list:
         operation: agent_applications_list
         enabled: true
@@ -58,42 +46,23 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
         title: List agent applications
         description: >
-            List every agent application in the current project. Use this to discover available agent slugs, see who
-            created what, and inspect basic metadata (name, description, has_env). The returned `slug` field is the
-            canonical identifier — pass it as `id` to the per-application tools (revisions, sessions, env).
+            List every agent application in the project. Returns id, slug, name, description, live_revision, archived
+            state. Use the slug to drive subsequent calls — it's stable and human-readable.
     agent-applications-partial-update:
         operation: agent_applications_partial_update
-        enabled: false
-    agent-applications-preview-create:
-        operation: agent_applications_preview_create
         enabled: true
         scopes:
             - agent_application:write
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
-        title: Mark revision as preview
+            idempotent: true
+        title: Update an agent application
         description: >
-            Mark a ready revision as `deployment_status: preview` for testing without affecting live traffic. Same
-            readiness + secret requirements as promote.
-    agent-applications-promote-create:
-        operation: agent_applications_promote_create
-        enabled: true
-        scopes:
-            - agent_application:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Promote revision to live
-        description: >
-            Promote a ready revision to `deployment_status: live`. Replaces the previous live revision. The revision
-            must be in `state: ready` and the application's env must contain every required secret declared by the
-            bundle manifest — otherwise returns 409 with a `missing_secrets` list.
+            Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create`
+            (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true
@@ -103,11 +72,135 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get agent application
+        title: Get an agent application
         description: >
-            Get a single agent application by slug. Returns name, description, env_redacted (redacted env preview),
-            created/updated timestamps. For prompt/tools/triggers, fetch the live revision via
-            `agent-applications-revisions-list?deployment_status=live`.
+            Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the
+            running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call
+            `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.
+    agent-applications-revisions-archive-create:
+        operation: agent_applications_revisions_archive_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Archive a revision
+        description: >
+            Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the
+            app has no deployable version until another revision is promoted). Idempotent.
+    agent-applications-revisions-bundle-retrieve:
+        operation: agent_applications_revisions_bundle_retrieve
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Pull every file in a revision's bundle
+        description: >
+            Bulk download — returns `{ files: { path: utf-8 content, … } }` for every file in the bundle. Use when you
+            want to edit the whole agent locally; mutate files, then push back via the bundle PUT (replace mode).
+    agent-applications-revisions-bundle-update:
+        operation: agent_applications_revisions_bundle_update
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Push a full bundle to a draft revision
+        description: >
+            Body `{ files: { path: content, … }, mode: "replace" | "merge" }`. `replace` wipes the existing bundle
+            before writing the new set (use after a full edit); `merge` upserts (use for incremental adds). Only
+            `state=draft` revisions accept this.
+    agent-applications-revisions-clone-from-create:
+        operation: agent_applications_revisions_clone_from_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Clone bundle from another revision
+        description: >
+            Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after
+            `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions
+            must belong to the same team.
+    agent-applications-revisions-create:
+        operation: agent_applications_revisions_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a draft revision
+        description: >
+            Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields
+            you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what
+            you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or
+            `agent-applications-revisions-new-draft-create` to seed it from an existing revision.
+    agent-applications-revisions-destroy:
+        operation: agent_applications_revisions_destroy
+        enabled: false
+    agent-applications-revisions-file-destroy:
+        operation: agent_applications_revisions_file_destroy
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete one file
+        description: |
+            Remove the file at `?path=…` from a draft revision. Idempotent — deleting an already-absent file is a no-op.
+    agent-applications-revisions-file-retrieve:
+        operation: agent_applications_revisions_file_retrieve
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read one file
+        description: >
+            Returns `{ path, content }` for one file in the bundle. Pass `?path=…` (e.g. `?path=skills/research.md`).
+            Works on any revision state.
+    agent-applications-revisions-file-update:
+        operation: agent_applications_revisions_file_update
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Write one file
+        description: >
+            Body `{ content: "…" }`. Creates or overwrites the file at `?path=…` in a draft revision. Use for targeted
+            edits (one skill, one tool source); for bulk changes use the bundle PUT.
+    agent-applications-revisions-freeze-create:
+        operation: agent_applications_revisions_freeze_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Freeze a draft revision
+        description: >
+            Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this
+            the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing
+            sha256.
     agent-applications-revisions-list:
         operation: agent_applications_revisions_list
         enabled: true
@@ -117,13 +210,66 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
-        title: List revisions
+        title: List revisions of an application
         description: >
-            List all deployment revisions for an application, newest first. Supports filtering by `deployment_status`
-            (live | preview | disabled) and `state` (pending_upload | uploaded | validating | ready | failed). Use this
-            to find a specific revision id for show / promote / disable, or to see which one is currently serving
-            traffic (`deployment_status: live`).
+            List every revision (draft, ready, live, archived) for one application, newest first. Use to find the
+            current live revision id or pick a known-good revision to clone for an edit.
+    agent-applications-revisions-manifest-retrieve:
+        operation: agent_applications_revisions_manifest_retrieve
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List files in a revision's bundle
+        description: >
+            Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's
+            in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last
+            looked.
+    agent-applications-revisions-new-draft-create:
+        operation: agent_applications_revisions_new_draft_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Branch a new draft from an existing revision
+        description: >
+            One-shot helper: creates a draft revision under `application_id` and clones every file from
+            `source_revision_id` into the new bundle in a single round-trip. Use this for the common "edit live"
+            workflow — branch from the current live revision, mutate files, freeze, promote.
+    agent-applications-revisions-partial-update:
+        operation: agent_applications_revisions_partial_update
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a revision's spec
+        description: >
+            Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the
+            revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner
+            side; an invalid spec will surface when the next session starts, not here.
+    agent-applications-revisions-promote-create:
+        operation: agent_applications_revisions_promote_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Promote a revision to live
+        description: >
+            Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live
+            revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first).
+            Idempotent: promoting an already-live revision is a no-op.
     agent-applications-revisions-retrieve:
         operation: agent_applications_revisions_retrieve
         enabled: true
@@ -133,12 +279,16 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get revision
+        title: Get a revision
         description: >
-            Get a single revision by id. Returns the parsed manifest (prompt, tools, triggers), bundle metadata (size,
-            sha256), validation_report (when state=failed), and timestamps.
-    agent-applications-sessions-cancel:
-        operation: agent_applications_sessions_cancel
+            Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision
+            id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` /
+            `agent-applications-revisions-bundle-retrieve`.
+    agent-applications-revisions-update:
+        operation: agent_applications_revisions_update
+        enabled: false
+    agent-applications-set-env-create:
+        operation: agent_applications_set_env_create
         enabled: true
         scopes:
             - agent_application:write
@@ -146,55 +296,26 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Cancel session
+        title: Replace the application's env block
         description: >
-            Cancel a running session. Sets the session's status to `canceled` so the runner workers stop processing it.
-            Use this to kill stuck or runaway agents. Idempotent: cancelling an already-terminal session is a no-op.
-    agent-applications-sessions-list:
-        operation: agent_applications_sessions_list
-        enabled: true
-        scopes:
-            - agent_application:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List sessions
-        description: >
-            List recent agent runtime sessions for an application. Each entry includes id, status (available | running |
-            completed | failed | canceled), scheduled / created / last_heartbeat timestamps, transition_count. Supports
-            filters: status, limit, created_before.
-    agent-applications-sessions-logs:
-        operation: agent_applications_sessions_logs
-        enabled: true
-        scopes:
-            - agent_application:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Read session logs
-        description: >
-            Fetch per-session log entries from ClickHouse. Each entry has timestamp, level (DEBUG | INFO | WARNING |
-            ERROR) and a human-readable message. Pass `after=<iso-timestamp>` to paginate forward (use the response's
-            `next_after` cursor). Default limit 200, max 500.
-    agent-applications-sessions-retrieve:
-        operation: agent_applications_sessions_retrieve
-        enabled: true
-        scopes:
-            - agent_application:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get session
-        description: >
-            Get a single session by id. Returns the same shape as the list endpoint but with full state metadata
-            including state_byte_size (a hint that very large state may need offloading).
-    agent-applications-start-deploy-create:
-        operation: agent_applications_start_deploy_create
-        enabled: false
+            Body `{ env: { KEY: "value", … } }`. The whole env is replaced (not patched); pass the full set you want
+            available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start
+            and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).
     agent-applications-update:
         operation: agent_applications_update
         enabled: false
+    agent-native-tools-list:
+        operation: agent_native_tools_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List native tools the runner knows
+        description: >
+            Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes
+            the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap`
+            / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a
+            revision's spec.
