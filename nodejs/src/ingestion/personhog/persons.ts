@@ -28,6 +28,8 @@ function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
     }
 }
 
+const PERSONHOG_BATCH_SIZE = 250
+
 export class PersonHogPersonOperations {
     constructor(private client: Client<typeof PersonHogService>) {}
 
@@ -38,24 +40,27 @@ export class PersonHogPersonOperations {
             return []
         }
 
-        const response = await this.client.getPersonsByDistinctIds(
-            create(GetPersonsByDistinctIdsRequestSchema, {
-                teamDistinctIds: teamPersons.map(({ teamId, distinctId }) =>
-                    create(TeamDistinctIdSchema, {
-                        teamId: BigInt(teamId),
-                        distinctId,
-                    })
-                ),
-                readOptions: eventualReadOptions(),
-            })
-        )
-
         const results: InternalPersonWithDistinctId[] = []
-        for (const result of response.results) {
-            if (result.person && result.key) {
-                const person = protoPersonToDomain(result.person) as InternalPersonWithDistinctId
-                person.distinct_id = result.key.distinctId
-                results.push(person)
+        for (let i = 0; i < teamPersons.length; i += PERSONHOG_BATCH_SIZE) {
+            const batch = teamPersons.slice(i, i + PERSONHOG_BATCH_SIZE)
+            const response = await this.client.getPersonsByDistinctIds(
+                create(GetPersonsByDistinctIdsRequestSchema, {
+                    teamDistinctIds: batch.map(({ teamId, distinctId }) =>
+                        create(TeamDistinctIdSchema, {
+                            teamId: BigInt(teamId),
+                            distinctId,
+                        })
+                    ),
+                    readOptions: eventualReadOptions(),
+                })
+            )
+
+            for (const result of response.results) {
+                if (result.person && result.key) {
+                    const person = protoPersonToDomain(result.person) as InternalPersonWithDistinctId
+                    person.distinct_id = result.key.distinctId
+                    results.push(person)
+                }
             }
         }
         return results
@@ -66,10 +71,6 @@ export class PersonHogPersonOperations {
             return []
         }
 
-        // Group by team_id since GetPersonsByUuids is a single-team RPC.
-        // In practice callers (e.g. CDP PersonsManager) almost always pass a single team,
-        // so multiple RPCs here is an edge case. If metrics show frequent multi-team batches,
-        // consider adding a cross-team UUID RPC (similar to GetPersonsByDistinctIds).
         const byTeam = new Map<number, string[]>()
         for (const { teamId, personId } of teamPersons) {
             const uuids = byTeam.get(teamId) ?? []
@@ -79,14 +80,19 @@ export class PersonHogPersonOperations {
 
         const allPersons = await Promise.all(
             [...byTeam].map(async ([teamId, uuids]) => {
-                const response = await this.client.getPersonsByUuids(
-                    create(GetPersonsByUuidsRequestSchema, {
-                        teamId: BigInt(teamId),
-                        uuids,
-                        readOptions: eventualReadOptions(),
-                    })
-                )
-                return response.persons.map(protoPersonToDomain)
+                const batchResults: InternalPerson[] = []
+                for (let i = 0; i < uuids.length; i += PERSONHOG_BATCH_SIZE) {
+                    const batch = uuids.slice(i, i + PERSONHOG_BATCH_SIZE)
+                    const response = await this.client.getPersonsByUuids(
+                        create(GetPersonsByUuidsRequestSchema, {
+                            teamId: BigInt(teamId),
+                            uuids: batch,
+                            readOptions: eventualReadOptions(),
+                        })
+                    )
+                    batchResults.push(...response.persons.map(protoPersonToDomain))
+                }
+                return batchResults
             })
         )
         return allPersons.flat()
