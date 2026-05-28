@@ -15,13 +15,14 @@ import {
     DataTableNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import type { UserBasicType } from '~/types'
+import type { DataWarehouseViewLink, UserBasicType } from '~/types'
 
 import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountApi,
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 
@@ -88,34 +89,56 @@ const SKIPPED_DIRECT_FIELD_TYPES = new Set([
     'unknown',
 ])
 
-function joinOptionsFor(field: DatabaseSchemaField, joinedTable: DatabaseSchemaTable | undefined): AccountColumnOption[] {
-    const names: string[] = field.fields ?? Object.keys(joinedTable?.fields ?? {})
-    return names.map((name) => ({
+function buildJoinOptions(
+    fieldName: string,
+    fields: string[],
+    joinedTable: DatabaseSchemaTable | undefined
+): AccountColumnOption[] {
+    return fields.map((name) => ({
         name,
         // `accounts.<join>.<col> AS <col>` — alias keeps the visible column
         // name human-readable while disambiguating columns that collide with
         // direct fields (e.g. `name` on a joined table).
-        expression: `accounts.${field.name}.${name} AS ${name}`,
+        expression: `accounts.${fieldName}.${name} AS ${name}`,
         type: joinedTable?.fields?.[name]?.type,
     }))
 }
 
+function joinOptionsFromSchema(
+    field: DatabaseSchemaField,
+    joinedTable: DatabaseSchemaTable | undefined
+): AccountColumnOption[] {
+    const names: string[] = field.fields ?? Object.keys(joinedTable?.fields ?? {})
+    return buildJoinOptions(field.name, names, joinedTable)
+}
+
 export function buildAccountColumnGroups(
-    allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined
+    allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined,
+    warehouseJoins: DataWarehouseViewLink[]
 ): AccountColumnGroup[] {
     const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
     const directOptions: AccountColumnOption[] = []
     const joinGroups: AccountColumnGroup[] = []
+    const seenJoinKeys = new Set<string>()
+
+    const addJoinGroup = (
+        fieldName: string,
+        joinedTable: DatabaseSchemaTable | undefined,
+        options: AccountColumnOption[]
+    ): void => {
+        const key = `accounts.${fieldName}` as AccountColumnGroupKey
+        if (seenJoinKeys.has(key)) {
+            return
+        }
+        seenJoinKeys.add(key)
+        joinGroups.push({ key, label: key, options })
+    }
 
     if (accountsTable) {
         for (const field of Object.values(accountsTable.fields)) {
             if (JOIN_FIELD_TYPES.has(field.type)) {
                 const joinedTable = field.table ? allTablesMap?.[field.table] : undefined
-                joinGroups.push({
-                    key: `accounts.${field.name}` as AccountColumnGroupKey,
-                    label: `accounts.${field.name}`,
-                    options: joinOptionsFor(field, joinedTable),
-                })
+                addJoinGroup(field.name, joinedTable, joinOptionsFromSchema(field, joinedTable))
                 continue
             }
             if (SKIPPED_DIRECT_FIELD_TYPES.has(field.type)) {
@@ -127,6 +150,22 @@ export function buildAccountColumnGroups(
                 type: field.type,
             })
         }
+    }
+
+    // Data-warehouse joins targeting `system.accounts` are returned in the
+    // separate `joins` array on the schema response (loaded by `joinsLogic`),
+    // not inside the source table's `fields`. Surface them as additional
+    // first-class column groups so users don't have to drop to SQL.
+    for (const join of warehouseJoins) {
+        if (join.source_table_name !== ACCOUNTS_ACCOUNTS_TABLE_NAME || !join.field_name || !join.joining_table_name) {
+            continue
+        }
+        const joinedTable = allTablesMap?.[join.joining_table_name]
+        if (!joinedTable) {
+            continue
+        }
+        const columnNames = Object.keys(joinedTable.fields)
+        addJoinGroup(join.field_name, joinedTable, buildJoinOptions(join.field_name, columnNames, joinedTable))
     }
 
     return [
@@ -198,8 +237,15 @@ const EMPTY_RESULT: AccountsLoadResult = { count: 0, results: [] }
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], databaseTableListLogic, ['allTablesMap', 'databaseLoading']],
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            databaseTableListLogic,
+            ['allTablesMap', 'databaseLoading'],
+            joinsLogic,
+            ['joins as warehouseJoins', 'joinsLoading as warehouseJoinsLoading'],
+        ],
+        actions: [databaseTableListLogic, ['loadDatabase'], joinsLogic, ['loadJoins']],
     })),
     actions({
         setSearchQuery: (query: string) => ({ query }),
@@ -429,9 +475,11 @@ export const accountsLogic = kea<accountsLogicType>([
             (selectColumns: string[]): string[] => selectColumns.map((c) => extractDisplayLabel(c)),
         ],
         accountsColumnGroups: [
-            (s) => [s.allTablesMap],
-            (allTablesMap: Record<string, DatabaseSchemaTable>): AccountColumnGroup[] =>
-                buildAccountColumnGroups(allTablesMap),
+            (s) => [s.allTablesMap, s.warehouseJoins],
+            (
+                allTablesMap: Record<string, DatabaseSchemaTable>,
+                warehouseJoins: DataWarehouseViewLink[]
+            ): AccountColumnGroup[] => buildAccountColumnGroups(allTablesMap, warehouseJoins),
         ],
         hogqlQuery: [
             (s) => [
