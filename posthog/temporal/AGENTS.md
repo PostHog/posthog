@@ -9,6 +9,7 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 ## Writing or modifying tests in this tree
 
 - [Testing patterns](./README.md#testing-patterns) — when to use real Worker vs `ActivityEnvironment` vs no harness, why some files need `@pytest.mark.django_db(transaction=True)`, the module-scoped Worker pattern that avoids booting the temporal-test-server per test, the `connection.connect()` monkeypatch escape hatch, and the parametrize-don't-copy-paste rule.
+- [In-process test server vs. the real docker container](./README.md#in-process-test-server-vs-the-real-docker-container) — prefer `WorkflowEnvironment.start_time_skipping()` (no container) over `sync_connect()`/`start_test_worker()` (needs the docker `temporal` profile). Real-container tests outside this tree must be registered in `posthog/test/test_temporal_container_dependencies.py`, which fails CI on unregistered ones.
 
 ## Subtree-specific docs (read when working in that area)
 

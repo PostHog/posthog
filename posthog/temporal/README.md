@@ -495,6 +495,25 @@ Temporal tests are expensive — they boot Temporal test servers, register activ
 
 Per Temporal's own guidance: write the **majority** of tests as the cheapest harness that still proves the contract you care about. Spinning up a Worker is a deliberate choice for integration tests, not the default.
 
+### In-process test server vs. the real docker container
+
+There are two ways a test can reach Temporal, and they have very different CI implications:
+
+- **In-process test server** — `WorkflowEnvironment.start_time_skipping()` (and `ActivityEnvironment`) spawn an ephemeral `temporal-test-server` inside the test process. They need **no docker container** and run anywhere. This is the preferred harness for almost everything.
+- **The real docker container** — calling `sync_connect()` / `async_connect()` / `connect()` from `posthog.temporal.common.client`, or `start_test_worker()` (which boots a real `Worker` against a real client), talks to the Temporal server started by the `temporal` docker-compose profile. These tests only pass when that profile is running.
+
+Prefer the in-process server. Reach for the real container only when you specifically need to exercise the live server (e.g. asserting on schedule reconciliation or schedule descriptions).
+
+### Which CI segment runs your temporal test
+
+`ci-backend.yml` splits backend tests into segments (see the `build_django_matrix` step):
+
+- **Core** — `pytest posthog ee/` with `--ignore=posthog/temporal`. Sharded widely.
+- **Temporal** — `pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal`.
+- **Product** turbo-tests — each `products/*/backend` suite, in its own job.
+
+All of these currently boot the `temporal` profile, so a real-container dependency added to a Core test "just works" — which quietly couples the broadly-sharded Core segment to a service most of its tests never touch. To keep that honest, `posthog/test/test_temporal_container_dependencies.py` scans `posthog/` and `ee/` for real-container calls and fails if it finds an **unregistered** one. If you add such a test, the failure tells you to either switch to the in-process server or register the file and make sure it runs under a segment that boots Temporal. The current real-container tests outside `posthog/temporal/` are listed in that registry.
+
 ### The `django_db(transaction=True)` rule
 
 Async tests that touch the Django ORM via `sync_to_async` / `database_sync_to_async` will fail without `@pytest.mark.django_db(transaction=True)`. asgiref dispatches the wrapped sync function to a separate thread, which gets its own DB connection, which can't see the test's wrapping atomic transaction. The test will create a row, the activity will fail to find it.
