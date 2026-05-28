@@ -53,7 +53,9 @@ export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
 
 export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
 
-export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'accounts'
+// `allTablesMap` keys system tables by their fully qualified name (e.g.
+// `system.accounts`), matching `resolve_visible_table_names()` on the backend.
+export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'system.accounts'
 
 export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | `accounts.${string}`
 
