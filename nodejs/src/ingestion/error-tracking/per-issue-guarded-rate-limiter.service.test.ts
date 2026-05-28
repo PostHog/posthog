@@ -91,11 +91,11 @@ describe('PerIssueGuardedRateLimiterService', () => {
         refillRate: overrides.refillRate ?? 10,
     })
 
-    it('allows the first new-sig event and bumps the per-team window counter', async () => {
+    it('allows the first event with a new scopeKey and bumps the per-team window counter', async () => {
         const limiter = build('first-event')
         await cleanLimiter(limiter)
 
-        const res = await limiter.rateLimitGrouped([req(42, 'sig-a')])
+        const res = await limiter.rateLimitGrouped([req(42, 'scope-a')])
 
         expect(res[0][1]).toEqual(expect.objectContaining({ isRateLimited: false }))
         const nowSeconds = Math.round(now / 1000)
@@ -103,13 +103,13 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(false)
     })
 
-    it('skips counter increment for an already-seen sig', async () => {
-        const limiter = build('repeat-sig')
+    it('skips counter increment for an already-seen scopeKey', async () => {
+        const limiter = build('repeat-scope')
         await cleanLimiter(limiter)
 
-        await limiter.rateLimitGrouped([req(42, 'sig-a')])
-        await limiter.rateLimitGrouped([req(42, 'sig-a')])
-        await limiter.rateLimitGrouped([req(42, 'sig-a')])
+        await limiter.rateLimitGrouped([req(42, 'scope-a')])
+        await limiter.rateLimitGrouped([req(42, 'scope-a')])
+        await limiter.rateLimitGrouped([req(42, 'scope-a')])
 
         const nowSeconds = Math.round(now / 1000)
         expect(await readCounter(limiter.counterKey(42, nowSeconds))).toBe(1)
@@ -165,12 +165,12 @@ describe('PerIssueGuardedRateLimiterService', () => {
         const counterHPlus1 = limiter.counterKey(42, Math.round(now / 1000))
         expect(counterHPlus1).not.toBe(counterH)
 
-        // After the rollover, the new-hour counter starts fresh on the next new sig.
+        // After the rollover, the new-hour counter starts fresh on the next new scopeKey.
         await limiter.rateLimitGrouped([req(42, 'b')])
         expect(await readCounter(counterHPlus1)).toBe(1)
     })
 
-    it('returns to allowed once cooldown TTL expires and team stops creating new sigs', async () => {
+    it('returns to allowed once cooldown TTL expires and team stops creating new scopeKeys', async () => {
         const limiter = build('recover', { threshold: 1, cooldownTtlSeconds: 1 })
         await cleanLimiter(limiter)
 
@@ -185,7 +185,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(r[0][1].isRateLimited).toBe(false)
     })
 
-    it('rate-limits when a single sig drains its own bucket', async () => {
+    it('rate-limits when a single scopeKey drains its own bucket', async () => {
         const limiter = build('bucket-limit')
         await cleanLimiter(limiter)
 
