@@ -190,14 +190,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return None
         return {"type": "account", "id": str(link.account_id)}
 
-    def validate_content(self, value: Any) -> Any:
-        if not isinstance(value, dict):
-            return value
-        try:
-            return normalize_notebook_query_nodes(value)
-        except InvalidNotebookQueryError as err:
-            raise serializers.ValidationError(str(err))
-
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
@@ -277,6 +269,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
         )
 
         return updated_notebook
+
+    def validate_content(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        try:
+            return normalize_notebook_query_nodes(value)
+        except InvalidNotebookQueryError as err:
+            raise serializers.ValidationError(str(err))
 
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
