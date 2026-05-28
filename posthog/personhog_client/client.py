@@ -153,7 +153,6 @@ class PersonHogClient:
         max_send_message_length: int = 4 * 1024 * 1024,
         max_recv_message_length: int = 128 * 1024 * 1024,
         client_idle_timeout_ms: int = 0,
-        compression_enabled: bool = True,
     ):
         options = [
             ("grpc.keepalive_time_ms", keepalive_time_ms),
@@ -167,8 +166,7 @@ class PersonHogClient:
             # Prevent the channel from transitioning to IDLE between requests.
             ("grpc.client_idle_timeout_ms", client_idle_timeout_ms),
         ]
-        compression = grpc.Compression.Gzip if compression_enabled else grpc.Compression.NoCompression
-        channel = grpc.insecure_channel(addr, options=options, compression=compression)
+        channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
             channel,
             ClientNameInterceptor(client_name),
@@ -345,7 +343,6 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     max_send_message_length=getattr(settings, "PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024),
                     max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024),
                     client_idle_timeout_ms=getattr(settings, "PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0),
-                    compression_enabled=getattr(settings, "PERSONHOG_COMPRESSION_ENABLED", True),
                 )
                 logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
 

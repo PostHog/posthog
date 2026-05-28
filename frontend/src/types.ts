@@ -5368,6 +5368,7 @@ export type APIScopeObject =
     | 'llm_provider_key'
     | 'llm_skill'
     | 'logs'
+    | 'marketing_analytics'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
@@ -6523,6 +6524,8 @@ export type CyclotronJobInputSchemaType = {
     key: string
     label: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean
@@ -6648,6 +6651,7 @@ export type HogFunctionConfigurationContextId =
     | 'insight-alerts'
     | 'experiment-alerts'
     | 'logs-alerting'
+    | 'health-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6664,6 +6668,8 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-resolved'
     | 'logs-alert-auto-disabled'
     | 'logs-alert-errored'
+    | 'health-check-firing'
+    | 'health-check-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

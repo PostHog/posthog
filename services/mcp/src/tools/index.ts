@@ -13,8 +13,9 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // AI observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-// Notebooks
+// Notebooks (edit tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import editNotebook from './notebooks/edit'
+import notebookEdit from './notebooks/editByReplacement'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
@@ -78,6 +79,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
 
+    // Notebooks
+    'notebook-edit': notebookEdit,
+
     // Search
     'entity-search': entitySearch,
 
@@ -92,7 +96,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
 
-    // Notebooks
     'notebooks-edit': editNotebook,
 
     // Replay

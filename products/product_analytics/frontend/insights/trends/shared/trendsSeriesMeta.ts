@@ -13,10 +13,9 @@ export type TrendsSeriesMeta = {
     filter?: SeriesDatum['filter']
 }
 
-/** Canonical lifecycle order: new → resurrecting → returning → dormant.
- *  Used both as a status enumeration and as the stack order for the diverging stack —
- *  dormant ends up at the bottom because its data is negative. Callers that need the
- *  legacy descending order (`trendsDataLogic.ts:197`) can iterate in reverse. */
+/** Canonical lifecycle status enumeration: new → resurrecting → returning → dormant.
+ *  The lifecycle chart renders series in the reverse order (dormant first) to match the
+ *  legacy chart (`trendsDataLogic.ts:197`); see `trendsLifecycleChartTransforms.ts`. */
 export const LIFECYCLE_STATUS_ORDER: readonly LifecycleToggle[] = ['new', 'resurrecting', 'returning', 'dormant']
 
 export const buildTrendsSeriesMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({

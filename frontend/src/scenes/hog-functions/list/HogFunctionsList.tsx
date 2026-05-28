@@ -51,6 +51,10 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'insight-alerts': { label: 'Insight alerts' },
     'experiment-alerts': { label: 'Experiment alerts' },
+    'health-alerts': {
+        label: 'Health alerts',
+        url: urls.healthAlerts(),
+    },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {

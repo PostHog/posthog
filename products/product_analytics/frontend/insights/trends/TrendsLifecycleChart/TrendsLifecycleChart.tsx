@@ -4,6 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TimeSeriesBarChart } from 'lib/hog-charts'
 import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -58,6 +59,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         formula,
         hasPersonsModal,
         querySource,
+        showValuesOnSeries,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
@@ -75,6 +77,11 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [indexedResults, currentPeriodResult?.labels])
 
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
+        [trendsFilter, baseCurrency]
+    )
+
     const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
         () =>
             buildTrendsLifecycleConfig({
@@ -85,9 +92,20 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
             }),
-        [trendsFilter, baseCurrency, isStacked, yAxisScaleType, interval, timezone, currentPeriodResult?.days]
+        [
+            trendsFilter,
+            baseCurrency,
+            isStacked,
+            yAxisScaleType,
+            interval,
+            timezone,
+            currentPeriodResult?.days,
+            showValuesOnSeries,
+            valueLabelFormatter,
+        ]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
