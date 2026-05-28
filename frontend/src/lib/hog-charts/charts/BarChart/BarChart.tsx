@@ -127,8 +127,29 @@ function BarChartInner<Meta = unknown>({
         maxBandRange,
         bandPadding,
         barShadow,
+        minBandSize,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
+
+    // Horizontal charts crush their row labels into an unreadable strip once the band count
+    // grows past what the parent's height can fit. Force a minimum px-per-row so each row
+    // has space for its tick label plus a little breathing room; the wrapper grows and the
+    // outer scene scrolls instead of squashing.
+    // Reserve ~64px for top + bottom margins (axis labels, plot padding) — matches the
+    // DEFAULT_MARGINS + axis-title floor in useChartMargins.
+    const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
+    const HORIZONTAL_CHART_MARGIN_PX = 64
+    const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
+    const wrapperMinHeight = useMemo(() => {
+        if (!isHorizontal || resolvedMinBandSize <= 0) {
+            return undefined
+        }
+        const uniqueBands = new Set(labels).size
+        if (uniqueBands === 0) {
+            return undefined
+        }
+        return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
+    }, [isHorizontal, resolvedMinBandSize, labels])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
@@ -469,7 +490,7 @@ function BarChartInner<Meta = unknown>({
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef]
     )
 
-    return (
+    const chart = (
         <Chart
             series={series}
             labels={labels}
@@ -498,6 +519,11 @@ function BarChartInner<Meta = unknown>({
             {children}
         </Chart>
     )
+
+    if (wrapperMinHeight === undefined) {
+        return chart
+    }
+    return <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: wrapperMinHeight }}>{chart}</div>
 }
 
 /** Pure helper extracted so the click-rewrite is unit-testable and the component-level
