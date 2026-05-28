@@ -61,7 +61,6 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
 
 
 def run_error_tracking_list_widget(team: Team, config: dict[str, Any], user: User | None = None) -> dict[str, Any]:
-    _ = user
     limit = cast(int, config["limit"])
     offset = 0
     date_range_raw = config.get("dateRange")
@@ -81,7 +80,7 @@ def run_error_tracking_list_widget(team: Team, config: dict[str, Any], user: Use
         tags={"productKey": "error_tracking"},
     )
     with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-        data = ErrorTrackingQueryRunner(team=team, query=query).calculate().model_dump(mode="json")
+        data = ErrorTrackingQueryRunner(team=team, query=query, user=user).calculate().model_dump(mode="json")
     raw_results_value = data.get("results")
     raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
     results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]

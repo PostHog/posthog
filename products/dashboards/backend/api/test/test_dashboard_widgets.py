@@ -632,8 +632,8 @@ class TestDashboardWidgets(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
             {
                 "widgets": [
-                    {"widget_type": "error_tracking_list", "config": {"limit": 5}},
-                    {"widget_type": "session_replay_list", "config": {"limit": 3}},
+                    {"widget_type": "error_tracking_list", "config": {"limit": 5}, "name": "Errors A"},
+                    {"widget_type": "error_tracking", "config": {"limit": 3}, "name": "Errors B"},
                 ]
             },
         )
@@ -642,7 +642,7 @@ class TestDashboardWidgets(APIBaseTest):
         tiles = response.json()["tiles"]
         assert len(tiles) == 2
         assert tiles[0]["widget"]["widget_type"] == "error_tracking_list"
-        assert tiles[1]["widget"]["widget_type"] == "session_replay_list"
+        assert tiles[1]["widget"]["widget_type"] == "error_tracking_list"
         assert tiles[0]["layouts"]["sm"]["y"] == 0
         assert tiles[1]["layouts"]["sm"]["y"] == tiles[0]["layouts"]["sm"]["h"]
 

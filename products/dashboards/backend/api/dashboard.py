@@ -2488,6 +2488,8 @@ class DashboardsViewSet(
             raise exceptions.ValidationError("tile_ids must be a comma-separated list of integers.") from exc
 
         tile_ids = list(dict.fromkeys(tile_ids))
+        if not tile_ids:
+            raise exceptions.ValidationError("tile_ids must include at least one tile ID.")
         if len(tile_ids) > MAX_WIDGETS_BATCH_SIZE:
             raise exceptions.ValidationError(f"At most {MAX_WIDGETS_BATCH_SIZE} tile_ids may be requested at once.")
 
@@ -2605,11 +2607,12 @@ class DashboardsViewSet(
                 existing_sm_layouts=collect_dashboard_sm_layouts_for_dashboard(dashboard),
             )
 
+        assert tile.widget is not None
         _report_dashboard_tile_added(
             user=user,
             dashboard=dashboard,
             tile_type="widget",
-            widget_type=payload["widget_type"],
+            widget_type=tile.widget.widget_type,
             request=request,
         )
 
@@ -2648,12 +2651,13 @@ class DashboardsViewSet(
                 payloads=widget_payloads,
             )
 
-        for payload in widget_payloads:
+        for tile in tiles:
+            assert tile.widget is not None
             _report_dashboard_tile_added(
                 user=user,
                 dashboard=dashboard,
                 tile_type="widget",
-                widget_type=payload["widget_type"],
+                widget_type=tile.widget.widget_type,
                 request=request,
             )
 

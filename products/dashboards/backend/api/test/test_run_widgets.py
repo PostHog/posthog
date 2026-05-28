@@ -87,6 +87,14 @@ class TestDashboardRunWidgets(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_run_widgets_rejects_empty_tile_ids(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
+            {"tile_ids": ""},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @patch(
         "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
     )
@@ -137,6 +145,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self._run(dashboard_id, [tile_id])
 
         mock_runner_cls.assert_called_once()
+        self.assertEqual(mock_runner_cls.call_args.kwargs["user"], self.user)
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertTrue(query.filterTestAccounts)
 
