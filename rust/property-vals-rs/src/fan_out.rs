@@ -7,33 +7,31 @@ pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
 pub fn fan_out(event: &Event, excluded: &ExcludedPropertyKeys) -> Vec<(TupleKey, u64)> {
-    let mut out = Vec::new();
-
+    let mut tuples = Vec::new();
     if let Some(raw) = &event.properties {
-        emit_from_blob(event.team_id, PropertyType::Event, raw, excluded, &mut out);
+        emit_from_blob(event.team_id, PropertyType::Event, raw, excluded, &mut tuples);
     }
     if let Some(raw) = &event.person_properties {
-        emit_from_blob(event.team_id, PropertyType::Person, raw, excluded, &mut out);
+        emit_from_blob(event.team_id, PropertyType::Person, raw, excluded, &mut tuples);
     }
-
-    out
+    tuples.into_iter().map(|t| (t, 1)).collect()
 }
 
 pub fn fan_out_group(
     event: &GroupIdentify,
     excluded: &ExcludedPropertyKeys,
 ) -> Vec<(TupleKey, u64)> {
-    let mut out = Vec::new();
+    let mut tuples = Vec::new();
     if let Some(raw) = &event.group_properties {
         emit_from_blob(
             event.team_id,
             PropertyType::Group(event.group_type_index),
             raw,
             excluded,
-            &mut out,
+            &mut tuples,
         );
     }
-    out
+    tuples.into_iter().map(|t| (t, 1)).collect()
 }
 
 pub fn extract_tuple(msg: &PropertyValueMessage) -> Vec<(TupleKey, u64)> {
@@ -56,7 +54,7 @@ fn emit_from_blob(
     property_type: PropertyType,
     raw: &str,
     excluded: &ExcludedPropertyKeys,
-    out: &mut Vec<(TupleKey, u64)>,
+    out: &mut Vec<TupleKey>,
 ) {
     let parsed: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
@@ -86,15 +84,12 @@ fn emit_from_blob(
             continue;
         }
 
-        out.push((
-            TupleKey {
-                team_id,
-                property_type,
-                property_key: key.clone(),
-                property_value,
-            },
-            1,
-        ));
+        out.push(TupleKey {
+            team_id,
+            property_type,
+            property_key: key.clone(),
+            property_value,
+        });
     }
 }
 
