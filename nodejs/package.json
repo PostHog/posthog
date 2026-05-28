@@ -82,7 +82,7 @@
         "@posthog/replay-headless": "workspace:*",
         "@posthog/siphash": "1.1.1",
         "@pyroscope/nodejs": "^0.4.8",
-        "@segment/action-destinations": "^3.494.0",
+        "@segment/action-destinations": "3.387.0",
         "@temporalio/activity": "1.15.0",
         "@temporalio/client": "^1.12.0",
         "@temporalio/common": "1.15.0",
