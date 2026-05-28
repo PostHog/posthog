@@ -45,6 +45,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.trigram_search import (
@@ -56,6 +57,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
@@ -67,6 +69,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
@@ -74,7 +77,6 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
-from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
@@ -938,18 +940,61 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if insight_ids_to_delete:
                 # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
+                # Bulk update bypasses signals, so the FileSystemSyncMixin can't prune the
+                # corresponding FileSystem rows. Without this, stale entries linger in the
+                # Recents sidebar and clicking them lands on an "Insight not found" page.
+                DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
-        insights_to_undelete = []
-        for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
-            if tile.insight and tile.insight.deleted:
-                tile.insight.deleted = False
-                insights_to_undelete.append(tile.insight)
-        Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+        # The default Insight manager excludes deleted=True, so traversing tile.insight returns None
+        # for soft-deleted rows. Query the unfiltered manager directly to find the insights that
+        # need to be restored alongside the dashboard.
+        insights_to_undelete = list(
+            Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, deleted=True
+            ).distinct()
+        )
+        for insight in insights_to_undelete:
+            insight.deleted = False
+        if insights_to_undelete:
+            Insight.objects_including_soft_deleted.bulk_update(insights_to_undelete, ["deleted"])
+            # bulk_update also bypasses signals — re-sync FileSystem so restored insights reappear.
+            DashboardSerializer._sync_filesystem_for_insights(
+                [insight.id for insight in insights_to_undelete], instance.team_id
+            )
+
+    @staticmethod
+    def _sync_filesystem_for_insights(insight_ids: list[int], team_id: int) -> None:
+        """Re-run FileSystem sync for insights whose ``deleted`` flag was changed via bulk update."""
+        # The default Insight manager excludes deleted=True, so use the unfiltered manager —
+        # this helper is invoked specifically after bulk deletes/undeletes and must see both.
+        insights = Insight.objects_including_soft_deleted.filter(id__in=insight_ids, team_id=team_id).select_related(
+            "team"
+        )
+        for insight in insights:
+            fs_data = insight.get_file_system_representation()
+            try:
+                if fs_data.should_delete:
+                    delete_file(team=insight.team, file_type=fs_data.type, ref=fs_data.ref)
+                else:
+                    create_or_update_file(
+                        team=insight.team,
+                        base_folder=fs_data.base_folder,
+                        name=fs_data.name,
+                        file_type=fs_data.type,
+                        ref=fs_data.ref,
+                        href=fs_data.href,
+                        meta=fs_data.meta,
+                        created_at=fs_data.meta.get("created_at") or insight.created_at,
+                        created_by_id=fs_data.meta.get("created_by") or insight.created_by_id,
+                    )
+            except Exception as exc:
+                # Mirror the signal-handler stance: never raise from sync, but surface it.
+                capture_exception(exc, additional_properties={"insight_id": insight.id, "team_id": team_id})
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
@@ -1049,7 +1094,7 @@ class DashboardsViewSet(
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     TEMPLATE_MAP = {
-        "llm-analytics": get_llm_analytics_default_template,
+        "llm-analytics": get_ai_observability_default_template,
         "mcp-analytics": get_mcp_analytics_default_template,
     }
 

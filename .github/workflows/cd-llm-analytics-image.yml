@@ -11,7 +11,9 @@ on:
         branches:
             - master
         paths:
+            - 'posthog/temporal/ai_observability/**'
             - 'posthog/temporal/llm_analytics/**'
+            - 'products/ai_observability/**'
             - 'products/llm_analytics/**'
             - 'posthog/temporal/common/**'
             - 'posthog/management/commands/start_temporal_worker.py'

@@ -93,7 +93,7 @@
         "@posthog/products-legal-documents": "workspace:*",
         "@posthog/products-links": "workspace:*",
         "@posthog/products-live-debugger": "workspace:*",
-        "@posthog/products-llm-analytics": "workspace:*",
+        "@posthog/products-ai-observability": "workspace:*",
         "@posthog/products-logs": "workspace:*",
         "@posthog/products-managed-migrations": "workspace:*",
         "@posthog/products-mcp-analytics": "workspace:*",

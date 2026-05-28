@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -40,18 +40,17 @@ export function IntegrationChoice({
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
 
+    // The stored value points to an integration that's no longer available (deleted, or
+    // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
+    // would silently mask the missing reference and let stale config keep flowing through
+    // saves. The UI surfaces a warning below instead so the user picks explicitly.
+    const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
+
     useEffect(() => {
         if (!integrationsLoading && !value && integrationsOfKind?.length) {
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
-
-    // Clear stale selection when the integration no longer exists (e.g. after disconnect)
-    useEffect(() => {
-        if (!integrationsLoading && value && integrations && !integrationKind) {
-            onChange?.(null)
-        }
-    }, [integrationsLoading, value, integrations, integrationKind, onChange])
 
     if (!kind) {
         return null
@@ -172,6 +171,14 @@ export function IntegrationChoice({
         <>
             {integrationKind ? (
                 <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+            ) : valueIsMissing ? (
+                <div className="flex flex-col gap-2">
+                    <LemonBanner type="warning">
+                        The previously selected {kindName} connection (ID: {value}) is no longer available. Pick a
+                        different connection or clear the selection — this connection will fail at runtime otherwise.
+                    </LemonBanner>
+                    {button}
+                </div>
             ) : (
                 button
             )}
