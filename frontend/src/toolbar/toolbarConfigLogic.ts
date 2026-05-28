@@ -621,13 +621,19 @@ function verifyUiHostReachability(
 ): void {
     actions.setAuthStatus('checking')
 
-    const uiHostSource = (props.posthog as any)?.requestRouter?.uiHost
-        ? 'request_router'
-        : props.posthog?.config?.ui_host
-          ? 'posthog_config'
-          : props.posthog?.config?.api_host
-            ? 'posthog_api_host'
-            : 'window_origin'
+    // Mirror the resolution order in the uiHost selector so the label reflects
+    // which candidate the selector actually picked. Keep these in sync: a
+    // mismatch (e.g. labelling 'window_origin' when props.uiHost was supplied)
+    // would mis-gate the exception capture below.
+    const uiHostSource = canonicalizeUiHost(props.uiHost)
+        ? 'props'
+        : (props.posthog as any)?.requestRouter?.uiHost
+          ? 'request_router'
+          : props.posthog?.config?.ui_host
+            ? 'posthog_config'
+            : props.posthog?.config?.api_host
+              ? 'posthog_api_host'
+              : 'window_origin'
 
     const checkBaseProps = {
         ui_host: values.uiHost,
@@ -659,9 +665,16 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // When uiHost fell back to window.location.origin, the customer never
+            // configured a PostHog host — the HEAD will hit their own site and
+            // typically 404. That's expected misconfiguration, not a PostHog bug,
+            // so we record it in the `toolbar ui host check` telemetry event
+            // (below) but skip the exception capture to avoid noise in error tracking.
+            if (uiHostSource !== 'window_origin') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: classifyFetchError(error),
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',

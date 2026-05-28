@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -342,6 +343,68 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check error reporting', () => {
+        let captureExceptionSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(jest.fn())
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(jest.fn() as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('does not capture an exception when uiHost fell back to window.location.origin and HEAD 404s', async () => {
+            // Customer site supplied no PostHog host (no props.uiHost, no posthog
+            // instance) so uiHost falls back to window.location.origin. The HEAD
+            // hits the customer's own site and 404s — expected misconfiguration,
+            // not a PostHog error worth fingerprinting.
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({ ok: false, status: 404 } as any as Response)
+            )
+            const logic = toolbarConfigLogic.build({} as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            const uiHostCheckExceptions = captureExceptionSpy.mock.calls.filter(
+                (c) => (c[1] as Record<string, unknown>)?.toolbar_context === 'ui_host_check'
+            )
+            expect(uiHostCheckExceptions).toHaveLength(0)
+            // Telemetry event still fires so we can monitor how often this happens.
+            const uiHostCheckCalls = captureSpy.mock.calls.filter((c) => c[0] === 'toolbar ui host check')
+            expect(uiHostCheckCalls).toHaveLength(1)
+            expect(uiHostCheckCalls[0][1]).toMatchObject({
+                status: 'error',
+                ui_host_source: 'window_origin',
+            })
+        })
+
+        it('captures an exception when an explicitly configured uiHost fails the HEAD check', async () => {
+            // Customer explicitly configured a PostHog host but it returned an
+            // error — this IS unexpected and worth fingerprinting.
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({ ok: false, status: 500 } as any as Response)
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            const uiHostCheckExceptions = captureExceptionSpy.mock.calls.filter(
+                (c) => (c[1] as Record<string, unknown>)?.toolbar_context === 'ui_host_check'
+            )
+            expect(uiHostCheckExceptions).toHaveLength(1)
+            expect(uiHostCheckExceptions[0][1]).toMatchObject({
+                toolbar_context: 'ui_host_check',
+                error_type: 'http_error',
+            })
         })
     })
 
