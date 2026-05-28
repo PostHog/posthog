@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
@@ -18,6 +19,8 @@ import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 20
+
+export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
 
 // Columns aliased into the `context.columns.X` namespace are present in the response
 // (so the table cell renderers can reach `id` / `external_id` via the row tuple) but
@@ -88,6 +91,7 @@ export const accountsLogic = kea<accountsLogicType>([
         roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         replaceAccount: (account: AccountApi) => ({ account }),
+        revertAccountOverride: (accountId: string) => ({ accountId }),
     }),
     reducers({
         searchQuery: [
@@ -156,6 +160,11 @@ export const accountsLogic = kea<accountsLogicType>([
             {} as Record<string, AccountApi>,
             {
                 replaceAccount: (state, { account }) => ({ ...state, [account.id]: account }),
+                revertAccountOverride: (state, { accountId }) => {
+                    const next = { ...state }
+                    delete next[accountId]
+                    return next
+                },
                 loadAccountsSuccess: () => ({}),
             },
         ],
@@ -310,6 +319,7 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         refresh: () => {
             actions.loadAccounts()
+            dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         updateAccountRole: async ({ accountId, role, user }) => {
             if (values.isRoleSaving(accountId, role)) {
@@ -319,16 +329,25 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!account) {
                 return
             }
+            const previousOverride = values.accountOverrides[accountId]
             const nextProperties: PatchedAccountApiProperties = {
                 ...account.properties,
                 [role]: user ? { id: user.id, email: user.email } : null,
             }
+            const optimisticAccount: AccountApi = { ...account, properties: nextProperties }
             const projectId = String(values.currentTeamId)
             actions.roleUpdateStarted(accountId, role)
+            actions.replaceAccount(optimisticAccount)
             try {
                 const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
                 actions.replaceAccount(updated)
+                dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
+                if (previousOverride) {
+                    actions.replaceAccount(previousOverride)
+                } else {
+                    actions.revertAccountOverride(accountId)
+                }
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
                 lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
             } finally {
