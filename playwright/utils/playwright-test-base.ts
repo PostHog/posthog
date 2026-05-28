@@ -23,7 +23,7 @@ import { LOGIN_PASSWORD, LOGIN_USERNAME, test as coreTest } from './playwright-t
  * 3. If no: swap the import to `./workspace-test-base` and call
  *    `playwrightSetup.createWorkspace()` + `playwrightSetup.login()` explicitly.
  *
- * Endgame is deleting this file. Tracked under Phase 4.5 of the suite cleanup.
+ * Endgame is deleting this file.
  */
 export const test = coreTest.extend<{ loginBeforeTests: void }>({
     // this auto fixture makes sure we log in before every test (maintains legacy behavior)
@@ -46,54 +46,6 @@ export const test = coreTest.extend<{ loginBeforeTests: void }>({
         },
         { auto: true },
     ],
-    // mockStaticAssets: [
-    //     async ({ context }, use) => {
-    //         // also equivalent of cy.intercept('GET', '/surveys/*').as('surveys') ??
-    //         void context.route('**/e/*', (route) => {
-    //             void route.fulfill({
-    //                 status: 200,
-    //                 contentType: 'application/json',
-    //                 body: JSON.stringify({ status: 1 }),
-    //                 headers: {
-    //                     'Access-Control-Allow-Headers': '*',
-    //                     'Access-Control-Allow-Origin': '*',
-    //                     'Access-Control-Allow-Credentials': 'true',
-    //                 },
-    //             })
-    //         })
-    //
-    //         void context.route('**/ses/*', (route) => {
-    //             void route.fulfill({
-    //                 status: 200,
-    //                 contentType: 'application/json',
-    //                 body: JSON.stringify({ status: 1 }),
-    //             })
-    //         })
-    //
-    //         lazyLoadedJSFiles.forEach((key: string) => {
-    //             void context.route(new RegExp(`^.*/static/${key}\\.js(\\?.*)?$`), (route) => {
-    //                 route.fulfill({
-    //                     headers: {
-    //                         loaded: 'using relative path by playwright',
-    //                     },
-    //                     path: `./dist/${key}.js`,
-    //                 })
-    //             })
-    //
-    //             void context.route(`**/static/${key}.js.map`, (route) => {
-    //                 route.fulfill({
-    //                     headers: { loaded: 'using relative path by playwright' },
-    //                     path: `./dist/${key}.js.map`,
-    //                 })
-    //             })
-    //         })
-    //
-    //         await use()
-    //         // there's no teardown, so nothing here
-    //     },
-    //     // auto so that tests don't need to remember they need this... every test needs it
-    //     { auto: true },
-    // ],
 })
 
 // Re-export everything for backwards compatibility
