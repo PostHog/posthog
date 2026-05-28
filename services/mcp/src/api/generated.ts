@@ -40785,6 +40785,8 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
+    export type EnvironmentsMetricsHasMetricsRetrieve200 = { [key: string]: unknown };
+
     export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -46255,6 +46257,8 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
     export type NotebooksListParams = {
     /**
