@@ -65,13 +65,11 @@ function makeActionsComponent(
 export function InvitesTable(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
     const { deleteInvite } = useActions(inviteLogic)
-    const { currentOrganization } = useValues(organizationLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-    const canViewInviteLinks = !restrictionReason || !!currentOrganization?.members_can_invite
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -112,12 +110,7 @@ export function InvitesTable(): JSX.Element {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: (_, invite) =>
-                canViewInviteLinks ? (
-                    InviteLinkComponent(invite.id, invite)
-                ) : (
-                    <i className="text-secondary">Only organization admins can view invite links</i>
-                ),
+            render: (_, invite) => InviteLinkComponent(invite.id, invite),
         },
         {
             title: '',
@@ -158,7 +151,7 @@ export function Invites(): JSX.Element {
                 type="primary"
                 onClick={showInviteModal}
                 data-attr="invite-teammate-button"
-                disabledReason={userCannotInvite && "You don't have permissions to invite others."}
+                disabledReason={userCannotInvite && "You can't invite other members or view invites"}
             >
                 Invite team member
             </LemonButton>
