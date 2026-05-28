@@ -67,22 +67,44 @@ export class VisualReviewClient {
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-        const response = await fetch(this.url(path), {
-            ...options,
-            headers: {
-                ...this.headers,
-                ...options.headers,
-            },
-        })
+        const maxRetries = 3
+        let lastError: VisualReviewApiError | undefined
 
-        if (!response.ok) {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            if (attempt > 0) {
+                const delayMs = lastError?.retryAfter ? lastError.retryAfter * 1000 : 1000 * Math.pow(2, attempt - 1)
+                process.stderr.write(
+                    `[vr] Retrying request to ${path} (attempt ${attempt}/${maxRetries}) after ${delayMs / 1000}s...\n`
+                )
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+            }
+
+            const response = await fetch(this.url(path), {
+                ...options,
+                headers: {
+                    ...this.headers,
+                    ...options.headers,
+                },
+            })
+
+            if (response.ok) {
+                return response.json() as Promise<T>
+            }
+
             const text = await response.text()
             const retryAfterHeader = response.headers.get('Retry-After')
             const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) || undefined : undefined
-            throw new VisualReviewApiError(response.status, text, retryAfter)
+            const error = new VisualReviewApiError(response.status, text, retryAfter)
+
+            // Only retry on 5xx server errors or 429 rate limit
+            if (response.status !== 429 && response.status < 500) {
+                throw error
+            }
+
+            lastError = error
         }
 
-        return response.json() as Promise<T>
+        throw lastError!
     }
 
     /**
