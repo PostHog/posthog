@@ -38,6 +38,7 @@ from posthog.temporal.ai.posthog_code_slack_interactivity import (
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackMentionWorkflowInputs,
+    derive_mention_workflow_id,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -1273,9 +1274,9 @@ def route_posthog_code_event_to_relevant_region(
                 event=event,
                 integration_id=local_match.id,
                 slack_team_id=slack_team_id,
+                slack_event_id=event_id,
             )
-            event_id_or_fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
-            workflow_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
+            workflow_id = derive_mention_workflow_id(workflow_inputs)
             client = sync_connect()
             asyncio.run(
                 client.start_workflow(
