@@ -184,8 +184,9 @@ export const organizationLogic = kea<organizationLogicType>([
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
         },
-        updateOrganizationFailure: ({ error }) => {
-            lemonToast.error(`Failed to update organization: ${error || 'Unknown error'}`)
+        updateOrganizationFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            lemonToast.error(`Failed to update organization: ${apiError?.detail || error || 'Unknown error'}`)
         },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
