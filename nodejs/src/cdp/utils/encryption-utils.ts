@@ -2,23 +2,6 @@ import { Fernet } from 'fernet-nodejs'
 
 import { parseJSON } from '../../utils/json-parse'
 
-/**
- * Marker key used to wrap an inline-encrypted value inside a HogFlow action's inputs.
- * Kept in sync with the Python side (posthog/cdp/hog_flow_inputs.py).
- *
- * Encrypted shape: `{ "__ph_encrypted": "<fernet_token>" }` where the token decrypts to a JSON
- * string representing the original (cleartext) value.
- */
-export const INLINE_ENCRYPTED_MARKER = '__ph_encrypted'
-
-export function isInlineEncryptedValue(value: unknown): value is Record<string, string> {
-    return (
-        typeof value === 'object' &&
-        value !== null &&
-        typeof (value as Record<string, unknown>)[INLINE_ENCRYPTED_MARKER] === 'string'
-    )
-}
-
 export class EncryptedFields {
     private fernets: Fernet[] = []
 
@@ -56,13 +39,15 @@ export class EncryptedFields {
     }
 
     /**
-     * Decrypts an inputs dict (as stored on a HogFlow action) by Fernet-decrypting any input
-     * whose `value` is an inline-encrypted wrapper. Non-encrypted entries pass through.
+     * Decrypts an inputs dict (as stored on a HogFlow action) by Fernet-decrypting the value
+     * of any input whose schema entry is flagged `secret: true`. Non-secret entries pass
+     * through untouched, mirroring the Python write-side rule in
+     * `posthog/cdp/hog_flow_inputs.py`.
      *
-     * Decryption is gated by `inputs_schema`: only keys explicitly flagged `secret: true` are
-     * considered. Any inline-encrypted wrapper on a non-secret key is left as-is. This mirrors
-     * the Python write-side rule (posthog/cdp/hog_flow_inputs.py) and prevents a non-secret
-     * input from being used as a decryption oracle if a valid encrypted blob ever leaks.
+     * The schema is the sole signal for "this value is encrypted" — there is no in-band marker.
+     * A schema-flagged secret value that fails to decrypt (legacy plaintext, key rotation gap,
+     * or simply not ciphertext) is left as-is rather than raising, so a stale row can't crash
+     * a workflow on execution.
      */
     decryptInlineInputs<T extends Record<string, { value?: unknown } & Record<string, unknown>> | null | undefined>(
         inputs: T,
@@ -79,9 +64,17 @@ export class EncryptedFields {
         }
         const result: Record<string, { value?: unknown } & Record<string, unknown>> = {}
         for (const [key, item] of Object.entries(inputs)) {
-            if (item && secretKeys.has(key) && isInlineEncryptedValue(item.value)) {
-                const token = item.value[INLINE_ENCRYPTED_MARKER]
-                const decryptedJson = this.decrypt(token)
+            if (item && secretKeys.has(key) && typeof item.value === 'string') {
+                let decryptedJson: string | undefined
+                try {
+                    decryptedJson = this.decrypt(item.value)
+                } catch {
+                    // Not ciphertext (or wrong key) — leave the value alone. The hog runtime
+                    // will see whatever was stored, which for a properly-encrypted row would
+                    // never reach this branch.
+                    result[key] = item
+                    continue
+                }
                 let decryptedValue: unknown = item.value
                 if (typeof decryptedJson === 'string') {
                     try {

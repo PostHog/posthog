@@ -3,8 +3,9 @@
 HogFunction stores secrets in a separate `encrypted_inputs` column (an EncryptedJSONStringField).
 HogFlow does not — its `actions` JSON column carries every action's inputs together. To support
 destinations with secret inputs in workflows we therefore encrypt those values *inline*: the
-sensitive value is replaced with `{"__ph_encrypted": "<fernet_token>"}` in storage.
+sensitive value is replaced with the Fernet ciphertext string at the same `value` slot.
 
+The schema (`inputs_schema[i].secret == True`) is the sole signal for "this value is encrypted."
 The same nodejs runtime reads the encryption keys (`ENCRYPTION_SALT_KEYS`) so it can decrypt
 these values when it builds a HogFunction from a HogFlow action.
 """
@@ -14,29 +15,36 @@ from typing import Any, Optional
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 
-# Marker key embedded inside an input value to indicate the contents have been Fernet-encrypted.
-# Kept in sync with the nodejs side (nodejs/src/cdp/utils/encryption-utils.ts).
-INLINE_ENCRYPTED_MARKER = "__ph_encrypted"
-
-
 # `EncryptedTextField` exposes `.encrypt()` / `.decrypt()` that share the same Fernet/MultiFernet
 # wiring as the model-level encrypted fields, so secrets here are compatible with what the nodejs
 # runtime (and HogFunction's encrypted_inputs) decrypts.
 _encryptor = EncryptedTextField()
 
 
-def _is_encrypted_value(value: Any) -> bool:
-    return isinstance(value, dict) and isinstance(value.get(INLINE_ENCRYPTED_MARKER), str)
-
-
-def _encrypt_value(value: Any) -> dict[str, str]:
-    return {INLINE_ENCRYPTED_MARKER: _encryptor.encrypt(json.dumps(value))}
-
-
 def _secret_keys(inputs_schema: list[dict[str, Any]] | None) -> set[str]:
     if not inputs_schema:
         return set()
     return {str(s["key"]) for s in inputs_schema if s.get("secret") and "key" in s}
+
+
+def _encrypt_value(value: Any) -> str:
+    return _encryptor.encrypt(json.dumps(value))
+
+
+def _looks_like_ciphertext(value: Any) -> bool:
+    """Return True if `value` is a string that Fernet-decrypts cleanly under the current keys.
+
+    Used to distinguish "stored ciphertext round-tripping through a save" (pass through)
+    from "fresh plaintext on the way in" (encrypt). Fernet tokens are HMAC-authenticated,
+    so a random string has effectively zero probability of decrypting successfully.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        _encryptor.decrypt(value)
+        return True
+    except Exception:
+        return False
 
 
 def resolve_secret_inputs(
@@ -48,8 +56,8 @@ def resolve_secret_inputs(
 
     Secret inputs arrive in four shapes and each maps to a single resolved value:
 
-    - **Already-encrypted wrapper** (e.g. draft → active re-validation submits the stored
-      payload as-is) → kept verbatim.
+    - **Already-encrypted ciphertext** (string that decrypts cleanly under current keys) → kept
+      verbatim. Covers draft → active re-validation and server-initiated round-trips.
     - **Placeholder** (`{"secret": True}` or empty value — frontend marker for "user didn't
       touch this") → restored from `existing_inputs` if there's a prior encrypted value, or
       kept as-is otherwise.
@@ -83,25 +91,25 @@ def resolve_secret_inputs(
         if incoming is None:
             # Key absent from the request. Preserve any prior encrypted value; otherwise
             # leave the secret unset.
-            if _is_encrypted_value(existing_value):
+            if _looks_like_ciphertext(existing_value):
                 result[key] = existing_item
             continue
 
         incoming_value = incoming.get("value")
-
-        if _is_encrypted_value(incoming_value):
-            # Already encrypted — keep verbatim.
-            result[key] = incoming
-            continue
-
         is_placeholder = incoming.get("secret") is True or incoming_value in (None, "", {})
+
         if is_placeholder:
-            # User didn't change the secret. Restore the prior encrypted value, or fall
-            # back to whatever the caller sent (empty/placeholder).
-            if _is_encrypted_value(existing_value):
-                result[key] = {**incoming, "value": existing_value}
+            # User didn't change the secret. Restore the prior stored item verbatim;
+            # otherwise fall back to whatever the caller sent (empty/placeholder).
+            if existing_item is not None and _looks_like_ciphertext(existing_value):
+                result[key] = existing_item
             else:
                 result[key] = incoming
+            continue
+
+        if _looks_like_ciphertext(incoming_value):
+            # Round-tripped ciphertext — keep verbatim.
+            result[key] = incoming
             continue
 
         # Fresh plaintext — encrypt. Strip templating siblings: secrets are never templated

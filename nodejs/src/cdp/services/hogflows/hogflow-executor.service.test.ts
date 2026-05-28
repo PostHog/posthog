@@ -1791,10 +1791,10 @@ describe('Hogflow Executor', () => {
 
     describe('encrypted secret inputs', () => {
         it('decrypts inline-encrypted secrets end-to-end when running the workflow', async () => {
-            // Full hogflow path: an action's `inputs[secret].value` is a `__ph_encrypted`
-            // wrapper at rest. When `executor.execute` runs the workflow, the secret must be
+            // Full hogflow path: an action's `inputs[secret].value` is the Fernet ciphertext
+            // string at rest. When `executor.execute` runs the workflow, the secret must be
             // decrypted before the hog code sees it — the destination's fetch call should
-            // receive the plaintext token in the Authorization header, never the wrapper.
+            // receive the plaintext token in the Authorization header, never the ciphertext.
             const SECRET = 'workflow-bearer-token'
             const secretTemplate = await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-hogflow-executor-secret-e2e',
@@ -1810,9 +1810,7 @@ describe('Hogflow Executor', () => {
                 ],
             })
 
-            const encryptedAccessToken = {
-                __ph_encrypted: hub.encryptedFields.encrypt(JSON.stringify(SECRET)),
-            }
+            const encryptedAccessToken = hub.encryptedFields.encrypt(JSON.stringify(SECRET))
 
             const hogFlow = new FixtureHogFlowBuilder()
                 .withWorkflow({
@@ -1860,9 +1858,8 @@ describe('Hogflow Executor', () => {
             const secretFetchCall = mockFetch.mock.calls.find(([url]) => url === 'http://localhost/secret-test')
             expect(secretFetchCall).toBeDefined()
             expect((secretFetchCall![1] as any).headers.Authorization).toBe(`Bearer ${SECRET}`)
-            // The stored wrapper must never appear on the wire.
-            expect(JSON.stringify(secretFetchCall![1])).not.toContain('__ph_encrypted')
-            expect(JSON.stringify(secretFetchCall![1])).not.toContain(encryptedAccessToken.__ph_encrypted)
+            // The stored ciphertext must never appear on the wire.
+            expect(JSON.stringify(secretFetchCall![1])).not.toContain(encryptedAccessToken)
         })
     })
 })

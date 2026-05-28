@@ -7,7 +7,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.cdp.hog_flow_inputs import INLINE_ENCRYPTED_MARKER
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -262,13 +261,13 @@ class TestHogFlowAPI(APIBaseTest):
         assert action_inputs["url"]["value"] == "https://example.com"
         assert action_inputs["access_token"] == {"secret": True}
 
-        # The stored row carries the Fernet-encrypted token, not plaintext.
+        # The stored row carries the Fernet-encrypted token (as a string), not plaintext.
         hog_flow_db = HogFlow.objects.get(pk=hog_flow_id)
         stored_access_token = hog_flow_db.actions[1]["config"]["inputs"]["access_token"]["value"]
-        assert INLINE_ENCRYPTED_MARKER in stored_access_token
-        assert stored_access_token[INLINE_ENCRYPTED_MARKER] != "super-secret-token"
+        assert isinstance(stored_access_token, str)
+        assert stored_access_token != "super-secret-token"
         # And we can decrypt back to the original cleartext using the shared Fernet key chain.
-        decrypted = EncryptedTextField().decrypt(stored_access_token[INLINE_ENCRYPTED_MARKER])
+        decrypted = EncryptedTextField().decrypt(stored_access_token)
         assert decrypted == '"super-secret-token"'
 
     def test_hog_flow_secret_input_preserved_when_placeholder_resubmitted(self):
@@ -395,8 +394,8 @@ class TestHogFlowAPI(APIBaseTest):
 
         refreshed = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
         # The stored ciphertext must change (we re-encrypted) and must decrypt to the new value.
-        assert refreshed["value"][INLINE_ENCRYPTED_MARKER] != first_stored["value"][INLINE_ENCRYPTED_MARKER]
-        decrypted = EncryptedTextField().decrypt(refreshed["value"][INLINE_ENCRYPTED_MARKER])
+        assert refreshed["value"] != first_stored["value"]
+        decrypted = EncryptedTextField().decrypt(refreshed["value"])
         assert decrypted == '"rotated-token"'
 
     def test_hog_flow_invocation_test_endpoint_hydrates_secrets_from_context_instance(self):
@@ -473,7 +472,10 @@ class TestHogFlowAPI(APIBaseTest):
         forwarded_inputs = mock_invocation.call_args.kwargs["payload"]["configuration"]["actions"][1]["config"][
             "inputs"
         ]
-        assert INLINE_ENCRYPTED_MARKER in forwarded_inputs["access_token"]["value"]
+        forwarded_value = forwarded_inputs["access_token"]["value"]
+        assert isinstance(forwarded_value, str)
+        assert forwarded_value != "original-token"
+        assert EncryptedTextField().decrypt(forwarded_value) == '"original-token"'
 
     def test_hog_flow_invocation_test_endpoint_accepts_secret_placeholder(self):
         # Same as above, but using the `{secret: True}` placeholder form (the alternative
@@ -540,7 +542,10 @@ class TestHogFlowAPI(APIBaseTest):
         forwarded_inputs = mock_invocation.call_args.kwargs["payload"]["configuration"]["actions"][1]["config"][
             "inputs"
         ]
-        assert INLINE_ENCRYPTED_MARKER in forwarded_inputs["access_token"]["value"]
+        forwarded_value = forwarded_inputs["access_token"]["value"]
+        assert isinstance(forwarded_value, str)
+        assert forwarded_value != "original-token"
+        assert EncryptedTextField().decrypt(forwarded_value) == '"original-token"'
 
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(

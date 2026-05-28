@@ -12,7 +12,6 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { HogFlow, HogFlowAction } from '../../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
-import { INLINE_ENCRYPTED_MARKER } from '../../../utils/encryption-utils'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
@@ -378,12 +377,10 @@ describe('HogFunctionHandler', () => {
 
     describe('encrypted secret inputs end-to-end', () => {
         it('runs the action with a decrypted secret in the fetch call', async () => {
-            // Full e2e from "secret stored as __ph_encrypted blob" → "destination receives
-            // plaintext in the request". Mirrors the production hogflow path: an action's
-            // inputs hold an inline-encrypted wrapper, HogFunctionHandler.execute calls
-            // HogFlowFunctionsService.buildHogFunction (which decrypts schema-flagged secret
-            // values), the resulting hog function executes, and the fetch handler receives
-            // the plaintext token in the Authorization header.
+            // Full e2e: an action's `access_token.value` is the Fernet ciphertext string at
+            // rest. HogFunctionHandler.execute calls HogFlowFunctionsService.buildHogFunction,
+            // which decrypts schema-flagged secret values. The resulting hog function executes
+            // and the fetch handler receives the plaintext token in the Authorization header.
             const SECRET = 'decrypted-bearer-token'
             const secretTemplate = await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-hogflow-encrypted-e2e',
@@ -399,9 +396,7 @@ describe('HogFunctionHandler', () => {
                 ],
             })
 
-            const encryptedAccessToken = {
-                [INLINE_ENCRYPTED_MARKER]: hub.encryptedFields.encrypt(JSON.stringify(SECRET)),
-            }
+            const encryptedAccessToken = hub.encryptedFields.encrypt(JSON.stringify(SECRET))
 
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -449,18 +444,17 @@ describe('HogFunctionHandler', () => {
             const fetchCall = mockFetch.mock.calls[0]
             expect(fetchCall[0]).toBe('http://localhost/test')
             expect((fetchCall[1] as any).headers.Authorization).toBe(`Bearer ${SECRET}`)
-            // Stored-form blob must NOT show up in the outgoing request — only the plaintext.
-            expect(JSON.stringify(fetchCall[1])).not.toContain(INLINE_ENCRYPTED_MARKER)
-            expect(JSON.stringify(fetchCall[1])).not.toContain(encryptedAccessToken[INLINE_ENCRYPTED_MARKER])
+            // Stored ciphertext must NOT show up in the outgoing request — only the plaintext.
+            expect(JSON.stringify(fetchCall[1])).not.toContain(encryptedAccessToken)
         })
     })
 
     describe('buildHogFunction inline-encrypted inputs', () => {
-        it('decrypts secret-schema slots and leaves non-secret slots wrapped', async () => {
+        it('decrypts secret-schema slots and leaves non-secret slots untouched', async () => {
             // End-to-end regression: protects against future refactors that drop the
             // inputs_schema argument when calling `decryptInlineInputs`. A non-secret slot
-            // carrying an inline-encrypted blob must NOT be decrypted, otherwise the runtime
-            // becomes a decryption oracle for any blob a workflow editor can paste in.
+            // carrying a ciphertext-shaped string must NOT be decrypted, otherwise the runtime
+            // becomes a decryption oracle for any ciphertext a workflow editor can paste in.
             const secretTemplate = await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-hogflow-encryption-gating',
                 name: 'Encryption gating test template',
@@ -471,12 +465,8 @@ describe('HogFunctionHandler', () => {
                 ],
             })
 
-            const secretBlob = {
-                [INLINE_ENCRYPTED_MARKER]: hub.encryptedFields.encrypt(JSON.stringify('real-secret-token')),
-            }
-            const oracleBlob = {
-                [INLINE_ENCRYPTED_MARKER]: hub.encryptedFields.encrypt(JSON.stringify('would-be-leaked')),
-            }
+            const secretCiphertext = hub.encryptedFields.encrypt(JSON.stringify('real-secret-token'))
+            const oracleCiphertext = hub.encryptedFields.encrypt(JSON.stringify('would-be-leaked'))
 
             const minimalHogFlow = {
                 id: 'flow-id',
@@ -487,8 +477,8 @@ describe('HogFunctionHandler', () => {
             const hogFunction = await mockHogFlowFunctionsService.buildHogFunction(minimalHogFlow, {
                 template_id: secretTemplate.template_id,
                 inputs: {
-                    access_token: { value: secretBlob },
-                    notes: { value: oracleBlob },
+                    access_token: { value: secretCiphertext },
+                    notes: { value: oracleCiphertext },
                 },
                 mappings: [],
             } as any)
@@ -496,8 +486,8 @@ describe('HogFunctionHandler', () => {
             expect(hogFunction.inputs).toEqual({
                 // Secret-schema slot: decrypted plaintext.
                 access_token: { value: 'real-secret-token' },
-                // Non-secret slot: wrapper preserved verbatim. No decryption oracle.
-                notes: { value: oracleBlob },
+                // Non-secret slot: ciphertext preserved verbatim. No decryption oracle.
+                notes: { value: oracleCiphertext },
             })
         })
     })

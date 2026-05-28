@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
-from posthog.cdp.hog_flow_inputs import INLINE_ENCRYPTED_MARKER, mask_secret_inputs_for_read, resolve_secret_inputs
+from posthog.cdp.hog_flow_inputs import mask_secret_inputs_for_read, resolve_secret_inputs
+from posthog.helpers.encrypted_fields import EncryptedTextField
 
 SCHEMA = [
     {"key": "url", "type": "string", "secret": False},
@@ -9,11 +10,9 @@ SCHEMA = [
 
 
 class TestHogFlowInputs(BaseTest):
-    def _decrypt_token(self, encrypted_item: dict) -> str:
+    def _decrypt(self, ciphertext: str) -> str:
         # Round-trip helper that proves the value was encrypted with the shared Fernet keys.
-        from posthog.helpers.encrypted_fields import EncryptedTextField
-
-        return EncryptedTextField().decrypt(encrypted_item["value"][INLINE_ENCRYPTED_MARKER])
+        return EncryptedTextField().decrypt(ciphertext)
 
     def test_resolves_only_secret_keys(self):
         # Non-secret keys are not touched — caller is expected to validate them separately.
@@ -25,9 +24,11 @@ class TestHogFlowInputs(BaseTest):
         result = resolve_secret_inputs(inputs, SCHEMA)
 
         assert "url" not in result
-        assert INLINE_ENCRYPTED_MARKER in result["access_token"]["value"]
+        # Value is now the Fernet ciphertext string directly — no wrapper object.
+        assert isinstance(result["access_token"]["value"], str)
+        assert result["access_token"]["value"] != "super-secret"
         assert result["access_token"]["order"] == 1
-        assert '"super-secret"' == self._decrypt_token(result["access_token"])
+        assert '"super-secret"' == self._decrypt(result["access_token"]["value"])
 
     def test_strips_bytecode_when_encrypting_plaintext_secret(self):
         inputs = {
@@ -43,16 +44,19 @@ class TestHogFlowInputs(BaseTest):
 
         assert "bytecode" not in result["access_token"]
         assert "transpiled" not in result["access_token"]
-        assert INLINE_ENCRYPTED_MARKER in result["access_token"]["value"]
+        assert isinstance(result["access_token"]["value"], str)
+        assert result["access_token"]["value"] != "abc"
 
     def test_preserves_existing_when_payload_is_placeholder(self):
-        # Frontend sends `{"secret": true}` for an untouched secret.
+        # Frontend sends `{"secret": true}` for an untouched secret. The stored item must
+        # round-trip verbatim — no `secret: True` marker leaking into storage.
         existing = resolve_secret_inputs({"access_token": {"value": "real-secret"}}, SCHEMA)
         incoming = {"access_token": {"secret": True}}
 
         result = resolve_secret_inputs(incoming, SCHEMA, existing_inputs=existing)
 
-        assert result["access_token"]["value"] == existing["access_token"]["value"]
+        assert result["access_token"] == existing["access_token"]
+        assert "secret" not in result["access_token"]
 
     def test_preserves_existing_when_payload_value_is_empty(self):
         # Empty value with no `{"secret": true}` marker should still be treated as a placeholder.
@@ -61,7 +65,7 @@ class TestHogFlowInputs(BaseTest):
 
         result = resolve_secret_inputs(incoming, SCHEMA, existing_inputs=existing)
 
-        assert result["access_token"]["value"] == existing["access_token"]["value"]
+        assert result["access_token"] == existing["access_token"]
 
     def test_restores_secret_when_key_omitted_from_payload(self):
         # Workflow editor's test panel strips secrets out of outgoing payloads entirely.
@@ -78,8 +82,8 @@ class TestHogFlowInputs(BaseTest):
         result = resolve_secret_inputs({}, SCHEMA, existing_inputs={})
         assert result == {}
 
-    def test_already_encrypted_values_are_kept_verbatim(self):
-        # Draft → active re-validation: the stored encrypted wrapper is sent back unchanged.
+    def test_already_encrypted_ciphertext_kept_verbatim(self):
+        # Draft → active re-validation: the stored ciphertext string is sent back unchanged.
         first_pass = resolve_secret_inputs({"access_token": {"value": "abc"}}, SCHEMA)
 
         result = resolve_secret_inputs(first_pass, SCHEMA)
@@ -103,6 +107,17 @@ class TestHogFlowInputs(BaseTest):
         resolve_secret_inputs(original, SCHEMA)
 
         assert original == original_copy
+
+    def test_plaintext_that_resembles_base64_is_encrypted_not_passed_through(self):
+        # A user-supplied string that happens to look base64-ish must NOT be confused for
+        # ciphertext. Fernet is HMAC-authenticated so this is structurally impossible without
+        # the key — guard against regression that weakens the cipher-detection check.
+        looks_basesixtyfour = "gAAAAABl_definitely_not_real_ciphertext"
+        result = resolve_secret_inputs({"access_token": {"value": looks_basesixtyfour}}, SCHEMA)
+
+        # Value got encrypted (different from input) and decrypts back to the original.
+        assert result["access_token"]["value"] != looks_basesixtyfour
+        assert self._decrypt(result["access_token"]["value"]) == f'"{looks_basesixtyfour}"'
 
     def test_mask_secret_inputs_for_read_replaces_encrypted_with_placeholder(self):
         resolved = resolve_secret_inputs(

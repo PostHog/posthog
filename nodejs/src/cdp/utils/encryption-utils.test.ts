@@ -1,4 +1,4 @@
-import { EncryptedFields, INLINE_ENCRYPTED_MARKER } from './encryption-utils'
+import { EncryptedFields } from './encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
@@ -41,19 +41,17 @@ describe('Encrypted fields', () => {
         })
 
         describe('decryptInlineInputs', () => {
-            const encryptValue = (value: unknown): { [INLINE_ENCRYPTED_MARKER]: string } => ({
-                [INLINE_ENCRYPTED_MARKER]: encryptedFields.encrypt(JSON.stringify(value)),
-            })
+            const encryptedString = (value: unknown): string => encryptedFields.encrypt(JSON.stringify(value))
 
             const schema = [
                 { key: 'url', secret: false },
                 { key: 'access_token', secret: true },
             ]
 
-            it('decrypts inline-encrypted secret inputs and leaves others alone', () => {
+            it('decrypts schema-flagged secret values and leaves others alone', () => {
                 const inputs = {
                     url: { value: 'https://example.com', order: 0 },
-                    access_token: { value: encryptValue('super-secret'), order: 1 },
+                    access_token: { value: encryptedString('super-secret'), order: 1 },
                 }
 
                 const decrypted = encryptedFields.decryptInlineInputs(inputs as any, schema)
@@ -68,31 +66,35 @@ describe('Encrypted fields', () => {
                 expect(encryptedFields.decryptInlineInputs(null as any, schema)).toBeNull()
             })
 
-            it('throws when the encrypted token is invalid', () => {
-                const inputs = { access_token: { value: { [INLINE_ENCRYPTED_MARKER]: 'NOT_VALID_TOKEN' } } }
-                expect(() => encryptedFields.decryptInlineInputs(inputs as any, schema)).toThrow()
+            it('passes through schema-flagged secret values that fail to decrypt', () => {
+                // Defensive: a secret-flagged value that's not actually ciphertext (legacy
+                // plaintext row, key rotation gap) is left as-is rather than crashing the
+                // workflow on execution.
+                const inputs = { access_token: { value: 'not-a-real-ciphertext' } }
+                const decrypted = encryptedFields.decryptInlineInputs(inputs as any, schema)
+                expect(decrypted).toEqual(inputs)
             })
 
-            it('does not decrypt an inline-encrypted blob placed in a non-secret input', () => {
+            it('does not decrypt a ciphertext value placed in a non-secret input', () => {
                 // Defends against using a non-secret input as a decryption oracle: even with a
-                // valid encrypted token, the value passes through untouched when the schema does
+                // valid ciphertext, the value passes through untouched when the schema does
                 // not flag that key as `secret: true`.
-                const encryptedBlob = encryptValue('would-be-leaked')
+                const ciphertext = encryptedString('would-be-leaked')
                 const inputs = {
-                    url: { value: encryptedBlob, order: 0 },
-                    access_token: { value: encryptValue('real-secret'), order: 1 },
+                    url: { value: ciphertext, order: 0 },
+                    access_token: { value: encryptedString('real-secret'), order: 1 },
                 }
 
                 const decrypted = encryptedFields.decryptInlineInputs(inputs as any, schema)
                 expect(decrypted).toEqual({
-                    url: { value: encryptedBlob, order: 0 },
+                    url: { value: ciphertext, order: 0 },
                     access_token: { value: 'real-secret', order: 1 },
                 })
             })
 
             it('decrypts nothing when schema is missing or has no secret keys', () => {
                 const inputs = {
-                    access_token: { value: encryptValue('untouched'), order: 0 },
+                    access_token: { value: encryptedString('untouched'), order: 0 },
                 }
 
                 expect(encryptedFields.decryptInlineInputs(inputs as any, undefined)).toEqual(inputs)
