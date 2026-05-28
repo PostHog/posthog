@@ -227,9 +227,9 @@ describe('bot-detection.template', () => {
     it.each([
         ['posthog-python', 'python-httpx'],
         ['posthog-node', 'axios/1.4.0'],
-        ['posthog-langchain', 'python-requests/2.31.0'],
         ['posthog-webhook', 'okhttp/4.10.0'],
-    ])('should bypass bot UA filter when $lib=%s (server-side SDK)', async (lib, ua) => {
+        ['posthog-ios', 'CFNetwork/1410.0.3'],
+    ])('should skip PostHog-curated bot UA list when $lib=%s (non-browser SDK)', async (lib, ua) => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
@@ -246,7 +246,7 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeTruthy()
     })
 
-    it('should bypass bot IP filter when $lib is a server-side SDK', async () => {
+    it('should skip PostHog-curated bot IP list when $lib is a non-browser SDK', async () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
@@ -264,11 +264,58 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeTruthy()
     })
 
-    it('should still filter known bot UA when $lib=web', async () => {
+    it('should still apply customBotPatterns even for non-browser $lib', async () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
-                    $lib: 'web',
+                    $lib: 'posthog-python',
+                    $raw_user_agent: 'MyCustomBot/1.0',
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                ...DEFAULT_INPUTS,
+                customBotPatterns: 'mycustombot',
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
+    it('should still apply customIpPrefixes even for non-browser $lib', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: 'posthog-python',
+                    $ip: '1.2.3.4',
+                    $raw_user_agent: 'python-httpx',
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                ...DEFAULT_INPUTS,
+                customIpPrefixes: '1.2.3.0/24',
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
+    it.each([['web'], ['js']])('should still filter known bot UA when $lib=%s (browser SDK)', async (lib) => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: lib,
                     $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
                 },
             },
@@ -281,7 +328,7 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeFalsy()
     })
 
-    it('should still filter known bot UA when $lib is missing (no bypass for unknown source)', async () => {
+    it('should still filter known bot UA when $lib is missing (treat as browser)', async () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
