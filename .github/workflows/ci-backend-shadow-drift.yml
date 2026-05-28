@@ -34,11 +34,13 @@ jobs:
             - name: Compare PR diff scope
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   set -euo pipefail
+                  # actions/checkout checks out refs/pull/<n>/merge by default, so HEAD
+                  # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
+                  # changes. We only need to fetch BASE_SHA (HEAD is already local).
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
-                  changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
+                  changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
                       .github/workflows/ci-backend.yml \
                       .depot/workflows/ci-backend.yml)
                   if echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$' && \
