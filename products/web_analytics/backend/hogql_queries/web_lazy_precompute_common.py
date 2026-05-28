@@ -27,12 +27,12 @@ from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
-# Fields stripped from the query payload before hashing the cache key.
+# Fields stripped from the query payload before hashing.
 # These don't influence which precompute job_id a query would map to —
 # `useWebAnalyticsPrecompute` is just the opt-in toggle, `modifiers` is
 # HogQL execution hints applied after the fact, and the rest are
 # metadata / pagination knobs applied at read time.
-_CACHE_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
+_FILTERS_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     {
         "useWebAnalyticsPrecompute",
         "modifiers",
@@ -232,15 +232,14 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
 
 
-def compute_query_cache_key_hash(query: Any, team_timezone: str) -> str:
-    """Stable hash identifying which precompute cache key a web analytics query maps to.
+def compute_query_filters_hash(query: Any, team_timezone: str) -> str:
+    """Stable hash over the user-facing inputs that would fragment a precompute cache key.
 
-    Emitted on the `web_analytics_query` structured log line so we can attribute
-    Loki / PostHog log entries to a logical cache key and measure
-    queries-per-distinct-cache-key (`q/key`) over multi-day windows — including
-    for queries that didn't go through the lazy precompute path (different
-    eligibility gating, different runner) but would have shared a job_id if
-    they had.
+    Emitted on the `web_analytics_query` and `lazy_computation.executed` structured
+    log lines so the two can be joined and queries-per-distinct-cache-key (`q/key`)
+    can be measured over multi-day windows — including for queries that didn't
+    go through the lazy precompute path (different eligibility gating, different
+    runner) but would have shared a job_id if they had.
 
     Same hashing mechanic as `compute_query_hash` in lazy_computation_executor
     (SHA-256 over canonical JSON). It is **not** numerically identical to the
@@ -250,7 +249,7 @@ def compute_query_cache_key_hash(query: Any, team_timezone: str) -> str:
     interval, compare filter, test-accounts toggle, and team timezone.
     """
     dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
-    for key in _CACHE_KEY_IGNORED_QUERY_FIELDS:
+    for key in _FILTERS_HASH_IGNORED_QUERY_FIELDS:
         dumped.pop(key, None)
     payload = {"query": dumped, "timezone": team_timezone}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()

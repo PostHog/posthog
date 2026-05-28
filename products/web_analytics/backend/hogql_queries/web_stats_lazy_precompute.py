@@ -39,7 +39,6 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_cache_key_hash
 
 _FAMILY = "web_stats"
 
@@ -248,11 +247,6 @@ def ensure_web_stats_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    try:
-        cache_key_hash = compute_query_cache_key_hash(runner.query, runner.team.timezone)
-    except Exception:
-        cache_key_hash = None
-
     return ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
@@ -262,7 +256,7 @@ def ensure_web_stats_precomputed(
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
-        cache_key_hash=cache_key_hash,
+        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 

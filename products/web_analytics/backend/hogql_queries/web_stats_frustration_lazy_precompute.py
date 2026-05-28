@@ -35,7 +35,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     LazyPrecomputeIneligible,
     ceil_utc_day,
     check_common_eligibility,
-    compute_query_cache_key_hash,
     floor_utc_day,
     host_filter_expr,
     log_eligibility_outcome,
@@ -233,11 +232,6 @@ def ensure_web_stats_frustration_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    try:
-        cache_key_hash = compute_query_cache_key_hash(runner.query, runner.team.timezone)
-    except Exception:
-        cache_key_hash = None
-
     return ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
@@ -247,7 +241,7 @@ def ensure_web_stats_frustration_precomputed(
         table=LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_frustration_lazy_insert",
-        cache_key_hash=cache_key_hash,
+        extra_log_metadata={"filters_hash": runner.filters_hash},
     )
 
 

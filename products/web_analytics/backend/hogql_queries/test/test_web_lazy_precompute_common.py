@@ -10,7 +10,7 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_cache_key_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_query_filters_hash
 
 
 def _overview(
@@ -40,47 +40,47 @@ def _stats(
     )
 
 
-class TestComputeQueryCacheKeyHash(BaseTest):
+class TestComputeQueryFiltersHash(BaseTest):
     def test_stable_across_calls_with_identical_query(self) -> None:
         q = _overview()
-        assert compute_query_cache_key_hash(q, "UTC") == compute_query_cache_key_hash(q, "UTC")
+        assert compute_query_filters_hash(q, "UTC") == compute_query_filters_hash(q, "UTC")
 
     def test_stable_across_freshly_built_equal_queries(self) -> None:
-        assert compute_query_cache_key_hash(_overview(), "UTC") == compute_query_cache_key_hash(_overview(), "UTC")
+        assert compute_query_filters_hash(_overview(), "UTC") == compute_query_filters_hash(_overview(), "UTC")
 
     def test_date_range_fragments_key(self) -> None:
-        a = compute_query_cache_key_hash(_overview(date_from="-7d"), "UTC")
-        b = compute_query_cache_key_hash(_overview(date_from="-30d"), "UTC")
+        a = compute_query_filters_hash(_overview(date_from="-7d"), "UTC")
+        b = compute_query_filters_hash(_overview(date_from="-30d"), "UTC")
         assert a != b
 
     def test_breakdown_fragments_key(self) -> None:
-        a = compute_query_cache_key_hash(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
-        b = compute_query_cache_key_hash(_stats(breakdown_by=WebStatsBreakdown.OS), "UTC")
+        a = compute_query_filters_hash(_stats(breakdown_by=WebStatsBreakdown.BROWSER), "UTC")
+        b = compute_query_filters_hash(_stats(breakdown_by=WebStatsBreakdown.OS), "UTC")
         assert a != b
 
     def test_filter_value_fragments_key(self) -> None:
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
         firefox = [EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT)]
-        assert compute_query_cache_key_hash(_overview(properties=chrome), "UTC") != compute_query_cache_key_hash(
+        assert compute_query_filters_hash(_overview(properties=chrome), "UTC") != compute_query_filters_hash(
             _overview(properties=firefox), "UTC"
         )
 
     def test_filter_operator_fragments_key(self) -> None:
         exact = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
         is_not = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.IS_NOT)]
-        assert compute_query_cache_key_hash(_overview(properties=exact), "UTC") != compute_query_cache_key_hash(
+        assert compute_query_filters_hash(_overview(properties=exact), "UTC") != compute_query_filters_hash(
             _overview(properties=is_not), "UTC"
         )
 
     def test_query_kind_fragments_key(self) -> None:
-        assert compute_query_cache_key_hash(_overview(), "UTC") != compute_query_cache_key_hash(_stats(), "UTC")
+        assert compute_query_filters_hash(_overview(), "UTC") != compute_query_filters_hash(_stats(), "UTC")
 
     def test_timezone_fragments_key(self) -> None:
         q = _overview()
-        assert compute_query_cache_key_hash(q, "UTC") != compute_query_cache_key_hash(q, "America/New_York")
+        assert compute_query_filters_hash(q, "UTC") != compute_query_filters_hash(q, "America/New_York")
 
     def test_compare_filter_fragments_key(self) -> None:
-        assert compute_query_cache_key_hash(_overview(compare=False), "UTC") != compute_query_cache_key_hash(
+        assert compute_query_filters_hash(_overview(compare=False), "UTC") != compute_query_filters_hash(
             _overview(compare=True), "UTC"
         )
 
@@ -94,7 +94,7 @@ class TestComputeQueryCacheKeyHash(BaseTest):
         # same filter set in different orders they will hash to different keys.
         # Document the current behavior rather than the desired one — change
         # this assertion if we add canonical ordering upstream.
-        assert compute_query_cache_key_hash(_overview(properties=a), "UTC") != compute_query_cache_key_hash(
+        assert compute_query_filters_hash(_overview(properties=a), "UTC") != compute_query_filters_hash(
             _overview(properties=b), "UTC"
         )
 
@@ -109,9 +109,9 @@ class TestComputeQueryCacheKeyHash(BaseTest):
             properties=[],
             useWebAnalyticsPrecompute=False,
         )
-        assert compute_query_cache_key_hash(q_on, "UTC") == compute_query_cache_key_hash(q_off, "UTC")
+        assert compute_query_filters_hash(q_on, "UTC") == compute_query_filters_hash(q_off, "UTC")
 
     def test_hash_is_64_char_hex(self) -> None:
-        h = compute_query_cache_key_hash(_overview(), "UTC")
+        h = compute_query_filters_hash(_overview(), "UTC")
         assert len(h) == 64
         int(h, 16)
