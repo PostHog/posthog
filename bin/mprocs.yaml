@@ -441,10 +441,10 @@ procs:
     mcp:
         shell: 'bin/start-mcp-server'
         capability: mcp_server
-        ready_pattern: 'Ready on *'
+        ready_pattern: 'Server started on'
         groups:
             layer: Product services
-            tech: Python
+            tech: Node
 
     mcp-ui-apps:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'

@@ -40,6 +40,7 @@ import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
+import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
 import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
@@ -47,6 +48,34 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
 from products.agent_stack.backend.api import AgentApplicationViewSet, AgentNativeToolsViewSet, AgentRevisionViewSet
+from products.ai_observability.backend.api import (
+    AIObservabilityClusteringRunViewSet,
+    AIObservabilityOfflineEvaluationsViewSet,
+    AIObservabilitySentimentViewSet,
+    AIObservabilitySummarizationViewSet,
+    AIObservabilityTextReprViewSet,
+    AIObservabilityTranslateViewSet,
+    ClusteringConfigViewSet,
+    ClusteringJobViewSet,
+    DatasetItemViewSet,
+    DatasetViewSet,
+    EvaluationConfigViewSet,
+    EvaluationReportViewSet,
+    EvaluationRunViewSet,
+    EvaluationViewSet,
+    LLMEvaluationSummaryViewSet,
+    LLMModelsViewSet,
+    LLMProviderKeyValidationViewSet,
+    LLMProviderKeyViewSet,
+    LLMProxyViewSet,
+    PersonalSpendViewSet,
+    ReviewQueueItemViewSet,
+    ReviewQueueViewSet,
+    ScoreDefinitionViewSet,
+    TaggerViewSet,
+    TraceReviewViewSet,
+)
+from products.ai_observability.backend.api.skills import LLMSkillViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -82,34 +111,6 @@ from products.error_tracking.backend.api import (
     GitProviderFileLinksViewSet,
 )
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
-from products.llm_analytics.backend.api import (
-    ClusteringConfigViewSet,
-    ClusteringJobViewSet,
-    DatasetItemViewSet,
-    DatasetViewSet,
-    EvaluationConfigViewSet,
-    EvaluationReportViewSet,
-    EvaluationRunViewSet,
-    EvaluationViewSet,
-    LLMAnalyticsClusteringRunViewSet,
-    LLMAnalyticsOfflineEvaluationsViewSet,
-    LLMAnalyticsSentimentViewSet,
-    LLMAnalyticsSummarizationViewSet,
-    LLMAnalyticsTextReprViewSet,
-    LLMAnalyticsTranslateViewSet,
-    LLMEvaluationSummaryViewSet,
-    LLMModelsViewSet,
-    LLMProviderKeyValidationViewSet,
-    LLMProviderKeyViewSet,
-    LLMProxyViewSet,
-    PersonalSpendViewSet,
-    ReviewQueueItemViewSet,
-    ReviewQueueViewSet,
-    ScoreDefinitionViewSet,
-    TaggerViewSet,
-    TraceReviewViewSet,
-)
-from products.llm_analytics.backend.api.skills import LLMSkillViewSet
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -1374,6 +1375,11 @@ register_grandfathered_environment_nested_viewset(
 )
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
+# Metrics endpoints
+register_grandfathered_environment_nested_viewset(
+    r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"]
+)
+
 environments_router.register(
     r"logs/explainLogWithAI",
     logs.LogExplainViewSet,
@@ -1539,14 +1545,14 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/text_repr",
-    LLMAnalyticsTextReprViewSet,
+    AIObservabilityTextReprViewSet,
     "environment_llm_analytics_text_repr",
     ["team_id"],
 )
 
 environments_router.register(
     r"llm_analytics/summarization",
-    LLMAnalyticsSummarizationViewSet,
+    AIObservabilitySummarizationViewSet,
     "environment_llm_analytics_summarization",
     ["team_id"],
 )
@@ -1560,7 +1566,7 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/translate",
-    LLMAnalyticsTranslateViewSet,
+    AIObservabilityTranslateViewSet,
     "environment_llm_analytics_translate",
     ["team_id"],
 )
@@ -1595,7 +1601,7 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/clustering_runs",
-    LLMAnalyticsClusteringRunViewSet,
+    AIObservabilityClusteringRunViewSet,
     "environment_llm_analytics_clustering_runs",
     ["team_id"],
 )
@@ -1616,14 +1622,14 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/sentiment",
-    LLMAnalyticsSentimentViewSet,
+    AIObservabilitySentimentViewSet,
     "environment_llm_analytics_sentiment",
     ["team_id"],
 )
 
 environments_router.register(
     r"llm_analytics/offline_evaluations",
-    LLMAnalyticsOfflineEvaluationsViewSet,
+    AIObservabilityOfflineEvaluationsViewSet,
     "environment_llm_analytics_offline_evaluations",
     ["team_id"],
 )

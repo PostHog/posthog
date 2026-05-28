@@ -267,7 +267,7 @@ def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> Non
 
 
 # TODO: Extract ExecutionTimeRecorder to posthog/temporal/common/ — copied from
-# posthog/temporal/llm_analytics/metrics.py to avoid cross-product import.
+# posthog/temporal/ai_observability/metrics.py to avoid cross-product import.
 class ExecutionTimeRecorder:
     """Context manager to record execution time to a histogram metric."""
 

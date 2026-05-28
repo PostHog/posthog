@@ -69,7 +69,7 @@ const launchSurvey = async (page: Page, name: string): Promise<void> => {
     await createButton.click()
     await responsePromise
     await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
-    await expect(page.locator('.scene-tab-title').first()).toContainText(name)
+    await expect(page.locator('[data-attr="scene-name"]').first()).toContainText(name)
     await expect(page.locator('[data-attr="stop-survey"]')).toBeVisible()
 }
 
@@ -222,7 +222,7 @@ test.describe('Quick create survey from feature flag', () => {
         await saveAsDraftButton.click()
         await responsePromise
         await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
-        await expect(page.locator('.scene-tab-title').first()).toContainText(name)
+        await expect(page.locator('[data-attr="scene-name"]').first()).toContainText(name)
         await expect(page.locator('[data-attr="launch-survey"]').getByText('Launch', { exact: true })).toBeVisible()
     })
 
