@@ -1,35 +1,22 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import type { healthMenuLogicType } from './healthMenuLogicType'
 import { incidentStatusLogic } from './incidentStatusLogic'
+import type { posthogStatusLogicType } from './posthogStatusLogicType'
 
 export type PostHogStatusType = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
 export type PostHogStatusBadgeStatus = 'success' | 'warning' | 'danger'
 
-export const healthMenuLogic = kea<healthMenuLogicType>([
-    path(['lib', 'components', 'HealthMenu', 'healthMenuLogic']),
+export const posthogStatusLogic = kea<posthogStatusLogicType>([
+    path(['lib', 'components', 'HelpMenu', 'posthogStatusLogic']),
     connect({
         values: [
             incidentStatusLogic,
             ['status', 'statusDescription'],
             superpowersLogic,
             ['fakeStatusOverride', 'superpowersEnabled'],
-        ],
-    }),
-    actions({
-        setHealthMenuOpen: (isOpen: boolean) => ({ isOpen }),
-        toggleHealthMenu: true,
-    }),
-    reducers({
-        isHealthMenuOpen: [
-            false,
-            {
-                setHealthMenuOpen: (_, { isOpen }) => isOpen,
-                toggleHealthMenu: (state) => !state,
-            },
         ],
     }),
     selectors({
