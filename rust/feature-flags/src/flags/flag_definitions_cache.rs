@@ -792,4 +792,97 @@ mod tests {
             "weigher should reflect ~10KB of JSON payload: small={small_sz}, big={big_sz}"
         );
     }
+
+    /// The weigher must include `#[serde(flatten)] extra` passthrough bytes on
+    /// `FlagFilters`, `FlagPropertyGroup`, and `PropertyFilter`. Without this,
+    /// a project member could store arbitrarily large unknown JSONB keys on flag
+    /// filters (the Django API does not validate unknown keys) and bypass the
+    /// cache's byte-budget eviction.
+    #[test]
+    fn test_weigher_accounts_for_extra_passthrough() {
+        use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+        use crate::properties::property_models::PropertyType;
+        use serde_json::Map;
+
+        let big_str = "x".repeat(10_000);
+
+        let make_flag = |filters_extra: Map<String, serde_json::Value>,
+                         group_extra: Map<String, serde_json::Value>,
+                         prop_extra: Map<String, serde_json::Value>| {
+            let mut flag = mock!(FeatureFlag, name: None, key: "k".mock_into());
+            flag.filters = FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "prop".to_string(),
+                        value: Some(json!("v")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                        compiled_regex: None,
+                        extra: prop_extra,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: None,
+                    extra: group_extra,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                extra: filters_extra,
+            };
+            flag
+        };
+
+        let baseline = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(Map::new(), Map::new(), Map::new())]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let mut filters_extra = Map::new();
+        filters_extra.insert("holdout_groups".to_string(), json!(big_str));
+        let with_filters_extra = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(filters_extra, Map::new(), Map::new())]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let mut group_extra = Map::new();
+        group_extra.insert("description".to_string(), json!(big_str));
+        let with_group_extra = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(Map::new(), group_extra, Map::new())]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let mut prop_extra = Map::new();
+        prop_extra.insert("cohort_name".to_string(), json!(big_str));
+        let with_prop_extra = Arc::new(PreparedFlagDefinitions {
+            flags: PreparedFlags::seal(vec![make_flag(Map::new(), Map::new(), prop_extra)]),
+            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+            cohorts: None,
+        });
+
+        let base_sz = baseline.estimated_size_bytes();
+        let filters_sz = with_filters_extra.estimated_size_bytes();
+        let group_sz = with_group_extra.estimated_size_bytes();
+        let prop_sz = with_prop_extra.estimated_size_bytes();
+
+        assert!(
+            filters_sz > base_sz + 9_000,
+            "weigher must count FlagFilters.extra: base={base_sz}, with_filters_extra={filters_sz}"
+        );
+        assert!(
+            group_sz > base_sz + 9_000,
+            "weigher must count FlagPropertyGroup.extra: base={base_sz}, with_group_extra={group_sz}"
+        );
+        assert!(
+            prop_sz > base_sz + 9_000,
+            "weigher must count PropertyFilter.extra: base={base_sz}, with_prop_extra={prop_sz}"
+        );
+    }
 }

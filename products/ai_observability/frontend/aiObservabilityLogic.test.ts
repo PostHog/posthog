@@ -1,0 +1,398 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
+
+import { productRedirects } from '~/products'
+import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
+import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
+
+type RedirectParams = Record<string, string>
+
+const redirectUrl = (
+    path: string,
+    params: RedirectParams = {},
+    searchParams: RedirectParams = {},
+    hashParams: RedirectParams = {}
+): string => {
+    const redirect = productRedirects[path]
+    return typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+}
+
+describe('LLM analytics URL split', () => {
+    it('uses the new canonical product URLs', () => {
+        expect(urls.aiObservabilityDashboard()).toBe('/ai-observability/dashboard')
+        expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
+        expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
+        expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
+        expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
+        expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
+        expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
+        expect(urls.aiObservabilitySkills()).toBe('/prompt-management/skills')
+    })
+
+    it('redirects legacy LLM analytics URLs to their new product areas', () => {
+        expect(redirectUrl('/llm-analytics')).toBe('/ai-observability/dashboard')
+        expect(redirectUrl('/llm-analytics/settings')).toBe('/settings/project-ai-observability#ai-observability-byok')
+        expect(redirectUrl('/llm-analytics/settings', {}, {}, { 'llm-analytics-byok': 'true' })).toBe(
+            '/settings/project-ai-observability#ai-observability-byok'
+        )
+        expect(redirectUrl('/llm-analytics/reviews', {}, { queue_id: 'queue-1' })).toBe(
+            '/ai-observability/reviews?queue_id=queue-1'
+        )
+        expect(redirectUrl('/llm-analytics/traces/:id', { id: 'trace-1' }, { event: 'event-1' })).toBe(
+            '/ai-observability/traces/trace-1?event=event-1'
+        )
+        expect(redirectUrl('/llm-analytics/datasets/:id', { id: 'dataset-1' }, { item: 'item-1' })).toBe(
+            '/ai-evals/datasets/dataset-1?item=item-1'
+        )
+        expect(redirectUrl('/llm-analytics/tags/:id', { id: 'tagger-1' })).toBe('/ai-evals/taggers/tagger-1')
+        expect(redirectUrl('/llm-analytics/evaluations/:id', { id: 'evaluation-1' })).toBe(
+            '/ai-evals/evaluations/evaluation-1'
+        )
+        expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
+            '/prompt-management/prompts/prompt-1'
+        )
+        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
+            '/prompt-management/skills/skill-1'
+        )
+    })
+
+    it('redirects AI observability settings to the project-level BYOK setting', () => {
+        expect(redirectUrl('/ai-observability/settings')).toBe(
+            '/settings/project-ai-observability#ai-observability-byok'
+        )
+    })
+})
+
+describe('aiObservabilitySharedLogic', () => {
+    let logic: ReturnType<typeof aiObservabilitySharedLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        sceneLogic.mount()
+        router.actions.push(urls.aiObservabilityTraces())
+        logic = aiObservabilitySharedLogic({ tabId: sceneLogic.values.activeTabId || '' })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('should handle URL parameters correctly', () => {
+        const filters = [
+            {
+                type: 'event',
+                key: 'browser',
+                value: 'Chrome',
+                operator: 'exact',
+            },
+        ]
+
+        // Navigate with various parameters
+        router.actions.push(urls.aiObservabilityTraces(), {
+            filters: filters,
+            date_from: '-14d',
+            date_to: '-1d',
+            filter_test_accounts: 'true',
+        })
+
+        // Should apply all parameters
+        expectLogic(logic).toMatchValues({
+            propertyFilters: filters,
+            dateFilter: {
+                dateFrom: '-14d',
+                dateTo: '-1d',
+            },
+            shouldFilterTestAccounts: true,
+        })
+    })
+
+    it('should reset filters when switching tabs without params', () => {
+        // Set some filters first
+        logic.actions.setPropertyFilters([
+            {
+                type: PropertyFilterType.Event,
+                key: 'test',
+                value: 'value',
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        logic.actions.setDates('-30d', '-1d')
+        logic.actions.setShouldFilterTestAccounts(true)
+
+        // Navigate to another tab without params
+        router.actions.push(urls.aiObservabilityGenerations())
+
+        // Should reset to defaults
+        expectLogic(logic).toMatchValues({
+            propertyFilters: [],
+            dateFilter: {
+                dateFrom: '-1h',
+                dateTo: null,
+            },
+            shouldFilterTestAccounts: false,
+        })
+    })
+})
+
+describe('aiObservabilitySessionsViewLogic', () => {
+    let sharedLogic: ReturnType<typeof aiObservabilitySharedLogic.build>
+    let sessionsLogic: ReturnType<typeof aiObservabilitySessionsViewLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        sceneLogic.mount()
+        router.actions.push(urls.aiObservabilitySessions())
+        sharedLogic = aiObservabilitySharedLogic({})
+        sharedLogic.mount()
+        sessionsLogic = aiObservabilitySessionsViewLogic({})
+        sessionsLogic.mount()
+    })
+
+    afterEach(() => {
+        sessionsLogic.unmount()
+        sharedLogic.unmount()
+    })
+
+    describe('session expansion state', () => {
+        it('toggles session expansion state', async () => {
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleSessionExpanded('session-123')
+            }).toMatchValues({
+                expandedSessionIds: new Set(['session-123']),
+            })
+
+            // Toggle again to collapse
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleSessionExpanded('session-123')
+            }).toMatchValues({
+                expandedSessionIds: new Set(),
+            })
+        })
+
+        it('handles multiple expanded sessions', async () => {
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleSessionExpanded('session-1')
+                sessionsLogic.actions.toggleSessionExpanded('session-2')
+                sessionsLogic.actions.toggleSessionExpanded('session-3')
+            }).toMatchValues({
+                expandedSessionIds: new Set(['session-1', 'session-2', 'session-3']),
+            })
+
+            // Collapse middle session
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleSessionExpanded('session-2')
+            }).toMatchValues({
+                expandedSessionIds: new Set(['session-1', 'session-3']),
+            })
+        })
+
+        it('clears expanded sessions when date filter changes', async () => {
+            sessionsLogic.actions.toggleSessionExpanded('session-123')
+
+            await expectLogic(sessionsLogic, () => {
+                sharedLogic.actions.setDates('-7d', null)
+            }).toMatchValues({
+                expandedSessionIds: new Set(),
+                sessionTraces: {},
+            })
+        })
+
+        it('clears expanded sessions when property filters change', async () => {
+            sessionsLogic.actions.toggleSessionExpanded('session-456')
+
+            await expectLogic(sessionsLogic, () => {
+                sharedLogic.actions.setPropertyFilters([
+                    {
+                        type: PropertyFilterType.Event,
+                        key: 'browser',
+                        value: 'Chrome',
+                        operator: PropertyOperator.Exact,
+                    },
+                ])
+            }).toMatchValues({
+                expandedSessionIds: new Set(),
+                sessionTraces: {},
+            })
+        })
+
+        it('clears expanded sessions when test accounts filter changes', async () => {
+            sessionsLogic.actions.toggleSessionExpanded('session-789')
+
+            await expectLogic(sessionsLogic, () => {
+                sharedLogic.actions.setShouldFilterTestAccounts(true)
+            }).toMatchValues({
+                expandedSessionIds: new Set(),
+                sessionTraces: {},
+            })
+        })
+    })
+
+    describe('trace expansion state', () => {
+        it('toggles trace expansion state', async () => {
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleTraceExpanded('trace-abc')
+            }).toMatchValues({
+                expandedTraceIds: new Set(['trace-abc']),
+            })
+
+            // Toggle again to collapse
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleTraceExpanded('trace-abc')
+            }).toMatchValues({
+                expandedTraceIds: new Set(),
+            })
+        })
+
+        it('handles multiple expanded traces', async () => {
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.toggleTraceExpanded('trace-1')
+                sessionsLogic.actions.toggleTraceExpanded('trace-2')
+            }).toMatchValues({
+                expandedTraceIds: new Set(['trace-1', 'trace-2']),
+            })
+        })
+
+        it('clears expanded traces when filters change', async () => {
+            sessionsLogic.actions.toggleTraceExpanded('trace-xyz')
+
+            await expectLogic(sessionsLogic, () => {
+                sharedLogic.actions.setDates('-14d', null)
+            }).toMatchValues({
+                expandedTraceIds: new Set(),
+                fullTraces: {},
+            })
+        })
+    })
+
+    describe('loading state tracking', () => {
+        it('tracks loading state for session traces', async () => {
+            sessionsLogic.actions.loadSessionTraces('session-123')
+
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-123')).toBe(true)
+
+            sessionsLogic.actions.loadSessionTracesSuccess('session-123', [])
+
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-123')).toBe(false)
+        })
+
+        it('clears loading state on failure', async () => {
+            sessionsLogic.actions.loadSessionTraces('session-456')
+
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-456')).toBe(true)
+
+            sessionsLogic.actions.loadSessionTracesFailure('session-456', new Error('Test error'))
+
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-456')).toBe(false)
+        })
+
+        it('tracks loading state for full traces', async () => {
+            sessionsLogic.actions.loadFullTrace('trace-abc')
+
+            expect(sessionsLogic.values.loadingFullTraces.has('trace-abc')).toBe(true)
+
+            const mockTrace = { id: 'trace-abc' } as any
+            sessionsLogic.actions.loadFullTraceSuccess('trace-abc', mockTrace)
+
+            expect(sessionsLogic.values.loadingFullTraces.has('trace-abc')).toBe(false)
+        })
+
+        it('handles multiple concurrent loading operations', async () => {
+            sessionsLogic.actions.loadSessionTraces('session-1')
+            sessionsLogic.actions.loadSessionTraces('session-2')
+            sessionsLogic.actions.loadFullTrace('trace-1')
+
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-1')).toBe(true)
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-2')).toBe(true)
+            expect(sessionsLogic.values.loadingFullTraces.has('trace-1')).toBe(true)
+
+            sessionsLogic.actions.loadSessionTracesSuccess('session-1', [])
+
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-1')).toBe(false)
+            expect(sessionsLogic.values.loadingSessionTraces.has('session-2')).toBe(true)
+            expect(sessionsLogic.values.loadingFullTraces.has('trace-1')).toBe(true)
+        })
+    })
+
+    describe('session traces data', () => {
+        it('stores loaded session traces', async () => {
+            const mockTraces = [{ id: 'trace-1' }, { id: 'trace-2' }] as any[]
+
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.loadSessionTracesSuccess('session-123', mockTraces)
+            }).toMatchValues({
+                sessionTraces: {
+                    'session-123': mockTraces,
+                },
+            })
+        })
+
+        it('stores traces for multiple sessions', async () => {
+            const mockTraces1 = [{ id: 'trace-1' }] as any[]
+            const mockTraces2 = [{ id: 'trace-2' }] as any[]
+
+            sessionsLogic.actions.loadSessionTracesSuccess('session-1', mockTraces1)
+            sessionsLogic.actions.loadSessionTracesSuccess('session-2', mockTraces2)
+
+            expect(sessionsLogic.values.sessionTraces).toEqual({
+                'session-1': mockTraces1,
+                'session-2': mockTraces2,
+            })
+        })
+
+        it('clears session traces when filters change', async () => {
+            const mockTraces = [{ id: 'trace-1' }] as any[]
+            sessionsLogic.actions.loadSessionTracesSuccess('session-123', mockTraces)
+
+            await expectLogic(sessionsLogic, () => {
+                sharedLogic.actions.setDates('-30d', null)
+            }).toMatchValues({
+                sessionTraces: {},
+            })
+        })
+    })
+
+    describe('full traces data', () => {
+        it('stores loaded full trace', async () => {
+            const mockTrace = { id: 'trace-abc', events: [] } as any
+
+            await expectLogic(sessionsLogic, () => {
+                sessionsLogic.actions.loadFullTraceSuccess('trace-abc', mockTrace)
+            }).toMatchValues({
+                fullTraces: {
+                    'trace-abc': mockTrace,
+                },
+            })
+        })
+
+        it('stores multiple full traces', async () => {
+            const mockTrace1 = { id: 'trace-1' } as any
+            const mockTrace2 = { id: 'trace-2' } as any
+
+            sessionsLogic.actions.loadFullTraceSuccess('trace-1', mockTrace1)
+            sessionsLogic.actions.loadFullTraceSuccess('trace-2', mockTrace2)
+
+            expect(sessionsLogic.values.fullTraces).toEqual({
+                'trace-1': mockTrace1,
+                'trace-2': mockTrace2,
+            })
+        })
+
+        it('clears full traces when filters change', async () => {
+            const mockTrace = { id: 'trace-xyz' } as any
+            sessionsLogic.actions.loadFullTraceSuccess('trace-xyz', mockTrace)
+
+            await expectLogic(sessionsLogic, () => {
+                sharedLogic.actions.setPropertyFilters([])
+            }).toMatchValues({
+                fullTraces: {},
+            })
+        })
+    })
+})
