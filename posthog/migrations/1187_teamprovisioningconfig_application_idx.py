@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
     # `AddIndexConcurrently` requires atomic=False. Lives in its own migration per
     # PostHog policy (don't mix CONCURRENTLY operations with regular DDL).
     atomic = False
-    dependencies = [("posthog", "1157_teamprovisioningconfig_application")]
+    dependencies = [("posthog", "1186_teamprovisioningconfig_application")]
 
     operations = [
         AddIndexConcurrently(

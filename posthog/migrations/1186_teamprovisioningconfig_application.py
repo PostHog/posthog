@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1156_cohort_team_filters_help_text")]
+    dependencies = [("posthog", "1185_fix_non_list_test_account_filters")]
 
     operations = [
         migrations.AddField(
