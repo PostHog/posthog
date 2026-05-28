@@ -10,6 +10,12 @@ import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
 
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
@@ -50,24 +56,44 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     # Fetch one extra row to check if there's more data
     query_limit = limit + 1
 
-    after_clause = "AND id > %(after_person_id)s" if inputs.after_person_id is not None else ""
-    person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
-    query = f"""
-        SELECT id as person_id
-        FROM person FINAL
-        WHERE team_id = %(team_id)s
-          AND is_deleted = 0
-          {after_clause}
-          {person_filter_clause}
-        ORDER BY id
-        LIMIT %(limit)s
-        FORMAT JSONEachRow
-    """
-    query_params: dict[str, object] = {"team_id": inputs.team_id, "limit": query_limit}
+    where_exprs: list[ast.Expr] = []
     if inputs.after_person_id is not None:
-        query_params["after_person_id"] = inputs.after_person_id
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["id"]),
+                right=ast.Constant(value=inputs.after_person_id),
+            )
+        )
     if inputs.person_id is not None:
-        query_params["person_id"] = inputs.person_id
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["id"]),
+                right=ast.Constant(value=inputs.person_id),
+            )
+        )
+
+    ranges_query_ast = ast.SelectQuery(
+        select=[ast.Alias(alias="person_id", expr=ast.Field(chain=["id"]))],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=where_exprs) if len(where_exprs) > 1 else (where_exprs[0] if where_exprs else None),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
+        limit=ast.Constant(value=query_limit),
+    )
+
+    @database_sync_to_async
+    def _compile_ranges_query() -> tuple[str, dict[str, Any]]:
+        hogql_context = HogQLContext(
+            team_id=inputs.team_id,
+            enable_select_queries=True,
+            limit_context=LimitContext.COHORT_CALCULATION,
+            output_format="JSONEachRow",
+        )
+        sql, _ = prepare_and_print_ast(ranges_query_ast, hogql_context, "clickhouse")
+        return sql, hogql_context.values
+
+    query, query_params = await _compile_ranges_query()
 
     ranges: list[tuple[str, str]] = []
     current_batch_start: str | None = None

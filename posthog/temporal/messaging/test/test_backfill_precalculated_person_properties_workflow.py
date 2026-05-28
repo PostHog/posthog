@@ -6,10 +6,12 @@ from unittest.mock import Mock, patch
 import temporalio.exceptions
 from parameterized import parameterized
 
+from posthog.hogql import ast
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
-    build_person_properties_select_clause,
+    build_person_properties_select_exprs,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
@@ -223,18 +225,22 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
 
-    def test_build_person_properties_select_clause_parameterizes_property_keys(self):
+    def test_build_person_properties_select_exprs_keeps_keys_in_field_chain(self):
         malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
 
-        properties_clause, property_alias_mapping, property_query_params = build_person_properties_select_clause(
-            [malicious_property]
-        )
+        property_exprs, property_alias_mapping = build_person_properties_select_exprs([malicious_property])
 
-        assert malicious_property not in properties_clause
-        assert "team_id !=" not in properties_clause
-        assert "%(property_key_0)s" in properties_clause
         assert property_alias_mapping == {"prop_0": malicious_property}
-        assert property_query_params == {"property_key_0": malicious_property}
+        assert len(property_exprs) == 1
+
+        alias_expr = property_exprs[0]
+        assert isinstance(alias_expr, ast.Alias)
+        assert alias_expr.alias == "prop_0"
+
+        # The malicious key must live inside an ast.Field chain — never inline as a SQL fragment.
+        field_expr = alias_expr.expr
+        assert isinstance(field_expr, ast.Field)
+        assert field_expr.chain == ["properties", malicious_property]
 
     @pytest.mark.asyncio
     async def test_activity_parameterizes_property_keys_in_clickhouse_query(self):
@@ -248,6 +254,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
         captured_query: dict[str, object] = {}
+        captured_ast: dict[str, object] = {}
 
         async def stream_query_as_jsonl(query: str, query_parameters: dict[str, object] | None = None):
             captured_query["query"] = query
@@ -257,6 +264,16 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
         mock_client = Mock()
         mock_client.stream_query_as_jsonl = stream_query_as_jsonl
+
+        def fake_prepare_and_print_ast(node, context, dialect):
+            # Capture the AST we would print so we can assert the key is safely embedded.
+            captured_ast["node"] = node
+            context.values["hogql_val_0"] = malicious_property
+            return (
+                "SELECT id AS person_id, replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '') "
+                "AS prop_0 FROM persons WHERE id >= '0' AND id <= 'f' ORDER BY id FORMAT JSONEachRow",
+                None,
+            )
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
@@ -276,6 +293,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.prepare_and_print_ast",
+                side_effect=fake_prepare_and_print_ast,
+            ),
             patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_producer"),
             patch(
                 "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater",
@@ -290,15 +311,28 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
         assert result.persons_processed == 0
 
+        # The malicious key must only reach the printer wrapped in an ast.Field chain.
+        node = captured_ast["node"]
+        assert isinstance(node, ast.SelectQuery)
+        property_aliases = [
+            expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias.startswith("prop_")
+        ]
+        assert len(property_aliases) == 1
+        prop_field = property_aliases[0].expr
+        assert isinstance(prop_field, ast.Field)
+        assert prop_field.chain == ["properties", malicious_property]
+
+        # The query and parameters forwarded to the streaming client come straight from
+        # the HogQL printer's output — the malicious string never appears inline in the
+        # SQL string, only inside the parameter map produced by the printer.
         query = captured_query["query"]
         assert isinstance(query, str)
         assert malicious_property not in query
         assert "team_id !=" not in query
-        assert "%(property_key_0)s" in query
 
         query_parameters = captured_query["query_parameters"]
         assert isinstance(query_parameters, dict)
-        assert query_parameters["property_key_0"] == malicious_property
+        assert query_parameters["hogql_val_0"] == malicious_property
 
 
 class TestCombineFilterBytecodes:
