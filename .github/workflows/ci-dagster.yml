@@ -319,7 +319,9 @@ jobs:
               # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
               # keepdb=True path layers any PR-added migrations on top.
               # On cache miss, fall through to a full migrate so migrate_clickhouse works.
-              if: ${{ github.event_name == 'pull_request' }}
+              # TEMP: nextgensquash trial — `false &&` forces fall-through to a full
+              # migrate so squash effect on cold runs is measurable. Revert before merge.
+              if: ${{ false && github.event_name == 'pull_request' }}
               run: |
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Schema cache miss — falling through to full migrate"
