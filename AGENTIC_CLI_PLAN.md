@@ -230,21 +230,34 @@ The audit found 15/17 transforms already declarative. The two that aren't must b
 - `include_str!` the manifest; cut a release through the existing pipeline.
 - Add the `AGENTS.md` steering line. Update `cli/README.md` and `docs/`.
 
-### D2 — Proof of usefulness (benchmark vs MCP)
+### D2 — Proof of usefulness (evals vs MCP)
 
-Design this _before_ Phase 3 so the architecture is shaped by what we measure.
+**Reuse the existing eval harness — do not build a bespoke benchmark.** PostHog already has a
+Braintrust-backed eval framework at `ee/hogai/eval`, including a **sandboxed** harness
+(`ee/hogai/eval/sandboxed/`) that runs a real coding agent in a Docker sandbox against a live demo
+project, and parses the agent's tool/Bash calls with deterministic + LLM-judge scorers. Critically,
+it already has a `cli_mcp/` suite — but that exercises the **MCP's `exec` (CLI-like) tool mode**, not
+our actual `posthog-cli` binary. So we don't yet have evals for the binary; we add them.
 
-- **Task suite:** a fixed set of realistic agent tasks that each require multiple PostHog operations
-  (e.g. "find the flag gating X and roll it back", "pull last week's signups and bucket by source",
-  "create an insight from this spec and add it to a dashboard"). Composition-heavy tasks favor the CLI's
-  thesis — include some single-call tasks too so we don't cherry-pick.
-- **Metrics (from the doc):** total tokens consumed; success rate (did it pick the right tool + args and
-  get the right result); time-to-completion. Same agent + model on both arms; CLI arm has the binary +
-  AGENTS.md line, MCP arm has the MCP server connected.
-- **Methodology:** N runs per task per arm for variance; log token counts from the harness; score success
-  with a rubric/automated check. Report deltas with confidence intervals, not single runs.
-- **Gate:** D3 (blog) only ships if the results actually support the thesis. If they don't, that's a
-  finding worth knowing before we commit the org to the CLI direction.
+- **New suite:** `ee/hogai/eval/sandboxed/cli_posthog/` mirroring `cli_mcp/`. The sandbox gets the
+  `posthog-cli` binary on PATH + the steering block (via `posthog-cli init`); the agent drives it
+  through `Bash`, not MCP tool calls.
+- **Reuse:** the `SandboxedPublicEval` harness, demo-data setup, Braintrust reporting, and generic
+  scorers (`ExitCodeZero`, post-processing checks). **New:** Bash-aware scorers that parse
+  `posthog-cli <category> <verb>` invocations (did it discover via `--help`? use `--dry-run` before a
+  write? pick the right command + flags?), paralleling `cli_mcp/scorers.py`.
+- **Comparative arm:** run the same task suite against the MCP arm (the existing `cli_mcp`/tools-mode
+  suites) to get the head-to-head the thesis needs: tokens, success rate, time-to-completion.
+- **Tasks:** realistic, composition-heavy multi-step tasks (e.g. "find the flag gating X and roll it
+  back", "pull last week's signups bucketed by source"), plus some single-call tasks so we don't
+  cherry-pick. Cases are defined like the existing `SandboxedEvalCase` (name, prompt, expected dict).
+- **Prereqs:** the sandbox image must include the built binary; the agent must be steered to it
+  (`steering.md` / `init`). These are the only genuinely new infra pieces.
+- **Gate:** D3 (blog) only ships if results support the thesis. If they don't, that's worth knowing
+  before committing the org to the CLI direction.
+
+This doubles as the project's eval coverage (the "do we have evals?" question): the `cli_posthog`
+suite is both the proof-of-usefulness benchmark and the ongoing regression eval for the CLI.
 
 ### D3 — Blog post
 
