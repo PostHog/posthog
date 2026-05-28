@@ -224,6 +224,79 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeTruthy()
     })
 
+    it.each([
+        ['posthog-python', 'python-httpx'],
+        ['posthog-node', 'axios/1.4.0'],
+        ['posthog-langchain', 'python-requests/2.31.0'],
+        ['posthog-webhook', 'okhttp/4.10.0'],
+    ])('should bypass bot UA filter when $lib=%s (server-side SDK)', async (lib, ua) => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: lib,
+                    $raw_user_agent: ua,
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
+    })
+
+    it('should bypass bot IP filter when $lib is a server-side SDK', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: 'posthog-python',
+                    $ip: '5.39.1.225',
+                    $raw_user_agent: 'python-httpx',
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
+    })
+
+    it('should still filter known bot UA when $lib=web', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: 'web',
+                    $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
+    it('should still filter known bot UA when $lib is missing (no bypass for unknown source)', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
     it('should not filter out known bot ips if filterKnownBotIps is false', async () => {
         mockGlobals = tester.createGlobals({
             event: {

@@ -12,6 +12,15 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
+// Bot heuristics (user-agent substring match, datacenter IP list) only make sense for
+// browser-originated traffic. Server-side SDKs (posthog-python, posthog-node,
+// posthog-langchain, posthog-webhook, ...) send HTTP-client user agents like
+// 'python-httpx' and backend IPs that look like bots but aren't.
+let lib := event.properties['$lib']
+if (notEmpty(lib) and lib != 'web') {
+    return event
+}
+
 // Get the user agent value
 let user_agent := event.properties[inputs.userAgent]
 
