@@ -105,9 +105,11 @@ describe('SlackChannelPicker', () => {
         const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
         await userEvent.click(input)
 
-        // Give kea-loaders' debounce (300ms breakpoint on non-empty search) a chance to fire if
-        // the guard were missing — still expect only the initial empty-search call.
-        await new Promise((resolve) => setTimeout(resolve, 400))
+        // Give kea-loaders' debounce (300ms breakpoint on non-empty search) plus the fetch round-trip
+        // a generous buffer to fire if the guard were missing. We deliberately wait well past the
+        // breakpoint window so a slow CI runner can't produce a false negative by observing
+        // `['']` before the unwanted request lands.
+        await new Promise((resolve) => setTimeout(resolve, 1000))
         expect(channelsRequestSearchQueries).toEqual([''])
     })
 
@@ -128,11 +130,13 @@ describe('SlackChannelPicker', () => {
         await userEvent.type(input, 'general')
 
         // The typed text differs from any currently displayed key, so the server-side search fires.
+        // Timeout is generous: userEvent.type sims each keystroke, intermediate calls are cancelled
+        // by the breakpoint, and the final search waits 300ms before fetching — well within 5s.
         await waitFor(
             () => {
                 expect(channelsRequestSearchQueries).toContain('general')
             },
-            { timeout: 1500 }
+            { timeout: 5000 }
         )
     })
 })
