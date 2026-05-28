@@ -8,7 +8,7 @@
  * Auto-included by the runner when `spec.skills` is non-empty.
  */
 
-import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export const loadSkill = defineNativeTool({
     id: '@posthog/load-skill',

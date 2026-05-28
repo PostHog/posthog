@@ -46,11 +46,7 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
-from products.agent_stack.backend.api import (
-    AgentApplicationRevisionViewSet,
-    AgentApplicationSessionProxyViewSet,
-    AgentApplicationViewSet,
-)
+from products.agent_stack.backend.api import AgentApplicationViewSet, AgentRevisionViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1442,16 +1438,12 @@ agent_applications_router = projects_router.register(
 )
 agent_applications_router.register(
     r"revisions",
-    AgentApplicationRevisionViewSet,
+    AgentRevisionViewSet,
     "project_agent_application_revisions",
     ["project_id", "application_id"],
 )
-agent_applications_router.register(
-    r"sessions",
-    AgentApplicationSessionProxyViewSet,
-    "project_agent_application_sessions",
-    ["project_id", "application_id"],
-)
+# Session reads go to the runtime DB via the janitor (GET /sessions/:id) —
+# Django's API doesn't expose them, see products/agent_stack/README.md.
 
 environments_router.register(
     r"tracing/spans",

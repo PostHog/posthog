@@ -219,33 +219,21 @@ procs:
             layer: Processing
             tech: Rust
 
-    agent-core-watch:
-        shell: 'pnpm --filter @posthog/agent-core start:dev'
-        capability: agent_runtime
-        ready_pattern: 'Watching for file changes'
-        groups:
-            layer: Infrastructure
-            tech: Node
-
     agent-ingress:
         shell: |-
             bin/wait-for-docker && \
-            until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             PORT=${AGENT_INGRESS_PORT:-3030} \
-            pnpm --filter @posthog/agent-ingress start:dev
+            pnpm --filter @posthog/agent-ingress start
         capability: agent_runtime
-        ready_pattern: 'agent-ingress listening'
+        ready_pattern: 'listening'
         groups:
             layer: Product services
             tech: Node
 
     agent-runner:
-        shell: |-
-            bin/wait-for-docker && \
-            until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
-            pnpm --filter @posthog/agent-runner start:dev
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start'
         capability: agent_runtime
-        ready_pattern: 'agent-runner started'
+        ready_pattern: 'starting worker loop'
         groups:
             layer: Processing
             tech: Node
@@ -253,11 +241,10 @@ procs:
     agent-janitor:
         shell: |-
             bin/wait-for-docker && \
-            until [ -f services/agent-core/dist/index.js ]; do sleep 0.5; done && \
             PORT=${AGENT_JANITOR_PORT:-3031} \
-            pnpm --filter @posthog/agent-janitor start:dev
+            pnpm --filter @posthog/agent-janitor start
         capability: agent_runtime
-        ready_pattern: 'agent-janitor listening'
+        ready_pattern: 'listening'
         groups:
             layer: Processing
             tech: Node

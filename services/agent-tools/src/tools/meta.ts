@@ -7,7 +7,7 @@
  *   - emit_event     → emit a structured event into the team's event stream
  */
 
-import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export const askForInputTool = defineNativeTool({
     id: '@posthog/meta-ask-for-input',

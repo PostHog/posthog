@@ -9,7 +9,7 @@
  * to the tool. No magic discovery.
  */
 
-import { NativeTool, NativeToolSchema } from '@posthog/agent-shared-v2'
+import { NativeTool, NativeToolSchema } from '@posthog/agent-shared'
 
 import { loadSkill } from './tools/load-skill'
 import { askForInputTool, endSessionTool, emitEventTool } from './tools/meta'

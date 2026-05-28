@@ -1,4 +1,4 @@
-import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export const webFetchV1 = defineNativeTool({
     id: '@posthog/web-fetch',

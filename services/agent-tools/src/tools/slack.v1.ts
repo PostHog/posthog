@@ -1,4 +1,4 @@
-import { defineNativeTool, IntegrationCredentials, Type } from '@posthog/agent-shared-v2'
+import { defineNativeTool, IntegrationCredentials, Type } from '@posthog/agent-shared'
 
 function slackAuth(creds: IntegrationCredentials | undefined): string {
     if (!creds || !creds.access_token) {

@@ -1,37 +1,66 @@
-import express, { Express } from 'ultimate-express'
+/**
+ * Internal HTTP for Django. Endpoints:
+ *   GET  /sessions/:id            — full session state
+ *   POST /sessions/:id/cancel     — mark failed
+ *   POST /sweep                   — trigger a sweep (used in tests / debug)
+ *   GET  /healthz
+ *
+ * Auth: an internal shared-secret header. Real prod wiring uses team-scoped
+ * tokens — kept simple here.
+ */
 
-import { SessionQuery, collectDefaults, logger, metricsContentType, metricsText } from '@posthog/agent-core'
+import express, { Express, NextFunction, Request, Response } from 'express'
 
-import { requireInternalKey } from './auth'
-import { registerSessionsRoutes } from './routes/sessions'
+import { SessionQueue } from '@posthog/agent-shared'
 
-export interface JanitorServerDeps {
-    query: SessionQuery
-    /** Required for `/internal/*` routes. Routes refuse traffic when undefined. */
-    internalApiSharedKey: string | undefined
+import { SweepDeps, sweepOnce } from './sweep'
+
+export interface JanitorServerOpts {
+    queue: SessionQueue
+    sweep: SweepDeps
+    internalSecret?: string
 }
 
-export function buildServer(deps: JanitorServerDeps): Express {
-    collectDefaults()
+export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const app = express()
-
-    app.use(express.json({ limit: '64kb' }))
-    app.use((req, _res, next) => {
-        logger.debug('agent-janitor request', { method: req.method, path: req.path })
-        next()
-    })
-
-    app.get('/health', (_req, res) => {
+    app.use(express.json())
+    if (opts.internalSecret) {
+        app.use((req: Request, res: Response, next: NextFunction) => {
+            if (req.path === '/healthz') {
+                next()
+                return
+            }
+            const auth = req.headers['x-internal-secret']
+            if (auth !== opts.internalSecret) {
+                res.status(401).json({ error: 'unauthorized' })
+                return
+            }
+            next()
+        })
+    }
+    app.get('/healthz', (_req, res) => {
         res.json({ ok: true })
     })
-
-    app.get('/metrics', async (_req, res) => {
-        res.set('content-type', metricsContentType())
-        res.send(await metricsText())
+    app.get('/sessions/:id', async (req, res) => {
+        const s = await opts.queue.get(req.params.id)
+        if (!s) {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        res.json(s)
     })
-
-    app.use('/internal', requireInternalKey({ sharedKey: deps.internalApiSharedKey }))
-    registerSessionsRoutes(app, { query: deps.query })
-
+    app.post('/sessions/:id/cancel', async (req, res) => {
+        const s = await opts.queue.get(req.params.id)
+        if (!s) {
+            res.status(404).json({ error: 'not_found' })
+            return
+        }
+        await opts.queue.update(req.params.id, { state: 'failed' })
+        res.json({ ok: true })
+    })
+    app.post('/sweep', async (_req, res) => {
+        const result = await sweepOnce(opts.sweep)
+        res.json(result)
+    })
     return app
 }

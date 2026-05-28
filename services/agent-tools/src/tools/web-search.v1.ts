@@ -1,4 +1,4 @@
-import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export interface WebSearchProvider {
     search(query: string, limit: number): Promise<Array<{ title: string; url: string; snippet: string }>>

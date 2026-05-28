@@ -2,53 +2,37 @@
     "name": "@posthog/agent-ingress",
     "version": "0.1.0",
     "private": true,
-    "description": "HTTP ingress process for the PostHog agent platform: terminates *.agents.posthog.com traffic, enqueues sessions, streams events.",
+    "description": "Greenfield ingress for the agent platform. HTTP triggers (slack, webhook, chat) + per-agent MCP transport.",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
-    "repository": "https://github.com/PostHog/posthog",
-    "main": "dist/lib.js",
+    "type": "module",
+    "main": "./src/lib.ts",
+    "types": "./src/lib.ts",
     "exports": {
-        ".": "./dist/lib.js",
-        "./bin": "./dist/index.js"
+        ".": "./src/lib.ts",
+        "./bin": "./src/index.ts"
     },
     "scripts": {
-        "build": "pnpm clean && tsc -b",
-        "clean": "rm -rf dist",
         "typescript:check": "tsc --noEmit -p .",
-        "lint": "eslint .",
-        "lint:fix": "eslint --fix .",
-        "format": "prettier --write .",
-        "format:check": "prettier --check .",
-        "test": "jest --runInBand --forceExit",
-        "start": "node dist/index.js",
-        "start:dev": "tsx watch --include '../agent-core/dist/**' --include '../../../agent-stack/packages/ass-server/dist/**' src/index.ts"
+        "test": "vitest run",
+        "start": "tsx src/index.ts",
+        "start:dev": "tsx watch src/index.ts"
     },
     "dependencies": {
-        "@posthog/agent-core": "workspace:*",
-        "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
-        "lru-cache": "^11.0.0",
-        "ultimate-express": "^2.0.9",
+        "@posthog/agent-shared": "workspace:*",
+        "express": "^4.21.1",
+        "pg": "^8.6.0",
+        "tsx": "^4.7.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {
-        "@eslint-community/eslint-plugin-eslint-comments": "^4.4.1",
-        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
-        "@types/jest": "catalog:",
+        "@types/express": "^4.17.21",
         "@types/node": "catalog:",
-        "@types/pg": "^8.15.4",
+        "@types/pg": "^8.6.0",
         "@types/supertest": "^6.0.2",
-        "@typescript-eslint/eslint-plugin": "^8.58.2",
-        "@typescript-eslint/parser": "^8.58.2",
-        "eslint": "^8.57.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-no-only-tests": "^3.1.0",
-        "jest": "catalog:",
-        "pg": "^8.10.0",
-        "prettier": "^3.6.2",
         "supertest": "^7.0.0",
-        "ts-jest": "^29.1.0",
-        "tsx": "^4.7.0",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "vitest": "^2.1.9"
     },
     "engines": {
         "node": ">=24 <25"

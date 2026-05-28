@@ -16,7 +16,7 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@posthog/agent-shared-v2": "workspace:*",
+        "@posthog/agent-shared": "workspace:*",
         "typebox": "^1.1.38",
         "zod": "^4.3.6"
     },

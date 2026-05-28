@@ -2,52 +2,36 @@
     "name": "@posthog/agent-runner",
     "version": "0.1.0",
     "private": true,
-    "description": "Session executor process for the PostHog agent platform: consumes the queue, runs Claude Agent SDK turns, executes tools natively.",
+    "description": "Greenfield session executor for the agent platform. Loads AgentRevision, calls pi-ai for model invocation, dispatches native+custom tools.",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
-    "repository": "https://github.com/PostHog/posthog",
-    "main": "dist/lib.js",
+    "type": "module",
+    "main": "./src/lib.ts",
+    "types": "./src/lib.ts",
     "exports": {
-        ".": "./dist/lib.js",
-        "./bin": "./dist/index.js",
-        "./executor-sdk": "./dist/executor-sdk.js"
+        ".": "./src/lib.ts",
+        "./bin": "./src/index.ts"
     },
     "scripts": {
-        "build": "pnpm clean && tsc -b",
-        "clean": "rm -rf dist",
         "typescript:check": "tsc --noEmit -p .",
-        "lint": "eslint .",
-        "lint:fix": "eslint --fix .",
-        "format": "prettier --write .",
-        "format:check": "prettier --check .",
-        "test": "jest --runInBand --forceExit",
-        "start": "node dist/index.js",
-        "start:dev": "tsx watch --include '../agent-core/dist/**' --include '../../../agent-stack/packages/ass-server/dist/**' --include '../../../agent-stack/packages/ass-config/dist/**' src/index.ts"
+        "test": "vitest run",
+        "start": "tsx src/index.ts",
+        "start:dev": "tsx watch src/index.ts"
     },
     "dependencies": {
-        "@posthog/agent-core": "workspace:*",
-        "@repo/ass-config": "link:../../../agent-stack/packages/ass-config",
-        "@repo/ass-sandbox": "link:../../../agent-stack/packages/ass-sandbox",
-        "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
-        "luxon": "^3.4.4",
+        "@earendil-works/pi-ai": "^0.76.0",
+        "@posthog/agent-shared": "workspace:*",
+        "@posthog/agent-tools": "workspace:*",
+        "pg": "^8.6.0",
+        "tsx": "^4.7.0",
+        "typebox": "^1.1.38",
         "zod": "^4.3.6"
     },
     "devDependencies": {
-        "@eslint-community/eslint-plugin-eslint-comments": "^4.4.1",
-        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
-        "@types/jest": "catalog:",
-        "@types/luxon": "^3.4.2",
         "@types/node": "catalog:",
-        "@typescript-eslint/eslint-plugin": "^8.58.2",
-        "@typescript-eslint/parser": "^8.58.2",
-        "eslint": "^8.57.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-no-only-tests": "^3.1.0",
-        "jest": "catalog:",
-        "prettier": "^3.6.2",
-        "ts-jest": "^29.1.0",
-        "tsx": "^4.7.0",
-        "typescript": "catalog:"
+        "@types/pg": "^8.6.0",
+        "typescript": "catalog:",
+        "vitest": "^2.1.9"
     },
     "engines": {
         "node": ">=24 <25"

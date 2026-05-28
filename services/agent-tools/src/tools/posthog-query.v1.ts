@@ -1,4 +1,4 @@
-import { defineNativeTool, Type } from '@posthog/agent-shared-v2'
+import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 import { getPosthogInternalClient } from '../posthog-client'
 

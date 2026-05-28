@@ -1,4 +1,4 @@
-import { ToolContext } from '@posthog/agent-shared-v2'
+import { ToolContext } from '@posthog/agent-shared'
 
 export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
     const logs: Array<{ level: string; msg: string; meta?: Record<string, unknown> }> = []

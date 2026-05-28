@@ -1,53 +1,70 @@
 /**
- * agent-ingress bin entrypoint. Thin wrapper around `createIngress` from
- * `./lib`: load env defaults, hand them to the factory, register SIGTERM /
- * SIGINT handlers, and call `start()`. Anything more interesting (custom
- * deps, behaviour overrides, swapping in shared infra for tests) belongs
- * in the factory — keeping this file tiny is the point.
+ * Ingress entrypoint. Two Postgres pools (matching the runner):
+ *
+ *   - posthogDb (POSTHOG_DB_URL): Django-owned authoring tables. The ingress
+ *     reads `agent_application` + `agent_revision` to resolve a request's
+ *     slug/domain to a live revision.
+ *
+ *   - agentDb (AGENT_DB_URL): runtime queue. The ingress writes new
+ *     `agent_session` rows when a trigger fires and reads / writes
+ *     `agent_user` for identity resolution.
+ *
+ * Single-pool default (both env vars unset → same Postgres) is fine for dev.
  */
-import { loadDevEnv, logger } from '@posthog/agent-core'
 
-import { createIngress } from './lib'
+import { Pool } from 'pg'
 
-loadDevEnv()
+import {
+    createLogger,
+    MemorySessionEventBus,
+    PgIdentityStore,
+    PgRevisionStore,
+    PgSessionQueue,
+    RedisSessionEventBus,
+    SessionEventBus,
+} from '@posthog/agent-shared'
+
+import { buildApp } from './routing/server'
+
+const log = createLogger('agent-ingress')
 
 async function main(): Promise<void> {
-    // Test-mode overrides. Both gated on env presence; production never
-    // sets these. Used by services/agent-tests's subprocess harness to
-    // configure the in-process behaviour ingress can't otherwise read
-    // from config.
-    const testInternalSecret = process.env.AGENT_INGRESS_TEST_INTERNAL_SECRET
-    const testSecretsJson = process.env.AGENT_INGRESS_TEST_SECRETS_JSON
-    const testSecrets: Record<string, string> = testSecretsJson ? JSON.parse(testSecretsJson) : {}
+    const port = parseInt(process.env.PORT ?? '8080', 10)
+    const posthogDbUrl = process.env.POSTHOG_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog'
+    const agentDbUrl = process.env.AGENT_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue'
 
-    const ingress = await createIngress({
-        queueName: process.env.AGENT_INGRESS_QUEUE_NAME || undefined,
-        verifyPostHogInternal: testInternalSecret
-            ? async (req) =>
-                  req.headers['x-posthog-internal'] === testInternalSecret
-                      ? { kind: 'service', orgId: 'posthog', caller: 'posthog-internal' }
-                      : null
-            : undefined,
-        loadSecret: Object.keys(testSecrets).length > 0 ? async (name) => testSecrets[name] ?? null : undefined,
-    })
-    const { port } = await ingress.start()
-    logger.info('agent-ingress listening', {
-        port,
-        routingMode: ingress.deps.routingMode,
-        domainSuffix: ingress.deps.routingMode === 'domain' ? ingress.deps.domainSuffix : undefined,
-        testMode: Boolean(testInternalSecret || testSecretsJson),
-    })
+    const posthogDb = new Pool({ connectionString: posthogDbUrl })
+    const agentDb = new Pool({ connectionString: agentDbUrl })
 
-    const shutdown = async (signal: string): Promise<void> => {
-        logger.info('agent-ingress shutting down', { signal })
-        await ingress.stop()
-        process.exit(0)
+    // SSE /listen is the consumer side of the same bus the runner publishes
+    // to. With REDIS_URL set, multi-host fan-out works; without it /listen
+    // only sees events from a runner inside the same process (dev).
+    let bus: SessionEventBus = new MemorySessionEventBus()
+    if (process.env.REDIS_URL) {
+        const redis = new RedisSessionEventBus({ url: process.env.REDIS_URL })
+        await redis.connect()
+        bus = redis
     }
-    process.on('SIGTERM', () => void shutdown('SIGTERM'))
-    process.on('SIGINT', () => void shutdown('SIGINT'))
+
+    const app = buildApp({
+        revisions: new PgRevisionStore(posthogDb),
+        queue: new PgSessionQueue(agentDb),
+        identities: new PgIdentityStore(agentDb),
+        bus,
+        teamId: parseInt(process.env.TEAM_ID ?? '1', 10),
+        routingMode: (process.env.ROUTING_MODE as 'path' | 'domain') ?? 'path',
+        domainSuffix: process.env.DOMAIN_SUFFIX,
+        pathPrefix: process.env.PATH_PREFIX ?? '/agents',
+        slackSigningSecret: process.env.SLACK_SIGNING_SECRET,
+    })
+    app.listen(port, () => {
+        log.info({ port, bus: bus.constructor.name }, 'listening')
+    })
 }
 
-main().catch((err: unknown) => {
-    logger.error({ err }, 'agent-ingress fatal')
-    process.exit(1)
-})
+if (require.main === module) {
+    main().catch((err) => {
+        log.fatal({ err: (err as Error).message, stack: (err as Error).stack }, 'fatal')
+        process.exit(1)
+    })
+}

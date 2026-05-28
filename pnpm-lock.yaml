@@ -448,7 +448,7 @@ importers:
         version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@storybook/react-webpack5':
         specifier: ^7.6.4
-        version: 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
+        version: 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(esbuild@0.18.20)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
       '@storybook/test-runner':
         specifier: ^0.16.0
         version: 0.16.0(encoding@0.1.13)
@@ -502,7 +502,7 @@ importers:
         version: 2.0.0(webpack@5.88.2)
       webpack:
         specifier: ^5.88.2
-        version: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+        version: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
       webpack-cli:
         specifier: ^5.1.4
         version: 5.1.4(webpack@5.88.2)
@@ -1474,7 +1474,7 @@ importers:
         version: 0.4.8(express@5.2.1)
       '@segment/action-destinations':
         specifier: ^3.383.0
-        version: 3.387.0(ajv@8.18.0)(encoding@0.1.13)
+        version: 3.387.0(ajv@8.12.0)(encoding@0.1.13)
       '@temporalio/activity':
         specifier: 1.15.0
         version: 1.15.0
@@ -3583,184 +3583,17 @@ importers:
         specifier: ^7.3.0
         version: 7.3.0
 
-  services/agent-core:
-    dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.658.1
-        version: 3.975.0
-      '@repo/ass-server':
-        specifier: link:../../../agent-stack/packages/ass-server
-        version: link:../../../agent-stack/packages/ass-server
-      dotenv:
-        specifier: ^16.4.7
-        version: 16.4.7
-      fernet-nodejs:
-        specifier: ^1.0.6
-        version: 1.0.6
-      ioredis:
-        specifier: ^4.27.6
-        version: 4.28.5
-      luxon:
-        specifier: ^3.4.4
-        version: 3.7.2
-      node-rdkafka:
-        specifier: ^3.6.1
-        version: 3.6.1
-      pg:
-        specifier: ^8.6.0
-        version: 8.10.0
-      pino:
-        specifier: ^8.6.0
-        version: 8.11.0
-      prom-client:
-        specifier: ^14.2.0
-        version: 14.2.0
-      tar:
-        specifier: ^7.4.3
-        version: 7.5.15
-      uuid:
-        specifier: ^10.0.0
-        version: 10.0.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.4.1
-        version: 4.7.1(eslint@8.57.0)
-      '@trivago/prettier-plugin-sort-imports':
-        specifier: ^5.2.2
-        version: 5.2.2(prettier@3.8.2)
-      '@types/ioredis':
-        specifier: ^4.26.4
-        version: 4.28.10
-      '@types/jest':
-        specifier: 'catalog:'
-        version: 29.5.14
-      '@types/luxon':
-        specifier: ^3.4.2
-        version: 3.4.2
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.6.0
-        version: 8.15.6
-      '@types/tar':
-        specifier: ^6.1.13
-        version: 6.1.13
-      '@types/uuid':
-        specifier: ^10.0.0
-        version: 10.0.0
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^8.58.2
-        version: 8.58.2(@typescript-eslint/parser@8.58.2(eslint@8.57.0)(typescript@6.0.3))(eslint@8.57.0)(typescript@6.0.3)
-      '@typescript-eslint/parser':
-        specifier: ^8.58.2
-        version: 8.58.2(eslint@8.57.0)(typescript@6.0.3)
-      eslint:
-        specifier: ^8.57.0
-        version: 8.57.0
-      eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@8.57.0)
-      eslint-plugin-no-only-tests:
-        specifier: ^3.1.0
-        version: 3.3.0
-      jest:
-        specifier: 'catalog:'
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
-      prettier:
-        specifier: ^3.6.2
-        version: 3.8.2
-      ts-jest:
-        specifier: ^29.1.0
-        version: 29.4.9(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))(typescript@6.0.3)
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   services/agent-ingress:
     dependencies:
-      '@posthog/agent-core':
+      '@posthog/agent-shared':
         specifier: workspace:*
-        version: link:../agent-core
-      '@repo/ass-server':
-        specifier: link:../../../agent-stack/packages/ass-server
-        version: link:../../../agent-stack/packages/ass-server
-      lru-cache:
-        specifier: ^11.0.0
-        version: 11.2.4
-      ultimate-express:
-        specifier: ^2.0.9
-        version: 2.0.9
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.4.1
-        version: 4.7.1(eslint@8.57.0)
-      '@trivago/prettier-plugin-sort-imports':
-        specifier: ^5.2.2
-        version: 5.2.2(prettier@3.8.2)
-      '@types/jest':
-        specifier: 'catalog:'
-        version: 29.5.14
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.15.4
-        version: 8.15.6
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.2
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^8.58.2
-        version: 8.58.2(@typescript-eslint/parser@8.58.2(eslint@8.57.0)(typescript@6.0.3))(eslint@8.57.0)(typescript@6.0.3)
-      '@typescript-eslint/parser':
-        specifier: ^8.58.2
-        version: 8.58.2(eslint@8.57.0)(typescript@6.0.3)
-      eslint:
-        specifier: ^8.57.0
-        version: 8.57.0
-      eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@8.57.0)
-      eslint-plugin-no-only-tests:
-        specifier: ^3.1.0
-        version: 3.3.0
-      jest:
-        specifier: 'catalog:'
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
-      pg:
-        specifier: ^8.10.0
-        version: 8.10.0
-      prettier:
-        specifier: ^3.6.2
-        version: 3.8.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.0.0
-      ts-jest:
-        specifier: ^29.1.0
-        version: 29.4.9(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))(typescript@6.0.3)
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
-  services/agent-ingress-v2:
-    dependencies:
-      '@posthog/agent-shared-v2':
-        specifier: workspace:*
-        version: link:../agent-shared-v2
+        version: link:../agent-shared
       express:
         specifier: ^4.21.1
         version: 4.22.2
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
       tsx:
         specifier: ^4.7.0
         version: 4.20.5
@@ -3774,6 +3607,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.15.6
       '@types/supertest':
         specifier: ^6.0.2
         version: 6.0.2
@@ -3789,79 +3625,9 @@ importers:
 
   services/agent-janitor:
     dependencies:
-      '@posthog/agent-core':
+      '@posthog/agent-shared':
         specifier: workspace:*
-        version: link:../agent-core
-      '@repo/ass-sandbox':
-        specifier: link:../../../agent-stack/packages/ass-sandbox
-        version: link:../../../agent-stack/packages/ass-sandbox
-      luxon:
-        specifier: ^3.4.4
-        version: 3.7.2
-      ultimate-express:
-        specifier: ^2.0.9
-        version: 2.0.9
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.4.1
-        version: 4.7.1(eslint@8.57.0)
-      '@trivago/prettier-plugin-sort-imports':
-        specifier: ^5.2.2
-        version: 5.2.2(prettier@3.8.2)
-      '@types/jest':
-        specifier: 'catalog:'
-        version: 29.5.14
-      '@types/luxon':
-        specifier: ^3.4.2
-        version: 3.4.2
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.2
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^8.58.2
-        version: 8.58.2(@typescript-eslint/parser@8.58.2(eslint@8.57.0)(typescript@6.0.3))(eslint@8.57.0)(typescript@6.0.3)
-      '@typescript-eslint/parser':
-        specifier: ^8.58.2
-        version: 8.58.2(eslint@8.57.0)(typescript@6.0.3)
-      eslint:
-        specifier: ^8.57.0
-        version: 8.57.0
-      eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@8.57.0)
-      eslint-plugin-no-only-tests:
-        specifier: ^3.1.0
-        version: 3.3.0
-      jest:
-        specifier: 'catalog:'
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
-      prettier:
-        specifier: ^3.6.2
-        version: 3.8.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.0.0
-      ts-jest:
-        specifier: ^29.1.0
-        version: 29.4.9(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))(typescript@6.0.3)
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
-  services/agent-janitor-v2:
-    dependencies:
-      '@posthog/agent-shared-v2':
-        specifier: workspace:*
-        version: link:../agent-shared-v2
+        version: link:../agent-shared
       express:
         specifier: ^4.21.1
         version: 4.22.2
@@ -3894,103 +3660,14 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.18.8)(happy-dom@20.0.11)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
 
-  services/agent-mgmt-mcp:
-    dependencies:
-      '@posthog/agent-shared-v2':
-        specifier: workspace:*
-        version: link:../agent-shared-v2
-      '@posthog/agent-tools':
-        specifier: workspace:*
-        version: link:../agent-tools
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.0.11)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-
   services/agent-runner:
-    dependencies:
-      '@posthog/agent-core':
-        specifier: workspace:*
-        version: link:../agent-core
-      '@repo/ass-config':
-        specifier: link:../../../agent-stack/packages/ass-config
-        version: link:../../../agent-stack/packages/ass-config
-      '@repo/ass-sandbox':
-        specifier: link:../../../agent-stack/packages/ass-sandbox
-        version: link:../../../agent-stack/packages/ass-sandbox
-      '@repo/ass-server':
-        specifier: link:../../../agent-stack/packages/ass-server
-        version: link:../../../agent-stack/packages/ass-server
-      luxon:
-        specifier: ^3.4.4
-        version: 3.7.2
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.4.1
-        version: 4.7.1(eslint@8.57.0)
-      '@trivago/prettier-plugin-sort-imports':
-        specifier: ^5.2.2
-        version: 5.2.2(prettier@3.8.2)
-      '@types/jest':
-        specifier: 'catalog:'
-        version: 29.5.14
-      '@types/luxon':
-        specifier: ^3.4.2
-        version: 3.4.2
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^8.58.2
-        version: 8.58.2(@typescript-eslint/parser@8.58.2(eslint@8.57.0)(typescript@6.0.3))(eslint@8.57.0)(typescript@6.0.3)
-      '@typescript-eslint/parser':
-        specifier: ^8.58.2
-        version: 8.58.2(eslint@8.57.0)(typescript@6.0.3)
-      eslint:
-        specifier: ^8.57.0
-        version: 8.57.0
-      eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@8.57.0)
-      eslint-plugin-no-only-tests:
-        specifier: ^3.1.0
-        version: 3.3.0
-      jest:
-        specifier: 'catalog:'
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
-      prettier:
-        specifier: ^3.6.2
-        version: 3.8.2
-      ts-jest:
-        specifier: ^29.1.0
-        version: 29.4.9(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))(typescript@6.0.3)
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
-  services/agent-runner-v2:
     dependencies:
       '@earendil-works/pi-ai':
         specifier: ^0.76.0
         version: 0.76.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
-      '@posthog/agent-shared-v2':
+      '@posthog/agent-shared':
         specifier: workspace:*
-        version: link:../agent-shared-v2
+        version: link:../agent-shared
       '@posthog/agent-tools':
         specifier: workspace:*
         version: link:../agent-tools
@@ -4020,7 +3697,9 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.18.8)(happy-dom@20.0.11)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
 
-  services/agent-shared-v2:
+  services/agent-sandbox-host: {}
+
+  services/agent-shared:
     dependencies:
       '@earendil-works/pi-ai':
         specifier: ^0.76.0
@@ -4072,106 +3751,21 @@ importers:
 
   services/agent-tests:
     dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.658.1
-        version: 3.975.0
-      '@posthog/agent-core':
-        specifier: workspace:*
-        version: link:../agent-core
-      '@posthog/agent-ingress':
-        specifier: workspace:*
-        version: link:../agent-ingress
-      '@posthog/agent-runner':
-        specifier: workspace:*
-        version: link:../agent-runner
-      '@posthog/ass':
-        specifier: link:../../../agent-stack/packages/ass
-        version: link:../../../agent-stack/packages/ass
-      '@repo/ass-bundler':
-        specifier: link:../../../agent-stack/packages/ass-bundler
-        version: link:../../../agent-stack/packages/ass-bundler
-      '@repo/ass-config':
-        specifier: link:../../../agent-stack/packages/ass-config
-        version: link:../../../agent-stack/packages/ass-config
-      '@repo/ass-server':
-        specifier: link:../../../agent-stack/packages/ass-server
-        version: link:../../../agent-stack/packages/ass-server
-      pg:
-        specifier: ^8.10.0
-        version: 8.10.0
-      supertest:
-        specifier: ^7.0.0
-        version: 7.0.0
-      ultimate-express:
-        specifier: ^2.0.9
-        version: 2.0.9
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@eslint-community/eslint-plugin-eslint-comments':
-        specifier: ^4.4.1
-        version: 4.7.1(eslint@8.57.0)
-      '@trivago/prettier-plugin-sort-imports':
-        specifier: ^5.2.2
-        version: 5.2.2(prettier@3.8.2)
-      '@types/jest':
-        specifier: 'catalog:'
-        version: 29.5.14
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.15.4
-        version: 8.15.6
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.2
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^8.58.2
-        version: 8.58.2(@typescript-eslint/parser@8.58.2(eslint@8.57.0)(typescript@6.0.3))(eslint@8.57.0)(typescript@6.0.3)
-      '@typescript-eslint/parser':
-        specifier: ^8.58.2
-        version: 8.58.2(eslint@8.57.0)(typescript@6.0.3)
-      eslint:
-        specifier: ^8.57.0
-        version: 8.57.0
-      eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@8.57.0)
-      eslint-plugin-no-only-tests:
-        specifier: ^3.1.0
-        version: 3.3.0
-      jest:
-        specifier: 'catalog:'
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
-      prettier:
-        specifier: ^3.6.2
-        version: 3.8.2
-      ts-jest:
-        specifier: ^29.1.0
-        version: 29.4.9(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))(typescript@6.0.3)
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
-  services/agent-tests-v2:
-    dependencies:
       '@earendil-works/pi-ai':
         specifier: ^0.76.0
         version: 0.76.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
-      '@posthog/agent-ingress-v2':
+      '@posthog/agent-ingress':
         specifier: workspace:*
-        version: link:../agent-ingress-v2
-      '@posthog/agent-janitor-v2':
+        version: link:../agent-ingress
+      '@posthog/agent-janitor':
         specifier: workspace:*
-        version: link:../agent-janitor-v2
-      '@posthog/agent-runner-v2':
+        version: link:../agent-janitor
+      '@posthog/agent-runner':
         specifier: workspace:*
-        version: link:../agent-runner-v2
-      '@posthog/agent-shared-v2':
+        version: link:../agent-runner
+      '@posthog/agent-shared':
         specifier: workspace:*
-        version: link:../agent-shared-v2
+        version: link:../agent-shared
       '@posthog/agent-tools':
         specifier: workspace:*
         version: link:../agent-tools
@@ -4206,9 +3800,9 @@ importers:
 
   services/agent-tools:
     dependencies:
-      '@posthog/agent-shared-v2':
+      '@posthog/agent-shared':
         specifier: workspace:*
-        version: link:../agent-shared-v2
+        version: link:../agent-shared
       typebox:
         specifier: ^1.1.38
         version: 1.1.38
@@ -13266,9 +12860,6 @@ packages:
   '@types/tail@2.2.1':
     resolution: {integrity: sha512-j75Gs5MiIpNR14wztQ4vtViUqxZi+lcgflyXC7P9iMgNnMab7XcV5p+2590IO3njsWWn5l8C+55ILk2CDDyaHg==}
 
-  '@types/tar@6.1.13':
-    resolution: {integrity: sha512-IznnlmU5f4WcGTh2ltRu/Ijpmk8wiWXfF0VA4s+HPjHZgvFggk1YaIkbo5krX/zUCzWF8N/l4+W/LNxnvAJ8nw==}
-
   '@types/tedious@4.0.14':
     resolution: {integrity: sha512-KHPsfX/FoVbUGbyYvk1q9MMQHLPeRZhRJZdO45Q4YjvFkv4hMNghCWTvy7rdKessBsmtz4euWCWAB6/tVpI1Iw==}
 
@@ -19612,10 +19203,6 @@ packages:
 
   minipass@3.3.6:
     resolution: {integrity: sha512-DxiNidxSEK+tHG6zOIklvNOwm3hvCrbUrdtzY74U6HKTJxvIDfOUL5W5P2Ghd3DTkhhKPYGqeNUIh5qcM4YBfw==}
-    engines: {node: '>=8'}
-
-  minipass@4.2.8:
-    resolution: {integrity: sha512-fNzuVyifolSLFL4NzpF+wEF4qrgqaaKX0haXPQEdQ7NKAN+WecoKMHV09YcuL/DHxrUsYQOK3MiuDf7Ip2OXfQ==}
     engines: {node: '>=8'}
 
   minipass@5.0.0:
@@ -32859,7 +32446,7 @@ snapshots:
       react-refresh: 0.14.0
       schema-utils: 3.3.0
       source-map: 0.7.6
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
     optionalDependencies:
       type-fest: 4.41.0
       webpack-hot-middleware: 2.25.4
@@ -34074,7 +33661,7 @@ snapshots:
 
   '@segment/a1-notation@2.1.4': {}
 
-  '@segment/action-destinations@3.387.0(ajv@8.18.0)(encoding@0.1.13)':
+  '@segment/action-destinations@3.387.0(ajv@8.12.0)(encoding@0.1.13)':
     dependencies:
       '@amplitude/ua-parser-js': 0.7.33
       '@aws-sdk/client-eventbridge': 3.806.0
@@ -34084,7 +33671,7 @@ snapshots:
       '@segment/actions-core': 3.153.0(encoding@0.1.13)
       '@segment/actions-shared': 1.134.0(encoding@0.1.13)
       '@types/node': 22.18.8
-      ajv-formats: 2.1.1(ajv@8.18.0)
+      ajv-formats: 2.1.1(ajv@8.12.0)
       aws4: 1.13.2
       cheerio: 1.0.0
       dayjs: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
@@ -34905,7 +34492,7 @@ snapshots:
       - encoding
       - supports-color
 
-  '@storybook/builder-webpack5@7.6.4(encoding@0.1.13)(postcss@8.5.6)(typescript@6.0.3)(webpack-cli@5.1.4)':
+  '@storybook/builder-webpack5@7.6.4(encoding@0.1.13)(esbuild@0.18.20)(postcss@8.5.6)(typescript@6.0.3)(webpack-cli@5.1.4)':
     dependencies:
       '@babel/core': 7.29.0
       '@storybook/channels': 7.6.4
@@ -34935,12 +34522,12 @@ snapshots:
       semver: 7.8.0
       style-loader: 3.3.3(webpack@5.88.2)
       swc-loader: 0.2.3(@swc/core@1.15.18)(webpack@5.88.2)
-      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(postcss@8.5.6)(webpack@5.88.2)
+      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack@5.88.2)
       ts-dedent: 2.2.0
       url: 0.11.1
       util: 0.12.5
       util-deprecate: 1.0.2
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
       webpack-dev-middleware: 6.1.3(webpack@5.88.2)
       webpack-hot-middleware: 2.25.4
       webpack-virtual-modules: 0.5.0
@@ -35029,7 +34616,7 @@ snapshots:
       get-port: 5.1.1
       giget: 1.2.5
       globby: 11.1.0
-      jscodeshift: 0.15.2(@babel/preset-env@7.23.5(@babel/core@7.29.0))
+      jscodeshift: 0.15.2(@babel/preset-env@7.23.5(@babel/core@7.26.0))
       leven: 3.1.0
       ora: 5.4.1
       prettier: 2.8.8
@@ -35075,7 +34662,7 @@ snapshots:
       '@types/cross-spawn': 6.0.6
       cross-spawn: 7.0.6
       globby: 11.1.0
-      jscodeshift: 0.15.2(@babel/preset-env@7.23.5(@babel/core@7.29.0))
+      jscodeshift: 0.15.2(@babel/preset-env@7.23.5(@babel/core@7.26.0))
       lodash: 4.18.1
       prettier: 2.8.8
       recast: 0.23.11
@@ -35415,7 +35002,7 @@ snapshots:
 
   '@storybook/postinstall@7.6.4': {}
 
-  '@storybook/preset-react-webpack@7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)':
+  '@storybook/preset-react-webpack@7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(esbuild@0.18.20)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)':
     dependencies:
       '@babel/preset-flow': 7.23.3(@babel/core@7.26.0)
       '@babel/preset-react': 7.23.3(@babel/core@7.26.0)
@@ -35435,7 +35022,7 @@ snapshots:
       react-dom: 18.3.1(react@18.3.1)
       react-refresh: 0.14.0
       semver: 7.8.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
     optionalDependencies:
       '@babel/core': 7.26.0
       typescript: 6.0.3
@@ -35544,7 +35131,7 @@ snapshots:
       react-docgen-typescript: 2.2.2(typescript@6.0.3)
       tslib: 2.8.1
       typescript: 6.0.3
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
     transitivePeerDependencies:
       - supports-color
 
@@ -35578,10 +35165,10 @@ snapshots:
       - typescript
       - vite-plugin-glimmerx
 
-  '@storybook/react-webpack5@7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)':
+  '@storybook/react-webpack5@7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(esbuild@0.18.20)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)':
     dependencies:
-      '@storybook/builder-webpack5': 7.6.4(encoding@0.1.13)(postcss@8.5.6)(typescript@6.0.3)(webpack-cli@5.1.4)
-      '@storybook/preset-react-webpack': 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
+      '@storybook/builder-webpack5': 7.6.4(encoding@0.1.13)(esbuild@0.18.20)(postcss@8.5.6)(typescript@6.0.3)(webpack-cli@5.1.4)
+      '@storybook/preset-react-webpack': 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(esbuild@0.18.20)(postcss@8.5.6)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@6.0.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
       '@storybook/react': 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@types/node': 18.19.130
       react: 18.3.1
@@ -36727,18 +36314,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@trivago/prettier-plugin-sort-imports@5.2.2(prettier@3.8.2)':
-    dependencies:
-      '@babel/generator': 7.29.1
-      '@babel/parser': 7.29.3
-      '@babel/traverse': 7.29.0
-      '@babel/types': 7.29.0
-      javascript-natural-sort: 0.7.1
-      lodash: 4.18.1
-      prettier: 3.8.2
-    transitivePeerDependencies:
-      - supports-color
-
   '@tsconfig/node10@1.0.9': {}
 
   '@tsconfig/node12@1.0.11': {}
@@ -37488,11 +37063,6 @@ snapshots:
 
   '@types/tail@2.2.1': {}
 
-  '@types/tar@6.1.13':
-    dependencies:
-      '@types/node': 22.18.8
-      minipass: 4.2.8
-
   '@types/tedious@4.0.14':
     dependencies:
       '@types/node': 22.18.8
@@ -38184,17 +37754,17 @@ snapshots:
 
   '@webpack-cli/configtest@2.1.1(webpack-cli@5.1.4)(webpack@5.88.2)':
     dependencies:
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.88.2)
 
   '@webpack-cli/info@2.0.2(webpack-cli@5.1.4)(webpack@5.88.2)':
     dependencies:
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.88.2)
 
   '@webpack-cli/serve@2.0.5(webpack-cli@5.1.4)(webpack@5.88.2)':
     dependencies:
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
       webpack-cli: 5.1.4(webpack@5.88.2)
 
   '@xmldom/xmldom@0.8.13': {}
@@ -38799,14 +38369,14 @@ snapshots:
       loader-utils: 2.0.4
       make-dir: 3.1.0
       schema-utils: 2.7.1
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   babel-loader@9.1.3(@babel/core@7.29.0)(webpack@5.88.2):
     dependencies:
       '@babel/core': 7.29.0
       find-cache-dir: 4.0.0
       schema-utils: 4.3.3
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   babel-plugin-add-react-displayname@0.0.5: {}
 
@@ -40024,7 +39594,7 @@ snapshots:
       postcss-value-parser: 4.2.0
       schema-utils: 2.7.1
       semver: 6.3.1
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   css-loader@6.8.1(webpack@5.88.2):
     dependencies:
@@ -40036,7 +39606,7 @@ snapshots:
       postcss-modules-values: 4.0.0(postcss@8.5.6)
       postcss-value-parser: 4.2.0
       semver: 7.8.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   css-prefers-color-scheme@10.0.0(postcss@8.5.2):
     dependencies:
@@ -41812,7 +41382,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   file-system-cache@2.3.0:
     dependencies:
@@ -41970,7 +41540,7 @@ snapshots:
       semver: 7.8.0
       tapable: 2.3.0
       typescript: 6.0.3
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   form-data@4.0.5:
     dependencies:
@@ -42686,7 +42256,7 @@ snapshots:
   html-webpack-harddisk-plugin@2.0.0(html-webpack-plugin@5.5.3(webpack@5.88.2))(webpack@5.88.2):
     dependencies:
       html-webpack-plugin: 5.5.3(webpack@5.88.2)
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   html-webpack-plugin@5.5.3(webpack@5.88.2):
     dependencies:
@@ -42695,7 +42265,7 @@ snapshots:
       lodash: 4.18.1
       pretty-error: 4.0.0
       tapable: 2.2.1
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   htmlnano@2.1.1(cssnano@7.0.6(postcss@8.5.6))(postcss@8.5.6)(relateurl@0.2.7)(svgo@3.3.3)(terser@5.46.0)(typescript@6.0.3):
     dependencies:
@@ -44729,7 +44299,7 @@ snapshots:
 
   jsbn@1.1.0: {}
 
-  jscodeshift@0.15.2(@babel/preset-env@7.23.5(@babel/core@7.29.0)):
+  jscodeshift@0.15.2(@babel/preset-env@7.23.5(@babel/core@7.26.0)):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/parser': 7.29.3
@@ -44752,7 +44322,7 @@ snapshots:
       temp: 0.8.4
       write-file-atomic: 2.4.3
     optionalDependencies:
-      '@babel/preset-env': 7.23.5(@babel/core@7.29.0)
+      '@babel/preset-env': 7.23.5(@babel/core@7.26.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -45037,7 +44607,7 @@ snapshots:
       less: 4.2.2
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   less@3.13.1:
     dependencies:
@@ -46191,8 +45761,6 @@ snapshots:
   minipass@3.3.6:
     dependencies:
       yallist: 4.0.0
-
-  minipass@4.2.8: {}
 
   minipass@5.0.0: {}
 
@@ -47542,7 +47110,7 @@ snapshots:
       postcss: 8.5.6
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   postcss-logical@8.0.0(postcss@8.5.2):
     dependencies:
@@ -48522,7 +48090,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   rc-cascader@3.34.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -49661,7 +49229,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
     optionalDependencies:
       sass: 1.56.0
 
@@ -50387,11 +49955,11 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   style-loader@3.3.3(webpack@5.88.2):
     dependencies:
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   style-search@0.1.0: {}
 
@@ -50595,7 +50163,7 @@ snapshots:
   swc-loader@0.2.3(@swc/core@1.15.18)(webpack@5.88.2):
     dependencies:
       '@swc/core': 1.15.18
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   symbol-tree@3.2.4: {}
 
@@ -50783,6 +50351,18 @@ snapshots:
       ansi-escapes: 4.3.2
       supports-hyperlinks: 2.3.0
 
+  terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack@5.88.2):
+    dependencies:
+      '@jridgewell/trace-mapping': 0.3.29
+      jest-worker: 27.5.1
+      schema-utils: 4.3.3
+      terser: 5.46.0
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
+    optionalDependencies:
+      '@swc/core': 1.15.18
+      esbuild: 0.18.20
+      postcss: 8.5.6
+
   terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(esbuild@0.27.7)(postcss@8.5.6)(webpack@5.105.4(@swc/core@1.15.18)(esbuild@0.27.7)(postcss@8.5.6)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.29
@@ -50793,17 +50373,6 @@ snapshots:
     optionalDependencies:
       '@swc/core': 1.15.18
       esbuild: 0.27.7
-      postcss: 8.5.6
-
-  terser-webpack-plugin@5.6.0(@swc/core@1.15.18)(postcss@8.5.6)(webpack@5.88.2):
-    dependencies:
-      '@jridgewell/trace-mapping': 0.3.29
-      jest-worker: 27.5.1
-      schema-utils: 4.3.3
-      terser: 5.46.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
-    optionalDependencies:
-      '@swc/core': 1.15.18
       postcss: 8.5.6
 
   terser@5.19.1:
@@ -51037,26 +50606,6 @@ snapshots:
       '@jest/types': 30.0.5
       babel-jest: 30.0.5(@babel/core@7.26.0)
       esbuild: 0.27.7
-      jest-util: 30.0.5
-
-  ts-jest@29.4.9(@babel/core@7.29.0)(@jest/transform@30.0.5)(@jest/types@30.0.5)(babel-jest@30.0.5(@babel/core@7.29.0))(jest-util@30.0.5)(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))(typescript@6.0.3):
-    dependencies:
-      bs-logger: 0.2.6
-      fast-json-stable-stringify: 2.1.0
-      handlebars: 4.7.9
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
-      json5: 2.2.3
-      lodash.memoize: 4.1.2
-      make-error: 1.3.6
-      semver: 7.8.0
-      type-fest: 4.41.0
-      typescript: 6.0.3
-      yargs-parser: 21.1.1
-    optionalDependencies:
-      '@babel/core': 7.29.0
-      '@jest/transform': 30.0.5
-      '@jest/types': 30.0.5
-      babel-jest: 30.0.5(@babel/core@7.29.0)
       jest-util: 30.0.5
 
   ts-json-schema-generator@2.4.0-next.6:
@@ -52132,7 +51681,7 @@ snapshots:
       import-local: 3.1.0
       interpret: 3.1.1
       rechoir: 0.8.0
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
       webpack-merge: 5.8.0
 
   webpack-dev-middleware@6.1.3(webpack@5.88.2):
@@ -52143,7 +51692,7 @@ snapshots:
       range-parser: 1.2.1
       schema-utils: 4.3.3
     optionalDependencies:
-      webpack: 5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4)
+      webpack: 5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4)
 
   webpack-hot-middleware@2.25.4:
     dependencies:
@@ -52203,7 +51752,7 @@ snapshots:
       - postcss
       - uglify-js
 
-  webpack@5.88.2(@swc/core@1.15.18)(postcss@8.5.6)(webpack-cli@5.1.4):
+  webpack@5.88.2(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack-cli@5.1.4):
     dependencies:
       '@types/eslint-scope': 3.7.4
       '@types/estree': 1.0.1
@@ -52226,7 +51775,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       tapable: 2.2.1
-      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(postcss@8.5.6)(webpack@5.88.2)
+      terser-webpack-plugin: 5.6.0(@swc/core@1.15.18)(esbuild@0.18.20)(postcss@8.5.6)(webpack@5.88.2)
       watchpack: 2.4.0
       webpack-sources: 3.2.3
     optionalDependencies:
