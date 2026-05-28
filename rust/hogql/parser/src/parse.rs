@@ -155,15 +155,15 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
     let result = parse_template_body(&emit, src, body_offset, body_end)?;
-    // cpp's `parse_full_template_string_json` visitor positions the top
-    // node via the rule ctx, which spans the WHOLE input (incl. the
-    // leading `F'`). `parse_template_body` returns position-less for the
-    // multi-chunk `concat(...)` wrapper, and inner-only positions for
-    // single-chunk shortcuts — `replace_pos` covers both by overwriting
-    // with the outer span.
+    // cpp positions the result by chunk count: a multi-chunk `concat(...)`
+    // gets the outer rule-ctx span `(0, src.len())`, while a single-chunk
+    // shortcut keeps the inner element's own span (the literal text or the
+    // substitution expr). `with_pos` is idempotent — it sets `(0, src.len())`
+    // on the position-less `concat` and is a no-op on the already-positioned
+    // single-chunk cases.
     let start_pos = template::pos_in_source(&emit, src, 0);
     let end_pos = template::pos_in_source(&emit, src, src.len());
-    Ok(emit.replace_pos(result, start_pos, end_pos))
+    Ok(emit.with_pos(result, start_pos, end_pos))
 }
 
 // ============================================================================

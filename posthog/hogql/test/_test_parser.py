@@ -4907,13 +4907,21 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         def test_template_string_top_level_carries_outer_span(self):
             # `parse_full_template_string` returns the result of the body splitter — a multi-chunk
-            # `concat(...)` or a single chunk — but cpp's visitor positions the TOP node via the
-            # rule ctx, which spans the whole `F'…'` input (incl. the leading `F'`). Pinned so a
-            # regression that drops the outer wrap (or only positions inner chunks) fails here.
+            # `concat(...)` or a single chunk. cpp positions by chunk count: the multi-chunk wrapper
+            # spans the whole `F'…'` input (rule ctx), but a single-chunk shortcut keeps the inner
+            # element's own span (literal text or substitution expr). Both shapes pinned so a
+            # regression that wraps unconditionally (clobbering the single-chunk span) — or that
+            # drops the multi-chunk wrap — fails here.
             cases = (
+                # multi-chunk → outer span (0..len(src))
                 "Hello, {arrayMap(a -> a, [1, 2, 3])}!",
                 "v={event.properties.$lib_version}",
                 "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+                # single literal → wrap_literal_chunk span (body_offset..body_end)
+                "hello",
+                # single substitution → inner expr span (only the placeholder body)
+                "{x}",
+                "{true}",
             )
             for src in cases:
                 self._assert_ast(src, "template")

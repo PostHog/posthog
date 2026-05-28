@@ -15060,6 +15060,24 @@
   }
   '''
 # ---
+# name: test_template_string_top_level_carries_outer_span[hello-aaf4c61d]
+  '''
+  {
+    end: 7
+    start: 2
+    value: "hello"
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[true-b8fd8208]
+  '''
+  {
+    end: 7
+    start: 3
+    value: True
+  }
+  '''
+# ---
 # name: test_template_string_top_level_carries_outer_span[v_event_properties_lib_version-3939e081]
   '''
   {
@@ -15084,6 +15102,18 @@
     end: 35
     name: "concat"
     start: 0
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[x-5d653e7f]
+  '''
+  {
+    chain: [
+      "x"
+    ]
+    end: 4
+    from_asterisk: False
+    start: 3
   }
   '''
 # ---
