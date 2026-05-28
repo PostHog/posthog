@@ -37,8 +37,8 @@ tools:
         description: >
             Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this
             endpoint does not block on validation errors. Required: name and target_event. horizon_days defaults to 7.
-            The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted.
-            After creating, call autoresearch-train-create to run stub training and generate a champion model.
+            The output person property (e.g. 'predicted_p_pageview') is auto-derived from target_event if omitted. After
+            creating, call autoresearch-train-create to run stub training and generate a champion model.
         exclude_params:
             - id
             - created_by
@@ -155,9 +155,9 @@ tools:
             auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then
             re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and
             'repeat_key_behavior', supply target_event (required). After resolving: (1) call
-            autoresearch-validate-create with the resolved target_event, training_population, and
-            inference_population to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with
-            the resolved fields as-is.
+            autoresearch-validate-create with the resolved target_event, training_population, and inference_population
+            to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with the resolved fields
+            as-is.
         exclude_params:
             - resolved_activity_event
             - activity_event_alternatives
