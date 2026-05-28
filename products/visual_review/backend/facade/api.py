@@ -15,9 +15,12 @@ Do NOT:
 - Return ORM instances or QuerySets
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+
+import structlog
 
 from .. import logic
 from ..diff_metadata import DiffMetadata
@@ -25,6 +28,7 @@ from . import contracts
 from .enums import ReviewDecision
 
 User = get_user_model()
+logger = structlog.get_logger(__name__)
 
 # Server-owned run.metadata keys — never accept these from client input.
 # Allowing clients to set these would let them target arbitrary GitHub
@@ -34,14 +38,31 @@ _RESERVED_RUN_METADATA_KEYS = frozenset(
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
+        # Agent verdicts are server-computed only — never accept from client input.
+        "agent_review",
     }
 )
 
+# Snapshot metadata is client-supplied (browser, viewport, is_critical, etc.)
+# but `agent_review` is server-written from the heuristic/LLM reviewer — a CI
+# client must never be able to plant a fake verdict chip in the UI.
+_RESERVED_SNAPSHOT_METADATA_KEYS = frozenset({"agent_review"})
+
 
 def _sanitize_run_metadata(metadata: dict | None) -> dict:
+    return _drop_reserved_keys(metadata, _RESERVED_RUN_METADATA_KEYS)
+
+
+def _sanitize_snapshot_metadata(metadata: dict | None) -> dict:
+    return _drop_reserved_keys(metadata, _RESERVED_SNAPSHOT_METADATA_KEYS)
+
+
+def _drop_reserved_keys(metadata: dict | None, reserved: frozenset[str]) -> dict:
     if not metadata:
         return {}
-    return {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+    if not any(k in reserved for k in metadata):
+        return dict(metadata)
+    return {k: v for k, v in metadata.items() if k not in reserved}
 
 
 # Re-export exceptions for callers
@@ -108,11 +129,87 @@ def _parse_diff_metadata(
     return cluster_summary, parsed.size_mismatch
 
 
+_VALID_VERDICTS = frozenset({"approved", "rejected", "deferred"})
+
+
+def _parse_agent_verdict(raw: object) -> contracts.AgentVerdict | None:
+    """Parse a snapshot-level agent verdict from a metadata JSON blob.
+
+    Returns ``None`` for missing or malformed entries — never raises, so
+    a row that never received a verdict (most snapshots), or a stale row
+    from an older agent version, doesn't break the snapshots endpoint.
+    A malformed verdict (key present but unparseable) is logged at WARN
+    so a serialization regression doesn't fail silently.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        logger.warning("visual_review.agent_review.malformed", reason="not_a_dict", raw_type=type(raw).__name__)
+        return None
+    try:
+        verdict = str(raw["verdict"])
+        if verdict not in _VALID_VERDICTS:
+            logger.warning("visual_review.agent_review.malformed", reason="unknown_verdict", verdict=verdict)
+            return None
+        return contracts.AgentVerdict(
+            verdict=verdict,
+            confidence=float(raw["confidence"]),
+            reasoning=str(raw["reasoning"]),
+            agent=str(raw["agent"]),
+            generated_at=datetime.fromisoformat(str(raw["generated_at"])),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        logger.warning("visual_review.agent_review.malformed", reason="parse_error", error=str(e))
+        return None
+
+
+def _parse_run_agent_review(raw: object) -> contracts.RunAgentReview | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        logger.warning("visual_review.run_agent_review.malformed", reason="not_a_dict", raw_type=type(raw).__name__)
+        return None
+    try:
+        verdict = str(raw["verdict"])
+        if verdict not in _VALID_VERDICTS:
+            logger.warning("visual_review.run_agent_review.malformed", reason="unknown_verdict", verdict=verdict)
+            return None
+        return contracts.RunAgentReview(
+            verdict=verdict,
+            confidence=float(raw["confidence"]),
+            summary=str(raw["summary"]),
+            agent=str(raw["agent"]),
+            generated_at=datetime.fromisoformat(str(raw["generated_at"])),
+            snapshot_count=int(raw["snapshot_count"]),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        logger.warning("visual_review.run_agent_review.malformed", reason="parse_error", error=str(e))
+        return None
+
+
+def _strip_agent_review(metadata: dict | None) -> dict:
+    """Return metadata without the agent_review entry.
+
+    The entry is exposed on the typed ``agent_review`` field instead — we
+    don't want it appearing twice in the wire response. Returns the
+    original dict by reference when the key is absent (the typical case)
+    so the hot path through `get_run_snapshots` doesn't pay for a copy
+    per snapshot.
+    """
+    if not metadata:
+        return {}
+    if "agent_review" not in metadata:
+        return metadata
+    return {k: v for k, v in metadata.items() if k != "agent_review"}
+
+
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
     cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
+    raw_metadata = snapshot.metadata or {}
+    agent_review = _parse_agent_verdict(raw_metadata.get("agent_review"))
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -130,11 +227,12 @@ def _to_snapshot(
         tolerated_hash_id=snapshot.tolerated_hash_match_id,
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
-        metadata=snapshot.metadata or {},
+        metadata=_strip_agent_review(raw_metadata),
         ssim_score=snapshot.ssim_score,
         change_kind=snapshot.change_kind or "",
         cluster_summary=cluster_summary,
         size_mismatch=size_mismatch,
+        agent_review=agent_review,
     )
 
 
@@ -148,6 +246,8 @@ def _compute_unresolved(run) -> int:
 
 def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
+    raw_metadata = run.metadata or {}
+    agent_review = _parse_run_agent_review(raw_metadata.get("agent_review"))
     return contracts.Run(
         id=run.id,
         repo_id=run.repo_id,
@@ -173,7 +273,8 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
         is_stale=logic.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
-        metadata=run.metadata or {},
+        metadata=_strip_agent_review(raw_metadata),
+        agent_review=agent_review,
     )
 
 
@@ -322,7 +423,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
             "content_hash": s.content_hash,
             "width": s.width,
             "height": s.height,
-            "metadata": dict(s.metadata) if s.metadata else {},
+            "metadata": _sanitize_snapshot_metadata(s.metadata),
         }
         for s in input.snapshots
     ]
@@ -362,7 +463,7 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
             "content_hash": s.content_hash,
             "width": s.width,
             "height": s.height,
-            "metadata": dict(s.metadata) if s.metadata else {},
+            "metadata": _sanitize_snapshot_metadata(s.metadata),
         }
         for s in input.snapshots
     ]
@@ -453,6 +554,18 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
     run = logic.complete_run(run_id)
     return _to_run(run)
+
+
+def generate_agent_review(run_id: UUID, team_id: int, user) -> contracts.Run:
+    """Ask the LLM agent to review the run and return the updated run DTO.
+
+    Advisory only — does not change ``review_state``, does not commit to
+    GitHub. Idempotent: re-running overwrites the prior verdict. ``user``
+    is threaded through to the LLM client for billing attribution.
+    """
+    run = logic.generate_agent_review_for_run(run_id=run_id, team_id=team_id, user=user)
+    user_ids = {run.approved_by_id} if run.approved_by_id else set()
+    return _to_run(run, _fetch_user_basic_infos(user_ids))
 
 
 def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:

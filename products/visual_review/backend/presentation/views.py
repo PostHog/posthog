@@ -16,6 +16,7 @@ from uuid import UUID
 from django.http import HttpResponse
 from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -59,6 +60,8 @@ from .serializers import (
     ToleratedHashEntrySerializer,
     UpdateRepoInputSerializer,
 )
+
+logger = structlog.get_logger(__name__)
 
 VISUAL_REVIEW_TAG = "visual_review"
 
@@ -356,7 +359,15 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
+    scope_object_write_actions = [
+        "create",
+        "complete",
+        "approve",
+        "auto_approve",
+        "add_snapshots",
+        "recompute",
+        "agent_review",
+    ]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
 
@@ -598,6 +609,40 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(RecomputeResultSerializer(instance=result).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=RunSerializer)},
+        description=(
+            "Generate an agent review of this run. Asks Claude Haiku to look at the "
+            "structured diff metrics (no images) for every actionable snapshot and emit "
+            "a verdict (`approved` / `rejected` / `deferred`) with reasoning, plus a "
+            "rollup verdict for the run. Advisory only — does not change any "
+            "`review_state` and does not commit to GitHub. Idempotent: re-running "
+            "overwrites the prior verdict. Read the result from the returned run's "
+            "`agent_review` field and the snapshots endpoint's per-snapshot "
+            "`agent_review` field. Counts against AI credits."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="agent-review")
+    def agent_review(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            run = api.generate_agent_review(UUID(pk), team_id=self.team_id, user=request.user)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            # LLM call failures (Anthropic outage, rate limit, malformed
+            # structured output) bubble up here. Return a 502 with a generic
+            # message so the frontend toast is helpful and the user can retry
+            # instead of seeing a Django 500.
+            logger.exception("visual_review.agent_review.failed", run_id=pk, team_id=self.team_id)
+            return Response(
+                {"detail": "Agent review failed — the AI service may be unavailable. Try again in a moment."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(RunSerializer(instance=run).data)
 
     @extend_schema(request=None, responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")

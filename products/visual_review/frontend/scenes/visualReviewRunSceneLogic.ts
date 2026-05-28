@@ -12,6 +12,7 @@ import {
     visualReviewReposQuarantineExpireCreate,
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
+    visualReviewRunsAgentReviewCreate,
     visualReviewRunsApproveCreate,
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
@@ -64,6 +65,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
         markThumbnailFailed: (identifier: string) => ({ identifier }),
+        requestAgentReview: true,
+        requestAgentReviewSuccess: true,
+        requestAgentReviewFailure: true,
+        setAgentReviewModalOpen: (open: boolean) => ({ open }),
     }),
     reducers({
         selectedSnapshotId: [
@@ -104,6 +109,20 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     next.add(identifier)
                     return next
                 },
+            },
+        ],
+        isRequestingAgentReview: [
+            false,
+            {
+                requestAgentReview: () => true,
+                requestAgentReviewSuccess: () => false,
+                requestAgentReviewFailure: () => false,
+            },
+        ],
+        isAgentReviewModalOpen: [
+            false,
+            {
+                setAgentReviewModalOpen: (_, { open }) => open,
             },
         ],
     }),
@@ -425,6 +444,33 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             } catch (e: any) {
                 actions.recomputeRunFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to recompute')
+            }
+        },
+        requestAgentReview: async () => {
+            // Guard against double-submission: the button is gated by the
+            // loading flag, but a fast double-click can fire two listeners
+            // before the reducer settles. Cost matters because each call
+            // is a billed LLM round trip.
+            if (values.isRequestingAgentReview) {
+                return
+            }
+            try {
+                // The POST returns the freshly-updated Run DTO inline. We
+                // refresh snapshots separately because the rollup spans the
+                // per-snapshot verdicts and we want the chips to land at the
+                // same time as the modal opens.
+                const updatedRun = await visualReviewRunsAgentReviewCreate(String(values.currentProjectId), props.runId)
+                // Patch run state without a second GET — the POST is the source of truth.
+                actions.loadRunSuccess(updatedRun)
+                // Snapshot rows aren't included in the run payload; refetch them
+                // and only open the modal once they've arrived so the modal
+                // never flashes the empty-state on first review.
+                await actions.loadSnapshots()
+                actions.setAgentReviewModalOpen(true)
+                actions.requestAgentReviewSuccess()
+            } catch (e: any) {
+                actions.requestAgentReviewFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to generate agent review')
             }
         },
         unquarantineSnapshot: async ({ snapshot }) => {

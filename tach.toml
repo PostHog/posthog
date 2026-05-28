@@ -552,6 +552,7 @@ layer = "modules"
 [[modules]]
 path = "products.visual_review"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"

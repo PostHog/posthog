@@ -179,6 +179,35 @@ class ClusterSummary:
 
 
 @dataclass(frozen=True)
+class AgentVerdict:
+    """An agent's verdict on a single snapshot.
+
+    ``verdict`` uses ReviewState values (``approved`` / ``rejected`` /
+    ``deferred``) so the eventual "agent acts on its own verdict" path is
+    a direct assignment to ``review_state`` — no translation layer.
+    Today this is advisory only; nothing in the system reads it as binding.
+    """
+
+    verdict: str
+    confidence: float
+    reasoning: str
+    agent: str
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
+class RunAgentReview:
+    """An agent's rollup verdict for the whole run."""
+
+    verdict: str
+    confidence: float
+    summary: str
+    agent: str
+    generated_at: datetime
+    snapshot_count: int
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -212,6 +241,10 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+    # Latest agent verdict for this snapshot, or None if no agent has
+    # reviewed it yet. Persisted on the model's `metadata` JSON column;
+    # surfaced here as a typed field for clean frontend types.
+    agent_review: AgentVerdict | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +282,10 @@ class Run:
     approved_by: UserBasicInfo | None = None
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
+    # Latest agent rollup verdict for the whole run, or None if no agent
+    # has reviewed it yet. Persisted on the model's `metadata` JSON column;
+    # surfaced here as a typed field for clean frontend types.
+    agent_review: RunAgentReview | None = None
 
 
 @dataclass(frozen=True)

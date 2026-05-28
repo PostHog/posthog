@@ -26,8 +26,10 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.models import Team
 from posthog.models.integration import GitHubRateLimitError
 
+from .ai import claude_reviewer, heuristic
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
 from .diff_metadata import DiffMetadata
@@ -2639,6 +2641,130 @@ def update_snapshot_diff(
         ]
     )
     return snapshot
+
+
+# --- Agent review (Claude-backed recommender) ---
+
+
+def _merge_agent_review(existing_metadata: dict | None, agent_review: dict) -> dict:
+    """Return ``existing_metadata`` with the ``agent_review`` key replaced.
+
+    Shallow merge: any siblings of ``agent_review`` in the existing dict
+    are preserved.
+    """
+    return {**(existing_metadata or {}), "agent_review": agent_review}
+
+
+def generate_agent_review_for_run(run_id: UUID, team_id: int, user) -> Run:
+    """Ask Claude to review the run's actionable snapshots and persist the
+    verdicts onto each snapshot's ``metadata['agent_review']`` plus a
+    run-level rollup on ``run.metadata['agent_review']``.
+
+    Idempotent — re-running overwrites the previous verdict. Advisory only;
+    no ``review_state`` is mutated and no commit is pushed. Returns the
+    refreshed run (with snapshots prefetched) so the facade can map it.
+
+    Not wrapped in a transaction because the LLM call can take seconds —
+    we don't want to hold a row lock for the duration. Reads happen
+    outside the transaction; the write is in a small atomic block.
+    """
+    run = get_run(run_id, team_id=team_id)
+
+    if run.status != RunStatus.COMPLETED:
+        raise ValueError(f"Run must be completed before agent review (current status: {run.status})")
+
+    snapshots = list(
+        RunSnapshot.objects.select_related("current_artifact", "baseline_artifact")
+        .filter(run_id=run_id)
+        .exclude(result=SnapshotResult.UNCHANGED)
+    )
+
+    # ProductTeamModel stores team_id as a plain BigIntegerField — fetch the Team from the main DB.
+    # Use the verified ``team_id`` argument (already enforced by get_run above) rather than re-deriving
+    # from run.team_id, so future loosening of get_run can't silently swap which team's context is used.
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist as e:
+        raise ValueError(f"Team {team_id} no longer exists") from e
+
+    signals = [heuristic.signals_from_snapshot(s) for s in snapshots]
+    run_metadata_for_prompt = {
+        "run_id": str(run.id),
+        "run_type": run.run_type,
+        "branch": run.branch,
+        "commit_sha": run.commit_sha,
+        "pr_number": run.pr_number,
+        "pr_title": (run.metadata or {}).get("pr_title"),
+        "base_branch": (run.metadata or {}).get("base_branch"),
+    }
+
+    output = claude_reviewer.review_run(
+        run_metadata=run_metadata_for_prompt,
+        signals=signals,
+        user=user,
+        team=team,
+    )
+
+    now_iso = timezone.now().isoformat()
+    verdict_by_identifier = {v.identifier: v for v in output.snapshots}
+    missing_verdicts = 0
+
+    to_update: list[RunSnapshot] = []
+    for snapshot in snapshots:
+        v = verdict_by_identifier.get(snapshot.identifier)
+        if v is None:
+            # Model didn't emit a verdict for this one — record a deferred so the
+            # UI doesn't show a blank chip and the human knows to look.
+            missing_verdicts += 1
+            verdict_payload = {
+                "verdict": "deferred",
+                "confidence": 0.0,
+                "reasoning": "Agent did not produce a verdict for this snapshot — defer to human review.",
+                "agent": claude_reviewer.MODEL_NAME,
+                "generated_at": now_iso,
+            }
+        else:
+            verdict_payload = {
+                "verdict": v.verdict,
+                "confidence": v.confidence,
+                "reasoning": v.reasoning,
+                "agent": claude_reviewer.MODEL_NAME,
+                "generated_at": now_iso,
+            }
+        snapshot.metadata = _merge_agent_review(snapshot.metadata, verdict_payload)
+        to_update.append(snapshot)
+
+    # If we backfilled any snapshots with "deferred" (either because the model
+    # skipped them or because they were dropped under the per-call cap), the
+    # rollup can't be more confident than "deferred" — otherwise a user sees
+    # an "Approve" verdict alongside N "Needs a human" rows, which is wrong.
+    run_verdict = output.run_verdict
+    run_confidence = output.run_confidence
+    run_summary = output.run_summary
+    if missing_verdicts > 0 and run_verdict == "approved":
+        run_verdict = "deferred"
+        run_confidence = min(run_confidence, 0.5)
+        run_summary = (
+            f"{run_summary} ({missing_verdicts} snapshot(s) didn't receive a verdict and need a human glance.)"
+        )
+
+    run_review_payload = {
+        "verdict": run_verdict,
+        "confidence": run_confidence,
+        "summary": run_summary,
+        "agent": claude_reviewer.MODEL_NAME,
+        "generated_at": now_iso,
+        "snapshot_count": len(signals),
+    }
+
+    with transaction.atomic(using=WRITER_DB):
+        if to_update:
+            RunSnapshot.objects.using(WRITER_DB).bulk_update(to_update, ["metadata"], batch_size=200)
+        locked = _get_run_for_update(run_id, team_id=team_id)
+        locked.metadata = _merge_agent_review(locked.metadata, run_review_payload)
+        locked.save(using=WRITER_DB, update_fields=["metadata"])
+
+    return get_run_with_snapshots(run_id, team_id=team_id)
 
 
 def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:

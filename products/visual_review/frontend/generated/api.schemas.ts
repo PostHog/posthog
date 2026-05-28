@@ -153,6 +153,38 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
+/**
+ * * `approved` - approved
+ * `rejected` - rejected
+ * `deferred` - deferred
+ */
+export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
+
+export const VerdictEnumApi = {
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Deferred: 'deferred',
+} as const
+
+export interface RunAgentReviewApi {
+    /** Rollup verdict for the run: `rejected` if any snapshot was rejected, `deferred` if any was deferred, otherwise `approved`.
+
+  * `approved` - approved
+  * `rejected` - rejected
+  * `deferred` - deferred */
+    verdict: VerdictEnumApi
+    /** Minimum confidence across reviewed snapshots — the run is only as confident as its weakest call. */
+    confidence: number
+    /** Human-readable rollup, e.g. `Reviewed 9 snapshot(s): 7 look intentional; 2 need a human.` */
+    summary: string
+    /** Identifier of the agent implementation that produced this rollup. */
+    agent: string
+    /** When this rollup was produced. ISO-8601, UTC. */
+    generated_at: string
+    /** Number of actionable snapshots considered by the agent (excludes unchanged rows). */
+    snapshot_count: number
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -167,6 +199,8 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** Latest agent rollup verdict for the run, or null if no agent has reviewed it yet. */
+    agent_review?: RunAgentReviewApi | null
     id: string
     repo_id: string
     status: string
@@ -347,6 +381,23 @@ export interface ClusterSummaryApi {
     truncated: boolean
 }
 
+export interface AgentVerdictApi {
+    /** Agent's recommendation for this snapshot. `approved` = looks intentional, `rejected` = looks like noise or a regression, `deferred` = agent can't tell, needs a human. Advisory only — the system never reads this as binding.
+
+  * `approved` - approved
+  * `rejected` - rejected
+  * `deferred` - deferred */
+    verdict: VerdictEnumApi
+    /** Agent's self-reported confidence in this verdict (0.0–1.0). */
+    confidence: number
+    /** One-line explanation of the verdict, suitable for showing to a human reviewer. */
+    reasoning: string
+    /** Identifier of the agent implementation that produced this verdict (e.g. `heuristic-v1`). */
+    agent: string
+    /** When this verdict was produced. ISO-8601, UTC. */
+    generated_at: string
+}
+
 export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
@@ -355,6 +406,8 @@ export interface SnapshotApi {
     diff_artifact?: ArtifactApi | null
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
+    /** Latest agent verdict for this snapshot, or null if no agent has reviewed it yet. */
+    agent_review?: AgentVerdictApi | null
     id: string
     run_id: string
     identifier: string

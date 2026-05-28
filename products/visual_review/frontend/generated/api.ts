@@ -434,6 +434,24 @@ export const visualReviewRunsAddSnapshotsCreate = async (
     })
 }
 
+export const getVisualReviewRunsAgentReviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/agent-review/`
+}
+
+/**
+ * Generate an agent review of this run. Asks Claude Haiku to look at the structured diff metrics (no images) for every actionable snapshot and emit a verdict (`approved` / `rejected` / `deferred`) with reasoning, plus a rollup verdict for the run. Advisory only — does not change any `review_state` and does not commit to GitHub. Idempotent: re-running overwrites the prior verdict. Read the result from the returned run's `agent_review` field and the snapshots endpoint's per-snapshot `agent_review` field. Counts against AI credits.
+ */
+export const visualReviewRunsAgentReviewCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RunApi> => {
+    return apiMutator<RunApi>(getVisualReviewRunsAgentReviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/visual_review/runs/${id}/approve/`
 }

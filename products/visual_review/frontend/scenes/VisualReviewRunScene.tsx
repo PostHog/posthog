@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconAIText, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
@@ -15,6 +15,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AgentReviewModal } from '../components/AgentReviewModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -198,6 +199,7 @@ export function VisualReviewRunScene(): JSX.Element {
         isApproving,
         isApprovingSnapshot,
         isRecomputing,
+        isRequestingAgentReview,
         isRunInProgress,
         isRunProcessing,
         failedThumbnails,
@@ -212,6 +214,8 @@ export function VisualReviewRunScene(): JSX.Element {
         unquarantineSnapshot,
         recomputeRun,
         markThumbnailFailed,
+        requestAgentReview,
+        setAgentReviewModalOpen,
     } = useActions(visualReviewRunSceneLogic)
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
@@ -337,26 +341,51 @@ export function VisualReviewRunScene(): JSX.Element {
         }
     }
 
+    const isReviewable = !run.approved && !run.is_stale && hasChanges
+    const hasAgentReview = run.agent_review != null
+    const agentButtonLabel = hasAgentReview ? 'View AI review' : 'Ask AI'
+
     return (
         <SceneContent>
             <SceneTitleSection
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved &&
-                    !run.is_stale &&
-                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={approveChanges}
-                            loading={isApproving}
-                            data-attr="visual-review-commit-baseline"
-                        >
-                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
-                        </LemonButton>
+                    !run.approved && !run.is_stale ? (
+                        <div className="flex items-center gap-2">
+                            {isReviewable && (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconAIText />}
+                                    onClick={hasAgentReview ? () => setAgentReviewModalOpen(true) : requestAgentReview}
+                                    loading={isRequestingAgentReview}
+                                    data-attr="visual-review-agent-review-trigger"
+                                    tooltip={
+                                        hasAgentReview
+                                            ? 'Open the agent review for this run'
+                                            : 'Get a verdict per changed snapshot — advisory only, the agent never acts on its own.'
+                                    }
+                                >
+                                    {agentButtonLabel}
+                                </LemonButton>
+                            )}
+                            {(reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) && (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={approveChanges}
+                                    loading={isApproving}
+                                    data-attr="visual-review-commit-baseline"
+                                >
+                                    {reviewPending > 0
+                                        ? `Approve ${reviewPending} pending and commit`
+                                        : 'Commit to baseline'}
+                                </LemonButton>
+                            )}
+                        </div>
                     ) : undefined
                 }
             />
+            <AgentReviewModal />
             <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (

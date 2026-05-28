@@ -10,6 +10,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from ..facade.contracts import (
     AddSnapshotsInput,
     AddSnapshotsResult,
+    AgentVerdict,
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
@@ -29,6 +30,7 @@ from ..facade.contracts import (
     RecomputeResult,
     Repo,
     Run,
+    RunAgentReview,
     RunSummary,
     Snapshot,
     SnapshotHistoryEntry,
@@ -76,6 +78,60 @@ class ClusterSummarySerializer(DataclassSerializer):
         dataclass = ClusterSummary
 
 
+class AgentVerdictSerializer(DataclassSerializer):
+    verdict = serializers.ChoiceField(
+        choices=["approved", "rejected", "deferred"],
+        help_text=(
+            "Agent's recommendation for this snapshot. `approved` = looks intentional, "
+            "`rejected` = looks like noise or a regression, `deferred` = agent can't tell, "
+            "needs a human. Advisory only — the system never reads this as binding."
+        ),
+    )
+    confidence = serializers.FloatField(
+        help_text="Agent's self-reported confidence in this verdict (0.0–1.0).",
+    )
+    reasoning = serializers.CharField(
+        help_text="One-line explanation of the verdict, suitable for showing to a human reviewer.",
+    )
+    agent = serializers.CharField(
+        help_text="Identifier of the agent implementation that produced this verdict (e.g. `heuristic-v1`).",
+    )
+    generated_at = serializers.DateTimeField(
+        help_text="When this verdict was produced. ISO-8601, UTC.",
+    )
+
+    class Meta:
+        dataclass = AgentVerdict
+
+
+class RunAgentReviewSerializer(DataclassSerializer):
+    verdict = serializers.ChoiceField(
+        choices=["approved", "rejected", "deferred"],
+        help_text=(
+            "Rollup verdict for the run: `rejected` if any snapshot was rejected, "
+            "`deferred` if any was deferred, otherwise `approved`."
+        ),
+    )
+    confidence = serializers.FloatField(
+        help_text="Minimum confidence across reviewed snapshots — the run is only as confident as its weakest call.",
+    )
+    summary = serializers.CharField(
+        help_text="Human-readable rollup, e.g. `Reviewed 9 snapshot(s): 7 look intentional; 2 need a human.`",
+    )
+    agent = serializers.CharField(
+        help_text="Identifier of the agent implementation that produced this rollup.",
+    )
+    generated_at = serializers.DateTimeField(
+        help_text="When this rollup was produced. ISO-8601, UTC.",
+    )
+    snapshot_count = serializers.IntegerField(
+        help_text="Number of actionable snapshots considered by the agent (excludes unchanged rows).",
+    )
+
+    class Meta:
+        dataclass = RunAgentReview
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
@@ -83,6 +139,11 @@ class SnapshotSerializer(DataclassSerializer):
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
+    agent_review = AgentVerdictSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Latest agent verdict for this snapshot, or null if no agent has reviewed it yet.",
+    )
 
     class Meta:
         dataclass = Snapshot
@@ -90,6 +151,11 @@ class SnapshotSerializer(DataclassSerializer):
 
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    agent_review = RunAgentReviewSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Latest agent rollup verdict for the run, or null if no agent has reviewed it yet.",
+    )
 
     class Meta:
         dataclass = Run

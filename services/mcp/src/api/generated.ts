@@ -3762,6 +3762,37 @@ export namespace Schemas {
       UserInterview: 'user_interview',
     } as const;
 
+    /**
+     * * `approved` - approved
+    * `rejected` - rejected
+    * `deferred` - deferred
+     */
+    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
+
+
+    export const VerdictEnum = {
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Deferred: 'deferred',
+    } as const;
+
+    export interface AgentVerdict {
+      /** Agent's recommendation for this snapshot. `approved` = looks intentional, `rejected` = looks like noise or a regression, `deferred` = agent can't tell, needs a human. Advisory only — the system never reads this as binding.
+
+      * `approved` - approved
+      * `rejected` - rejected
+      * `deferred` - deferred */
+      verdict: VerdictEnum;
+      /** Agent's self-reported confidence in this verdict (0.0–1.0). */
+      confidence: number;
+      /** One-line explanation of the verdict, suitable for showing to a human reviewer. */
+      reasoning: string;
+      /** Identifier of the agent implementation that produced this verdict (e.g. `heuristic-v1`). */
+      agent: string;
+      /** When this verdict was produced. ISO-8601, UTC. */
+      generated_at: string;
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -4468,6 +4499,25 @@ export namespace Schemas {
       email: string;
     }
 
+    export interface RunAgentReview {
+      /** Rollup verdict for the run: `rejected` if any snapshot was rejected, `deferred` if any was deferred, otherwise `approved`.
+
+      * `approved` - approved
+      * `rejected` - rejected
+      * `deferred` - deferred */
+      verdict: VerdictEnum;
+      /** Minimum confidence across reviewed snapshots — the run is only as confident as its weakest call. */
+      confidence: number;
+      /** Human-readable rollup, e.g. `Reviewed 9 snapshot(s): 7 look intentional; 2 need a human.` */
+      summary: string;
+      /** Identifier of the agent implementation that produced this rollup. */
+      agent: string;
+      /** When this rollup was produced. ISO-8601, UTC. */
+      generated_at: string;
+      /** Number of actionable snapshots considered by the agent (excludes unchanged rows). */
+      snapshot_count: number;
+    }
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -4482,6 +4532,8 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** Latest agent rollup verdict for the run, or null if no agent has reviewed it yet. */
+      agent_review?: RunAgentReview | null;
       id: string;
       repo_id: string;
       status: string;
@@ -24459,6 +24511,8 @@ export namespace Schemas {
       diff_artifact?: Artifact | null;
       reviewed_by?: UserBasicInfo | null;
       cluster_summary?: ClusterSummary | null;
+      /** Latest agent verdict for this snapshot, or null if no agent has reviewed it yet. */
+      agent_review?: AgentVerdict | null;
       id: string;
       run_id: string;
       identifier: string;
