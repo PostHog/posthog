@@ -528,7 +528,15 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
 
                 {mode === 'self_managed' && (
                     <LemonField.Pure label="Publication name">
-                        <LemonInput value={publicationName} onChange={setPublicationName} placeholder="posthog_pub" />
+                        <LemonInput
+                            value={publicationName}
+                            onChange={(v) => {
+                                setPublicationName(v)
+                                // Drop any prior check result — it was for the old publication name.
+                                setPrereqResult(null)
+                            }}
+                            placeholder="posthog_pub"
+                        />
                     </LemonField.Pure>
                 )}
 

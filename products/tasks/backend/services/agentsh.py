@@ -36,12 +36,10 @@ def _get_infrastructure_domains() -> list[str]:
         if hostname and hostname not in domains:
             domains.append(hostname)
 
-    if getattr(settings, "DEBUG", False):
-        for hostname in ["localhost", "host.docker.internal"]:
-            if hostname not in domains:
-                domains.append(hostname)
-
     return domains
+
+
+LOCAL_DEV_DOMAINS = ["localhost", "host.docker.internal"]
 
 
 def generate_env_wrapper() -> str:
@@ -164,18 +162,32 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "cidrs": ["169.254.169.254/32", "fd00:ec2::254/128"],
                 "decision": "deny",
             },
-            {
-                "name": "allow-domains",
-                "domains": merged_domains,
-                "ports": allowed_ports,
-                "decision": "allow",
-            },
-            {
-                "name": "default-deny-network",
-                "domains": ["*"],
-                "decision": "deny",
-            },
         ]
+
+        if getattr(settings, "DEBUG", False):
+            network_rules.append(
+                {
+                    "name": "allow-local-dev-hosts",
+                    "domains": LOCAL_DEV_DOMAINS,
+                    "decision": "allow",
+                }
+            )
+
+        network_rules.extend(
+            [
+                {
+                    "name": "allow-domains",
+                    "domains": merged_domains,
+                    "ports": allowed_ports,
+                    "decision": "allow",
+                },
+                {
+                    "name": "default-deny-network",
+                    "domains": ["*"],
+                    "decision": "deny",
+                },
+            ]
+        )
     else:
         network_rules = [
             {

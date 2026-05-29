@@ -1221,8 +1221,8 @@ class TestUpdateExternalDataSchema:
                 return_value=True,
             ),
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.ExternalDataSchemaSerializer._alter_cdc_publication"
-            ) as mock_alter_cdc_publication,
+                "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+            ) as mock_add_table,
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -1248,13 +1248,10 @@ class TestUpdateExternalDataSchema:
             )
 
         assert response.status_code == 200
-        mock_alter_cdc_publication.assert_called_once()
-        assert mock_alter_cdc_publication.call_args.args == (
-            source,
-            "test_pub",
-            "analytics",
-            "events",
-        )
+        # The adapter reads the publication name from config itself, so the call is
+        # (source, schema, table).
+        mock_add_table.assert_called_once()
+        assert mock_add_table.call_args.args == (source, "analytics", "events")
 
     def test_delete_data_hides_direct_postgres_table(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
@@ -1667,3 +1664,96 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert response.status_code == 200
         self.schema.refresh_from_db()
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
+
+class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
+    """`available_columns` is source-type-agnostic — it reads `schema_metadata.columns`.
+    Parameterized across every SQL source to lock in that the serializer doesn't regress
+    to Postgres-only behavior."""
+
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.POSTGRES,),
+            (ExternalDataSourceType.MYSQL,),
+            (ExternalDataSourceType.MSSQL,),
+            (ExternalDataSourceType.BIGQUERY,),
+            (ExternalDataSourceType.SNOWFLAKE,),
+            (ExternalDataSourceType.REDSHIFT,),
+        ]
+    )
+    def test_available_columns_populated_from_schema_metadata(self, source_type: ExternalDataSourceType):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ],
+                    "foreign_keys": [],
+                },
+            },
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        payload = response.json()
+        assert payload["available_columns"] == [
+            {"name": "id", "data_type": "integer", "is_nullable": False},
+            {"name": "email", "data_type": "text", "is_nullable": True},
+        ]
+
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.POSTGRES,),
+            (ExternalDataSourceType.MYSQL,),
+            (ExternalDataSourceType.MSSQL,),
+            (ExternalDataSourceType.BIGQUERY,),
+            (ExternalDataSourceType.SNOWFLAKE,),
+            (ExternalDataSourceType.REDSHIFT,),
+        ]
+    )
+    def test_available_columns_empty_when_schema_metadata_missing(self, source_type: ExternalDataSourceType):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["available_columns"] == []
+
+    @parameterized.expand(
+        [
+            # source_type, supports_column_selection_expected
+            (ExternalDataSourceType.POSTGRES, True),
+            (ExternalDataSourceType.MYSQL, True),
+            (ExternalDataSourceType.MSSQL, True),
+            (ExternalDataSourceType.BIGQUERY, True),
+            (ExternalDataSourceType.SNOWFLAKE, True),
+            (ExternalDataSourceType.REDSHIFT, True),
+            # Non-SQL sources stay False
+            (ExternalDataSourceType.STRIPE, False),
+        ]
+    )
+    def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["supports_column_selection"] is expected

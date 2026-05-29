@@ -3503,6 +3503,21 @@
             "anyOf": [
                 {
                     "properties": {
+                        "excluded_variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
+                        },
                         "feature_flag_variants": {
                             "anyOf": [
                                 {

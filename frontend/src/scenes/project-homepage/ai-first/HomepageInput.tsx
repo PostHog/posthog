@@ -80,7 +80,7 @@ function IdleInput(): JSX.Element {
                                 posthog.capture('homepage query submitted', { mode: 'search' })
                                 submitQuery('search')
                             }
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                                 if (e.shiftKey) {
                                     // Allow default behavior to insert newline
                                     return

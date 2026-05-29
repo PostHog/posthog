@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+    add_table_to_publication,
     cdc_pg_connection,
     create_slot,
     create_slot_and_publication,
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     drop_slot_and_publication,
     get_slot_lag_bytes,
     publication_exists,
+    remove_table_from_publication,
     slot_exists,
 )
 
@@ -110,14 +112,23 @@ class PostgresCDCAdapter:
         if management_mode == "posthog":
             try:
                 with cdc_pg_connection(source) as conn:
+                    # Refuse to touch names that already exist — otherwise a failure mid-create
+                    # would trigger a rollback that drops a slot/publication PostHog never created
+                    # (an editor could supply the name of an existing one). Bailing here also means
+                    # the rollback below only ever drops resources we just created.
+                    if slot_exists(conn, slot_name):
+                        return {}, f"A replication slot named '{slot_name}' already exists on your database."
+                    if publication_exists(conn, pub_name):
+                        return {}, f"A publication named '{pub_name}' already exists on your database."
                     resource_fields["cdc_consistent_point"] = create_slot_and_publication(
                         conn, slot_name, pub_name, schema, tables=[]
                     )
             except Exception as e:
                 logger.exception("Failed to create CDC slot and publication: %s", e)
-                # Best-effort rollback — `create_slot_and_publication` commits the
-                # publication before creating the slot, so a slot failure leaves a
-                # leaked publication. `drop_slot_and_publication` swallows
+                # Safe rollback — we verified above that neither the slot nor the publication
+                # existed before, so anything present now is ours. `create_slot_and_publication`
+                # commits the publication before creating the slot, so a slot failure can leave a
+                # leaked publication; this drops both. `drop_slot_and_publication` swallows
                 # UndefinedObject, so it's a no-op when neither was created.
                 try:
                     with cdc_pg_connection(source, connect_timeout=10) as conn:
@@ -127,9 +138,11 @@ class PostgresCDCAdapter:
                 return {}, f"Failed to create replication slot: {e}"
             return resource_fields, None
 
-        # self_managed
+        # self_managed: the publication is customer-owned; PostHog only creates the slot.
         try:
             with cdc_pg_connection(source) as conn:
+                if slot_exists(conn, slot_name):
+                    return {}, f"A replication slot named '{slot_name}' already exists on your database."
                 if not publication_exists(conn, pub_name):
                     return (
                         {},
@@ -141,7 +154,8 @@ class PostgresCDCAdapter:
                 resource_fields["cdc_consistent_point"] = create_slot(conn, slot_name)
         except Exception as e:
             logger.exception("Failed to set up self-managed CDC slot: %s", e)
-            # Self-managed: drop only the slot — publication is customer-owned.
+            # Drop only the slot (verified absent before, so it's ours) — never the
+            # customer-owned publication.
             try:
                 with cdc_pg_connection(source, connect_timeout=10) as conn:
                     drop_slot(conn, slot_name)
@@ -185,6 +199,43 @@ class PostgresCDCAdapter:
             "publication_exists": pub_present,
             "lag_bytes": lag_bytes,
         }
+
+    def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
+        """Best-effort add a table to the capture set (PG: ALTER PUBLICATION ADD TABLE).
+
+        No-op for self-managed mode (the customer owns the publication) or when there's
+        no publication to alter. Logs and continues on errors.
+        """
+        self._alter_publication_membership(source, schema, table, add=True)
+
+    def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
+        """Best-effort remove a table from the capture set (PG: ALTER PUBLICATION DROP TABLE).
+
+        No-op for self-managed mode or when there's no publication to alter.
+        """
+        self._alter_publication_membership(source, schema, table, add=False)
+
+    def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
+        cdc_config = self.parse_cdc_config(source)
+        # PostHog only manages the publication in posthog-managed mode.
+        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+            return
+        try:
+            with cdc_pg_connection(source) as conn:
+                if add:
+                    add_table_to_publication(conn, cdc_config.publication_name, schema, table)
+                else:
+                    remove_table_from_publication(conn, cdc_config.publication_name, schema, table)
+        except Exception:
+            logger.exception(
+                "Failed to %s table %s.%s %s CDC publication '%s' (best-effort), source_id=%s",
+                "add" if add else "remove",
+                schema,
+                table,
+                "to" if add else "from",
+                cdc_config.publication_name,
+                source.id,
+            )
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
         raw = (source.job_inputs or {}).get("schema")

@@ -1046,7 +1046,7 @@ export function isSimpleSurveyAudienceTargeting(filters?: FeatureFlagFilters | n
         return true
     }
 
-    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.super_groups?.length) {
+    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.feature_enrollment) {
         return false
     }
 

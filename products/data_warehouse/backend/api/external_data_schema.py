@@ -18,12 +18,12 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
 )
-from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -661,12 +661,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         should_sync: bool | None,
         sync_type: str | None,
     ) -> None:
-        """Manage CDC publication tables when a schema is toggled or newly set to CDC."""
-        cdc_config = PostgresCDCConfig.from_source(source)
+        """Manage CDC capture-set membership when a schema is toggled or newly set to CDC.
+
+        The engine-side operation (PG: ALTER PUBLICATION) lives on the CDC adapter, which
+        no-ops for self-managed publications. We still gate here to avoid resolving the
+        physical table location for sources that have nothing to do.
+        """
+        adapter = get_cdc_adapter(source)
+        cdc_config = adapter.parse_cdc_config(source)
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
             return
 
-        pub_name = cdc_config.publication_name
         _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
             schema_metadata=instance.schema_metadata,
@@ -677,9 +682,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC
         )
 
-        # Add table to publication when enabling CDC or toggling sync on
+        # Add table to capture set when enabling CDC or toggling sync on
         if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
-            self._alter_cdc_publication(source, pub_name, db_schema, source_table_name, action="add")
+            adapter.add_table(source, db_schema, source_table_name)
 
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
@@ -689,39 +694,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 instance.initial_sync_complete = False
                 instance.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
 
-        # Remove table from publication when toggling sync off
+        # Remove table from capture set when toggling sync off
         elif should_sync is False and instance.should_sync:
-            self._alter_cdc_publication(source, pub_name, db_schema, source_table_name, action="remove")
-
-    def _alter_cdc_publication(
-        self,
-        source: ExternalDataSource,
-        pub_name: str,
-        db_schema: str,
-        table_name: str,
-        action: str,
-    ) -> None:
-        """Best-effort add/remove a table from the CDC publication."""
-        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
-            add_table_to_publication,
-            cdc_pg_connection,
-            remove_table_from_publication,
-        )
-
-        try:
-            with cdc_pg_connection(source) as conn:
-                if action == "add":
-                    add_table_to_publication(conn, pub_name, db_schema, table_name)
-                else:
-                    remove_table_from_publication(conn, pub_name, db_schema, table_name)
-        except Exception as e:
-            logger.exception(
-                "Failed to alter CDC publication",
-                action=action,
-                table=table_name,
-                pub_name=pub_name,
-                error=str(e),
-            )
+            adapter.remove_table(source, db_schema, source_table_name)
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
