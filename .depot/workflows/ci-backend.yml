@@ -617,7 +617,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
             - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              # Depot CI's restored pnpm store can land node-gyp's gyp_main.py without +x.
+              # Locate it across pnpm/action-setup layouts and never fail if it is absent.
+              run: find ~/setup-pnpm -name gyp_main.py -path '*/node-gyp/*' -exec chmod +x {} + 2>/dev/null || true
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
