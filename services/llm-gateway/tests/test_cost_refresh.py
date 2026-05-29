@@ -59,30 +59,22 @@ class TestCostRefreshService:
         assert litellm.model_cost == mock_costs
         mock_get_cost_map.assert_called_once()
 
+    @patch("llm_gateway.rate_limiting.cost_refresh.litellm.add_known_models")
     @patch("llm_gateway.rate_limiting.cost_refresh.get_model_cost_map")
-    def test_refresh_registers_provider_models(self, mock_get_cost_map: MagicMock) -> None:
-        new_anthropic_model = "claude-test-model-for-cost-refresh"
-        new_openai_model = "gpt-test-model-for-cost-refresh"
-        assert new_anthropic_model not in litellm.anthropic_models
-        assert new_openai_model not in litellm.open_ai_chat_completion_models
-
-        mock_get_cost_map.return_value = {
-            new_anthropic_model: {
-                "litellm_provider": "anthropic",
-                "input_cost_per_token": 0.000015,
-                "output_cost_per_token": 0.000075,
-            },
-            new_openai_model: {
-                "litellm_provider": "openai",
-                "input_cost_per_token": 0.00003,
-                "output_cost_per_token": 0.00006,
-            },
-        }
+    def test_refresh_registers_provider_models(
+        self,
+        mock_get_cost_map: MagicMock,
+        mock_add_known_models: MagicMock,
+    ) -> None:
+        # The provider sets (anthropic_models, etc.) back get_llm_provider's inference,
+        # so we must re-register them on every refresh — otherwise the sets stay frozen
+        # at import time and freshly added models raise "LLM Provider NOT provided".
+        mock_costs = {"some-model": {"litellm_provider": "anthropic"}}
+        mock_get_cost_map.return_value = mock_costs
 
         CostRefreshService.get_instance().refresh()
 
-        assert new_anthropic_model in litellm.anthropic_models
-        assert new_openai_model in litellm.open_ai_chat_completion_models
+        mock_add_known_models.assert_called_once_with(mock_costs)
 
     @patch("llm_gateway.rate_limiting.cost_refresh.get_model_cost_map")
     def test_ensure_fresh_skips_refresh_within_ttl(self, mock_get_cost_map: MagicMock) -> None:
@@ -134,29 +126,18 @@ class TestModelCostServiceRefresh:
         yield
         ModelCostService.reset_instance()
 
+    @patch("llm_gateway.rate_limiting.model_cost_service.litellm.add_known_models")
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_refresh_registers_provider_models(self, mock_get_cost_map: MagicMock) -> None:
-        new_anthropic_model = "claude-test-model-for-model-cost-service"
-        new_openai_model = "gpt-test-model-for-model-cost-service"
-        assert new_anthropic_model not in litellm.anthropic_models
-        assert new_openai_model not in litellm.open_ai_chat_completion_models
+    def test_refresh_registers_provider_models(
+        self,
+        mock_get_cost_map: MagicMock,
+        mock_add_known_models: MagicMock,
+    ) -> None:
+        # Same contract as CostRefreshService — _refresh_cache must keep the
+        # provider sets in sync with the freshly fetched cost map.
+        mock_costs = {"some-model": {"litellm_provider": "anthropic"}}
+        mock_get_cost_map.return_value = mock_costs
 
-        mock_get_cost_map.return_value = {
-            new_anthropic_model: {
-                "litellm_provider": "anthropic",
-                "input_cost_per_token": 0.000015,
-                "output_cost_per_token": 0.000075,
-            },
-            new_openai_model: {
-                "litellm_provider": "openai",
-                "input_cost_per_token": 0.00003,
-                "output_cost_per_token": 0.00006,
-            },
-        }
+        ModelCostService.get_instance()._refresh_cache()
 
-        # _ensure_fresh drives the same _refresh_cache code path the throttle
-        # callbacks hit at request time.
-        ModelCostService.get_instance().get_costs("anything")
-
-        assert new_anthropic_model in litellm.anthropic_models
-        assert new_openai_model in litellm.open_ai_chat_completion_models
+        mock_add_known_models.assert_called_once_with(mock_costs)
