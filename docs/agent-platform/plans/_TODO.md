@@ -213,6 +213,15 @@ message, session_id? })` tool, sessions exposed as MCP
       refuses non-live invokes without it. Draft's own
       `spec.auth.mode` is unchanged — this is a layer above it.
 
+- [ ] **Persistent agent memory** — see
+      [`agent-memory.md`](agent-memory.md). Cross-session KV store
+      keyed by `(agent, scope, key)` with `agent` / `user:<id>` /
+      `team` / `session` scopes; surfaced by the cross-cutting gap
+      in [`_APP_IDEAS.md`](_APP_IDEAS.md) (10 of 13 candidate
+      apps want it). Plan is in options-mode — 12 design
+      dimensions each have a menu; pick per dimension before
+      coding.
+
 - [x] ~~**Agent console website**~~ — see
       [`agent-console-website.md`](agent-console-website.md). A
       standalone read-mostly Next.js app under

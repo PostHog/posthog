@@ -70,6 +70,12 @@ is the queue of features waiting for a plan.
   for agents that consume third-party MCP servers (TODO C6).
 - [`resumable-conversations.md`](plans/resumable-conversations.md) — design
   for loading prior session logs from ClickHouse on resume / display (TODO B8).
+- [`agent-memory.md`](plans/agent-memory.md) — persistent cross-session
+  store keyed by `(agent, scope, key)` with `agent` / `user:<id>` /
+  `team` / `session` scopes. Surfaced by [`_APP_IDEAS.md`](plans/_APP_IDEAS.md)
+  as the single highest-leverage gap (10 of 13 candidate apps want
+  it). Plan is in options-mode — 12 design dimensions each present a
+  menu; pick per dimension before implementing.
 - [`agent-console-website.md`](plans/agent-console-website.md) — standalone
   Next.js app under `services/agent-console/`, styled with `@posthog/quill`,
   logging in via PostHog OAuth. Read-mostly UI over the existing REST API
