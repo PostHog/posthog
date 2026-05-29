@@ -144,9 +144,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
-                -- argMaxIf returns the zero UUID (not NULL) when no rows match.
-                -- Compare via toString because toUUIDOrZero / toUUID('...zero...')
-                -- are not in the HogQL function allowlist.
+                -- argMaxIf returns the zero UUID (not NULL) with no matches; toUUIDOrZero isn't in the HogQL allowlist.
                 HAVING toString(last_generation_id) != '00000000-0000-0000-0000-000000000000'
                     AND event_count <= {max_events}
                     AND total_properties_size <= {max_properties_size}
