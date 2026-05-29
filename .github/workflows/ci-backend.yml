@@ -2284,7 +2284,10 @@ jobs:
 
             - name: Prime test_posthog from cached schema
               # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
-              if: ${{ github.event_name == 'pull_request' }}
+              # TEMP: nextgensquash trial — gated false so the master-built schema
+              # cache doesn't collide with our PR's diverging migration graph
+              # (causes InconsistentMigrationHistory). Revert before merge.
+              if: ${{ false && github.event_name == 'pull_request' }}
               run: |
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
