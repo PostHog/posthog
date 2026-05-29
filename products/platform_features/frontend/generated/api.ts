@@ -38,6 +38,7 @@ import type {
     PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
     PinnedSceneTabsApi,
+    PromotedProductIntentApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
@@ -246,6 +247,27 @@ export const membersScopedApiKeysRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getOrganizationsProjectsPromotedProductIntentRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/promoted_product_intent/`
+}
+
+/**
+ * Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary product during onboarding. Resolved from the most recent `user showed product intent` event with `intent_context = onboarding product selected - primary`. Returns `null` when no such event has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ */
+export const organizationsProjectsPromotedProductIntentRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<PromotedProductIntentApi> => {
+    return apiMutator<PromotedProductIntentApi>(
+        getOrganizationsProjectsPromotedProductIntentRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getRolesListUrl = (organizationId: string, params?: RolesListParams) => {
@@ -905,6 +927,24 @@ export const getCommentsCountRetrieveUrl = (projectId: string) => {
 
 export const commentsCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsPromotedProductIntentRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/promoted_product_intent/`
+}
+
+/**
+ * Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary product during onboarding. Resolved from the most recent `user showed product intent` event with `intent_context = onboarding product selected - primary`. Returns `null` when no such event has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ */
+export const environmentsPromotedProductIntentRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<PromotedProductIntentApi> => {
+    return apiMutator<PromotedProductIntentApi>(getEnvironmentsPromotedProductIntentRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

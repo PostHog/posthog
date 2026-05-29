@@ -10,7 +10,7 @@ url_prefix: /
 ui_apps: {}
 tools:
     promoted-product-intent-get:
-        operation: organizations_projects_promoted_product_intent_retrieve
+        operation: environments_promoted_product_intent_retrieve
         enabled: true
         feature_flag: promoted-product
         feature_flag_variant: intent_plus
@@ -252,6 +252,9 @@ tools:
         enabled: false
     comments-update:
         operation: comments_update
+        enabled: false
+    environments-promoted-product-intent-retrieve:
+        operation: environments_promoted_product_intent_retrieve
         enabled: false
     members-destroy:
         operation: members_destroy
