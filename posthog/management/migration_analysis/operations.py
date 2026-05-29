@@ -398,6 +398,25 @@ class AddIndexConcurrentlyAnalyzer(OperationAnalyzer):
         )
 
 
+class ExtensionAnalyzer(OperationAnalyzer):
+    """Analyzer for `CREATE EXTENSION` operations. CREATE EXTENSION takes an
+    `AccessExclusiveLock` only on `pg_extension` itself (not on user tables),
+    is idempotent with `IF NOT EXISTS`, and Django's wrappers emit that form.
+    Safe under live workloads."""
+
+    default_score = 0
+
+    def analyze(self, op) -> OperationRisk:
+        op_type = op.__class__.__name__
+        ext_name = getattr(op, "name", None) or op_type.replace("Extension", "").lower()
+        return OperationRisk(
+            type=op_type,
+            score=0,
+            reason=f"Postgres extension creation is safe ({ext_name})",
+            details={"extension": ext_name},
+        )
+
+
 class AddConstraintAnalyzer(OperationAnalyzer):
     operation_type = "AddConstraint"
     default_score = 3
@@ -451,6 +470,17 @@ class RunSQLAnalyzer(OperationAnalyzer):
         sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
         sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
         sql = sql_without_comments.upper()
+
+        # CREATE EXTENSION takes a lock only on pg_extension, not on user tables.
+        # Django's typed wrappers (TrigramExtension etc.) emit IF NOT EXISTS, so
+        # safe under live load.
+        if re.search(r"\bCREATE\s+EXTENSION\b", sql):
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="CREATE EXTENSION is safe (locks pg_extension only, not user tables)",
+                details={"sql": sql},
+            )
 
         # Check for CONCURRENTLY operations first (these are safe)
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
