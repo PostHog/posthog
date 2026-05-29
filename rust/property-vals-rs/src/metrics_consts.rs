@@ -10,3 +10,4 @@ pub const FLUSH_REASON_SHUTDOWN: &str = "shutdown";
 pub const PRODUCER_FLUSH_FAILED: &str = "property_vals_rs_producer_flush_failed_total";
 pub const OFFSET_STORE_FAILED: &str = "property_vals_rs_offset_store_failed_total";
 pub const KAFKA_RECV_ERRORS: &str = "property_vals_rs_kafka_recv_errors_total";
+pub const TOP_K_DROPPED: &str = "property_vals_rs_top_k_dropped_total";

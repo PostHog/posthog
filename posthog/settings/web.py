@@ -84,6 +84,7 @@ PRODUCTS_APPS = [
     "products.actions.backend.apps.ActionsConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
     "products.wizard.backend.apps.WizardConfig",
+    "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [
