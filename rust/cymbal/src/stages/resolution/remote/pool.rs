@@ -335,8 +335,6 @@ impl EndpointPool {
             }
             candidates.push(Candidate {
                 addr: *addr,
-                load_ratio: snapshot.load_ratio(),
-                in_flight: snapshot.in_flight,
                 channel: state.channel.clone(),
                 counter: state.in_flight.clone(),
             });
@@ -348,26 +346,9 @@ impl EndpointPool {
 
         let chosen = match strategy {
             SelectionStrategy::LeastLoad => {
-                // Sort by (load_ratio, server-reported in_flight, addr) so
-                // tie-breaking is deterministic before the round-robin
-                // rotation, which keeps test observability clean.
-                candidates.sort_by(|a, b| {
-                    a.load_ratio
-                        .partial_cmp(&b.load_ratio)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(a.in_flight.cmp(&b.in_flight))
-                        .then(a.addr.cmp(&b.addr))
-                });
-
-                let min_ratio = candidates[0].load_ratio;
-                let min_in_flight = candidates[0].in_flight;
-                let tied_count = candidates
-                    .iter()
-                    .take_while(|c| {
-                        (c.load_ratio - min_ratio).abs() < f64::EPSILON
-                            && c.in_flight == min_in_flight
-                    })
-                    .count();
+                // Sort by address so round-robin tie-breaking is deterministic.
+                candidates.sort_by_key(|candidate| candidate.addr);
+                let tied_count = candidates.len();
                 let idx = if tied_count <= 1 {
                     0
                 } else {
@@ -383,12 +364,6 @@ impl EndpointPool {
                 candidates.sort_by(|a, b| {
                     rendezvous_score(routing_key, b.addr)
                         .cmp(&rendezvous_score(routing_key, a.addr))
-                        .then(
-                            a.load_ratio
-                                .partial_cmp(&b.load_ratio)
-                                .unwrap_or(std::cmp::Ordering::Equal),
-                        )
-                        .then(a.in_flight.cmp(&b.in_flight))
                         .then(a.addr.cmp(&b.addr))
                 });
                 let idx = attempt as usize % candidates.len();
@@ -446,7 +421,7 @@ impl EndpointPool {
         addrs
     }
 
-    /// Smallest `suggested_max_batch_items` across all endpoints that
+    /// Smallest `suggested_batch_size` across all endpoints that
     /// currently have a fresh, non-degraded, non-draining snapshot AND
     /// advertise a non-zero suggestion. Returns `None` when no candidate
     /// has a usable suggestion — caller falls back to its own config.
@@ -456,7 +431,7 @@ impl EndpointPool {
     /// teams *could* target pods with different suggestions; the small loss
     /// of efficiency for taking the global minimum is worth the simpler
     /// model.
-    pub async fn min_suggested_max_items(&self) -> Option<u32> {
+    pub async fn min_suggested_batch_size(&self) -> Option<u32> {
         let inner = self.inner.lock().await;
         let now = Instant::now();
         let stale_after = self.config.subscribe_tick_hint.saturating_mul(2);
@@ -471,12 +446,12 @@ impl EndpointPool {
             if !snap.is_fresh(now, stale_after) || snap.degraded || snap.draining {
                 continue;
             }
-            if snap.suggested_max_batch_items == 0 {
+            if snap.suggested_batch_size == 0 {
                 continue;
             }
             min = Some(match min {
-                Some(prev) => prev.min(snap.suggested_max_batch_items),
-                None => snap.suggested_max_batch_items,
+                Some(prev) => prev.min(snap.suggested_batch_size),
+                None => snap.suggested_batch_size,
             });
         }
         min
@@ -505,11 +480,6 @@ impl EndpointPool {
 
 struct Candidate {
     addr: SocketAddr,
-    load_ratio: f64,
-    /// Server-reported in-flight count from the latest fresh `LoadEvent`.
-    /// Tie-breaker after `load_ratio`; deterministic and reflects what the
-    /// server actually sees, not what the caller guesses.
-    in_flight: u32,
     channel: Channel,
     counter: Arc<AtomicUsize>,
 }
@@ -614,15 +584,13 @@ mod test {
         s.parse().unwrap()
     }
 
-    fn fresh_snapshot(in_flight: u32, max_in_flight: u32) -> LoadSnapshot {
+    fn fresh_snapshot() -> LoadSnapshot {
         LoadSnapshot {
-            in_flight,
-            max_in_flight,
             degraded: false,
             draining: false,
             observed_at: Instant::now(),
             sequence: 1,
-            suggested_max_batch_items: 0,
+            suggested_batch_size: 0,
         }
     }
 
@@ -647,13 +615,12 @@ mod test {
         );
     }
 
-    /// Inject a fresh, zero-load snapshot on every endpoint of `pool` so
-    /// snapshot-required routing has all endpoints to choose from. Used by
-    /// tests that exercise selection semantics independent of load values.
+    /// Inject a fresh snapshot on every endpoint of `pool` so
+    /// snapshot-required routing has all endpoints to choose from.
     async fn inject_uniform_fresh_snapshots(pool: &Arc<EndpointPool>, addrs: &[SocketAddr]) {
         for a in addrs {
             assert!(
-                pool.inject_load_snapshot_for_test(*a, fresh_snapshot(0, 64))
+                pool.inject_load_snapshot_for_test(*a, fresh_snapshot())
                     .await
             );
         }
@@ -683,20 +650,18 @@ mod test {
         )
         .unwrap();
         let stale = LoadSnapshot {
-            in_flight: 0,
-            max_in_flight: 64,
             degraded: false,
             draining: false,
             observed_at: Instant::now() - Duration::from_secs(10),
             sequence: 1,
-            suggested_max_batch_items: 0,
+            suggested_batch_size: 0,
         };
         assert!(
             pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), stale)
                 .await
         );
         assert!(
-            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot(0, 64))
+            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot())
                 .await
         );
 
@@ -717,7 +682,7 @@ mod test {
         let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
         inject_uniform_fresh_snapshots(&pool, &addrs).await;
 
-        // All endpoints report identical zero load, so round-robin breaks
+        // All endpoints are fresh and healthy, so round-robin breaks
         // the tie deterministically across consecutive selections.
         let h1 = pool.select().await.unwrap();
         let h2 = pool.select().await.unwrap();
@@ -806,11 +771,11 @@ mod test {
         let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
         let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
 
-        let mut degraded = fresh_snapshot(0, 64);
+        let mut degraded = fresh_snapshot();
         degraded.degraded = true;
         assert!(pool.inject_load_snapshot_for_test(addrs[0], degraded).await);
         assert!(
-            pool.inject_load_snapshot_for_test(addrs[1], fresh_snapshot(0, 64))
+            pool.inject_load_snapshot_for_test(addrs[1], fresh_snapshot())
                 .await
         );
 
@@ -822,45 +787,36 @@ mod test {
     }
 
     #[tokio::test]
-    async fn least_load_breaks_ties_on_server_reported_in_flight() {
-        // With identical load_ratio, the tie-breaker is the server-reported
-        // in_flight count — NOT the caller-side counter. Verified by injecting
-        // snapshots where both report load_ratio=0.5 but different in_flight.
+    async fn select_uses_round_robin_across_fresh_healthy_endpoints() {
+        // LoadEvent no longer carries numeric load; fresh, healthy endpoints
+        // are selected by deterministic round-robin.
         let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
         let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
-        // Both snapshots: load_ratio = 50/100 == 0.5; .1 reports 50 in-flight,
-        // .2 reports 50 in-flight too (so the next tie-breaker — addr — wins).
-        // Then bump .2 down to 49/100 and observe .2 wins on lower in_flight.
         assert!(
-            pool.inject_load_snapshot_for_test(addrs[0], fresh_snapshot(50, 100))
+            pool.inject_load_snapshot_for_test(addrs[0], fresh_snapshot())
                 .await
         );
         assert!(
-            pool.inject_load_snapshot_for_test(addrs[1], fresh_snapshot(49, 100))
+            pool.inject_load_snapshot_for_test(addrs[1], fresh_snapshot())
                 .await
         );
-        // load_ratio: .1 = 0.50, .2 = 0.49 — .2 wins by load_ratio alone.
         let handle = pool.select().await.unwrap();
         assert_eq!(handle.addr, addrs[1]);
     }
 
     #[tokio::test]
-    async fn select_prefers_endpoint_with_lower_reported_load_ratio() {
-        // With fresh load snapshots, routing is driven by load ratio, not by
-        // local in-flight. Inject snapshots that contradict the local count so
-        // we can be sure the server signal wins.
+    async fn select_uses_round_robin_when_all_endpoints_are_healthy() {
         let pool = EndpointPool::from_addrs_without_subscriptions(
             mock_config(),
             &[addr("10.0.0.1:50061"), addr("10.0.0.2:50061")],
         )
         .unwrap();
-        // .1 reports heavily loaded; .2 reports lightly loaded.
         assert!(
-            pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), fresh_snapshot(60, 64))
+            pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), fresh_snapshot())
                 .await
         );
         assert!(
-            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot(2, 64))
+            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot())
                 .await
         );
 
@@ -875,19 +831,18 @@ mod test {
             &[addr("10.0.0.1:50061"), addr("10.0.0.2:50061")],
         )
         .unwrap();
-        let mut bad = fresh_snapshot(0, 64);
+        let mut bad = fresh_snapshot();
         bad.degraded = true;
         assert!(
             pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), bad)
                 .await
         );
         assert!(
-            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot(40, 64))
+            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot())
                 .await
         );
 
-        // Even though .1 reports the lower ratio, it is excluded because its
-        // snapshot is flagged degraded.
+        // Degraded endpoints are excluded even when they have fresh snapshots.
         let handle = pool.select().await.unwrap();
         assert_eq!(handle.addr, addr("10.0.0.2:50061"));
     }

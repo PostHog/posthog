@@ -366,8 +366,8 @@ async fn chunks_split_at_event_boundaries_up_to_max_items() {
 }
 
 #[tokio::test]
-async fn server_suggested_max_batch_items_shrinks_chunks_below_client_config() {
-    // The stub server advertises `suggested_max_batch_items = 8` on every
+async fn server_suggested_batch_size_shrinks_chunks_below_client_config() {
+    // The stub server advertises `suggested_batch_size = 8` on every
     // LoadEvent (see tests/common/mod.rs). With a client config of 64,
     // chunks must honor the smaller server-driven cap. Build 10 single-
     // exception events; expect chunks of size 8 + 2.

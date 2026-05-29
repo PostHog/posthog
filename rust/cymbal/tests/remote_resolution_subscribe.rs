@@ -1,5 +1,5 @@
 //! End-to-end coverage for the load event bus (`Subscribe` RPC) and
-//! pool routing on server-reported load.
+//! pool routing on server-reported health.
 //!
 //! These tests bring up a real cymbal-resolution server with a fake symbol
 //! resolver, build an `EndpointPool` pointed at it, and verify that the
@@ -24,6 +24,8 @@ use cymbal::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbol_store::proguard::ProguardRef;
 use cymbal::types::operator::TeamId;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
+use cymbal_resolution::item_limiter::ItemLimiter;
+use cymbal_resolution::load_monitor::LoadMonitor;
 use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
 
@@ -61,9 +63,7 @@ impl SymbolResolver for EmptyResolver {
 }
 
 /// Spawn a real cymbal-resolution server with the given item-admission
-/// limiter so tests can manipulate server-reported load by pinning permits.
-/// Server-reported load tracks the item limiter, which is the new admission
-/// gate the pool routes against.
+/// limiter and load-event capacity suggestion.
 async fn spawn_real_server(item_limiter: Arc<Semaphore>, max_in_flight: u32) -> SocketAddr {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -76,17 +76,21 @@ async fn spawn_real_server(item_limiter: Arc<Semaphore>, max_in_flight: u32) -> 
         default_tick_interval: Duration::from_millis(25),
         min_tick_interval: Duration::from_millis(5),
         max_tick_interval: Duration::from_secs(1),
-        degraded_load_ratio: f64::INFINITY,
     };
     // Symbol limiter is irrelevant for these tests because EmptyResolver
     // never acquires; size it generously so it never gates anything.
     let symbol_limiter = Arc::new(Semaphore::new(64));
+    // Degraded signal disabled (threshold 0); these tests don't exercise it.
+    let load_monitor = LoadMonitor::new(0);
+    load_monitor
+        .set_in_flight(max_in_flight.saturating_sub(item_limiter.available_permits() as u32));
+    let item_limiter = ItemLimiter::from_semaphore(item_limiter, max_in_flight as usize);
     let service = CymbalResolutionService::new(
         resolver,
         symbol_limiter,
         item_limiter,
+        load_monitor,
         format!("real-{addr}"),
-        max_in_flight,
         service_config,
         Arc::new(AtomicBool::new(false)),
     );
@@ -126,20 +130,12 @@ fn pool_config(host: &str, tick_hint: Duration) -> RemoteResolutionConfig {
 }
 
 #[tokio::test]
-async fn pool_routes_to_endpoint_with_lower_server_reported_load() {
-    // Pod A holds 7 of its 8 permits; pod B holds none. Both serve Subscribe
-    // ticks at a fast cadence so the pool's per-endpoint snapshot fills
-    // within a few hundred ms. After that, select() must consistently route
-    // new requests to pod B (the low-load endpoint), regardless of caller-
-    // side in-flight counts.
+async fn pool_routes_across_endpoints_with_fresh_load_events() {
+    // Both pods serve Subscribe ticks at a fast cadence so the pool's
+    // per-endpoint snapshot fills within a few hundred ms. After that,
+    // select() should route across the healthy endpoint set.
     let pod_a_limiter = Arc::new(Semaphore::new(8));
     let pod_b_limiter = Arc::new(Semaphore::new(8));
-
-    // Pre-take 7 permits on pod A so its reported in_flight is high.
-    let mut held = Vec::new();
-    for _ in 0..7 {
-        held.push(pod_a_limiter.clone().acquire_owned().await.unwrap());
-    }
 
     let pod_a = spawn_real_server(pod_a_limiter.clone(), 8).await;
     let pod_b = spawn_real_server(pod_b_limiter.clone(), 8).await;
@@ -154,25 +150,11 @@ async fn pool_routes_to_endpoint_with_lower_server_reported_load() {
     // The server's tick is 25ms; 500ms is generous but keeps the test snappy.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Drive several selections — pod B must dominate because its reported
-    // load ratio (0/8) is much lower than pod A's (7/8). We allow a small
-    // tolerance for a single misroute caused by a tick that hadn't propagated
-    // before the first select.
-    let mut b_picks = 0;
-    let mut total = 0;
-    let mut handles = Vec::new();
-    for _ in 0..20 {
-        let handle = pool.select().await.expect("select succeeds");
-        total += 1;
-        if handle.addr == pod_b {
-            b_picks += 1;
-        }
-        handles.push(handle);
-    }
-
-    assert!(
-        b_picks as f64 / total as f64 >= 0.8,
-        "expected pod_b ({pod_b}) to receive most routing; got {b_picks}/{total}",
-    );
-    drop(held);
+    let h1 = pool.select().await.expect("select succeeds");
+    let h2 = pool.select().await.expect("select succeeds");
+    let mut picks = [h1.addr, h2.addr];
+    picks.sort();
+    let mut expected = [pod_a, pod_b];
+    expected.sort();
+    assert_eq!(picks, expected);
 }

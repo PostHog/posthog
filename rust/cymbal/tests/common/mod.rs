@@ -145,11 +145,9 @@ impl CymbalResolution for StubServer {
                     service_instance_id: instance.clone(),
                     degraded: false,
                     draining: false,
-                    in_flight: 0,
-                    max_in_flight: 8,
                     sequence,
                     message: String::new(),
-                    suggested_max_batch_items: 8,
+                    suggested_batch_size: 8,
                 };
                 if tx.send(Ok(event)).await.is_err() {
                     return; // caller dropped the stream

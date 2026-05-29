@@ -10,6 +10,7 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolu
 use cymbal_resolution::app_context::AppContext;
 use cymbal_resolution::auth::InternalApiSecretInterceptor;
 use cymbal_resolution::config::Config;
+use cymbal_resolution::load_monitor::LoadMonitor;
 use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use envconfig::Envconfig;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
@@ -43,8 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let draining = Arc::new(AtomicBool::new(false));
     let drain_notice = Duration::from_millis(config.subscribe_tick_interval_ms).saturating_mul(2);
-    let _shutdown_handle =
-        spawn_shutdown_listener(shutdown_tx.clone(), draining.clone(), drain_notice);
+    let _shutdown_handle = spawn_shutdown_listener(
+        shutdown_tx.clone(),
+        draining.clone(),
+        app_context.load_monitor.clone(),
+        drain_notice,
+    );
     let metrics_handle =
         spawn_metrics_server(config.metrics_port, shutdown_rx.clone(), draining.clone());
 
@@ -53,8 +58,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         app_context.symbol_resolver.clone(),
         app_context.symbol_resolution_limiter.clone(),
         app_context.item_limiter.clone(),
+        app_context.load_monitor.clone(),
         app_context.service_instance_id.clone(),
-        config.max_item_concurrency as u32,
         service_config,
         draining,
     );
@@ -163,6 +168,7 @@ fn spawn_metrics_server(
 fn spawn_shutdown_listener(
     shutdown_tx: watch::Sender<bool>,
     draining: Arc<AtomicBool>,
+    load_monitor: LoadMonitor,
     drain_notice: Duration,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -172,6 +178,7 @@ fn spawn_shutdown_listener(
             "shutdown signal received, marking cymbal-resolution as draining",
         );
         draining.store(true, Ordering::Relaxed);
+        load_monitor.set_draining(true);
         tokio::time::sleep(drain_notice).await;
         tracing::info!("drain notice elapsed, stopping cymbal-resolution");
         let _ignored = shutdown_tx.send(true);

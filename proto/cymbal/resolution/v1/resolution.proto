@@ -167,20 +167,13 @@ message LoadEvent {
   // True when the pod is preparing to shut down. Routers should stop sending
   // new work; in-flight requests are still served.
   bool draining = 3;
-  // Number of symbol-resolution slots currently in use. Always paired with
-  // max_in_flight so callers can compute a load ratio without knowing the
-  // pod's configured ceiling out of band.
-  uint32 in_flight = 4;
-  // Maximum number of symbol-resolution slots the pod is willing to hold
-  // concurrently. Effectively the denominator for load ratio.
-  uint32 max_in_flight = 5;
   // Monotonic per-subscription sequence assigned by the server, starting at 1
   // for the first tick of each Subscribe stream. Lets callers detect a
   // reconnected stream that restarted counting.
-  uint64 sequence = 6;
+  uint64 sequence = 4;
   // Optional short human-readable note (e.g. "warming up"). Not interpreted
   // by the router; safe to leave empty.
-  string message = 7;
+  string message = 5;
   // Suggested maximum number of items the server wants to receive in one
   // `Resolve` request right now. The client uses this to size per-team
   // chunks before routing. `0` means "no suggestion — use the client's
@@ -188,7 +181,7 @@ message LoadEvent {
   // event arrives. Typically tracks the server's item-admission capacity
   // (`MAX_ITEM_CONCURRENCY`) but the server is free to lower it under
   // pressure to ask callers to shrink batches.
-  uint32 suggested_max_batch_items = 8;
+  uint32 suggested_batch_size = 6;
 }
 
 // BatchSummary is the terminal reconciliation record for the stream. Counts are

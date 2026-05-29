@@ -32,8 +32,6 @@ use super::client::with_internal_api_secret;
 /// per endpoint and refreshed by the subscription task.
 #[derive(Clone, Debug)]
 pub struct LoadSnapshot {
-    pub in_flight: u32,
-    pub max_in_flight: u32,
     pub degraded: bool,
     pub draining: bool,
     /// Local wall-clock at which this snapshot was received. Used by the pool
@@ -44,17 +42,10 @@ pub struct LoadSnapshot {
     pub sequence: u64,
     /// Server's current suggested max items per `Resolve` request. `0` means
     /// the server has no opinion; the client falls back to its own ceiling.
-    pub suggested_max_batch_items: u32,
+    pub suggested_batch_size: u32,
 }
 
 impl LoadSnapshot {
-    pub fn load_ratio(&self) -> f64 {
-        if self.max_in_flight == 0 {
-            return 0.0;
-        }
-        f64::from(self.in_flight) / f64::from(self.max_in_flight)
-    }
-
     pub fn is_fresh(&self, now: Instant, stale_after: Duration) -> bool {
         now.duration_since(self.observed_at) < stale_after
     }
@@ -226,13 +217,11 @@ fn jitter_for(backoff: Duration) -> Duration {
 
 fn snapshot_from_event(event: LoadEvent) -> LoadSnapshot {
     LoadSnapshot {
-        in_flight: event.in_flight,
-        max_in_flight: event.max_in_flight,
         degraded: event.degraded,
         draining: event.draining,
         observed_at: Instant::now(),
         sequence: event.sequence,
-        suggested_max_batch_items: event.suggested_max_batch_items,
+        suggested_batch_size: event.suggested_batch_size,
     }
 }
 
@@ -241,44 +230,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn load_ratio_is_zero_when_max_is_zero() {
-        let snap = LoadSnapshot {
-            in_flight: 4,
-            max_in_flight: 0,
-            degraded: false,
-            draining: false,
-            observed_at: Instant::now(),
-            sequence: 1,
-            suggested_max_batch_items: 0,
-        };
-        assert_eq!(snap.load_ratio(), 0.0);
-    }
-
-    #[test]
-    fn load_ratio_reports_normalized_load() {
-        let snap = LoadSnapshot {
-            in_flight: 8,
-            max_in_flight: 16,
-            degraded: false,
-            draining: false,
-            observed_at: Instant::now(),
-            sequence: 1,
-            suggested_max_batch_items: 0,
-        };
-        assert!((snap.load_ratio() - 0.5).abs() < f64::EPSILON);
-    }
-
-    #[test]
     fn freshness_window_distinguishes_recent_and_old_snapshots() {
         let now = Instant::now();
         let snap = LoadSnapshot {
-            in_flight: 0,
-            max_in_flight: 1,
             degraded: false,
             draining: false,
             observed_at: now - Duration::from_secs(10),
             sequence: 1,
-            suggested_max_batch_items: 0,
+            suggested_batch_size: 0,
         };
         assert!(!snap.is_fresh(now, Duration::from_secs(1)));
         assert!(snap.is_fresh(now, Duration::from_secs(30)));

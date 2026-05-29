@@ -327,7 +327,7 @@ async fn resolve_remote_events(
     // batches when it's pressured without needing a config redeploy. If no
     // pod has a usable suggestion (cold start, all stale), fall back to
     // the client config alone.
-    let server_suggestion = ctx.pool.min_suggested_max_items().await;
+    let server_suggestion = ctx.pool.min_suggested_batch_size().await;
     let effective_max_items = match server_suggestion {
         Some(suggested) => (suggested as usize).min(ctx.config.max_batch_items),
         None => ctx.config.max_batch_items,

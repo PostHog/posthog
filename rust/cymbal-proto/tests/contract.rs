@@ -180,7 +180,7 @@ fn subscribe_request_round_trips_caller_hint_and_identity() {
 }
 
 #[test]
-fn load_event_carries_routing_relevant_load_state_with_sequence() {
+fn load_event_carries_routing_relevant_state_with_sequence() {
     // LoadEvent is what the endpoint pool reads. Every routing decision flows
     // through these fields, so the test pins the shape end-to-end including
     // the sequence so a reconnected stream can be detected by callers.
@@ -188,19 +188,15 @@ fn load_event_carries_routing_relevant_load_state_with_sequence() {
         service_instance_id: "resolver-a".to_string(),
         degraded: false,
         draining: false,
-        in_flight: 12,
-        max_in_flight: 64,
         sequence: 7,
         message: "ok".to_string(),
-        suggested_max_batch_items: 48,
+        suggested_batch_size: 48,
     };
 
     let decoded = LoadEvent::decode(event.encode_to_vec().as_slice()).unwrap();
     assert_eq!(decoded.service_instance_id, "resolver-a");
-    assert_eq!(decoded.in_flight, 12);
-    assert_eq!(decoded.max_in_flight, 64);
     assert_eq!(decoded.sequence, 7);
-    assert_eq!(decoded.suggested_max_batch_items, 48);
+    assert_eq!(decoded.suggested_batch_size, 48);
     assert!(!decoded.degraded);
     assert!(!decoded.draining);
 }

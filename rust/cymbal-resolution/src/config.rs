@@ -41,12 +41,13 @@ pub struct Config {
     #[envconfig(from = "MAX_ITEM_CONCURRENCY", default = "64")]
     pub max_item_concurrency: usize,
 
-    /// Server self-marks `LoadEvent.degraded` once the item semaphore's
-    /// in-flight ratio crosses this value, so callers can route away
-    /// preemptively before the gRPC admission queue load-sheds with
-    /// `UNAVAILABLE`. Values are clamped to `(0.0, 1.0]` at use sites.
-    #[envconfig(from = "DEGRADED_LOAD_RATIO", default = "0.8")]
-    pub degraded_load_ratio: f64,
+    /// Absolute in-flight item count at which the server self-marks
+    /// `LoadEvent.degraded`, so callers route away preemptively before the
+    /// gRPC admission queue load-sheds with `UNAVAILABLE`. Independent of
+    /// `MAX_ITEM_CONCURRENCY` (which bounds concurrency); set it relative to
+    /// that cap to leave spillover headroom. `0` disables the signal.
+    #[envconfig(from = "DEGRADED_IN_FLIGHT_THRESHOLD", default = "64")]
+    pub degraded_in_flight_threshold: u32,
 
     /// Service instance identifier surfaced to callers via `LoadEvent` on
     /// the Subscribe stream. Defaults to a random uuid generated at boot

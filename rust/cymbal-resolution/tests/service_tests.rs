@@ -17,6 +17,8 @@ use cymbal_proto::cymbal::resolution::v1::{
     item_outcome, outcome, ExceptionResolution, ExceptionResolutionItem, Outcome, ResolveRequest,
     SubscribeRequest,
 };
+use cymbal_resolution::item_limiter::ItemLimiter;
+use cymbal_resolution::load_monitor::LoadMonitor;
 use cymbal_resolution::service::{codes, CymbalResolutionService, ServiceConfig};
 use futures::StreamExt;
 use tokio::sync::Semaphore;
@@ -67,8 +69,6 @@ fn fast_service_config() -> ServiceConfig {
         default_tick_interval: Duration::from_millis(20),
         min_tick_interval: Duration::from_millis(1),
         max_tick_interval: Duration::from_secs(1),
-        // Never flip degraded in tests that don't exercise the load signal.
-        degraded_load_ratio: f64::INFINITY,
     }
 }
 
@@ -76,7 +76,7 @@ fn make_service(resolver: FakeResolver) -> CymbalResolutionService {
     let limiter = Arc::new(Semaphore::new(4));
     // Keep item_limiter size in lockstep with max_in_flight so reported
     // load matches actual permits available — Subscribe tests rely on this.
-    let item_limiter = Arc::new(Semaphore::new(4));
+    let item_limiter = ItemLimiter::new(4);
     make_service_with_config(
         Arc::new(resolver),
         limiter,
@@ -89,19 +89,27 @@ fn make_service(resolver: FakeResolver) -> CymbalResolutionService {
 fn make_service_with_config(
     resolver: Arc<dyn SymbolResolver>,
     limiter: Arc<Semaphore>,
-    item_limiter: Arc<Semaphore>,
+    item_limiter: ItemLimiter,
     max_in_flight: u32,
     service_config: ServiceConfig,
 ) -> CymbalResolutionService {
+    // Degraded signal disabled (threshold 0); these tests don't exercise it.
+    let load_monitor = load_monitor_for_test(0);
+    load_monitor
+        .set_in_flight(max_in_flight.saturating_sub(item_limiter.available_permits() as u32));
     CymbalResolutionService::new(
         resolver,
         limiter,
         item_limiter,
+        load_monitor,
         "test-instance",
-        max_in_flight,
         service_config,
         Arc::new(AtomicBool::new(false)),
     )
+}
+
+fn load_monitor_for_test(degraded_threshold: u32) -> LoadMonitor {
+    LoadMonitor::new(degraded_threshold)
 }
 
 struct SlowResolver {
@@ -461,7 +469,7 @@ async fn large_mixed_batch_accounts_done_error_and_retry_items() {
     let service = make_service_with_config(
         Arc::new(FakeResolver::default()),
         limiter,
-        Arc::new(Semaphore::new(128)),
+        ItemLimiter::new(128),
         1,
         fast_service_config(),
     );
@@ -544,7 +552,7 @@ async fn per_request_item_concurrency_bounds_slow_resolution_work() {
         Arc::new(Semaphore::new(32)),
         // Global item cap of 2 — the new semaphore-based equivalent of the
         // retired `ServiceConfig.item_concurrency`.
-        Arc::new(Semaphore::new(2)),
+        ItemLimiter::new(2),
         32,
         fast_service_config(),
     );
@@ -577,6 +585,58 @@ async fn per_request_item_concurrency_bounds_slow_resolution_work() {
 }
 
 #[tokio::test]
+async fn in_flight_counts_items_as_soon_as_they_arrive() {
+    let item_limiter = ItemLimiter::new(1);
+    let _held = item_limiter.acquire_owned().await.unwrap();
+    let load_monitor = load_monitor_for_test(0);
+    let service = CymbalResolutionService::new(
+        Arc::new(FakeResolver::default()),
+        Arc::new(Semaphore::new(32)),
+        item_limiter,
+        load_monitor.clone(),
+        "arrival-load-test",
+        fast_service_config(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let exc = raw_exception("RuntimeError");
+    let items: Vec<ExceptionResolutionItem> = (0..3)
+        .map(|i| make_item(&format!("evt:{i}"), i, &exc))
+        .collect();
+
+    let response = service
+        .resolve(Request::new(ResolveRequest {
+            batch_id: "batch-arrival-load".to_string(),
+            items,
+        }))
+        .await
+        .expect("resolve returns response");
+    let stream = response.into_inner();
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if load_monitor.snapshot().in_flight == 3 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("all arrived items should be counted before item permits are available");
+
+    drop(stream);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if load_monitor.snapshot().in_flight == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("dropping the response stream should release arrived item load");
+}
+
+#[tokio::test]
 async fn dropping_resolve_stream_stops_scheduling_additional_items() {
     let active = Arc::new(AtomicUsize::new(0));
     let max_active = Arc::new(AtomicUsize::new(0));
@@ -590,7 +650,7 @@ async fn dropping_resolve_stream_stops_scheduling_additional_items() {
             started: started.clone(),
         }),
         Arc::new(Semaphore::new(32)),
-        Arc::new(Semaphore::new(2)),
+        ItemLimiter::new(2),
         32,
         fast_service_config(),
     );
@@ -632,7 +692,7 @@ async fn summary_accounting_is_correct_when_item_outcomes_are_out_of_order() {
             started,
         }),
         Arc::new(Semaphore::new(8)),
-        Arc::new(Semaphore::new(2)),
+        ItemLimiter::new(2),
         8,
         fast_service_config(),
     );
@@ -687,7 +747,7 @@ async fn closed_symbol_limiter_returns_fast_retryable_failures_for_large_batches
     let service = make_service_with_config(
         Arc::new(FakeResolver::default()),
         limiter,
-        Arc::new(Semaphore::new(8)),
+        ItemLimiter::new(8),
         1,
         fast_service_config(),
     );
@@ -818,9 +878,9 @@ async fn limiter_overload_classifies_as_overloaded_retry_outcome_per_item() {
     let service = CymbalResolutionService::new(
         Arc::new(FakeResolver::default()),
         limiter,
-        Arc::new(Semaphore::new(8)),
+        ItemLimiter::new(8),
+        load_monitor_for_test(0),
         "overload-test",
-        1,
         fast_service_config(),
         Arc::new(AtomicBool::new(false)),
     );
@@ -948,9 +1008,9 @@ async fn no_item_payload_is_sent_more_than_once_on_the_resolve_stream() {
     let service = CymbalResolutionService::new(
         Arc::new(FakeResolver::default()),
         limiter,
-        Arc::new(Semaphore::new(8)),
+        ItemLimiter::new(8),
+        load_monitor_for_test(0),
         "no-dup-test",
-        2,
         fast_service_config(),
         Arc::new(AtomicBool::new(false)),
     );
@@ -1099,8 +1159,6 @@ async fn subscribe_emits_periodic_load_events_with_monotonic_sequence() {
     assert_eq!(events[0].sequence, 1);
     assert_eq!(events[1].sequence, 2);
     assert_eq!(events[2].sequence, 3);
-    assert_eq!(events[0].max_in_flight, 4);
-    assert_eq!(events[0].in_flight, 0);
     assert!(!events[0].degraded);
     assert!(!events[0].draining);
     assert_eq!(events[0].service_instance_id, "test-instance");
@@ -1115,9 +1173,9 @@ async fn subscribe_reflects_draining_state() {
     let service = CymbalResolutionService::new(
         Arc::new(FakeResolver::default()),
         Arc::new(Semaphore::new(4)),
-        Arc::new(Semaphore::new(4)),
+        ItemLimiter::new(4),
+        load_monitor_for_test(0),
         "draining-test",
-        4,
         fast_service_config(),
         draining,
     );
@@ -1135,20 +1193,19 @@ async fn subscribe_reflects_draining_state() {
 }
 
 #[tokio::test]
-async fn subscribe_reflects_in_flight_load_against_max() {
-    // Hold a permit on the item limiter to push reported in_flight up; the
-    // tick after that must see in_flight=1 against max_in_flight=4. The pool
-    // routes against this item-admission signal, not symbol-store pressure.
+async fn subscribe_emits_load_event_from_monitor_snapshot() {
     let symbol_limiter = Arc::new(Semaphore::new(4));
-    let item_limiter = Arc::new(Semaphore::new(4));
-    let _held = item_limiter.clone().acquire_owned().await.unwrap();
+    let item_limiter = ItemLimiter::new(4);
+    let _held = item_limiter.acquire_owned().await.unwrap();
+    let load_monitor = load_monitor_for_test(0);
+    load_monitor.set_in_flight(1);
 
     let service = CymbalResolutionService::new(
         Arc::new(FakeResolver::default()),
         symbol_limiter,
         item_limiter,
+        load_monitor,
         "load-test",
-        4,
         fast_service_config(),
         Arc::new(AtomicBool::new(false)),
     );
@@ -1162,33 +1219,34 @@ async fn subscribe_reflects_in_flight_load_against_max() {
     let mut stream = response.into_inner();
 
     let event = stream.next().await.expect("stream open").expect("event ok");
-    assert_eq!(event.in_flight, 1);
-    assert_eq!(event.max_in_flight, 4);
+    assert!(!event.degraded);
+    assert!(!event.draining);
 }
 
 #[tokio::test]
 async fn subscribe_flips_degraded_when_in_flight_crosses_threshold() {
     // Spillover relies on the server marking itself degraded before the
-    // gRPC admission queue load-sheds. Hold 3 of 4 item permits to push the
-    // ratio to 0.75 (below 0.8 default), then hold 4 of 4 (ratio 1.0) and
-    // confirm the next tick reflects the flip.
+    // gRPC admission queue load-sheds. Hold 3 of 4 item permits (in-flight 3,
+    // below the threshold of 4), then hold 4 of 4 (in-flight 4) and confirm
+    // the next tick reflects the flip.
     let symbol_limiter = Arc::new(Semaphore::new(8));
-    let item_limiter = Arc::new(Semaphore::new(4));
+    let item_limiter = ItemLimiter::new(4);
     let mut held: Vec<_> = (0..3)
-        .map(|_| item_limiter.clone().try_acquire_owned().unwrap())
+        .map(|_| item_limiter.try_acquire_owned().unwrap())
         .collect();
+    let load_monitor = load_monitor_for_test(4);
+    load_monitor.set_in_flight(3);
 
     let service = CymbalResolutionService::new(
         Arc::new(FakeResolver::default()),
         symbol_limiter,
         item_limiter.clone(),
+        load_monitor.clone(),
         "degraded-test",
-        4,
         ServiceConfig {
             default_tick_interval: Duration::from_millis(20),
             min_tick_interval: Duration::from_millis(5),
             max_tick_interval: Duration::from_secs(1),
-            degraded_load_ratio: 0.8,
         },
         Arc::new(AtomicBool::new(false)),
     );
@@ -1203,29 +1261,28 @@ async fn subscribe_flips_degraded_when_in_flight_crosses_threshold() {
     let mut stream = response.into_inner();
 
     let first = stream.next().await.expect("first tick").expect("event ok");
-    assert_eq!(first.in_flight, 3);
-    assert_eq!(first.max_in_flight, 4);
     assert!(
         !first.degraded,
-        "ratio 0.75 is below threshold 0.8; expected not-degraded",
+        "in-flight 3 is below threshold 4; expected not-degraded",
     );
 
-    // Push one more permit so the ratio hits 1.0 and degraded must flip.
+    // Push one more permit so in-flight reaches the threshold and degraded must flip.
     held.push(item_limiter.try_acquire_owned().unwrap());
+    load_monitor.set_in_flight(4);
 
     // Drain ticks until we see the flip or give up — the ticker is fast but
     // we may still observe the in-flight bump on the very next event.
     let mut saw_degraded = false;
     for _ in 0..5 {
         let event = stream.next().await.expect("stream open").expect("event ok");
-        if event.in_flight == 4 && event.degraded {
+        if event.degraded {
             saw_degraded = true;
             break;
         }
     }
     assert!(
         saw_degraded,
-        "expected to observe degraded=true after pushing in_flight to max_in_flight",
+        "expected to observe degraded=true after pushing load past threshold",
     );
     drop(held);
 }
