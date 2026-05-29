@@ -80,6 +80,13 @@ impl Stage1State {
 /// The persisted `cf_stage1` value: a [`Stage1State`] plus the source `(partition, offset)` of the
 /// last event folded into it (TDD §4.1.1). The source coordinates make non-idempotent folds
 /// replay-safe via [`crate::partitions::offset_tracker::is_replay`].
+///
+/// TODO(PR 2.1): this single `(partition, offset)` pair only dedups replays within one source
+/// partition. The shuffler re-keys by `hash(team_id, person_id)`, so one person's events can span
+/// multiple source partitions; a replay from a *different* source partition than the one stored
+/// here is re-applied (`is_replay` returns false). Harmless for M1's idempotent folds (`has_match`
+/// OR, event-time argMax), but PR 2.1's non-idempotent `buckets[i] += 1` needs a
+/// per-source-partition last-applied map (or a dedicated CF). See TDD §10 L11.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatefulRecord {
     pub state: Stage1State,

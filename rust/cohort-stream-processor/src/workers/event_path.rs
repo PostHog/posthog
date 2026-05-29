@@ -424,13 +424,17 @@ fn mutate_behavioral(
     }
 
     let predicate_before = prev.is_some_and(|record| predicate(&record.state));
+    let last_event_at_ms = prev_last_event.max(event_ms);
     let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
-    let earliest_eviction_at_ms = window.map_or(i64::MAX, |w| w.earliest_eviction_at_ms(event_ms));
+    // The deadline tracks the newest matching event; a late (out-of-order) event must not pull it
+    // earlier than `last_event_at_ms + window`.
+    let earliest_eviction_at_ms =
+        window.map_or(i64::MAX, |w| w.earliest_eviction_at_ms(last_event_at_ms));
 
     let record = StatefulRecord {
         state: Stage1State::BehavioralSingle {
             has_match: true,
-            last_event_at_ms: prev_last_event.max(event_ms),
+            last_event_at_ms,
             earliest_eviction_at_ms,
         },
         last_applied_partition: event.source_partition,

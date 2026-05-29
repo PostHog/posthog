@@ -111,6 +111,11 @@ impl OffsetTracker {
 /// below any real offset; either way the function's "different partition ⇒ apply, lower-or-equal
 /// same-partition offset ⇒ skip" rule does the right thing.
 ///
+/// TODO(PR 2.1): because this dedups only within one source partition and `StatefulRecord` stores a
+/// single last-applied pair, a person whose events span multiple source partitions (the shuffler
+/// re-keys by person) is not fully replay-deduped across partitions. Idempotent in M1; PR 2.1's
+/// bucket increments are not — see [`crate::stage1::state::StatefulRecord`] and TDD §10 L11.
+///
 /// [src_p]: crate::consumers::events::CohortStreamEvent::source_partition
 /// [src_o]: crate::consumers::events::CohortStreamEvent::source_offset
 pub fn is_replay(

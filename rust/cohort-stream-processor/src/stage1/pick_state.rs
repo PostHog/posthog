@@ -72,13 +72,18 @@ pub enum EvictionWindow {
 }
 
 impl EvictionWindow {
-    /// The earliest epoch-ms at which state seeded by an event at `event_ms` may be evicted.
+    /// The earliest epoch-ms at which state seeded by the newest matching event (at
+    /// `newest_event_ms`) may be evicted.
     ///
-    /// For a relative window this is `event_ms + seconds`; for an explicit window it is the fixed
-    /// end instant, or [`i64::MAX`] ("never") when that instant is absent/unparseable.
-    pub fn earliest_eviction_at_ms(self, event_ms: i64) -> i64 {
+    /// For a relative window this is `newest_event_ms + seconds`; for an explicit window it is the
+    /// fixed end instant, or [`i64::MAX`] ("never") when that instant is absent/unparseable. Pass
+    /// the *newest* matching event time so a late (out-of-order) event cannot pull the deadline
+    /// earlier.
+    pub fn earliest_eviction_at_ms(self, newest_event_ms: i64) -> i64 {
         match self {
-            Self::Relative { seconds } => event_ms.saturating_add(seconds.saturating_mul(1_000)),
+            Self::Relative { seconds } => {
+                newest_event_ms.saturating_add(seconds.saturating_mul(1_000))
+            }
             Self::Explicit { to_ms } => to_ms.unwrap_or(i64::MAX),
         }
     }

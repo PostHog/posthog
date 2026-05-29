@@ -30,8 +30,8 @@
 //!
 //! Node parses `properties` / `person_properties` with `JSON.parse`, which throws on malformed
 //! input; the throw is caught per-message (`consumer.ts:200`) and the *whole event* is skipped —
-//! no filter runs. The builders mirror this: a `Some` payload that fails to parse returns
-//! [`GlobalsError`] (and increments `stage1_globals_parse_error_total{field}`) so the Stage 1
+//! no filter runs. The builders mirror this: a present, non-empty payload that fails to parse
+//! returns [`GlobalsError`] (and increments `stage1_globals_parse_error_total{field}`) so the Stage 1
 //! caller (PR 1.6) skips the event, rather than silently substituting an empty object.
 
 use chrono::{DateTime, NaiveDateTime};
@@ -54,8 +54,8 @@ pub struct GlobalsError {
 
 /// Build the full behavioral globals dict (Node's `convertClickhouseRawEventToFilterGlobals`).
 ///
-/// Returns [`GlobalsError`] if `properties` or `person_properties` is present but malformed, so
-/// the caller skips the event exactly as Node does.
+/// Returns [`GlobalsError`] if `properties` or `person_properties` is present, non-empty, but
+/// malformed, so the caller skips the event exactly as Node does.
 pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let properties = parse_optional_json(event.properties.as_deref(), "properties")?;
     let person_properties =
@@ -105,8 +105,8 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
 /// Build the small, strict person-property globals dict (Node's inline `personGlobals`).
 ///
 /// The Stage 1 caller (PR 1.6) invokes this only when `person_properties` is present and
-/// non-empty (Node's guard, `consumer.ts:251`); a `None` payload is handled defensively as an
-/// empty object. Node literally feeds `team_id` into `project.id` (`consumer.ts:260`) — matched
+/// non-empty (Node's guard, `consumer.ts:251`); a `None` or empty payload is handled defensively
+/// as an empty object. Node literally feeds `team_id` into `project.id` (`consumer.ts:260`) — matched
 /// here for byte parity, not because it is conceptually a project id.
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
@@ -118,11 +118,13 @@ pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value,
     }))
 }
 
-/// Parse a raw JSON payload: `None` → `{}` (Node's `event.x ? parseJSON(x) : {}`), `Some(valid)`
-/// → the parsed value passed through as-is (a non-object behaves identically to Node), and
-/// `Some(invalid)` → [`GlobalsError`] plus the parse-error counter.
+/// Parse a raw JSON payload, mirroring Node's `event.x ? parseJSON(x) : {}`: a missing (`None`) or
+/// empty-string payload is JS-falsy and is never parsed → `{}`; `Some(valid)` → the parsed value
+/// passed through as-is (a non-object behaves identically to Node); a present, non-empty payload
+/// that fails to parse → [`GlobalsError`] plus the parse-error counter.
 fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, GlobalsError> {
-    let Some(raw) = raw else {
+    // JS truthiness: an empty string is falsy, so Node never parses it (`x ? parseJSON(x) : {}`).
+    let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
     };
     serde_json::from_str(raw).map_err(|source| {
@@ -267,6 +269,40 @@ mod tests {
 
         let person_globals = build_person_property_globals(&e).unwrap();
         assert_eq!(person_globals["person"]["properties"], json!({}));
+    }
+
+    #[test]
+    fn empty_string_payload_parses_to_empty_object() {
+        // Node treats `""` as falsy → `{}` (`hog-function-filtering.ts:101,116`), not an error.
+        assert_eq!(
+            parse_optional_json(Some(""), "properties").unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_optional_json(Some(""), "person_properties").unwrap(),
+            json!({})
+        );
+    }
+
+    #[test]
+    fn behavioral_globals_treat_empty_string_payloads_as_empty_objects() {
+        let mut e = event();
+        e.properties = Some(String::new());
+        e.person_properties = Some(String::new());
+        let globals = build_behavioral_globals(&e).unwrap();
+        assert_eq!(globals["properties"], json!({}));
+        assert_eq!(globals["person"]["properties"], json!({}));
+        assert_eq!(globals["pdi"]["person"]["properties"], json!({}));
+    }
+
+    #[test]
+    fn person_globals_treat_empty_string_person_properties_as_empty_object() {
+        // In isolation the builder is Node-faithful for `""` (the worker guards this case out
+        // before calling, but the builder must not error if invoked directly).
+        let mut e = event();
+        e.person_properties = Some(String::new());
+        let globals = build_person_property_globals(&e).unwrap();
+        assert_eq!(globals["person"]["properties"], json!({}));
     }
 
     #[test]

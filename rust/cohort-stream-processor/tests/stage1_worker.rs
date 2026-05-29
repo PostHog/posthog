@@ -288,6 +288,51 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     assert_eq!(after_replay, advanced, "replay must not regress state");
 }
 
+// ── Late (out-of-order) behavioral event must not regress the eviction deadline ────
+
+#[test]
+fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    // The newest-by-event-time match arrives first (offset 10), at a LATER ts than BASE_TS.
+    let later_ts = "2026-05-27 12:34:56.789000";
+    let later_ms = clickhouse_timestamp_to_millis(later_ts).unwrap();
+    let newest = CohortStreamEvent {
+        timestamp: later_ts.to_string(),
+        ..event(alice, 1, 10)
+    };
+    let out = process_event(PARTITION_ID, &store, &filters, &newest).unwrap();
+    assert_eq!(out.skipped, None);
+    assert_eq!(out.transitions.len(), 1, "first match enters");
+    assert_eq!(
+        behavioral_deadline(&state_at(&store, lsk, alice).unwrap()),
+        later_ms + 7 * 86_400 * 1000,
+        "deadline seeded off the newest event",
+    );
+
+    // A late event (EARLIER ts, higher offset 11) is applied — not a replay — but must NOT pull the
+    // deadline earlier: it tracks the newest matching event, not this one.
+    let earlier_ts = "2026-05-25 12:34:56.789000";
+    let late = CohortStreamEvent {
+        timestamp: earlier_ts.to_string(),
+        ..event(alice, 1, 11)
+    };
+    let out = process_event(PARTITION_ID, &store, &filters, &late).unwrap();
+    assert_eq!(out.skipped, None);
+    assert!(
+        out.transitions.is_empty(),
+        "already a member → no transition"
+    );
+    assert_eq!(
+        behavioral_deadline(&state_at(&store, lsk, alice).unwrap()),
+        later_ms + 7 * 86_400 * 1000,
+        "a late lower-ts event must not regress the deadline below newest_ms + window",
+    );
+}
+
 // ── 10k synthetic events + replay idempotence ────────────────────────────────────
 
 #[test]
@@ -559,6 +604,49 @@ fn person_path_is_inactive_for_null_or_empty_person_properties() {
             "no person row written"
         );
     }
+}
+
+#[test]
+fn empty_person_properties_does_not_skip_a_behavioral_match() {
+    let (_dir, store) = temp_store();
+    // A team carrying BOTH a behavioral and a person leaf.
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf(7), person_leaf()]),
+    )]);
+    let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let alice = person(1);
+
+    // Empty-string person_properties is JS-falsy: Node parses the behavioral globals'
+    // person_properties as {} (not an error) and skips the person path entirely. Pre-fix this
+    // skipped the WHOLE event with GlobalsParseError, dropping the behavioral match.
+    let ev = CohortStreamEvent {
+        person_properties: Some(String::new()),
+        ..event(alice, 1, 0)
+    };
+    let out = process_event(PARTITION_ID, &store, &filters, &ev).unwrap();
+
+    assert_eq!(
+        out.skipped, None,
+        "empty person_properties is not a whole-event skip"
+    );
+    // The behavioral leaf matched on `event == "$pageview"` and entered.
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    assert_eq!(
+        transition_kind(&filters, &out.transitions[0]),
+        "behavioral_entered"
+    );
+    assert!(
+        state_at(&store, behavioral_lsk, alice).is_some(),
+        "behavioral row written"
+    );
+    // The person path stayed inactive (Node-parity guard) — no row, even though behavioral ran.
+    assert!(
+        state_at(&store, person_lsk, alice).is_none(),
+        "empty person_properties → person path inactive, no row",
+    );
 }
 
 #[test]
