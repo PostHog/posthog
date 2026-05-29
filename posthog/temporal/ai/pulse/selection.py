@@ -3,13 +3,18 @@
 v1 strategy: top-N popular insights and high-volume events. No LLM.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.db.models import Count, Q
 
-from posthog.models import Dashboard, DashboardTile, Insight, InsightViewed, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
+
+if TYPE_CHECKING:
+    from posthog.models import Insight, Team
 
 RECENT_DAYS = 30
 MIN_VIEWERS_FOR_RECENT_INSIGHT = 3
@@ -32,9 +37,7 @@ def _trends_query_from_insight(insight: Insight) -> dict | None:
 def _build_event_volume_query(event_name: str) -> dict:
     return {
         "kind": "TrendsQuery",
-        "series": [
-            {"kind": "EventsNode", "event": event_name, "name": event_name, "math": "total"}
-        ],
+        "series": [{"kind": "EventsNode", "event": event_name, "name": event_name, "math": "total"}],
         "dateRange": {"date_from": "-30d", "date_to": None},
         "interval": "day",
     }
@@ -56,6 +59,11 @@ def _insight_to_candidate(insight: Insight, source: str) -> CandidateMetric | No
 
 def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateMetric]:
     """Pick Trends insights on the team's most-pinned/visible dashboards."""
+    # Lazy import: importing these at module level triggers an app-init circular import,
+    # because the pulse package is eagerly preloaded via posthog.api before posthog.models
+    # has finished populating Dashboard/Insight. They resolve fine at activity-call time.
+    from posthog.models import Dashboard, DashboardTile
+
     dashboards = (
         Dashboard.objects.filter(team=team, deleted=False)
         .filter(Q(pinned=True) | Q(last_accessed_at__gte=datetime.now(UTC) - timedelta(days=RECENT_DAYS)))
@@ -79,10 +87,10 @@ def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateM
     return candidates
 
 
-def _select_recent_viewed_insight_candidates(
-    team: Team, limit: int, existing_ids: set[int]
-) -> list[CandidateMetric]:
+def _select_recent_viewed_insight_candidates(team: Team, limit: int, existing_ids: set[int]) -> list[CandidateMetric]:
     """Pick Trends insights recently viewed by multiple team members."""
+    from posthog.models import Insight, InsightViewed  # lazy: avoid app-init circular import
+
     since = datetime.now(UTC) - timedelta(days=RECENT_DAYS)
     viewed = (
         InsightViewed.objects.filter(team=team, last_viewed_at__gte=since)
@@ -110,9 +118,7 @@ def _select_top_event_candidates(team: Team, limit: int) -> list[CandidateMetric
 
     base_qs = EventDefinition.objects.filter(team=team).exclude(name__startswith="$")
     # Prefer events with computed 30-day usage stats.
-    events = list(
-        base_qs.exclude(query_usage_30_day__isnull=True).order_by("-query_usage_30_day")[:limit]
-    )
+    events = list(base_qs.exclude(query_usage_30_day__isnull=True).order_by("-query_usage_30_day")[:limit])
     if len(events) < limit:
         seen = {e.id for e in events}
         backfill = base_qs.exclude(id__in=seen).order_by("-last_seen_at")[: limit - len(events)]
@@ -133,6 +139,8 @@ def _select_top_event_candidates(team: Team, limit: int) -> list[CandidateMetric
 
 @database_sync_to_async
 def _select_sync(team_id: int, max_candidates: int) -> list[CandidateMetric]:
+    from posthog.models import Team  # lazy: avoid app-init circular import
+
     team = Team.objects.get(id=team_id)
     candidates = _select_dashboard_tile_candidates(team, TOP_DASHBOARD_LIMIT)
     seen_ids = {c.descriptor.source_id for c in candidates if isinstance(c.descriptor.source_id, int)}
