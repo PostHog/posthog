@@ -123,6 +123,30 @@ class TestCreateNotification(BaseTest):
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_pulse_digest_notification(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.PULSE_DIGEST,
+            title="Signups up 40% this week",
+            body="Signups rose from a baseline of 50 to 70.",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            priority=Priority.NORMAL,
+            source_type=SourceType.PULSE,
+            source_id="digest-123",
+            source_url="/pulse?digest=digest-123",
+        )
+        event = create_notification(data)
+
+        assert event is not None
+        assert event.notification_type == "pulse_digest"
+        assert event.priority == "normal"
+        assert event.source_type == "pulse"
+        assert event.source_url == "/pulse?digest=digest-123"
+        assert event.resolved_user_ids == [self.user.id]
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_without_source_type(self, mock_publish, mock_ff):
         data = NotificationData(
             team_id=self.team.id,
