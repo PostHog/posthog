@@ -25,12 +25,12 @@ describe('featureFlagTestingLogic', () => {
     })
 
     describe('condition analysis', () => {
-        it('correctly identifies matchedButNotWinner conditions', async () => {
+        it('labels a condition after the winner as not evaluated', async () => {
             const mockResult: Partial<FeatureFlagTestEvaluationResponseApi> = {
                 flag_key: 'test-flag',
                 result: true,
                 reason: 'condition_match',
-                condition_index: 1,
+                condition_index: 0,
                 payload: null,
                 person_properties: {},
                 evaluation_distinct_id: null,
@@ -38,21 +38,24 @@ describe('featureFlagTestingLogic', () => {
                     {
                         index: 0,
                         properties_matched: true,
-                        matched: false,
-                        rollout_excluded: false,
-                        explanation: 'Properties matched but condition was not winner',
-                        rollout_percentage: 100,
-                        variant: null,
-                        properties: [],
-                    },
-                    {
-                        index: 1,
-                        properties_matched: true,
                         matched: true,
                         rollout_excluded: false,
                         explanation: 'Condition matched and won',
                         rollout_percentage: 100,
                         variant: 'test-variant',
+                        properties: [],
+                    },
+                    {
+                        // Properties match but this condition was never reached — the winner above
+                        // already decided the result.
+                        index: 1,
+                        properties_matched: true,
+                        matched: false,
+                        rollout_excluded: false,
+                        explanation:
+                            'Condition 1 was not evaluated because an earlier condition already determined the result',
+                        rollout_percentage: 100,
+                        variant: null,
                         properties: [],
                     },
                     {
@@ -74,16 +77,7 @@ describe('featureFlagTestingLogic', () => {
                 enrichedConditions: [
                     expect.objectContaining({
                         index: 0,
-                        matchedButNotWinner: true, // properties_matched=true, not winner, not rollout_excluded
-                        isWinningCondition: false,
-                        display: {
-                            tone: 'info',
-                            label: 'PROPERTIES MATCHED',
-                        },
-                    }),
-                    expect.objectContaining({
-                        index: 1,
-                        matchedButNotWinner: false, // is the winner
+                        notEvaluated: false,
                         isWinningCondition: true,
                         display: {
                             tone: 'success',
@@ -91,8 +85,17 @@ describe('featureFlagTestingLogic', () => {
                         },
                     }),
                     expect.objectContaining({
+                        index: 1,
+                        notEvaluated: true, // properties_matched=true, not winner, not rollout_excluded
+                        isWinningCondition: false,
+                        display: {
+                            tone: 'muted',
+                            label: 'NOT EVALUATED',
+                        },
+                    }),
+                    expect.objectContaining({
                         index: 2,
-                        matchedButNotWinner: false, // properties_matched=false
+                        notEvaluated: false, // properties_matched=false
                         isWinningCondition: false,
                         display: {
                             tone: 'muted',
@@ -132,11 +135,70 @@ describe('featureFlagTestingLogic', () => {
                 enrichedConditions: [
                     expect.objectContaining({
                         index: 0,
-                        matchedButNotWinner: false, // rollout_excluded=true
+                        notEvaluated: false, // rollout_excluded=true
                         isWinningCondition: false,
                         display: {
                             tone: 'warning',
                             label: 'EXCLUDED FROM ROLLOUT',
+                        },
+                    }),
+                ],
+            })
+        })
+
+        it('does not mark a condition after a rollout-excluded one as not evaluated', async () => {
+            // Without early exit, evaluation continues past a rollout-excluded condition, so a
+            // later non-matching condition must read as "did not match", not "not evaluated".
+            const mockResult: Partial<FeatureFlagTestEvaluationResponseApi> = {
+                flag_key: 'test-flag',
+                result: false,
+                reason: 'out_of_rollout_bound',
+                condition_index: 0,
+                payload: null,
+                person_properties: {},
+                evaluation_distinct_id: null,
+                conditions: [
+                    {
+                        index: 0,
+                        properties_matched: true,
+                        matched: false,
+                        rollout_excluded: true,
+                        explanation: 'Condition 0 matched properties but the user is not in the 50% rollout',
+                        rollout_percentage: 50,
+                        variant: null,
+                        properties: [],
+                    },
+                    {
+                        index: 1,
+                        properties_matched: false,
+                        matched: false,
+                        rollout_excluded: false,
+                        explanation: "Condition 1 did not match the user's properties",
+                        rollout_percentage: 100,
+                        variant: null,
+                        properties: [],
+                    },
+                ],
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.testFlagEvaluationSuccess(mockResult as FeatureFlagTestEvaluationResponseApi)
+            }).toMatchValues({
+                enrichedConditions: [
+                    expect.objectContaining({
+                        index: 0,
+                        notEvaluated: false,
+                        display: {
+                            tone: 'warning',
+                            label: 'EXCLUDED FROM ROLLOUT',
+                        },
+                    }),
+                    expect.objectContaining({
+                        index: 1,
+                        notEvaluated: false,
+                        display: {
+                            tone: 'muted',
+                            label: null,
                         },
                     }),
                 ],

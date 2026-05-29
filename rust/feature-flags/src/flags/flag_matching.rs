@@ -1,5 +1,8 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
+use crate::api::types::{
+    build_property_analysis, ConditionAnalysis, FlagDetails, FlagValue, FlagsResponse,
+    FromFeatureAndMatch, PropertyAnalysis,
+};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -271,6 +274,88 @@ impl PropertyContext<'_> {
             },
         }
     }
+}
+
+/// Converts an evaluated flag value to JSON for display in dependent-flag analysis.
+fn flag_value_to_json(value: &FlagValue) -> Value {
+    match value {
+        FlagValue::Boolean(b) => Value::Bool(*b),
+        FlagValue::String(s) => Value::String(s.clone()),
+    }
+}
+
+/// Facts gathered about a single condition during test-evaluation analysis, kept
+/// separate from how they were computed so the labeling logic below is pure and testable.
+struct ConditionFacts {
+    index: usize,
+    rollout_percentage: f64,
+    variant: Option<String>,
+    properties: Vec<PropertyAnalysis>,
+    all_properties_matched: bool,
+    rollout_passed: bool,
+}
+
+/// Turns gathered per-condition facts into the API analysis, deciding each condition's
+/// match/exclusion state and explanation.
+///
+/// - `winning_index`: the condition that produced a positive flag match, if any.
+/// - `cutoff_index`: the last condition live evaluation reached. Conditions after it were
+///   never evaluated (an earlier condition won, or `early_exit` short-circuited). A
+///   condition that only matched properties but failed a partial rollout is NOT a cutoff
+///   unless `early_exit` is set — later conditions are still evaluated — which is why the
+///   caller leaves `cutoff_index` unset in that case.
+fn assemble_condition_analyses(
+    facts: Vec<ConditionFacts>,
+    winning_index: Option<usize>,
+    cutoff_index: Option<usize>,
+) -> Vec<ConditionAnalysis> {
+    facts
+        .into_iter()
+        .map(|fact| {
+            let matched = winning_index == Some(fact.index);
+            let not_evaluated = cutoff_index.is_some_and(|cutoff| fact.index > cutoff);
+            let rollout_excluded = fact.all_properties_matched
+                && !fact.rollout_passed
+                && !matched
+                && !not_evaluated;
+
+            let rollout = fact.rollout_percentage;
+            let explanation = if not_evaluated {
+                format!(
+                    "Condition {} was not evaluated because an earlier condition already determined the result",
+                    fact.index
+                )
+            } else if matched {
+                format!(
+                    "Condition {} matched and the user is in the {}% rollout",
+                    fact.index, rollout
+                )
+            } else if !fact.all_properties_matched {
+                format!("Condition {} did not match the user's properties", fact.index)
+            } else if rollout_excluded {
+                format!(
+                    "Condition {} matched properties but the user is not in the {}% rollout",
+                    fact.index, rollout
+                )
+            } else {
+                format!(
+                    "Condition {} matched properties and rollout but an earlier condition was selected",
+                    fact.index
+                )
+            };
+
+            ConditionAnalysis {
+                index: fact.index as i32,
+                properties: fact.properties,
+                rollout_percentage: rollout,
+                variant: fact.variant,
+                matched,
+                properties_matched: fact.all_properties_matched,
+                rollout_excluded,
+                explanation,
+            }
+        })
+        .collect()
 }
 
 /// Evaluates feature flags for a specific user/group context.
@@ -960,6 +1045,9 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
+                        hash_key_overrides,
+                        request_hash_key_override,
                     );
                 });
             }
@@ -982,6 +1070,9 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
+                        hash_key_overrides,
+                        request_hash_key_override,
                     );
                 }
             }
@@ -1003,6 +1094,7 @@ impl FeatureFlagMatcher {
 
     /// Process a single flag evaluation result: update evaluation state, record metrics, and
     /// insert into the level map.
+    #[allow(clippy::too_many_arguments)]
     fn process_flag_result(
         &mut self,
         flag: &FeatureFlag,
@@ -1010,22 +1102,24 @@ impl FeatureFlagMatcher {
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
         person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) {
         match result {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
                 let flag_details = if self.detailed_analysis {
-                    // Use merged person properties (DB + overrides) for condition analysis
-                    let merged_person_props = self
-                        .get_person_properties(person_property_overrides.as_ref())
-                        .ok();
-                    FlagDetails::create_with_analysis(
+                    let conditions = self.build_condition_analyses(
                         flag,
                         flag_match,
-                        true,
-                        merged_person_props.as_ref(),
-                    )
+                        person_property_overrides,
+                        group_property_overrides,
+                        hash_key_overrides.as_ref(),
+                        request_hash_key_override,
+                    );
+                    FlagDetails::create_with_analysis(flag, flag_match, Some(conditions))
                 } else {
                     FlagDetails::create(flag, flag_match)
                 };
@@ -1519,6 +1613,148 @@ impl FeatureFlagMatcher {
         } else {
             (current_match, current_index)
         }
+    }
+
+    /// Builds a full per-condition analysis for the test-evaluation endpoint.
+    ///
+    /// Unlike live matching, this evaluates *every* condition (and every filter within
+    /// it) without short-circuiting, so the UI can explain each one. Each filter is
+    /// routed to the correct evaluator — person/group properties, cohort membership, or
+    /// another flag's result — which is what makes flag-dependency conditions report
+    /// correctly. Rollout is computed per condition with the same hashing as live
+    /// evaluation, so a user excluded by a partial rollout is reported accurately rather
+    /// than inferred from the aggregate result.
+    ///
+    /// Best-effort: a property lookup that errors degrades to "not matched" rather than
+    /// failing the request.
+    fn build_condition_analyses(
+        &self,
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: Option<&HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Vec<ConditionAnalysis> {
+        let person_properties = self
+            .get_person_properties(person_property_overrides.as_ref())
+            .ok();
+        let cohorts = self.flag_evaluation_state.cohorts.clone();
+
+        // The condition that determined a positive match, if any.
+        let winning_index = if flag_match.matches {
+            flag_match.condition_index
+        } else {
+            None
+        };
+        // The last condition live evaluation actually reached. Conditions after it were
+        // never evaluated — either an earlier condition won, or `early_exit`
+        // short-circuited on a condition that matched properties but excluded the user by
+        // rollout. Without early exit, a rollout-excluded condition does NOT stop later
+        // conditions, so the cutoff stays unset in that case.
+        let early_exit_enabled = flag.filters.early_exit.unwrap_or(false);
+        let early_exit_triggered = early_exit_enabled
+            && !flag_match.matches
+            && flag_match.reason == FeatureFlagMatchReason::OutOfRolloutBound;
+        let cutoff_index = if flag_match.matches || early_exit_triggered {
+            flag_match.condition_index
+        } else {
+            None
+        };
+
+        let mut facts = Vec::new();
+        for (index, condition) in flag.get_conditions().iter().enumerate() {
+            let aggregation = condition.effective_aggregation(flag.get_group_type_index());
+
+            // Load whatever group properties this condition's filters reference.
+            let (_needs_person, needed_group_types) =
+                Self::condition_property_type_needs(condition, aggregation);
+            let mut group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>> =
+                HashMap::new();
+            for gti in needed_group_types {
+                let overrides =
+                    self.resolve_group_overrides(gti, group_property_overrides.as_ref());
+                if let Ok(props) = self.get_group_properties(gti, overrides) {
+                    group_properties.insert(gti, props);
+                }
+            }
+
+            let property_context = PropertyContext {
+                person_properties: person_properties.as_ref(),
+                group_properties: &group_properties,
+                aggregation,
+            };
+
+            let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
+            let mut property_analyses = Vec::new();
+            let mut all_properties_matched = true;
+
+            if let Some(filters) = &condition.properties {
+                for filter in filters {
+                    let (matched, actual_value) = if filter.depends_on_feature_flag() {
+                        let matched = match_flag_value_to_flag_filter(
+                            filter,
+                            &self.flag_evaluation_state.flag_evaluation_results,
+                        );
+                        let actual = filter
+                            .get_feature_flag_id()
+                            .and_then(|id| {
+                                self.flag_evaluation_state.flag_evaluation_results.get(&id)
+                            })
+                            .map(flag_value_to_json);
+                        (matched, actual)
+                    } else if filter.is_cohort() {
+                        let target = property_context
+                            .person_properties
+                            .unwrap_or(&*EMPTY_PROPERTY_MAP);
+                        let matched = match &cohorts {
+                            Some(cohorts) => self
+                                .evaluate_cohort_filters(&[filter], target, cohorts.clone())
+                                .unwrap_or(false),
+                            None => false,
+                        };
+                        (matched, None)
+                    } else {
+                        let props = property_context.resolve_for_filter(filter);
+                        let matched = match_property(filter, props, false).unwrap_or(false);
+                        let actual = props.get(&filter.key).cloned();
+                        (matched, actual)
+                    };
+
+                    if !matched {
+                        all_properties_matched = false;
+                    }
+                    property_analyses.push(build_property_analysis(filter, actual_value, matched));
+                }
+            }
+
+            // The rollout outcome only matters for a property-matching condition; skip the
+            // hash otherwise (also avoids hashing a group condition with no group key).
+            let rollout_passed = if all_properties_matched {
+                self.check_rollout(
+                    flag,
+                    rollout_percentage,
+                    aggregation,
+                    hash_key_overrides,
+                    request_hash_key_override,
+                )
+                .map(|(passed, _)| passed)
+                .unwrap_or(false)
+            } else {
+                false
+            };
+
+            facts.push(ConditionFacts {
+                index,
+                rollout_percentage,
+                variant: condition.variant.clone(),
+                properties: property_analyses,
+                all_properties_matched,
+                rollout_passed,
+            });
+        }
+
+        assemble_condition_analyses(facts, winning_index, cutoff_index)
     }
 
     /// Check if a condition matches for a feature flag.
@@ -2329,6 +2565,111 @@ impl FeatureFlagMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn facts(
+        index: usize,
+        rollout_percentage: f64,
+        all_properties_matched: bool,
+        rollout_passed: bool,
+    ) -> ConditionFacts {
+        ConditionFacts {
+            index,
+            rollout_percentage,
+            variant: None,
+            properties: Vec::new(),
+            all_properties_matched,
+            rollout_passed,
+        }
+    }
+
+    // Without early exit, a condition that matched properties but failed a partial rollout
+    // is reported as rollout-excluded — and crucially does NOT mark later conditions as
+    // "not evaluated", since live evaluation continues past it.
+    #[test]
+    fn test_assemble_rollout_excluded_does_not_skip_later_conditions() {
+        // cond0: props matched, out of 50% rollout. cond1: props did not match. No winner.
+        let analyses = assemble_condition_analyses(
+            vec![facts(0, 50.0, true, false), facts(1, 100.0, false, false)],
+            None,
+            None,
+        );
+
+        assert!(
+            analyses[0].rollout_excluded,
+            "cond0 should be rollout-excluded"
+        );
+        assert!(!analyses[0].matched);
+        assert!(analyses[0].explanation.contains("not in the 50% rollout"));
+
+        // cond1 must NOT be reported as "not evaluated" — it was evaluated.
+        assert!(!analyses[1].rollout_excluded);
+        assert!(!analyses[1].matched);
+        assert!(
+            !analyses[1].explanation.contains("not evaluated"),
+            "later condition must not be marked as skipped without early exit"
+        );
+        assert!(analyses[1].explanation.contains("did not match"));
+    }
+
+    // A later condition can still win after an earlier one is rollout-excluded.
+    #[test]
+    fn test_assemble_winner_after_rollout_excluded_condition() {
+        let analyses = assemble_condition_analyses(
+            vec![facts(0, 50.0, true, false), facts(1, 100.0, true, true)],
+            Some(1),
+            Some(1),
+        );
+
+        assert!(analyses[0].rollout_excluded);
+        assert!(!analyses[0].matched);
+        // cond1 won; index 1 is the cutoff so it is not "after" the cutoff.
+        assert!(analyses[1].matched);
+        assert!(!analyses[1].rollout_excluded);
+        assert!(analyses[1].explanation.contains("in the 100% rollout"));
+    }
+
+    // With early exit, the rollout-excluded condition is the cutoff and later conditions
+    // are correctly reported as not evaluated.
+    #[test]
+    fn test_assemble_early_exit_marks_later_conditions_not_evaluated() {
+        let analyses = assemble_condition_analyses(
+            vec![facts(0, 50.0, true, false), facts(1, 100.0, true, true)],
+            None,
+            Some(0),
+        );
+
+        assert!(analyses[0].rollout_excluded);
+        assert!(!analyses[1].matched);
+        assert!(!analyses[1].rollout_excluded);
+        assert!(
+            analyses[1].explanation.contains("not evaluated"),
+            "with early exit, conditions after the cutoff are not evaluated"
+        );
+    }
+
+    // Conditions after the winning condition were never evaluated.
+    #[test]
+    fn test_assemble_conditions_after_winner_not_evaluated() {
+        let analyses = assemble_condition_analyses(
+            vec![facts(0, 100.0, true, true), facts(1, 100.0, true, true)],
+            Some(0),
+            Some(0),
+        );
+
+        assert!(analyses[0].matched);
+        assert!(!analyses[1].matched);
+        assert!(!analyses[1].rollout_excluded);
+        assert!(analyses[1].explanation.contains("not evaluated"));
+    }
+
+    #[test]
+    fn test_assemble_properties_not_matched() {
+        let analyses = assemble_condition_analyses(vec![facts(0, 100.0, false, false)], None, None);
+        assert!(!analyses[0].matched);
+        assert!(!analyses[0].rollout_excluded);
+        assert!(!analyses[0].properties_matched);
+        assert!(analyses[0].explanation.contains("did not match"));
+    }
 
     #[test]
     fn test_promote_evaluation_type_none_to_sequential() {

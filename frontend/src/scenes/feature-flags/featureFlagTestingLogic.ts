@@ -195,11 +195,15 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 }
 
                 return result.conditions.map((condition: ConditionAnalysis) => {
-                    // Check if this condition is the actual winner
-                    // Per the API serializer, matched is the source of truth - "at most one condition per flag is True"
+                    // Per the API serializer, `matched` is the source of truth — at most one
+                    // condition per flag is the winner.
                     const isWinningCondition = condition.matched
-                    // Determine if this condition matched but wasn't the winner
-                    const matchedButNotWinner =
+                    // The backend sets `rollout_excluded` only on a condition that was actually
+                    // evaluated and excluded the user by rollout. A condition whose properties
+                    // matched but that is neither the winner nor rollout-excluded was never
+                    // reached: an earlier condition already decided the result (it matched, or
+                    // early exit short-circuited on rollout exclusion).
+                    const notEvaluated =
                         condition.properties_matched && !isWinningCondition && !condition.rollout_excluded
 
                     // Determine display properties
@@ -209,18 +213,18 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     if (isWinningCondition) {
                         tone = 'success'
                         label = 'MATCHED'
-                    } else if (matchedButNotWinner) {
-                        tone = 'info'
-                        label = 'PROPERTIES MATCHED'
                     } else if (condition.rollout_excluded) {
                         tone = 'warning'
                         label = 'EXCLUDED FROM ROLLOUT'
+                    } else if (notEvaluated) {
+                        tone = 'muted'
+                        label = 'NOT EVALUATED'
                     }
 
                     return {
                         ...condition,
                         isWinningCondition,
-                        matchedButNotWinner,
+                        notEvaluated,
                         display: {
                             tone,
                             label,

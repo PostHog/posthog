@@ -81,38 +81,44 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                     {/* User Selection */}
                     <div className="space-y-3">
-                        <LemonLabel>Select person</LemonLabel>
-                        <TaxonomicPopover
-                            groupType={TaxonomicFilterGroupType.Persons}
-                            value={selectedPerson ? selectedPerson.distinct_ids[0] : ''}
-                            onChange={(_, __, person) => {
-                                if (person) {
-                                    setSelectedPerson(person as PersonType)
-                                    setTestFormData({
-                                        person_id: person.uuid || '',
-                                    })
-                                } else {
-                                    setSelectedPerson(null)
-                                    setTestFormData({
-                                        person_id: '',
-                                    })
-                                }
-                            }}
-                            groupTypes={[TaxonomicFilterGroupType.Persons]}
-                            placeholder="Search for a person by name, email, or ID..."
-                            allowClear
-                            fullWidth
-                            renderValue={() => {
-                                if (selectedPerson) {
-                                    return (
-                                        <span>
-                                            {selectedPerson.name || selectedPerson.distinct_ids[0] || 'Unknown person'}
-                                        </span>
-                                    )
-                                }
-                                return null
-                            }}
-                        />
+                        {/* flex-col keeps the person field below the label — LemonLabel is inline-flex,
+                            so without an explicit column it sits beside the field at narrow widths */}
+                        <div className="flex flex-col gap-2">
+                            <LemonLabel>Select person</LemonLabel>
+                            <TaxonomicPopover
+                                groupType={TaxonomicFilterGroupType.Persons}
+                                value={selectedPerson ? selectedPerson.distinct_ids[0] : ''}
+                                onChange={(_, __, person) => {
+                                    if (person) {
+                                        setSelectedPerson(person as PersonType)
+                                        setTestFormData({
+                                            person_id: person.uuid || '',
+                                        })
+                                    } else {
+                                        setSelectedPerson(null)
+                                        setTestFormData({
+                                            person_id: '',
+                                        })
+                                    }
+                                }}
+                                groupTypes={[TaxonomicFilterGroupType.Persons]}
+                                placeholder="Search for a person by name, email, or ID..."
+                                allowClear
+                                fullWidth
+                                renderValue={() => {
+                                    if (selectedPerson) {
+                                        return (
+                                            <span>
+                                                {selectedPerson.name ||
+                                                    selectedPerson.distinct_ids[0] ||
+                                                    'Unknown person'}
+                                            </span>
+                                        )
+                                    }
+                                    return null
+                                }}
+                            />
+                        </div>
                         <p className="text-xs text-muted">
                             Search and select a person from your PostHog instance. You can search by name, email, or
                             distinct ID.
