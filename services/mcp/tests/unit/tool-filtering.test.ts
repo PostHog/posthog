@@ -698,9 +698,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'replay-vision',
+                'metrics',
             ])
         )
-        expect(flags).toHaveLength(9)
+        expect(flags).toHaveLength(10)
     })
 
     // Test the filtering logic with a direct unit test approach using
