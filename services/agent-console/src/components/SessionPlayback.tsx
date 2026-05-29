@@ -48,7 +48,7 @@ export function SessionPlayback({
     const trigger: SessionTrigger = session.trigger ?? { kind: 'chat' }
 
     return (
-        <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-background">
+        <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">
             <TriggerHeader trigger={trigger} agentName={session.application.name} />
             <div className="flex-1 overflow-y-auto px-4 py-4">
                 {trigger.kind === 'slack' ? (

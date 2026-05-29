@@ -63,6 +63,10 @@ FLAGS_REDIS_URL = "redis://localhost:6379/1"
 # Django queries unqualified `events` / `log_entries` etc. resolve against
 # the literal `default` DB (where PostHog has no tables) and 500.
 CLICKHOUSE_DATABASE = "posthog"
+# HMAC secret the agent_stack preview-proxy shares with agent-ingress so
+# the JWT minted by Django on every non-live invoke can be verified by
+# ingress. Same value on both sides → live JWT round-trip. Dev only.
+AGENT_PREVIEW_SECRET = "dev-agent-preview-secret-not-for-prod"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
 RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"

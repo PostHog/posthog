@@ -153,7 +153,7 @@ function OverviewCard({
     children: React.ReactNode
 }): React.ReactElement {
     return (
-        <div className="overflow-hidden rounded-md border border-border bg-background">
+        <div className="overflow-hidden rounded-md border border-border bg-card">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
                 <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
                 {right ? <div>{right}</div> : null}

@@ -33,6 +33,7 @@ import {
     AgentSession,
     BundleStore,
     IntegrationCredentials,
+    MemoryStore,
     Sandbox,
     ToolContext,
 } from '@posthog/agent-shared'
@@ -88,6 +89,12 @@ export interface AgentToolDeps {
     secrets: Record<string, string>
     bundle: BundleStore
     log: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
+    /**
+     * S3-backed memory store. Forwarded into the `ToolContext` the native
+     * `@posthog/memory-*` tools read from. Absent → memory tools surface
+     * `memory_store_unavailable` to the model.
+     */
+    memoryStore?: MemoryStore
 }
 
 export interface BuiltAgentTools {
@@ -225,6 +232,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
                 return null
             }
         },
+        memoryStore: deps.memoryStore,
     }
 }
 

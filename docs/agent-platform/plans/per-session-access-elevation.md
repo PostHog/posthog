@@ -1,6 +1,6 @@
 # Design — per-session access elevation
 
-**Status:** draft / open questions. **Owner:** ben.
+**Status:** v0 shipped (security patch + storage + check). v1 (UI surfaces + activity log) pending. **Owner:** dylan.
 
 This is `_TODO.md` item #5. By default a session is private to its
 initiating principal. When a second user tries to interact, the platform
@@ -403,25 +403,75 @@ catches everything.
 This is additive — disabled by default per agent? No, it's a security
 fix and should be enabled platform-wide. Phases:
 
-**v0** (foundation — security fix):
+**v0** (foundation — security fix) — **✅ shipped**:
 
-- Extract `requireAclAccess(session, incoming)` and apply uniformly
-  in `chat`, `webhook`, and **`slack`** triggers. Close the Slack gap
-  immediately.
-- Add `acl` + `pending_elevation_requests` to `AgentSession`
-  (TypeScript interface + DB migration; both nullable, default `[]`).
-- Add `agent_session_acl_audit` table + Django model.
-- Wire activity-log calls for `elevation_requested` only — no UI yet.
-- Behavior: rejected senders get 403 with `error:
-'elevation_required'` and the deep-link URL. Sessions don't advance.
-  This is the security improvement; subsequent phases add the UX.
+- Extracted `requireAclAccess(session, incoming)` into
+  `services/agent-ingress/src/enqueue/acl.ts` and applied uniformly in
+  `chat /run` + `/send`, `webhook`, `slack`, and `mcp tools/call ask`
+  (continuation + fresh-session). Closed the Slack thread-resume bypass.
+- Tightened `principalsMatch` to require `id` equality for
+  identity-bearing kinds (`slack`, etc.) — the prior "kind equality is
+  the contract" fallthrough matched two different Slack users as the
+  same principal.
+- Added `acl` + `pending_elevation_requests` JSONB columns to
+  `agent_session` (migration
+  `services/agent-migrations/migrations/1780071167943_session_acl.sql`,
+  default `[]`).
+- Threaded the new fields through `AgentSession`, `MemorySessionQueue`,
+  `PgSessionQueue`, and `enqueueOrResume`. `enqueueOrResume` now
+  returns a discriminated `EnqueueOutcome` (`created` | `resumed` |
+  `elevation_required`).
+- On denial: a `PendingElevationRequest` is recorded on the session
+  (capped at 5 active pending entries; older ones expire). The trigger
+  responds with 403 + `{ error: 'elevation_required',
+elevation_request_id, session_id, owner_display }` for HTTP triggers,
+  or 200 + `elevation_required: true` for Slack (events callback expects
+  200).
+- e2e coverage: extended `slack-trigger.test.ts` ("different user in
+  same thread → elevation_required") and `strict-principal.test.ts`
+  ("/send with a different PAT → 403 elevation_required").
+
+Deferred from v0 (rolled into v1):
+
+- `agent_session_acl_audit` table + Django model. The PendingElevationRequest
+  row on the session is sufficient v0 audit; the cross-session denormalized
+  table lands with v1's UI.
+- Activity-log integration. Lands with v1 alongside the rest of the
+  cross-service activity-log helper.
+- `elevation_url` in the response — no UI to point at yet; the
+  v1 surface will populate it.
 
 **v1** (UX):
 
-- Build the Slack elevation message (blocks + interactivity handler).
+- **Slack interactivity handler ✅ shipped:** ingress now exposes
+  `POST /agents/<slug>/slack/interactivity`, parses the form-encoded
+  `payload=<json>` body, verifies the signing secret, and dispatches
+  via the shared `authorizeGrant` / `applyElevationGrant` /
+  `applyElevationDecline` helpers in
+  `services/agent-ingress/src/enqueue/acl.ts`. Owner-only authorisation
+  (delegated grants are v2); non-owners get a Slack-style ephemeral
+  response. Granting writes the ACL entry, replays the requester's
+  proposed message into `pending_inputs`, flips state to `queued` so
+  the runner picks it up on the next turn.
+- **Pending — outbound Slack post (blocks message in the thread on
+  rejection).** The Slack bot token already exists in PostHog: every
+  team can connect Slack via Settings → Integrations and the token
+  lands in `posthog/models/integration.py:147` alongside the same
+  table HogFunctions reads from. The agent platform just hasn't been
+  wired to that table yet — `resolveIntegrations` in
+  `services/agent-runner/src/index.ts:140` is a `() => ({})` stub.
+  Once a small Django proxy + a runner/ingress resolver lands (tracked
+  as a separate task — see `_TODO.md`), every Slack-using agent works
+  in prod, not just the elevation post. The elevation outbound becomes
+  a one-call addition: `slackPostMessageV1` with the team's token, the
+  thread_ts from the rejected event, and a blocks payload built from
+  `encodeElevationActionValue` (already exported from
+  `services/agent-ingress/src/triggers/slack.ts`).
 - Build the chat UI inline elevation panel.
 - Build the per-session ACL management scene in PostHog (grant /
-  revoke / view audit).
+  revoke / view audit). Will reuse the same `applyElevationGrant` /
+  `applyElevationDecline` helpers the Slack interactivity handler now
+  shares.
 - Notifications to the primary principal (Slack DM / email).
 
 **v2** (broad):

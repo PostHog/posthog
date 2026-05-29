@@ -68,7 +68,11 @@ describe('strict principal match on /send: real e2e', () => {
         expect(send.status).toBe(200)
     })
 
-    it('pat agent: /send with a different PAT → 403', async () => {
+    it('pat agent: /send with a different PAT → 403 elevation_required', async () => {
+        // B.1 v0: rejections on /send now follow the same `elevation_required`
+        // surface as Slack thread bypass — the rejected message is preserved
+        // as a PendingElevationRequest for replay-on-grant, the session is
+        // not advanced, and the response carries an elevation_request_id.
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
         await c.deployAgent({ slug: 'p2', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
@@ -84,7 +88,14 @@ describe('strict principal match on /send: real e2e', () => {
             .set('authorization', `Bearer ${PAT_B}`)
             .send({ session_id: sid, message: 'other user' })
         expect(send.status).toBe(403)
-        expect(send.body.error).toBe('principal_mismatch')
+        expect(send.body.error).toBe('elevation_required')
+        expect(send.body.elevation_request_id).toMatch(/.+/)
+        expect(send.body.session_id).toBe(sid)
+
+        const session = await c.queue.get(sid)
+        expect(session!.pending_inputs).toHaveLength(0)
+        expect(session!.pending_elevation_requests).toHaveLength(1)
+        expect(session!.pending_elevation_requests[0].requester.id).toBe('pat-b')
     })
 
     it('pat agent: /send with no auth → 401 (auth fails before strict-match)', async () => {

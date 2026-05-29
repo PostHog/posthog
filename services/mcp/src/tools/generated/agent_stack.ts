@@ -148,7 +148,7 @@ const agentApplicationsPartialUpdate = (): ToolBase<
 })
 
 const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true }).extend(
-    AgentApplicationsPreviewProxyQueryParams.shape
+    AgentApplicationsPreviewProxyQueryParams.omit({ format: true }).shape
 )
 
 const agentApplicationsPreviewProxy = (): ToolBase<

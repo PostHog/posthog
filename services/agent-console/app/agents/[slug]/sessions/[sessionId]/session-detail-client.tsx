@@ -43,7 +43,7 @@ export function SessionDetailClient({ slug, sessionId }: { slug: string; session
     }
     const error = agent.error ?? session.error
     if (error) {
-        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {error.message}</div>
+        return <div className="px-6 py-6 text-sm text-destructive-foreground">Failed to load: {error.message}</div>
     }
     // Stale-while-revalidate: render with prior data while a refetch
     // (e.g. from bumpReload after promote) is in flight. logs is best-

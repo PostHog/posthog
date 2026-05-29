@@ -601,6 +601,15 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
+export interface AgentApplicationPreviewTokenResponseApi {
+    /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
+    token: string
+    /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
+    expires_in: number
+    /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix. */
+    ingress_slug: string
+}
+
 export interface AgentSessionUsageTotalApi {
     tokens_in: number
     tokens_out: number
@@ -818,6 +827,47 @@ export interface SetEnvRequestApi {
     env: SetEnvRequestApiEnv
 }
 
+export interface AgentAggregateStatsApi {
+    /** Sessions currently in a live state (queued / running). */
+    liveCount: number
+    /** Sessions created within the `since` window across all states. */
+    sessionsInWindowCount: number
+    /** Sum of `usage_total.cost_total` across sessions in the window. */
+    spendInWindowUsd: number
+    /**
+     * ISO timestamp of the most recent session update — null when there are no sessions.
+     * @nullable
+     */
+    lastActivityAt: string | null
+    /** Sessions in `failed` state created within the window. */
+    failedInWindowCount: number
+}
+
+export interface AgentFleetLiveSessionSummaryApi {
+    usage_total: AgentSessionUsageTotalApi
+    principal: AgentSessionPrincipalApi | null
+    id: string
+    application_id: string
+    revision_id: string
+    team_id: number
+    state: AgentSessionStateEnumApi
+    /** @nullable */
+    external_key: string | null
+    /** Messages in the conversation so far. */
+    turns: number
+    /**
+     * Last assistant text (~120 chars). Null when no assistant turns yet.
+     * @nullable
+     */
+    preview: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface AgentFleetLiveSessionsResponseApi {
+    results: AgentFleetLiveSessionSummaryApi[]
+}
+
 export type AgentNativeToolEntryApiSchema = { [key: string]: unknown }
 
 export interface AgentNativeToolEntryApi {
@@ -912,13 +962,38 @@ export type AgentApplicationsApprovalsListParams = {
 }
 
 export type AgentApplicationsPreviewProxyGetParams = {
+    format?: AgentApplicationsPreviewProxyGetFormat
     /**
      * Target draft revision. Must belong to this application and not be live.
      */
     revision_id: string
 }
 
+export type AgentApplicationsPreviewProxyGetFormat =
+    (typeof AgentApplicationsPreviewProxyGetFormat)[keyof typeof AgentApplicationsPreviewProxyGetFormat]
+
+export const AgentApplicationsPreviewProxyGetFormat = {
+    Json: 'json',
+    Sse: 'sse',
+} as const
+
 export type AgentApplicationsPreviewProxyParams = {
+    format?: AgentApplicationsPreviewProxyFormat
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
+export type AgentApplicationsPreviewProxyFormat =
+    (typeof AgentApplicationsPreviewProxyFormat)[keyof typeof AgentApplicationsPreviewProxyFormat]
+
+export const AgentApplicationsPreviewProxyFormat = {
+    Json: 'json',
+    Sse: 'sse',
+} as const
+
+export type AgentApplicationsPreviewTokenParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */
@@ -983,4 +1058,25 @@ export type AgentApplicationsSessionLogsParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type AgentApplicationsStatsParams = {
+    /**
+     * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
+     */
+    since?: string
+}
+
+export type AgentFleetLiveSessionsParams = {
+    /**
+     * Cap on returned sessions (default 100, max 500).
+     */
+    limit?: number
+}
+
+export type AgentFleetStatsParams = {
+    /**
+     * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
+     */
+    since?: string
 }

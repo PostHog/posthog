@@ -24,7 +24,9 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
         notFound()
     }
     if (agent.error) {
-        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {agent.error.message}</div>
+        return (
+            <div className="px-6 py-6 text-sm text-destructive-foreground">Failed to load: {agent.error.message}</div>
+        )
     }
     if (!agent.data) {
         return <AgentDetailSkeleton />
@@ -101,7 +103,11 @@ function AgentDetailInner({
     const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug])
 
     if (revisions.error) {
-        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {revisions.error.message}</div>
+        return (
+            <div className="px-6 py-6 text-sm text-destructive-foreground">
+                Failed to load: {revisions.error.message}
+            </div>
+        )
     }
     // Only block on the very first load. After we have data, refetches
     // (e.g. from bumpReload after promote) render stale-while-revalidate
@@ -127,7 +133,7 @@ function AgentDetailInner({
             sessions={effectiveSessions}
             urlState={urlState}
             onChangeUrlState={onChangeUrlState}
-            onTryAgent={() => enterPlayground(agentRef)}
+            onTryAgent={(opts) => enterPlayground(agentRef, { previewRevisionId: opts?.revisionId })}
             onBackToList={onBackToList}
             onOpenSession={onOpenSession}
             onRevisionsMutated={bumpReload}

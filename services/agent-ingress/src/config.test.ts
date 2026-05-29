@@ -25,17 +25,18 @@ describe('loadAgentIngressConfig', () => {
         expect(() => loadAgentIngressConfig({ ROUTING_MODE: 'lol' })).toThrow()
     })
 
-    it('falls back to INTERNAL_SECRET for previewSecret when AGENT_PREVIEW_SECRET is unset', () => {
-        const cfg = loadAgentIngressConfig({ INTERNAL_SECRET: 'shared-with-janitor' })
-        expect(cfg.previewSecret).toBe('shared-with-janitor')
+    it('previewSecret comes from AGENT_PREVIEW_SECRET (single source of truth)', () => {
+        const cfg = loadAgentIngressConfig({ AGENT_PREVIEW_SECRET: 'dedicated-preview-secret' })
+        expect(cfg.previewSecret).toBe('dedicated-preview-secret')
     })
 
-    it('AGENT_PREVIEW_SECRET wins over INTERNAL_SECRET fallback', () => {
-        const cfg = loadAgentIngressConfig({
-            INTERNAL_SECRET: 'janitor-secret',
-            AGENT_PREVIEW_SECRET: 'dedicated-preview-secret',
-        })
-        expect(cfg.previewSecret).toBe('dedicated-preview-secret')
+    it('previewSecret does NOT fall back to INTERNAL_SECRET — silent mismatch on the Django side would 401', () => {
+        // Regression: there used to be an INTERNAL_SECRET fallback here
+        // that wasn't mirrored on the Django side, so a dev env with
+        // only INTERNAL_SECRET set would have ingress requiring tokens
+        // while Django sent none → opaque 401s on every draft invoke.
+        const cfg = loadAgentIngressConfig({ INTERNAL_SECRET: 'shared-with-janitor' })
+        expect(cfg.previewSecret).toBeUndefined()
     })
 
     it('platform fields (POSTHOG_DB_URL, AGENT_DB_URL, REDIS_URL) come from the shared schema', () => {

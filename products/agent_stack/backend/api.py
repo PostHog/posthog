@@ -44,6 +44,7 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import (
+    renderers,
     serializers as drf_serializers,
     status,
     viewsets,
@@ -52,6 +53,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 
 from posthog.schema import ProductKey
 
@@ -122,6 +124,50 @@ class JanitorUpstreamError(APIException):
 # Mirrors `AGENT_SESSION_LOG_SOURCE` in services/agent-shared/src/runtime/
 # log-sink.ts — keep both sides in sync.
 AGENT_SESSION_LOG_SOURCE = "agent_session"
+
+
+def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, user: Any) -> tuple[str, int] | None:
+    """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
+
+    Returns `(token, ttl_seconds)` or `None` when no shared secret is
+    configured (dev / harness path — ingress's gate is then also bypassed).
+
+    Same payload + secret the runtime uses; pulled out of preview_proxy so
+    the standalone `preview_token` action and the legacy server-side proxy
+    share one implementation. Bound to (app, rev) so a captured token can't
+    be replayed against a different draft. See docs/agent-platform/plans/
+    draft-preview-auth.md.
+    """
+    preview_secret = os.environ.get("AGENT_PREVIEW_SECRET", "")
+    if not preview_secret:
+        return None
+    ttl_seconds = 60
+    payload: dict[str, Any] = {
+        "app": str(application.id),
+        "rev": str(revision.id),
+        "aud": PosthogJwtAudience.AGENT_PREVIEW.value,
+        "exp": datetime.now(tz=UTC) + timedelta(seconds=ttl_seconds),
+    }
+    if user and getattr(user, "is_authenticated", False):
+        payload["sub"] = f"user:{user.id}"
+    return pyjwt.encode(payload, preview_secret, algorithm="HS256"), ttl_seconds
+
+
+class EventStreamRenderer(renderers.BaseRenderer):
+    """Lets DRF's content negotiation accept `Accept: text/event-stream`
+    requests (browser EventSource sends this) so they reach the view
+    instead of 406-ing in the negotiator. The streaming view returns
+    `StreamingHttpResponse` directly so this renderer's `render()` is
+    never actually invoked — its job is just to claim the media type."""
+
+    media_type = "text/event-stream"
+    format = "sse"
+    charset = "utf-8"
+
+    def render(self, data: Any, accepted_media_type: str | None = None, renderer_context: Any = None) -> bytes:
+        # StreamingHttpResponse path bypasses this, but if a non-streaming
+        # response ever lands here (e.g. an error), keep it valid SSE.
+        return str(data).encode(self.charset or "utf-8")
 
 
 # ── Conversation message variants ────────────────────────────────────
@@ -244,6 +290,30 @@ _AGENT_SESSION_PRINCIPAL = inline_serializer(
 # Runtime `AgentSession.state` enum. Mirrors agent-shared spec.ts.
 _AGENT_SESSION_STATE_VALUES = ["queued", "running", "completed", "closed", "cancelled", "failed"]
 
+# Roll-up shape returned by the janitor's `/sessions/stats` and `/fleet/stats`
+# endpoints. Used both by the per-application action and the fleet viewset.
+_AGENT_AGGREGATE_STATS = inline_serializer(
+    name="AgentAggregateStats",
+    fields={
+        "liveCount": drf_serializers.IntegerField(
+            help_text="Sessions currently in a live state (queued / running).",
+        ),
+        "sessionsInWindowCount": drf_serializers.IntegerField(
+            help_text="Sessions created within the `since` window across all states.",
+        ),
+        "spendInWindowUsd": drf_serializers.FloatField(
+            help_text="Sum of `usage_total.cost_total` across sessions in the window.",
+        ),
+        "lastActivityAt": drf_serializers.DateTimeField(
+            allow_null=True,
+            help_text="ISO timestamp of the most recent session update — null when there are no sessions.",
+        ),
+        "failedInWindowCount": drf_serializers.IntegerField(
+            help_text="Sessions in `failed` state created within the window.",
+        ),
+    },
+)
+
 
 @extend_schema(tags=["agent_stack"])
 class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -273,7 +343,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
+        "stats",
+        # POST → `preview_proxy`, GET (SSE `listen`) → `preview_proxy_get`.
+        # DRF uses the bound function name as `view.action`, so the GET
+        # variant is its own entry in the scope-check map.
         "preview_proxy",
+        "preview_proxy_get",
+        "preview_token",
         "approvals_list",
         "approvals_retrieve",
     ]
@@ -349,7 +425,16 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parameters=_PREVIEW_PROXY_PARAMETERS,
         request=None,
     )
-    @action(detail=True, methods=["post"], url_path=r"preview-proxy/(?P<rest>[^/]+)")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"preview-proxy/(?P<rest>[^/]+)",
+        # Include EventStreamRenderer so browser EventSource (Accept:
+        # text/event-stream) gets past DRF content negotiation and into
+        # the streaming view. The GET counterpart (`preview_proxy_get`)
+        # inherits this via `@preview_proxy.mapping.get`.
+        renderer_classes=[*api_settings.DEFAULT_RENDERER_CLASSES, EventStreamRenderer],
+    )
     def preview_proxy(self, request: Request, rest: str = "", **kwargs) -> StreamingHttpResponse | Response:
         """Authoring-side proxy for invoking a *draft* (or any non-live) revision.
 
@@ -395,21 +480,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # identify the *Django* caller, not the agent's caller. Don't leak.
         skip_headers = {"host", "authorization", "cookie", "content-length"}
         forwarded_headers: dict[str, str] = {k: v for k, v in request.headers.items() if k.lower() not in skip_headers}
-        # Mint a short-lived HS256 JWT bound to (app, rev). The ingress
-        # verifies signature + exp + audience + claim-binding. Captured
-        # tokens expire in seconds AND can't be replayed against a different
-        # draft. AGENT_PREVIEW_SECRET must match the ingress's value.
-        preview_secret = os.environ.get("AGENT_PREVIEW_SECRET") or os.environ.get("AGENT_JANITOR_SECRET", "")
-        if preview_secret:
-            payload: dict[str, Any] = {
-                "app": str(application.id),
-                "rev": str(revision.id),
-                "aud": PosthogJwtAudience.AGENT_PREVIEW.value,
-                "exp": datetime.now(tz=UTC) + timedelta(seconds=60),
-            }
-            if request.user and request.user.is_authenticated:
-                payload["sub"] = f"user:{request.user.id}"
-            forwarded_headers["x-agent-preview-token"] = pyjwt.encode(payload, preview_secret, algorithm="HS256")
+        # Same JWT the standalone `preview_token` action returns — pulled
+        # out into a helper so the two paths can't drift.
+        token_pair = _mint_preview_jwt(application, revision, request.user)
+        if token_pair is not None:
+            forwarded_headers["x-agent-preview-token"] = token_pair[0]
 
         # DRF's parser already consumed request.body via request.data — we
         # re-serialize the parsed payload so requests can ship a fresh body.
@@ -455,6 +530,8 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     # Same proxy, GET counterpart. Used for SSE (`listen`). Same body, just a
     # different verb so drf-spectacular emits a distinct operation_id.
+    # Renderer set inherits from the parent `@action` (includes
+    # `EventStreamRenderer` so EventSource requests negotiate cleanly).
     @extend_schema(
         operation_id="agent_applications_preview_proxy_get",
         parameters=_PREVIEW_PROXY_PARAMETERS,
@@ -464,6 +541,108 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def preview_proxy_get(self, request: Request, rest: str = "", **kwargs) -> StreamingHttpResponse | Response:
         """GET passthrough for the preview-proxy — used for `/listen` SSE."""
         return self.preview_proxy(request, rest=rest, **kwargs)
+
+    # ── Preview token (direct-to-ingress flow) ───────────────────────
+    # Alternative to `preview_proxy`: returns a short-lived JWT the
+    # browser can attach to direct ingress calls. Console uses this
+    # for chat hops (SSE through the Django proxy is awkward — DRF
+    # content negotiation, redirects, body buffering all bite). The
+    # proxy action stays for non-browser callers that prefer
+    # server-side mediation. Both share `_mint_preview_jwt` so the
+    # JWT payload + secret can't drift between paths.
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token",
+        parameters=[
+            OpenApiParameter(
+                "revision_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Target draft revision. Must belong to this application and not be live.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApplicationPreviewTokenResponse",
+                fields={
+                    "token": drf_serializers.CharField(
+                        help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
+                    ),
+                    "expires_in": drf_serializers.IntegerField(
+                        help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
+                    ),
+                    "ingress_slug": drf_serializers.CharField(
+                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="preview-token")
+    def preview_token(self, request: Request, **kwargs) -> Response:
+        """Mint a short-lived JWT for talking to a non-live revision
+        directly via the public ingress URL. The caller attaches it as
+        the `x-agent-preview-token` header (or `?preview_token=` query
+        param for `EventSource`). See `_mint_preview_jwt` for the
+        payload + claim binding."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        revision_id = request.query_params.get("revision_id")
+        if not revision_id:
+            raise ValidationError("revision_id query parameter is required")
+        revision = AgentRevision.objects.filter(application=application, pk=revision_id).first()
+        if not revision:
+            raise NotFound("Revision not found in this application")
+        if application.live_revision_id == revision.id:
+            raise ValidationError(
+                "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
+            )
+        token_pair = _mint_preview_jwt(application, revision, request.user)
+        if token_pair is None:
+            # No AGENT_PREVIEW_SECRET configured — ingress's gate is
+            # also bypassed in that mode, so an empty token is fine
+            # (and signals the dev/harness configuration to the caller).
+            return Response({"token": "", "expires_in": 0, "ingress_slug": f"{application.slug}-{revision.id.hex}"})
+        token, expires_in = token_pair
+        return Response(
+            {
+                "token": token,
+                "expires_in": expires_in,
+                "ingress_slug": f"{application.slug}-{revision.id.hex}",
+            }
+        )
+
+    @extend_schema(
+        operation_id="agent_applications_stats",
+        parameters=[
+            OpenApiParameter(
+                "since",
+                OpenApiTypes.DATETIME,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_AGENT_AGGREGATE_STATS),
+        description="Roll-up stats for the agent — drives the agent-detail overview tiles.",
+    )
+    @action(detail=True, methods=["get"], url_path="stats")
+    def stats(self, request: Request, **kwargs) -> Response:
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().aggregate_for_application(
+                str(application.id),
+                since=request.query_params.get("since") or None,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
 
     @extend_schema(
         operation_id="agent_applications_sessions_list",
@@ -1412,6 +1591,107 @@ class AgentNativeToolsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(_janitor().native_tools())
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
+
+
+@extend_schema(tags=["agent_stack"])
+class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Team-wide agent fleet rollups.
+
+    URLs:
+        GET /api/projects/<team>/agent_fleet/stats/           — aggregate counts + spend across every agent in the team
+        GET /api/projects/<team>/agent_fleet/live_sessions/   — live sessions for every agent in the team
+
+    Both endpoints proxy the janitor (which owns the runtime DB). Used by
+    the agent-console "fleet" overview to render the cards on the agents
+    list without per-agent N+1.
+    """
+
+    scope_object = "agent_application"
+    scope_object_read_actions = ["stats", "live_sessions"]
+
+    @extend_schema(
+        operation_id="agent_fleet_stats",
+        parameters=[
+            OpenApiParameter(
+                "since",
+                OpenApiTypes.DATETIME,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_AGENT_AGGREGATE_STATS),
+        description="Roll-up stats across every agent owned by this team.",
+    )
+    @action(detail=False, methods=["get"], url_path="stats")
+    def stats(self, request: Request, **kwargs) -> Response:
+        try:
+            payload = _janitor().aggregate_for_team(
+                int(self.team_id),
+                since=request.query_params.get("since") or None,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_fleet_live_sessions",
+        parameters=[
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Cap on returned sessions (default 100, max 500).",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentFleetLiveSessionsResponse",
+                fields={
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentFleetLiveSessionSummary",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "application_id": drf_serializers.UUIDField(),
+                                "revision_id": drf_serializers.UUIDField(),
+                                "team_id": drf_serializers.IntegerField(),
+                                "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
+                                "external_key": drf_serializers.CharField(allow_null=True),
+                                "principal": _AGENT_SESSION_PRINCIPAL,
+                                "turns": drf_serializers.IntegerField(
+                                    help_text="Messages in the conversation so far.",
+                                ),
+                                "preview": drf_serializers.CharField(
+                                    allow_null=True,
+                                    help_text="Last assistant text (~120 chars). Null when no assistant turns yet.",
+                                ),
+                                "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                                "created_at": drf_serializers.DateTimeField(),
+                                "updated_at": drf_serializers.DateTimeField(),
+                            },
+                        ),
+                    ),
+                },
+            ),
+        ),
+        description="Live (non-terminal) sessions across every agent owned by this team, newest activity first.",
+    )
+    @action(detail=False, methods=["get"], url_path="live_sessions")
+    def live_sessions(self, request: Request, **kwargs) -> Response:
+        limit_param = request.query_params.get("limit")
+        try:
+            limit = int(limit_param) if limit_param is not None else None
+        except ValueError:
+            raise ValidationError("limit must be an integer")
+        try:
+            payload = _janitor().list_live_for_team(int(self.team_id), limit=limit)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
 
 
 # Suppress unused-import warning for the type re-export below.

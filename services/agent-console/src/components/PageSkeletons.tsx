@@ -21,7 +21,7 @@ export function AgentsListSkeleton(): React.ReactElement {
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="space-y-3">
                     {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="rounded-md border border-border bg-background p-4">
+                        <div key={i} className="rounded-md border border-border bg-card p-4">
                             <Skeleton className="h-4 w-1/3" />
                             <Skeleton className="mt-2 h-3 w-2/3" />
                             <div className="mt-3 flex gap-3">
@@ -33,11 +33,11 @@ export function AgentsListSkeleton(): React.ReactElement {
                     ))}
                 </div>
                 <aside className="space-y-3">
-                    <div className="rounded-md border border-border bg-background p-4">
+                    <div className="rounded-md border border-border bg-card p-4">
                         <Skeleton className="h-3 w-20" />
                         <Skeleton className="mt-3 h-6 w-16" />
                     </div>
-                    <div className="rounded-md border border-border bg-background p-4">
+                    <div className="rounded-md border border-border bg-card p-4">
                         <Skeleton className="h-3 w-20" />
                         <Skeleton className="mt-3 h-6 w-12" />
                     </div>
@@ -65,7 +65,7 @@ export function AgentDetailSkeleton(): React.ReactElement {
             </div>
             <div className="mt-6 space-y-4">
                 {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="rounded-md border border-border bg-background p-4">
+                    <div key={i} className="rounded-md border border-border bg-card p-4">
                         <Skeleton className="h-4 w-1/4" />
                         <Skeleton className="mt-2 h-3 w-1/2" />
                         <Skeleton className="mt-2 h-3 w-2/3" />
@@ -90,7 +90,7 @@ export function SessionDetailSkeleton(): React.ReactElement {
                 ))}
             </div>
             <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                <div className="space-y-3 rounded-md border border-border bg-background p-4">
+                <div className="space-y-3 rounded-md border border-border bg-card p-4">
                     {Array.from({ length: 4 }).map((_, i) => (
                         <div key={i} className="space-y-2">
                             <Skeleton className="h-3 w-16" />
@@ -99,7 +99,7 @@ export function SessionDetailSkeleton(): React.ReactElement {
                         </div>
                     ))}
                 </div>
-                <div className="space-y-2 rounded-md border border-border bg-background p-4">
+                <div className="space-y-2 rounded-md border border-border bg-card p-4">
                     {Array.from({ length: 8 }).map((_, i) => (
                         <Skeleton key={i} className="h-3 w-full" />
                     ))}

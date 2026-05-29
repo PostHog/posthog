@@ -20,6 +20,7 @@ from __future__ import annotations
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 REVISION_STATE_CHOICES = [
@@ -30,8 +31,15 @@ REVISION_STATE_CHOICES = [
 ]
 
 
-class AgentApplication(UUIDModel):
-    """One agent. Identified by (team, slug). Holds team secrets."""
+class AgentApplication(ModelActivityMixin, UUIDModel):
+    """One agent. Identified by (team, slug). Holds team secrets.
+
+    Activity logged via `ModelActivityMixin`: every save fires
+    `model_activity_signal` and the receiver in
+    `products.agent_stack.backend.activity` writes to the central
+    activity log. Soft-delete via `archived=True` shows up there as an
+    `updated` entry diffing the archived flag — no separate delete signal.
+    """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="agent_apps")
     name = models.CharField(max_length=255)
@@ -74,12 +82,15 @@ class AgentApplication(UUIDModel):
         return self.slug
 
 
-class AgentRevision(UUIDModel):
+class AgentRevision(ModelActivityMixin, UUIDModel):
     """One revision of an agent. `spec` is structural; the bundle is content.
 
     State machine: draft → ready → live | archived. Mutability follows state:
     `draft` revisions accept spec edits and bundle re-uploads; once promoted
     to `ready` (bundle frozen, sha256 stamped) the spec and bundle are immutable.
+
+    Activity logged via `ModelActivityMixin`: spec edits and state
+    transitions both surface as `updated` entries with field-level diffs.
     """
 
     application = models.ForeignKey(

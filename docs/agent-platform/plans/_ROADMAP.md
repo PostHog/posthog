@@ -71,24 +71,30 @@ Owner tags appear inline on each plan below as **Dylan** / **Danilo** /
 The keystone. Every plan above this depends on the state machine and
 spec shape it introduces.
 
-- [`long-running-sessions.md`](long-running-sessions.md) — extends
-  the session state machine with a new `suspended` state, adds
-  per-agent resumability config + context-compaction strategies
-  (window / summarize / none), locks down the trigger-side contract
-  for reopening old sessions. Status: design complete.
+- [`long-running-sessions.md`](long-running-sessions.md) — adds an
+  opt-in per-agent TTL on `completed` so a Slack assistant / weekly
+  cron agent / multi-day incident thread can outlive the global 24h
+  idle-close. **v0 is just the TTL knob**; the full `suspended` state +
+  compaction pipeline is preserved in §3–§5 as future work for when
+  usage data shows we actually hit the cost or context wall. Plan
+  refreshed twice — once against the new state machine, once again
+  after recognising compaction is a perf optimisation rather than a
+  correctness requirement.
 - [`typed-config-loader.md`](typed-config-loader.md) — one zod schema
   per service, lint-blocked `process.env.*` outside `config.ts`,
   generated runbook from the schemas. **v0 (janitor pilot) ✅ shipped;
   v1 (sweep to ingress + runner via `PlatformConfigSchema`) ✅
   shipped; v2 (generated runbook) + v3 (Django side) pending.**
 
-**What this layer must ship before anything above:**
+**What this layer must ship before anything above (v0 slice):**
 
-- `suspended` state and `waiting → suspended → waiting` transitions.
-- `spec.resume.*` validated at freeze time, backwards-compatible
-  defaults.
-- Janitor extension: `compactAged`, `wakeFromSuspended` policies.
-- `external_key_reuse` policy on the trigger ingress.
+- `spec.resume.{enabled, max_completed_age_ms}` validated at freeze
+  time, backwards-compatible defaults (`resume.enabled = false`
+  preserves today's behaviour).
+- Janitor sweep `idleCompletedClose` reads per-agent TTL when
+  resume-enabled; falls back to global default otherwise.
+- No new state, no new columns, no compaction, no runner rehydrate
+  for v0. Those land later if real usage demands it.
 
 ## B. Trust & control — **Dylan**
 
@@ -105,6 +111,11 @@ any UX work.
 
 It also introduces the **activity-log integration** for the agent
 platform — a shared dependency the next two plans rely on.
+
+**v0 (security patch + storage + check) ✅ shipped; v1 (Slack
+elevation message + chat panel + per-session ACL scene + activity-log
+helper) pending; v2 (delegation + org-admin override + MCP grant tool)
+pending.**
 
 ### B.2 [`approval-gated-tools.md`](approval-gated-tools.md) — **v0 shipped**
 

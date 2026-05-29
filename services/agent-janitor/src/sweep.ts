@@ -17,7 +17,7 @@
  * lister to exercise the policy logic without PG.
  */
 
-import { AgentSession, ApprovalStore, ConversationMessage, SessionQueue } from '@posthog/agent-shared'
+import { AgentSession, ApprovalStore, ConversationMessage, ResumeConfig, SessionQueue } from '@posthog/agent-shared'
 
 export interface SweepDeps {
     queue: SessionQueue
@@ -37,6 +37,14 @@ export interface SweepDeps {
      * from PG. Tests inject any AgentSession[].
      */
     listIdleCompletedCandidates?: () => Promise<AgentSession[]>
+    /**
+     * Per-agent resumability lookup. When provided, the idle-completed
+     * policy defers closing a candidate whose agent opted into a longer
+     * TTL via `spec.resume.max_completed_age_ms`. Absent (or returning
+     * `undefined`) means use the platform-wide `idleCompletedThresholdMs`.
+     * Production reads this from the revision store; tests inject inline.
+     */
+    getResumeConfig?: (session: AgentSession) => Promise<ResumeConfig | undefined>
     /**
      * Approval-gated tools store (see plan
      * docs/agent-platform/plans/approval-gated-tools.md). When wired, the
@@ -72,6 +80,12 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
     // Long-idle ones never get a follow-up and we don't want them lingering
     // forever, so the sweep eventually transitions them to `closed` (the
     // proper terminal).
+    //
+    // Per-agent TTL: an agent can opt into `spec.resume.max_completed_age_ms`
+    // to extend the idle window. The candidate lister returns rows past the
+    // platform-wide floor; we then check the per-agent override before
+    // closing each one. Rows whose agent says "longer please" are left
+    // alone until the next sweep tick.
     let closed = 0
     if (deps.listIdleCompletedCandidates) {
         const candidates = await deps.listIdleCompletedCandidates()
@@ -80,7 +94,12 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
                 continue
             }
             const updated = Date.parse(s.updated_at)
-            if (Number.isFinite(updated) && now.getTime() - updated > idleCompletedTtl) {
+            if (!Number.isFinite(updated)) {
+                continue
+            }
+            const age = now.getTime() - updated
+            const effectiveTtl = await resolveCompletedTtl(s, deps.getResumeConfig, idleCompletedTtl)
+            if (age > effectiveTtl) {
                 await deps.queue.update(s.id, { state: 'closed' })
                 closed++
             }
@@ -114,4 +133,29 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
     }
 
     return { requeued, poisoned, closed, expired_approvals: expiredApprovals }
+}
+
+/**
+ * Resolve the effective `completed → closed` TTL for a single session. The
+ * platform-wide floor applies unless the agent's spec opts in via
+ * `resume.enabled` + `resume.max_completed_age_ms`. Lookup failures fall
+ * back to the floor so a missing revision doesn't keep a row open forever.
+ */
+async function resolveCompletedTtl(
+    session: AgentSession,
+    getResumeConfig: SweepDeps['getResumeConfig'],
+    floor: number
+): Promise<number> {
+    if (!getResumeConfig) {
+        return floor
+    }
+    try {
+        const resume = await getResumeConfig(session)
+        if (!resume || !resume.enabled) {
+            return floor
+        }
+        return Math.max(floor, resume.max_completed_age_ms)
+    } catch {
+        return floor
+    }
 }

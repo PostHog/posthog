@@ -52,11 +52,13 @@ import {
     ConversationMessage,
     createLogger,
     FRAMEWORK_PROMPT_VERSION,
+    GatewayClient,
     generationSpanId,
     IntegrationCredentials,
     isDeltaEventKind,
     LogLevel,
     LogSink,
+    MemoryStore,
     NoopAnalyticsSink,
     NoopLogSink,
     NoopSessionEventBus,
@@ -102,6 +104,44 @@ export interface RunSessionDeps {
      * When absent, gated tools run normally (pre-approval default). */
     approvals?: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * S3-backed memory store. Threaded into `AgentToolDeps` → `ToolContext`
+     * so native `@posthog/memory-*` tools work; absent → memory tools return
+     * `memory_store_unavailable` to the model. Wired in prod from
+     * `AGENT_MEMORY_S3_*` config.
+     */
+    memoryStore?: MemoryStore
+    /**
+     * Per-session static HTTP headers stamped on every outbound model call.
+     * On the llm-gateway path this carries `X-PostHog-Distinct-Id` +
+     * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
+     * attribute correctly.
+     *
+     * **NOT YET CONSUMED** by the pi-agent-core driver — the old loop pushed
+     * these into `PiAiClient.invoke({ headers })`. To restore, the `streamFn`
+     * wrapper needs to inject these into the per-call options. Accepted on
+     * the deps for API-shape stability with the worker; until ported, the
+     * presence of this field is the signal `errorContext()` uses to mark
+     * failures as `source: llm_gateway`.
+     */
+    gatewayHeaders?: Record<string, string>
+    /**
+     * Gateway read client + the team's `phc_` bearer. When set, after every
+     * pi-ai turn the runner is expected to fetch
+     * `GET /v1/usage/<request_id>` and merge gateway-computed cost into
+     * `usage_total.cost_total`.
+     *
+     * **NOT YET CONSUMED** by the pi-agent-core driver — the old loop did
+     * this in run-turn.ts's per-turn block. Needs porting into the
+     * `turn_end` branch of the sink (the per-turn `request_id` would need
+     * to be stamped by the same streamFn wrapper that injects
+     * gatewayHeaders). Accepted on the deps for API-shape stability;
+     * gateway-path cost stays zero on the session row until ported.
+     */
+    gatewayUsage?: {
+        client: GatewayClient
+        phc: string
+    }
 }
 
 export type RunOutcome =
@@ -156,6 +196,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         secrets: deps.secrets,
         bundle: deps.bundle,
         log,
+        memoryStore: deps.memoryStore,
     }
     const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 
@@ -517,8 +558,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         if (e.name === 'AbortError' || deps.shutdownSignal?.aborted) {
             return { state: 'suspended', reason: 'shutdown', turns: turn }
         }
-        runLog.error({ turn, err: e.message }, 'loop.failed')
-        await emit('failed', { reason: e.message ?? 'loop_error', turns: turn })
+        runLog.error({ turn, err: e.message, ...errorContext() }, 'loop.failed')
+        await emit('failed', { reason: e.message ?? 'loop_error', turns: turn, ...errorContext() })
         return { state: 'failed', reason: e.message ?? 'loop_error', turns: turn }
     }
 
@@ -531,12 +572,26 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         return { state: 'closed', summary: lastControl.summary, turns: turn }
     }
     if (lastStopReason === 'error') {
-        await emit('failed', { reason: lastError ?? 'model_error', turns: turn })
+        runLog.error({ turn, reason: lastError, ...errorContext() }, 'model.error')
+        await emit('failed', { reason: lastError ?? 'model_error', turns: turn, ...errorContext() })
         return { state: 'failed', reason: lastError ?? 'model_error', turns: turn }
     }
     if (lastStopReason === 'length') {
-        await emit('failed', { reason: 'max_tokens', turns: turn })
+        await emit('failed', { reason: 'max_tokens', turns: turn, ...errorContext() })
         return { state: 'failed', reason: 'max_tokens', turns: turn }
+    }
+
+    // Stamps the failure source (gateway vs direct provider) + model id on
+    // every error log/event so operators can tell at a glance whether a
+    // mystery `400 status code (no body)` came from the gateway or the
+    // upstream provider. Defined inline so it closes over `deps`.
+    function errorContext(): Record<string, unknown> {
+        return {
+            source: deps.gatewayHeaders ? 'llm_gateway' : 'provider',
+            model: deps.model.id,
+            provider: deps.model.provider,
+            api: deps.model.api,
+        }
     }
     if (stoppedByCap && lastTurnContinued) {
         await emit('failed', { reason: 'max_turns_exceeded', turns: turn })

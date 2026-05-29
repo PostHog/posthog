@@ -142,7 +142,7 @@ export function SessionGate({ children }: { children: React.ReactNode }): React.
     }
     if (error) {
         return (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive">
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive-foreground">
                 <p>Couldn't reach the session endpoint: {error.message}</p>
                 <ServerAnchor href="/api/auth/login">Try logging in again</ServerAnchor>
             </div>
@@ -158,7 +158,7 @@ export function SessionGate({ children }: { children: React.ReactNode }): React.
     }
     if (info.teamId == null) {
         return (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive">
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive-foreground">
                 <p>Your account has no current project. Open PostHog and pick a project, then reload.</p>
                 <ServerAnchor href="/api/auth/logout">Sign out</ServerAnchor>
             </div>

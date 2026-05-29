@@ -40,10 +40,19 @@ export function principalToSession(p: Principal): import('@posthog/agent-shared'
 }
 
 /**
- * Strict principal match: same kind + same identifying key. Used on /send to
- * reject "slack-started session, PAT /send" and similar mismatches.
- * Two anonymous principals match. A team-scoped PAT only matches the same
- * pat_id (or the same team for impl-defined "any-PAT-on-team" cases).
+ * Strict principal match: same kind + same identifying key. Used on /send and
+ * on Slack-thread resumes to reject "alice's session, bob talking" and
+ * cross-trigger mixes ("slack-started session, PAT /send").
+ *
+ * Per-kind contract:
+ *   - anonymous: any two anonymous principals match.
+ *   - internal / shared_secret: one identity per agent per kind; kind equality
+ *     is the contract.
+ *   - service: match on `id` (pat_id) when present, else fall back to team.
+ *   - slack (and any other identity-bearing kind): match on `id` (the
+ *     resolved AgentUser id) — different Slack users in the same workspace
+ *     have different ids, so they MUST be rejected. Before this fix they
+ *     fell through to "kind equality is the contract" and matched.
  */
 export function principalsMatch(
     stored: import('@posthog/agent-shared').SessionPrincipal | null,
@@ -58,12 +67,16 @@ export function principalsMatch(
     if (stored.kind !== incoming.kind) {
         return false
     }
-    // Service principals: match on pat_id when set, else fall back to team.
     if (stored.kind === 'service') {
         if (stored.id && incoming.id) {
             return stored.id === incoming.id
         }
         return stored.team_id === incoming.team_id
+    }
+    // Any other id-bearing kind (slack, future trigger identities) must match
+    // on id. Falling back to kind equality opens a privacy bypass — see plan.
+    if (stored.id || incoming.id) {
+        return stored.id === incoming.id
     }
     // internal / shared_secret / anonymous: kind equality is the contract.
     return true

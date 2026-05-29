@@ -24,6 +24,12 @@ for the wider dev flow.
   `MemorySessionEventBus`, `LogSink` interface +
   `InMemoryLogSink`, `IdentityStore` + `MemoryIdentityStore`,
   `SecretBroker`.
+- [src/memory/](src/memory/) — `MemoryStore` interface +
+  `S3MemoryStore`. Markdown + YAML frontmatter file format;
+  MiniSearch-backed BM25 over file bodies for the
+  `@posthog/memory-search` tool. **Tests always run against real
+  MinIO/S3, never an in-process fake** — same philosophy as the
+  real-PG tests; a fake just hides shape drift.
 
 ## Rules of engagement
 
@@ -47,7 +53,26 @@ for the wider dev flow.
    longer carries inline SQL constants. New tables or columns go in a
    new migration file there. Test harness pulls `reset()` from the
    migrations package; production runs `bin/migrate --scope=agent_runtime`
-   before service boot.
+   before service boot. **Never** ship a feature that runs `CREATE
+TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
+   drift then becomes silent (column adds no-op) and prod tooling
+   that depends on `pgmigrations` is bypassed.
+
+5. **Cross-process services are constructor-injected, not module
+   singletons.** Wire each impl at the entrypoint and pass it through
+   `WorkerDeps` → `runSession` → dispatcher into `ToolContext` (see
+   `memoryStore` for the worked example). Tests substitute an
+   in-memory variant by constructing it directly; no `setX()` /
+   `getX()` global. The pre-existing `posthog-client.ts` /
+   `memory-broker.ts` (deleted) pattern is the antipattern we're
+   moving away from.
+
+6. **Prefer well-tested libraries over hand-rolled rankers /
+   parsers.** MiniSearch (`@posthog/agent-shared`'s `search.ts`) is
+   the precedent: a ~7KB dep that gives BM25 + field weighting + IDF
+   without us having to get it right. The same logic applies to YAML,
+   markdown, regex-glob, etc. — if it's load-bearing in prod, swap
+   in the off-the-shelf option even when the hand-rolled version "works."
 
 ## Pointers
 

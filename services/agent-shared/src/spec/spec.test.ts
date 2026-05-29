@@ -188,4 +188,30 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
     })
+
+    describe('resume config (per-agent TTL on completed sessions)', () => {
+        it('defaults to undefined when not present (preserves today behaviour)', () => {
+            const spec = AgentSpecSchema.parse({ model: 'x' })
+            expect(spec.resume).toBeUndefined()
+        })
+
+        it('applies sensible defaults when an empty resume section is present', () => {
+            const spec = AgentSpecSchema.parse({ model: 'x', resume: {} })
+            expect(spec.resume?.enabled).toBe(false)
+            expect(spec.resume?.max_completed_age_ms).toBe(7 * 24 * 60 * 60_000)
+        })
+
+        it('parses an opt-in week-long TTL config', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                resume: { enabled: true, max_completed_age_ms: 14 * 24 * 60 * 60_000 },
+            })
+            expect(spec.resume?.enabled).toBe(true)
+            expect(spec.resume?.max_completed_age_ms).toBe(14 * 24 * 60 * 60_000)
+        })
+
+        it('rejects a non-positive max_completed_age_ms', () => {
+            expect(() => AgentSpecSchema.parse({ model: 'x', resume: { max_completed_age_ms: 0 } })).toThrow()
+        })
+    })
 })

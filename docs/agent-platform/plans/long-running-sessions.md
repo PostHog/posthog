@@ -1,97 +1,148 @@
 # Design — long-running sessions, explicit resume, and context compaction
 
-**Status:** draft / open questions. **Owner:** ben.
+**Status:** v0 scoped down to a per-agent TTL on `completed` (no new state,
+no compaction). The wider design (parked-cold `suspended` state, compaction
+strategies, runner rehydrate) is described in §3–§5 but **deferred until
+real usage shows we hit the cost or context wall**. **Owner:** dylan
+(workstream W1, after B.1).
 
-This is the foundational Phase A plan from `_TODO.md`. It nails the session
-state machine so the rest of the queue (rate limiting, approval-gated tool
-use, per-session access elevation) has a stable shape to build on.
+This is the foundational Phase A plan from `_TODO.md`. It originally aimed
+to lock down the session state machine for the rest of the queue (rate
+limiting, approval-gated tool use, per-session access elevation) to build
+on. The v0 slice we're actually shipping is much smaller — the per-agent
+TTL is the only piece those downstream plans strictly need.
+
+> **Note on history.** An earlier draft of this plan was written against the
+> pre-cutover state machine that included a `waiting` state. That state was
+> removed when [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md)
+> shipped — `completed` is now the open-but-idle state.
+>
+> A subsequent draft introduced a `suspended` parked-cold state alongside
+> `completed` and a full compaction pipeline. After review we determined
+> that compaction is a perf/cost optimisation rather than a correctness
+> requirement (Claude Opus has a 1M-token context window; a multi-week
+> Slack thread fits comfortably; PG row weight on JSONB only becomes
+> painful at million-row scale across teams). The v0 we're shipping is
+> just a per-agent TTL knob on the existing `completed → closed` sweep
+> policy. §3–§5 are preserved as the v1+ design for if/when usage data
+> shows the wall is real.
 
 ## 1. Problem
 
-Today's session lifecycle:
+Today's session lifecycle, after the session-restart redesign:
 
 ```text
-queued → running → (waiting → queued)* → completed | failed
+queued → running → (completed → queued)* → closed | failed
 ```
 
-- `waiting` exists **only** as the parked state after
-  `@posthog/meta-ask-for-input`. The model decides to suspend; the session
-  unparks when a `/send` arrives matching the session's `external_key`.
-- The janitor fails any `waiting` session past `stuckWaitingThresholdMs`
-  (default 24h). There is no way for an agent to say "I'll watch this
-  thread for a week" — the next sweep nukes it.
+- `completed` is the **open** end-of-turn state. `/send` re-queues; an
+  `external_key` match resumes (subject to the B.1 ACL check). The janitor
+  auto-closes `completed` rows older than `idleCompletedThresholdMs`
+  (default 24h) to keep the queue tidy.
+- There is no way for an agent to say "I'll watch this thread for a week" —
+  the 24h sweep is global, unconditional, and applies regardless of the
+  agent's profile. A Slack assistant for a multi-week project gets
+  silently closed every night.
 - `conversation` JSONB grows unbounded with every turn. A long-running
-  session eventually drags megabytes through every `claim()` /
-  `update()`. The runner doesn't truncate.
-- "Has my user replied yet?" is the only resume signal. There's no way
-  to schedule a wake-up, no way to react to an external event, no
-  way for the _author_ to declare the agent stays alive longer than
-  one model-driven park.
+  session eventually drags megabytes through every `claim()` / `update()`.
+  The runner doesn't truncate.
+- "Has the user replied via `external_key`?" is effectively the only resume
+  signal. There's no way to schedule a wake-up, no way to react to an
+  external event, no way for the author to declare the agent should
+  remain reachable beyond the global TTL.
 
 The user-visible features this blocks:
 
-- A "Slack assistant" that watches a thread for the whole sprint, not
-  one prompt-and-reply cycle.
-- A "weekly digest" agent that wakes itself on a cron.
-- A "code-review agent" that posts a draft, waits for the human's
-  approval (TODO #3), then continues — but might wait days.
+- A "Slack assistant" that watches a thread for a whole sprint, not just
+  the global 24h window.
+- A "weekly digest" agent that wakes itself on a cron — sleeps cold the
+  rest of the time and wakes with the right context.
+- A "code-review agent" that posts a draft, waits for approval (B.2), then
+  continues — but might wait days.
 - An "incident-response" agent that has to stay coherent across a
-  multi-day investigation without re-explaining context from scratch
-  each time.
+  multi-day investigation without re-explaining context from scratch.
 
 ## 2. What "resumable session" precisely means
 
 A resumable session is one that:
 
 1. Has an **explicit, author-declared resumability config** (spec field).
-2. Survives in `waiting` state beyond the global janitor TTL — up to the
-   per-agent TTL declared in spec.
+2. Survives beyond the global 24h `idleCompletedThresholdMs` — up to the
+   per-agent TTL declared in spec. **(v0)**
 3. Maintains a **compacted conversation** so resumes don't drag every
-   historical message into context.
+   historical message into context. **(deferred; see §3–§5)**
 4. Has a **deterministic reopen contract** — a trigger (Slack reply,
-   webhook, cron tick) can target it without ambiguity.
-5. Can be deliberately ended by the model (`end_session`), by the
-   janitor (per-agent TTL hit), or by the user (cancel).
+   webhook with `x-external-key`, chat `/send`, cron tick) can target it
+   without ambiguity. The existing externalKey + B.1 ACL check already
+   provide this for `completed` rows; nothing to ship for v0.
+5. Can be deliberately ended by the model (`@posthog/meta-end-session`),
+   by the janitor (per-agent TTL hit), or by the user (`/cancel`).
 
-Existing `ask_for_input` keeps working unchanged — it's the short-form
-case. The new shape generalizes to long-form.
+Non-resumable agents keep today's exact behaviour: end of turn lands at
+`completed`, sweep closes them at 24h. The new lifecycle is opt-in and
+backwards compatible.
+
+The v0 slice (per-agent TTL) is sufficient to unblock the user-visible
+features that motivated this plan — multi-week Slack threads, weekly
+cron agents, multi-day incident response. Compaction (§3–§5) is the
+escape hatch we'd reach for when an actual agent exceeds the model's
+context window or when per-turn cost balloons; both are observable
+through LLM analytics first, so we ship without them and add when
+needed.
 
 ## 3. State machine additions
 
-Today's states stay; we add two and tighten the contract on `waiting`:
+Today's five states stay; we add one parked-cold state alongside
+`completed`:
 
 ```text
-queued        — picked up by the next runner with capacity
-running       — claimed; mid-turn
-waiting       — parked, awaiting a wake event (any of: user reply,
-                approval, cron tick, external webhook)
-suspended     — NEW. parked + compacted. lives until per-agent TTL.
-                unpacks back to waiting on a wake.
-completed     — terminal. model called end_session OR per-agent
-                completion policy said "done".
-failed        — terminal. runner crashed past poison-pill threshold,
-                or hit max_wall_seconds, or compaction blew up.
+queued     — picked up by the next runner with capacity.
+running    — claimed; mid-turn.
+completed  — parked + hot. End of turn. Full conversation in memory;
+             /send and external_key match re-queue immediately. Open by
+             default — auto-closed at idleCompletedThresholdMs unless
+             the agent opts into resume.
+suspended  — NEW. parked + cold. Compacted: `compacted_prefix` populated,
+             `conversation` trimmed. Lives until per-agent
+             `max_resume_age_ms`. Wake event flips to `queued` and the
+             runner rehydrates at claim time.
+closed     — terminal. meta-end-session, sweep auto-close, or
+             max_resume_age hit.
+failed     — terminal. Runner crashed past poison-pill threshold,
+             max_wall_seconds, /cancel, or compaction itself blew up
+             past retry budget.
 ```
 
-Why two parked states? `waiting` keeps its meaning as "actively parked,
-expecting a wake imminently — full context retained for fast resume".
-`suspended` is "parked indefinitely — context compacted, wake will
-require a rehydrate step before the next turn runs".
+Why two parked states? `completed` keeps its session-restart meaning —
+hot, full context, instant resume, the default end-of-turn home.
+`suspended` is "we don't expect a wake imminently; compress to save row
+size, accept a rehydrate cost on the next wake". A clean split:
+`completed` = expected to wake soon; `suspended` = might wake never.
 
-Transitions:
+Transitions added or changed:
 
-- `waiting → suspended` — fired by janitor sweep when a `waiting`
-  session ages past `compact_after_ms` (per-agent config, default 1h).
-- `suspended → waiting` — fired by a wake event. Runner rehydrates
-  compacted history into a fresh context window (see §5), claims the
-  row, runs the next turn.
-- `waiting | suspended → completed` — model decides, user cancels, or
-  per-agent `max_resume_age_ms` hits.
+- `completed → suspended` — janitor sweep when a `completed` row ages
+  past `spec.resume.compact_after_ms` (default 1h). The compaction step
+  runs synchronously inside the sweep (see §5).
+- `suspended → queued` — any wake event: external_key match, `/send`, a
+  cron tick, an approval landing, an elevation grant. The runner picks
+  up the queued row, sees `compacted_prefix` is non-null, and assembles
+  the next-turn context from `compacted_prefix + conversation + pending_inputs`.
+- `completed → closed` — unchanged for non-resumable agents
+  (`idleCompletedThresholdMs`, default 24h). For resumable agents the
+  sweep skips this transition entirely — the lifecycle is
+  `completed → suspended → … → closed`.
+- `suspended → closed` — sweep when age past `spec.resume.max_resume_age_ms`
+  (default 7d). Terminal via the same "cleanly idle, time's up" reasoning
+  as the current `completed → closed` sweep.
 
-The sweep policy that fails stuck waiting rows today (`stuckWaitingMs`)
-becomes the **upper bound** — applied only when the agent's spec says
-the session isn't resumable. For resumable agents the sweep uses
-`max_resume_age_ms` from spec.
+What the runner has to learn:
+
+- At claim time, if `compacted_prefix` is non-null, prepend the summary
+  (or window) into the model context as a synthetic system message before
+  draining `pending_inputs` and `conversation` into the turn. This is
+  the rehydrate path; it's purely additive — non-resumable agents never
+  carry `compacted_prefix` and the codepath is a no-op.
 
 ## 4. Spec config
 
@@ -100,22 +151,26 @@ New section on `AgentSpec`:
 ```jsonc
 {
   "resume": {
-    // Whether this agent's sessions can outlive a single turn cycle.
-    // false (default) preserves today's behavior: waiting > 24h → failed.
+    // Whether this agent's sessions can outlive the global completed-sweep
+    // TTL. false (default) preserves today's behaviour: completed > 24h →
+    // closed, no compaction, no suspension.
     "enabled": true,
 
-    // Compact `waiting` sessions after this. Past this age the
-    // session moves to `suspended` and its conversation is compacted.
-    // Default: 3600000 (1h).
+    // Move `completed` sessions to `suspended` after this. Past this age
+    // the row is compacted (per `compaction.strategy`) and parked cold.
+    // Default: 3600000 (1h). Should be ≥ idleCompletedThresholdMs in
+    // practice, but the sweep handles either order safely.
     "compact_after_ms": 3600000,
 
-    // Hard ceiling. Past this, sweep marks the session completed
-    // (graceful) or failed (with reason="max_resume_age").
+    // Hard ceiling on the suspended state. Past this, sweep marks the
+    // session `closed` (graceful) or `failed` (with reason="max_resume_age"
+    // on a compaction-retry blow-up).
     // Default: 604800000 (7 days).
     "max_resume_age_ms": 604800000,
 
-    // Per-agent cap on simultaneously-suspended sessions. Helps the
-    // rate-limit plan (`_TODO` #4) bound storage growth.
+    // Per-agent cap on simultaneously-suspended sessions. Hooks into the
+    // rate-limit plan (`rate-limiting-sessions.md`) so a misbehaving
+    // long-running agent can't fill the queue table with cold rows.
     // null = no cap.
     "max_suspended_sessions": 100,
 
@@ -125,20 +180,23 @@ New section on `AgentSpec`:
       "keep_recent_turns": 6, // for "window"; ignored for others
       "summary_model": "anthropic/claude-haiku-4-5", // for "summarize"
     },
-
-    // When `external_key` reopens an old session, what's the freshness
-    // policy? "always" reuses the most-recent matching session
-    // regardless of age; "within_resume_window" only if it's not
-    // past `max_resume_age_ms`; "never" creates a new session for
-    // every trigger. Default: "within_resume_window".
-    "external_key_reuse": "within_resume_window",
   },
 }
 ```
 
-Spec validation runs at freeze time (per `agent-authoring-flow.md` §3).
-Backwards-compatible default: `resume.enabled = false` means today's
-behavior. Existing agents continue working unchanged.
+Spec validation runs at freeze time. Backwards-compatible default:
+`resume.enabled = false` means today's behaviour. Existing agents keep
+working unchanged.
+
+Note: the original draft of this plan carried an `external_key_reuse`
+policy with values `"always" | "within_resume_window" | "never"`. With
+the session-restart state machine the policy is now implicit:
+
+- `completed` / `suspended` → resume (subject to B.1 ACL check).
+- `closed` with `allow_restart` trigger config → reopen.
+- `closed` (default) / `failed` → fresh session.
+
+There's nothing left for `external_key_reuse` to express. Dropping it.
 
 ## 5. Context compaction
 
@@ -149,8 +207,8 @@ meaning. Three strategies:
 ### "window" — sliding window
 
 Keep the last N turns verbatim. Drop everything older. Cheap, lossy.
-Suitable for agents where old context is genuinely stale (e.g. a Slack
-thread that asks unrelated questions over time).
+Suitable for agents where old context is genuinely stale (a Slack thread
+that asks unrelated questions over time).
 
 Stored on the session row:
 
@@ -192,15 +250,15 @@ Stored:
 The `compacted_prefix` is preserved separately so we can:
 
 - Show the user / authoring AI what was compacted (transparency).
-- Re-compact (if the conversation grows again after wake, the next
-  compaction summarizes the synthetic summary + new turns).
+- Re-compact: if the conversation grows again after wake, the next
+  compaction summarizes the synthetic summary + new turns.
 
 ### "none" — refuse to compact
 
-Spec opts out. Sessions never move past `waiting`. Useful for short
-agents that explicitly want full fidelity OR for testing /
-self-healing agents that need raw traces. Combined with a short
-`max_resume_age_ms` this is fine.
+Spec opts out. Sessions stay at `completed` indefinitely (subject to
+`idleCompletedThresholdMs`). Useful for short agents that explicitly
+want full fidelity OR for testing / self-healing agents that need raw
+traces.
 
 ### Choosing a strategy
 
@@ -217,142 +275,175 @@ periodic state maintenance. Compaction needs LLM access (for
 config the runner uses (or directly, via a small `compact_session`
 helper). Adding LLM-call ability to the janitor is one new dependency
 but it's the right home — compaction is a background sweep job, same
-shape as `reapStuckRunning`.
+shape as `reapStuckRunning` / `idleCompletedClose`.
 
 Failure handling: if compaction itself fails (model error, network),
-mark `compaction_meta.last_error` on the row, retry on the next sweep up
-to `MAX_RETRIES` (reuse the poison-pill counter). After threshold,
-demote to `window` strategy as a fallback.
+stamp `compaction_meta.last_error` on the row, retry on the next sweep
+up to `MAX_RETRIES` (reuse the poison-pill counter). After threshold,
+demote to `window` strategy as a fallback. If `window` also fails (it
+shouldn't; it's pure JS), fail the session.
 
-## 6. Trigger-side contract — reopening an old session
+## 6. Trigger-side contract — reopening a session
 
-Today: trigger → `findByExternalKey(application_id, external_key)`. If
-there's an active session, append to `pending_inputs` and re-queue. If
-not, create a new session.
+Today's resume path: trigger → `findByExternalKey(application_id, external_key)` →
+ACL check (B.1) → append to `pending_inputs` → flip state to `queued`.
+That already handles `completed` resumes correctly.
 
-With resumable agents this needs the `external_key_reuse` policy:
+For `suspended` we extend the resume path identically — same external_key
+match, same ACL check, same enqueue. The runner's claim picks the row up,
+and the only new bit is the rehydrate step in the loop (§3 above). No
+trigger-side surgery required.
 
-- `"always"` — match any session with the key, regardless of state. If
-  the matched session is in `suspended`, the ingress fires a wake event:
-  the row's state flips to `queued`, a wake-up note is added to
-  `pending_inputs` along with the new user message, and the runner picks
-  it up. If the session is `completed` or `failed`, we re-open it
-  (transition `completed → queued`) with the prior conversation +
-  the new user message.
-- `"within_resume_window"` — same as `"always"` for sessions inside
-  `max_resume_age_ms`. Past that age, the matched session is treated as
-  closed and a new session is created. The old session's `external_key`
-  is cleared on the next sweep so the new session "owns" the key.
-- `"never"` — every trigger creates a new session. Useful for stateless
-  agents.
+State-wise the trigger sees:
 
-When the runner picks up a `queued` session that was previously
-`suspended`, it rehydrates: reads `compacted_prefix` + `conversation`,
-builds the next-turn context, runs. No extra work for the model —
-compaction is transparent.
+| Existing state | Result of an external_key match                                       |
+| -------------- | --------------------------------------------------------------------- |
+| `queued`       | append pending_inputs (existing).                                     |
+| `running`      | append pending_inputs (existing).                                     |
+| `completed`    | append pending_inputs + `state → queued` (existing).                  |
+| `suspended`    | append pending_inputs + `state → queued`. Runner rehydrates at claim. |
+| `closed`       | terminal — fresh session unless trigger has `allow_restart`.          |
+| `failed`       | terminal — always fresh session.                                      |
 
-### Cron / scheduled wake (out of scope here, but the hook lives here)
+### Cron / scheduled wake (handed off to `cron-trigger-scheduler.md`)
 
-A separate plan covers cron triggers, but the wake mechanism is the
-same: the cron emits a synthetic "wake" pending_input, transitions the
-row to queued, runner takes it. So this design accommodates it without
-extra surgery.
+Cron is a separate plan, but the wake mechanism is the same: the
+scheduler emits a synthetic "wake" pending_input on the cron-trigger
+agent's most-recent matching session, flips state to `queued`, and the
+runner picks it up. The rehydrate path runs on a suspended row the same
+way a Slack-thread wake would. Cron is the strongest motivator for
+`suspended` — daily/weekly digests sit cold between fires.
+
+### Approvals (B.2) and elevations (B.1) as wake events
+
+A session parked on a pending approval lives at `completed` per the
+session-restart contract. If the approval is slow enough for the
+compaction sweep to fire, the row transitions to `suspended` cleanly;
+the approval landing later still appends a `pending_input` and queues
+the row. Same for an elevation grant landing on a long-suspended Slack
+thread. The lifecycle is uniform — anything that produces a
+`pending_input` is a valid wake.
 
 ## 7. Visibility / observability
 
 What gets exposed:
 
-- **Session detail (janitor `/sessions/:id`)**: includes `compaction_meta`
-  - `compacted_prefix` so debugging tools see what was dropped.
-- **Authoring API**: a new
-  `agent-applications-sessions-suspended-list` _(to be added per
-  `agent-authoring-flow.md` §3)_ so the MCP can show "your agent has 17
-  suspended sessions; here are the most-recent".
-- **Sweep result**: extended from
-  `{ requeued, poisoned, failed }` to also include
-  `{ compacted, awoken, max_age_completed }`.
+- **Session detail (janitor `/sessions/:id`)** — includes
+  `compaction_meta` + `compacted_prefix` so debugging tools see what was
+  dropped.
+- **Authoring API** — extend `agent-applications-sessions-list` with a
+  `states` filter that includes `suspended` (matches the existing filter
+  shape; no new endpoint).
+- **Sweep result** — extended from
+  `{ requeued, poisoned, closed, expired_approvals }` to also include
+  `{ suspended, max_age_closed }`. Both are exported through the janitor's
+  existing sweep-metrics path.
+- **Bus events** — add `suspended` and `awoken` lifecycle events to
+  `SessionEventBus`. SSE consumers that want to render "this session
+  went cold for 3 days, here's the catch-up" can listen for `awoken`.
 
 ## 8. Open questions
 
-1. **Storage**: compacted-prefix + retained conversation are both on the
-   session row JSONB. For a 7-day session with multiple compaction
-   cycles, the row grows linearly in the summaries. Cap it? Roll up
-   summaries into a single new summary past N? Probably yes — second
-   summarization pass when the prefix itself exceeds N tokens.
-2. **Tool result lifecycle**: today tool results live as messages in
+1. **Storage growth on multi-cycle compaction**. A 7-day session with
+   multiple wake → re-compact cycles grows linearly in the prefix
+   summaries. Cap it? Roll up summaries past N tokens with a second
+   summarization pass — yes, but defer the implementation until we see
+   real session shapes.
+2. **Tool result lifecycle**. Today tool results live as messages in
    `conversation`. After compaction the synthetic summary contains the
-   _gist_ but the model can't re-inspect a specific old tool_result.
-   Probably fine — if it mattered, the model would have surfaced it
-   in the conversation. Document the limitation.
-3. **External-key reuse + cross-team safety**: today `external_key` is
-   scoped to `(application_id, external_key)`. A reopened session
-   inherits its original `team_id`. Ensure the wake-event ingress
-   re-checks team membership of the _new_ sender so a team change
-   doesn't smuggle access.
-4. **Pricing / quotas**: compaction is a model call per sweep per
-   long-running session. At 1000 sessions × hourly compaction × 1 Haiku
-   call, that's 24K compaction calls/day — measurable but cheap. Worth
-   surfacing in the team's LLM analytics so we can see the cost. Hard
-   cap?
-5. **Wake notification UX**: when an old Slack thread is woken, the
-   agent's next message arrives in the thread. The user sees "this
-   thread woke up after 5 days". Do we want a synthetic "👋 still here
-   — let me catch up on what's changed" message OR does the agent
-   author decide via spec/skill? Defer to the author.
-6. **Replay vs compact ordering**: `resumable-conversations.md` (the
-   read-side, B8) wants to show users old session traces. If we compact
-   the live row but preserve the full audit in CH `log_entries`, the
-   "show me what happened" path reads CH, not the row. Reconcile with
-   the four questions in `resumable-conversations.md`.
-7. **Per-session opt-out** of compaction: a model might tag a session
-   as "do not compact" (e.g. an incident-response thread where
-   completeness matters more than efficiency). Probably a `compact: false`
-   field on the session row that the model can set via a new meta tool
-   `@posthog/session-pin-context`. Designed in but punted to a follow-up.
+   gist but the model can't re-inspect a specific old tool_result.
+   Probably fine — if it mattered the model would have surfaced it in
+   the conversation. Document the limitation.
+3. **Cross-team safety**. External_key is scoped to
+   `(application_id, external_key)`. A reopened (suspended → queued)
+   session inherits its original `team_id`. B.1's ACL check already
+   re-validates the incoming principal at wake time, so a user who lost
+   team membership between suspend and wake can't smuggle access. Worth
+   an explicit test.
+4. **Pricing**. Compaction is a model call per sweep per long-running
+   session. At 1000 suspended sessions × hourly recheck × 1 Haiku call,
+   that's ~24k compaction calls/day cluster-wide — measurable but
+   cheap. Worth surfacing in the team's LLM analytics. Hard cap?
+5. **Wake notification UX**. When a 5-day-old thread wakes, the agent's
+   next message arrives in the thread. Does the author want a synthetic
+   "👋 still here — let me catch up on what's changed" message
+   prepended? Defer to the author via spec.
+6. **Resumable-conversations read side**. `resumable-conversations.md`
+   (B8) wants to show users old session traces. If we compact the live
+   row but preserve the full audit in CH `log_entries`, the "show me
+   what happened" path reads CH, not the row. Aligned in spec; the
+   `compacted_prefix` is the live-state surface, CH is the audit
+   surface.
+7. **Per-session compaction opt-out**. A model might tag a session as
+   "do not compact" (an incident-response thread where completeness
+   matters more than efficiency). Probably a `compact: false` field on
+   the session row the model can set via a new meta tool
+   `@posthog/session-pin-context`. Designed-in but punted to a
+   follow-up.
+8. **Compaction sweep interval vs `compact_after_ms`**. The sweep ticks
+   every `SWEEP_INTERVAL_MS` (default 60s). A `compact_after_ms` of 1h
+   means up to a 61-minute lag before a freshly-idle session compacts.
+   Acceptable. Don't tighten the sweep just for compaction; the
+   amortized cost matters more than the precise transition time.
 
 ## 9. Rollout
 
 This is additive — disabled by default per agent. Rollout phases:
 
-**v0** (foundation):
+**v0** (per-agent TTL only):
 
-- Add `resume.*` spec fields. Default `enabled: false`. Validation
-  enforces sane ranges.
-- Schema migration: add `compacted_prefix JSONB`, `compaction_meta JSONB`
-  to `agent_session`. Both nullable.
-- Janitor sweep extended: `compactAged` + `wakeFromSuspended` policies
-  added alongside the existing reap.
-- New session state `suspended`. State machine updated in `spec.ts`.
-- Existing agents see no behavior change.
+- Add a small `resume.*` spec slice: `resume.enabled: boolean` (default
+  `false`) and `resume.max_completed_age_ms: number` (default matches
+  the global `idleCompletedThresholdMs`).
+- Modify the existing `idleCompletedClose` sweep policy to read the
+  per-agent TTL from `spec.resume` when `enabled: true`; otherwise use
+  the global default (today's exact behaviour).
+- No new state, no new columns, no migration, no compaction, no runner
+  rehydrate. Existing agents see zero behaviour change.
+- Regenerate openapi types after the spec bump.
 
-**v1** (first real users):
+This unblocks long-running Slack assistants, weekly cron agents, and
+multi-day incident threads with the smallest possible footprint.
 
-- Pick one internal agent (probably the @agent-builder Slack bot once
-  it lands, or the canonical "research assistant" template) and flip
-  `resume.enabled: true` with `compaction.strategy: summarize`.
-- Watch CH for compaction call cost; surface in LLM analytics.
-- Adjust defaults if needed.
+**v1+** (compaction, only if needed):
 
-**v2** (broad availability):
+The full `suspended` state + compaction pipeline described in §3–§5
+lands if/when:
 
-- Expose `resume.*` in the authoring wizard / MCP YAML descriptions.
-- Document the trade-offs in the authoring skill (this design's §5,
-  abbreviated, ends up in `@posthog/authoring`).
-- Add the suspended-sessions endpoint.
+- An actual agent exceeds the model's context window (observable
+  through LLM analytics — `$ai_generation` errors with
+  `context_length_exceeded`), or
+- Per-turn cost for a long-running agent grows enough that the team
+  asks for compaction (observable through cost dashboards).
+
+Until then, no `suspended` state, no `compacted_prefix`, no compactor.
+The §3–§5 design is the blueprint to pick up off the shelf when the
+need is concrete.
 
 ## 10. What this enables for the other plans
 
-- **`_TODO` #3 — control flows / approval-gated tool use**: reuses the
-  `waiting → wake event → resume` lifecycle. Approval flow parks a
-  session in `waiting` (not `suspended` — approvals shouldn't compact),
-  the UI / MCP fires a wake when the approval lands.
-- **`_TODO` #4 — rate limiting + queue policy**: hooks
-  `max_suspended_sessions` into the queue admission policy.
-- **`_TODO` #6 — per-session access elevation**: elevation events are
-  just wakes with an ACL-mutation pending_input.
-- **`agent-authoring-flow.md` test-run infrastructure**: test sessions
-  never compact (`compaction.strategy: none`) so traces stay clean for
-  self-evaluation.
-- **`resumable-conversations.md` (B8 read side)**: the source-of-truth
+- **B.1 per-session-access-elevation**: elevation grants on a suspended
+  session wake it via the same `pending_input` path as Slack replies.
+  No special handling. B.1 v0 already runs the ACL check on the resume
+  path so a wake on a suspended session goes through the same gate.
+- **B.2 approval-gated tools**: approvals can park sessions for days.
+  Today a session waits at `completed` and the 24h sweep would close it
+  before a slow approver could decide. With resume enabled the row
+  cleanly transitions to `suspended` instead and the approval landing
+  later wakes it.
+- **B.3 rate-limiting**: `max_suspended_sessions` hooks into the
+  per-agent admission policy so a long-running agent doesn't drown the
+  queue table with cold rows. The platform-wide
+  `AGENT_PLATFORM_TEAM_MAX_SUSPENDED` env knob layers on top.
+- **C.4 resumable-conversations** (B8 read side): the source-of-truth
   question is resolved — `conversation` JSONB is canonical for the live
-  state; CH is the audit log for display.
+  state; CH is the audit log for display. The `compacted_prefix`
+  documents what was dropped from the live row so the read-side renderer
+  can show "earlier turns: see audit log".
+- **C.5 cron-trigger-scheduler**: cron-trigger agents are the strongest
+  motivator for `suspended` — daily / weekly fires want the row to sit
+  cold and wake with the right context. The wake path is identical to
+  an externalKey-driven Slack resume.
+- **Agent-authoring test infrastructure** (D.1): test sessions never
+  compact (`compaction.strategy: none`) so traces stay clean for
+  self-evaluation.

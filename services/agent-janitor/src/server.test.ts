@@ -24,6 +24,8 @@ function session(id: string): AgentSession {
         principal: null,
         retry_count: 0,
         usage_total: { ...EMPTY_USAGE_TOTAL },
+        acl: [],
+        pending_elevation_requests: [],
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -332,6 +334,152 @@ describe('janitor HTTP', () => {
         const second = await request(app).post('/sessions/s2b/cancel')
         expect(second.status).toBe(200)
         expect(second.body).toMatchObject({ ok: true, idempotent: true, state: 'cancelled' })
+    })
+
+    /* ────────────────────────── fleet stats ────────────────────────── */
+
+    it('GET /sessions/stats rolls up per-application counts + spend', async () => {
+        const { queue, app } = mk()
+        const now = Date.now()
+        const iso = (d: number): string => new Date(d).toISOString()
+        const recent = iso(now - 60_000)
+        const old = iso(now - 7 * 24 * 60 * 60 * 1000)
+        await queue.enqueue({
+            ...session('live-1'),
+            application_id: 'app-x',
+            state: 'running',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 0.5 },
+        })
+        await queue.enqueue({
+            ...session('done-1'),
+            application_id: 'app-x',
+            state: 'completed',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 1.25 },
+        })
+        await queue.enqueue({
+            ...session('failed-1'),
+            application_id: 'app-x',
+            state: 'failed',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 0.1 },
+        })
+        await queue.enqueue({
+            ...session('old-1'),
+            application_id: 'app-x',
+            state: 'completed',
+            created_at: old,
+            updated_at: old,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 99 },
+        })
+        await queue.enqueue({
+            ...session('other-app'),
+            application_id: 'app-y',
+            state: 'running',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 99 },
+        })
+        const res = await request(app).get('/sessions/stats').query({ application_id: 'app-x' })
+        expect(res.status).toBe(200)
+        expect(res.body).toMatchObject({
+            liveCount: 1,
+            sessionsInWindowCount: 3,
+            spendInWindowUsd: 0.5 + 1.25 + 0.1,
+            failedInWindowCount: 1,
+        })
+        expect(res.body.lastActivityAt).toBe(recent)
+    })
+
+    it('GET /fleet/stats rolls up per-team counts + spend', async () => {
+        const { queue, app } = mk()
+        const now = Date.now()
+        const recent = new Date(now - 60_000).toISOString()
+        await queue.enqueue({
+            ...session('t1-live'),
+            team_id: 7,
+            state: 'running',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 2 },
+        })
+        await queue.enqueue({
+            ...session('t1-done'),
+            team_id: 7,
+            state: 'completed',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 1 },
+        })
+        await queue.enqueue({
+            ...session('t2-other'),
+            team_id: 99,
+            state: 'running',
+            created_at: recent,
+            updated_at: recent,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 50 },
+        })
+        const res = await request(app).get('/fleet/stats').query({ team_id: 7 })
+        expect(res.status).toBe(200)
+        expect(res.body).toMatchObject({ liveCount: 1, sessionsInWindowCount: 2, spendInWindowUsd: 3 })
+    })
+
+    it('GET /sessions/live returns live sessions for a team', async () => {
+        const { queue, app } = mk()
+        const now = Date.now()
+        const recent = new Date(now - 60_000).toISOString()
+        const newer = new Date(now - 30_000).toISOString()
+        await queue.enqueue({
+            ...session('live-old'),
+            team_id: 7,
+            state: 'queued',
+            created_at: recent,
+            updated_at: recent,
+        })
+        await queue.enqueue({
+            ...session('live-new'),
+            team_id: 7,
+            state: 'running',
+            created_at: newer,
+            updated_at: newer,
+        })
+        await queue.enqueue({
+            ...session('done'),
+            team_id: 7,
+            state: 'completed',
+            created_at: newer,
+            updated_at: newer,
+        })
+        await queue.enqueue({
+            ...session('other-team'),
+            team_id: 99,
+            state: 'running',
+            created_at: newer,
+            updated_at: newer,
+        })
+        const res = await request(app).get('/sessions/live').query({ team_id: 7 })
+        expect(res.status).toBe(200)
+        const ids = (res.body.results as Array<{ id: string }>).map((s) => s.id)
+        expect(ids).toEqual(['live-new', 'live-old'])
+        expect(Object.keys(res.body.results[0])).not.toContain('conversation')
+    })
+
+    it('GET /sessions/stats without application_id returns 400', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/sessions/stats')
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
+    })
+
+    it('GET /fleet/stats without team_id returns 400', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/fleet/stats')
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_request')
     })
 
     it('POST /sweep returns counts', async () => {

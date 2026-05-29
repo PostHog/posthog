@@ -13,9 +13,11 @@ import { Pool } from 'pg'
 
 import { reset } from '@posthog/agent-migrations'
 
+import { EncryptedFields } from '../runtime/encryption'
 import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'
 import { AgentSpecSchema, AssistantMessageRecord, EMPTY_USAGE_TOTAL } from '../spec/spec'
 import { hashCanonicalArgs } from './approval-store'
+import { PgIntegrationStore } from './integration-store'
 import { PgApprovalStore } from './pg-approval-store'
 import { PgSessionQueue } from './pg-queue'
 import { PgRevisionStore } from './pg-revision-store'
@@ -137,6 +139,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 principal: null,
                 retry_count: 0,
                 usage_total: { ...EMPTY_USAGE_TOTAL },
+                acl: [],
+                pending_elevation_requests: [],
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -149,6 +153,86 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(b).not.toBeNull()
         expect(a!.id).not.toBe(b!.id)
         expect(a!.state).toBe('running')
+    })
+
+    it('PgSessionQueue aggregateForApplication + aggregateForTeam + listLiveForTeam', async () => {
+        if (!reachable) {
+            return
+        }
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const app = await revisions.createApplication({ team_id: 7, slug: 'agg', name: 'Agg', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        // Sibling app on a different team — must not leak into either roll-up.
+        const otherApp = await revisions.createApplication({
+            team_id: 99,
+            slug: 'other',
+            name: 'Other',
+            description: '',
+        })
+        const otherRev = await revisions.createRevision({
+            application_id: otherApp.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const now = Date.now()
+        const inWindow = new Date(now - 60_000).toISOString()
+        const outWindow = new Date(now - 48 * 60 * 60 * 1000).toISOString()
+        const mk = (
+            id: string,
+            state: string,
+            created: string,
+            cost: number,
+            applicationId = app.id,
+            revisionId = rev.id,
+            teamId = 7
+        ): Parameters<typeof queue.enqueue>[0] => ({
+            id,
+            application_id: applicationId,
+            revision_id: revisionId,
+            team_id: teamId,
+            external_key: null,
+            state: state as Parameters<typeof queue.enqueue>[0]['state'],
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: cost },
+            acl: [],
+            pending_elevation_requests: [],
+            created_at: created,
+            updated_at: created,
+        })
+        await queue.enqueue(mk(randomUUID(), 'running', inWindow, 0.5))
+        await queue.enqueue(mk(randomUUID(), 'completed', inWindow, 1.0))
+        await queue.enqueue(mk(randomUUID(), 'failed', inWindow, 0.25))
+        await queue.enqueue(mk(randomUUID(), 'completed', outWindow, 99)) // outside window
+        await queue.enqueue(mk(randomUUID(), 'running', inWindow, 999, otherApp.id, otherRev.id, 99))
+
+        const sinceIso = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+        const appStats = await queue.aggregateForApplication(app.id, sinceIso)
+        expect(appStats.liveCount).toBe(1)
+        expect(appStats.sessionsInWindowCount).toBe(3)
+        expect(appStats.spendInWindowUsd).toBeCloseTo(0.5 + 1.0 + 0.25, 5)
+        expect(appStats.failedInWindowCount).toBe(1)
+        expect(appStats.lastActivityAt).not.toBeNull()
+
+        const teamStats = await queue.aggregateForTeam(7, sinceIso)
+        expect(teamStats.liveCount).toBe(1)
+        expect(teamStats.sessionsInWindowCount).toBe(3)
+        expect(teamStats.spendInWindowUsd).toBeCloseTo(1.75, 5)
+
+        const live = await queue.listLiveForTeam(7)
+        expect(live).toHaveLength(1)
+        expect(live[0].state).toBe('running')
     })
 
     it('PgSessionQueue appendPendingInput buffers into pending_inputs JSONB', async () => {
@@ -177,6 +261,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -216,6 +302,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -252,6 +340,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -346,6 +436,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -428,6 +520,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -485,5 +579,67 @@ maybeDescribe('Postgres impls (real PG)', () => {
         // Listing by session returns all rows, newest first.
         const all = await store.listBySession(sessionId)
         expect(all.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('PgIntegrationStore reads + decrypts posthog_integration rows', async () => {
+        if (!reachable) {
+            return
+        }
+        // The test DB is the runtime queue DB which @posthog/agent-migrations
+        // owns. posthog_integration lives in the main posthog DB in prod;
+        // we recreate a minimal slice here so the store has something to
+        // read from. Mirrors the existing harness pattern for agent_revision.
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS posthog_integration (
+                id BIGSERIAL PRIMARY KEY,
+                team_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                integration_id TEXT NOT NULL,
+                sensitive_config TEXT,
+                config JSONB DEFAULT '{}'::jsonb
+            )
+        `)
+        await pool.query('TRUNCATE posthog_integration')
+
+        const encryption = new EncryptedFields('test-salt-key-only-for-test')
+        const slackBlob = encryption.encrypt(
+            JSON.stringify({ access_token: 'xoxb-acme', refresh_token: 'r1', scopes: ['chat:write'] })
+        )
+        const githubBlob = encryption.encrypt(JSON.stringify({ access_token: 'gh_acme' }))
+        await pool.query(
+            `INSERT INTO posthog_integration (team_id, kind, integration_id, sensitive_config)
+             VALUES (7, 'slack', 'T01ACME', $1),
+                    (7, 'github', 'acme-org', $2)`,
+            [slackBlob, githubBlob]
+        )
+
+        const store = new PgIntegrationStore(pool, encryption)
+
+        // Direct lookup by natural key returns decrypted credentials.
+        const slack = await store.get(7, 'slack', 'T01ACME')
+        expect(slack?.access_token).toBe('xoxb-acme')
+        expect(slack?.refresh_token).toBe('r1')
+        expect(slack?.metadata).toEqual({ scopes: ['chat:write'] })
+
+        // Missing rows return null.
+        expect(await store.get(7, 'slack', 'NOT_THERE')).toBeNull()
+        expect(await store.get(99, 'slack', 'T01ACME')).toBeNull()
+
+        // resolveForSpec returns a `<kind>:<integration_id>`-keyed map.
+        const map = await store.resolveForSpec(7, ['slack', 'github', 'linear'])
+        expect(Object.keys(map).sort()).toEqual(['github:acme-org', 'slack:T01ACME'])
+        expect(map['github:acme-org'].access_token).toBe('gh_acme')
+
+        // Rows with undecodable sensitive_config (corrupted ciphertext, key
+        // rotated past it) are silently omitted, mirroring Django's
+        // ignore_decrypt_errors behaviour. The store doesn't crash the
+        // resolver path.
+        await pool.query(
+            `INSERT INTO posthog_integration (team_id, kind, integration_id, sensitive_config)
+             VALUES (7, 'slack', 'T02BAD', $1)`,
+            ['gAAAAA-not-a-real-token']
+        )
+        const slacks = await store.list(7, 'slack')
+        expect(slacks.map((r) => r.integration_id).sort()).toEqual(['T01ACME'])
     })
 })

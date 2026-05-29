@@ -4,9 +4,12 @@
  *
  * Concurrency model — agents are largely I/O-bound (LLM HTTP, tool HTTP,
  * sandbox round-trips), so one worker process keeps up to `maxConcurrency`
- * sessions in flight at once. Whenever a slot frees, the next session is
- * claimed. The PG queue's SELECT FOR UPDATE SKIP LOCKED protects against
- * any worker (in this process or any other) double-claiming.
+ * sessions in flight at once. The loop awaits `Promise.race` on the
+ * inflight set when at capacity, so a single finishing session
+ * immediately frees one slot and the next claim fires — steady-state,
+ * not a fill-and-drain wave. The PG queue's SELECT FOR UPDATE SKIP
+ * LOCKED protects against any worker (in this process or any other)
+ * double-claiming.
  *
  * Shutdown semantics — `stop()` aborts the shared `shutdownController`:
  *   - in-flight pi-ai calls receive the AbortSignal and cancel cleanly
@@ -25,7 +28,9 @@ import {
     ApprovalStore,
     BundleStore,
     createLogger,
+    GatewayClient,
     LogSink,
+    MemoryStore,
     RevisionStore,
     SandboxInstanceStore,
     SandboxPool,
@@ -56,9 +61,46 @@ export interface WorkerDeps {
      * Override for custom-endpoint models (llm-gateway) or test faux models.
      */
     resolveModel?: (specModel: string) => Model<string>
-    /** Per-session API key resolver. The resolved key is passed to the driver's
-     * loop config; defaults to no key. */
-    resolveApiKey?: (session: AgentSession) => string | undefined
+    /**
+     * Per-session API key resolver. The resolved key is passed to the driver's
+     * loop config; defaults to no key. On the llm-gateway path this returns
+     * the owning team's `phc_` project key (via `TeamApiKeyResolver`); on the
+     * direct path it returns the boot-time `defaultApiKeyFromConfig` (Anthropic
+     * / OpenAI). The driver streams through `streamSimple` and there's no
+     * client-level default anymore, so the key has to arrive here per-session.
+     */
+    resolveApiKey?: (session: AgentSession) => Promise<string | undefined> | string | undefined
+    /**
+     * Per-session static HTTP headers stamped on every outbound pi-ai call.
+     * On the llm-gateway path this carries `X-PostHog-Distinct-Id` +
+     * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
+     * attribute correctly.
+     *
+     * NOTE: not yet consumed by the pi-agent-core driver — the previous
+     * hand-rolled loop pushed these into `PiAiClient.invoke({ headers })`.
+     * To restore on the driver path, the loop's `streamFn` wrapper needs to
+     * inject these into per-call options. Tracked as a follow-up; the field
+     * is kept on the deps for API-shape stability with `index.ts`.
+     */
+    resolveGatewayHeaders?: (session: AgentSession) => Record<string, string> | undefined
+    /**
+     * Per-session gateway read client + the team's `phc_` bearer. When set,
+     * after every pi-ai turn the runner is expected to fetch
+     * `GET /v1/usage/<request_id>` and merge gateway-computed cost into
+     * `usage_total.cost_total`.
+     *
+     * NOTE: not yet consumed by the pi-agent-core driver — the old loop did
+     * this in run-turn.ts's per-turn block. Needs porting into the `turn_end`
+     * branch of driver.ts's sink (the per-turn `request_id` would also need to
+     * be stamped by the same streamFn wrapper that injects gatewayHeaders).
+     * Until then, gateway-path cost stays zero on the session row.
+     */
+    resolveGatewayUsage?: (
+        session: AgentSession
+    ) =>
+        | Promise<{ client: GatewayClient; phc: string } | undefined>
+        | { client: GatewayClient; phc: string }
+        | undefined
     /**
      * Optional lifecycle event bus. Runner publishes session_started /
      * turn_started / assistant_text / tool_call / tool_result / completed /
@@ -105,6 +147,11 @@ export interface WorkerDeps {
      * the model. Wire from config so prod hits the real domain.
      */
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * S3-backed memory store for `@posthog/memory-*` tools. Wired from
+     * AGENT_MEMORY_S3_* config; unset disables memory tools.
+     */
+    memoryStore?: MemoryStore
 }
 
 export class Worker {
@@ -143,11 +190,15 @@ export class Worker {
         let claimed = 0
 
         while (this.running && claimed < targetClaims && !this.shutdownController.signal.aborted) {
-            // Wait for an open slot. allSettled (not race) so one in-flight
-            // session rejecting doesn't propagate out — runOne owns its own
-            // try/catch and the rejection is informational here.
+            // Wait for ONE open slot so we maintain steady-state concurrency.
+            // Each promise in `inflight` is chained with `.catch()` below, so
+            // it can only resolve — never reject — making Promise.race safe
+            // without the all-settled drain that used to wedge utilization
+            // into a wave pattern (fill to N → wait for slowest → fill again).
+            // The winning promise's `.finally` has already removed it from
+            // the map by the time we resume here, so size has decremented.
             while (this.inflight.size >= this.maxConcurrency) {
-                await Promise.allSettled(this.inflight.values())
+                await Promise.race(this.inflight.values())
             }
             if (!this.running || this.shutdownController.signal.aborted || claimed >= targetClaims) {
                 break
@@ -257,7 +308,9 @@ export class Worker {
             }
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
             const model = resolveModel(rev.spec.model)
-            const apiKey = this.deps.resolveApiKey?.(session)
+            const apiKey = await this.deps.resolveApiKey?.(session)
+            const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
+            const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
             const outcome = await runSession(rev, session, {
                 model,
                 apiKey,
@@ -271,8 +324,11 @@ export class Worker {
                 analytics: this.deps.analytics,
                 shutdownSignal: this.shutdownController.signal,
                 useGatewayCost: this.deps.useGatewayCost,
+                gatewayHeaders,
+                gatewayUsage,
                 approvals: this.deps.approvals,
                 buildApprovalUrl: this.deps.buildApprovalUrl,
+                memoryStore: this.deps.memoryStore,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs

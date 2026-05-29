@@ -63,7 +63,7 @@ export function BundleTree({ files, selectedPath, onSelectPath }: BundleTreeProp
     }
 
     return (
-        <div className="grid grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-background">
+        <div className="grid grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-card">
             <div className="overflow-y-auto border-r border-border bg-muted/20 py-1.5">
                 <TreeView node={tree} selected={selected} onSelect={handleSelect} depth={0} />
             </div>
@@ -272,7 +272,7 @@ function FileBody({ file }: { file: BundleFile }): React.ReactElement {
     }
     // Default: code-style preformatted.
     return (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-background/60 p-3 text-[0.75rem] leading-relaxed">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-card/60 p-3 text-[0.75rem] leading-relaxed">
             <code>{file.content}</code>
         </pre>
     )

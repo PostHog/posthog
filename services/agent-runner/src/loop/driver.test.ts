@@ -63,6 +63,8 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
         pending_inputs: [],
         retry_count: 0,
+            acl: [],
+            pending_elevation_requests: [],
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-29',
         updated_at: '2026-05-29',

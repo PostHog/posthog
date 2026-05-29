@@ -78,6 +78,19 @@ export interface JanitorServerOpts {
      * rather than silently dropping decisions on the floor.
      */
     approvals?: ApprovalStore
+    /**
+     * Resolves a team's owner-side llm-gateway wallet balance.
+     * When set, `GET /applications/:slug/wallet` returns the agent's
+     * owner team's prepaid balance + pending hold. Lookup runs through
+     * the same `phc_` the runner uses, so a fresh PostHog dev env with
+     * no provisioned wallet returns 0 (gateway treats missing rows as
+     * zero balance) rather than 5xx.
+     */
+    walletProxy?: (teamId: number) => Promise<{
+        available_usd: string
+        pending_usd: string
+        currency: string
+    }>
     internalSecret?: string
 }
 
@@ -101,6 +114,26 @@ const ListSessionsQuerySchema = z.object({
 const GetSessionQuerySchema = z.object({
     last_n: z.coerce.number().int().nonnegative().optional(),
 })
+
+const AggregateForApplicationQuerySchema = z.object({
+    application_id: z.string().min(1, 'missing_application_id'),
+    /** ISO timestamp — defaults to 24h ago. */
+    since: z.string().optional(),
+})
+
+const AggregateForTeamQuerySchema = z.object({
+    team_id: z.coerce.number().int().positive('missing_team_id'),
+    since: z.string().optional(),
+})
+
+const ListLiveForTeamQuerySchema = z.object({
+    team_id: z.coerce.number().int().positive('missing_team_id'),
+    limit: z.coerce.number().int().positive().max(500).optional(),
+})
+
+function defaultSince(): string {
+    return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+}
 
 const BackfillUsageBodySchema = z.object({
     /**
@@ -245,6 +278,57 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 updated_at: s.updated_at,
             }))
             res.json({ results: summaries, count })
+        })
+    )
+
+    /* ─────────────────────────── fleet stats ─────────────────────────── */
+    //
+    // Rollups that power the agent-console overview tiles. Kept on the
+    // janitor (rather than agent-ingress) because (a) Django already
+    // proxies through here for read-only authoring data, (b) these are
+    // not in the hot per-request path so SELECT-on-jsonb is fine.
+    //
+    // Registered ahead of `/sessions/:id` — Express matches in order and
+    // these literal paths would otherwise be swallowed by the `:id` param.
+
+    app.get(
+        '/sessions/stats',
+        asyncHandler(async (req, res) => {
+            const q = AggregateForApplicationQuerySchema.parse(req.query)
+            const stats = await opts.queue.aggregateForApplication(q.application_id, q.since ?? defaultSince())
+            res.json(stats)
+        })
+    )
+
+    app.get(
+        '/fleet/stats',
+        asyncHandler(async (req, res) => {
+            const q = AggregateForTeamQuerySchema.parse(req.query)
+            const stats = await opts.queue.aggregateForTeam(q.team_id, q.since ?? defaultSince())
+            res.json(stats)
+        })
+    )
+
+    app.get(
+        '/sessions/live',
+        asyncHandler(async (req, res) => {
+            const q = ListLiveForTeamQuerySchema.parse(req.query)
+            const sessions = await opts.queue.listLiveForTeam(q.team_id, { limit: q.limit })
+            const summaries = sessions.map((s) => ({
+                id: s.id,
+                application_id: s.application_id,
+                revision_id: s.revision_id,
+                team_id: s.team_id,
+                state: s.state,
+                external_key: s.external_key,
+                principal: s.principal,
+                turns: s.conversation.length,
+                preview: lastAssistantTextPreview(s.conversation),
+                usage_total: s.usage_total,
+                created_at: s.created_at,
+                updated_at: s.updated_at,
+            }))
+            res.json({ results: summaries })
         })
     )
 
@@ -505,6 +589,41 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     app.get('/native_tools', (_req, res) => {
         res.json({ tools: listNativeTools() })
     })
+
+    /* ─────────────────────────── wallet (gateway) ────────────────────────── */
+
+    // Returns the agent's owner team's llm-gateway wallet balance + pending
+    // hold. Used by the agent console to surface "this agent has $X budget
+    // left this period" alongside cost rollups derived from
+    // `agent_session.usage_total`. Pass-through to the gateway's
+    // `GET /v1/wallet/balance`; auth happens at the gateway via the team's
+    // `phc_` resolved inside the walletProxy closure.
+    // See docs/agent-platform/plans/llm-gateway-integration.md §3 (W5).
+    app.get(
+        '/applications/:application_id/wallet',
+        asyncHandler(async (req: Request, res: Response): Promise<void> => {
+            if (!opts.walletProxy) {
+                res.status(503).json({ error: 'wallet_proxy_not_configured' })
+                return
+            }
+            if (!opts.revisions) {
+                res.status(503).json({ error: 'revision_store_not_configured' })
+                return
+            }
+            const app = await opts.revisions.getApplication(req.params.application_id)
+            if (!app) {
+                res.status(404).json({ error: 'application_not_found' })
+                return
+            }
+            try {
+                const balance = await opts.walletProxy(app.team_id)
+                res.json({ team_id: app.team_id, ...balance })
+            } catch (err) {
+                log.warn({ team_id: app.team_id, err: (err as Error).message }, 'wallet.proxy_failed')
+                res.status(502).json({ error: 'gateway_unavailable' })
+            }
+        })
+    )
 
     /* ───────────────────────────── revisions ───────────────────────────── */
 

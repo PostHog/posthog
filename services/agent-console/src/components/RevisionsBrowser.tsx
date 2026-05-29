@@ -20,6 +20,7 @@
 
 'use client'
 
+import { PlayIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
@@ -48,6 +49,12 @@ export interface RevisionsBrowserProps {
     onSelectBundleFile?: (path: string) => void
     /** Refetch trigger after a successful lifecycle action. */
     onMutated?: () => void
+    /**
+     * Open the playground against a specific non-live revision via the
+     * preview-proxy. Surfaced as a "Try draft" button on revisions
+     * that have a chat trigger.
+     */
+    onTryDraft?: (revisionId: string) => void
 }
 
 type LifecycleAction = 'freeze' | 'promote' | 'archive'
@@ -66,6 +73,7 @@ export function RevisionsBrowser({
     focusedBundlePath,
     onSelectBundleFile,
     onMutated,
+    onTryDraft,
 }: RevisionsBrowserProps): React.ReactElement {
     const [configView, setConfigView] = useState<ConfigView>('structured')
     const [pending, setPending] = useState<PendingAction | null>(null)
@@ -140,7 +148,7 @@ export function RevisionsBrowser({
         <>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
                 <ul
-                    className="divide-y divide-border overflow-hidden rounded-md border border-border bg-background"
+                    className="divide-y divide-border overflow-hidden rounded-md border border-border bg-card"
                     aria-label="Revisions"
                 >
                     {sortedRevisions.map((r) => (
@@ -165,6 +173,7 @@ export function RevisionsBrowser({
                                     isLive={selected.id === agent.live_revision}
                                     hasLiveRevision={!!agent.live_revision}
                                     onAction={(action) => requestAction(action, selected)}
+                                    onTryDraft={onTryDraft ? () => onTryDraft(selected.id) : undefined}
                                 />
                             </div>
 
@@ -191,7 +200,7 @@ export function RevisionsBrowser({
                             <Section title="Bundle">
                                 <div className="h-[480px]">
                                     {bundleError ? (
-                                        <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive">
+                                        <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive-foreground">
                                             Failed to load bundle: {bundleError.message}
                                         </div>
                                     ) : bundleLoading ? (
@@ -289,11 +298,14 @@ function RevisionActions({
     isLive,
     hasLiveRevision,
     onAction,
+    onTryDraft,
 }: {
     revision: AgentRevisionFixture
     isLive: boolean
     hasLiveRevision: boolean
     onAction: (action: LifecycleAction) => void
+    /** Open the playground against this revision via the preview-proxy. */
+    onTryDraft?: () => void
 }): React.ReactElement | null {
     const buttons: { label: string; action: LifecycleAction; tone: 'default' | 'destructive' }[] = []
 
@@ -311,12 +323,27 @@ function RevisionActions({
         buttons.push({ label: 'Archive', action: 'archive', tone: 'destructive' })
     }
 
-    if (buttons.length === 0) {
+    // "Try draft" goes through the preview-proxy — only meaningful for
+    // non-live, non-archived revisions whose spec has a chat trigger.
+    const showTryDraft = !isLive && revision.state !== 'archived' && hasChatTrigger(revision.spec) && !!onTryDraft
+
+    if (buttons.length === 0 && !showTryDraft) {
         return null
     }
 
     return (
         <div className="flex shrink-0 gap-1.5">
+            {showTryDraft ? (
+                <button
+                    type="button"
+                    onClick={() => onTryDraft?.()}
+                    title="Open the playground against this revision via the preview-proxy"
+                    className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 text-[0.6875rem] font-medium text-foreground transition-colors hover:bg-primary/20"
+                >
+                    <PlayIcon className="h-3 w-3" />
+                    Try draft
+                </button>
+            ) : null}
             {buttons.map((b) => (
                 <button
                     key={b.action}
@@ -325,8 +352,8 @@ function RevisionActions({
                     className={
                         'inline-flex h-7 cursor-pointer items-center rounded-md border px-2.5 text-[0.6875rem] font-medium transition-colors ' +
                         (b.tone === 'destructive'
-                            ? 'border-destructive/40 text-destructive hover:bg-destructive/10'
-                            : 'border-border bg-background hover:bg-accent')
+                            ? 'border-destructive-foreground/40 text-destructive-foreground hover:bg-destructive/40'
+                            : 'border-border bg-card hover:bg-accent')
                     }
                 >
                     {b.label}
@@ -334,6 +361,15 @@ function RevisionActions({
             ))}
         </div>
     )
+}
+
+/** Whether a revision's spec declares a `chat` trigger. */
+function hasChatTrigger(spec: Record<string, unknown>): boolean {
+    const triggers = (spec as { triggers?: unknown }).triggers
+    if (!Array.isArray(triggers)) {
+        return false
+    }
+    return triggers.some((t) => typeof t === 'object' && t !== null && (t as { type?: unknown }).type === 'chat')
 }
 
 /* ── Subcomponents ───────────────────────────────────────────────── */
@@ -440,7 +476,7 @@ function ConfigViewToggle({
     const options: ConfigView[] = ['structured', 'raw']
     return (
         <div
-            className="inline-flex overflow-hidden rounded border border-border bg-background"
+            className="inline-flex overflow-hidden rounded border border-border bg-card"
             role="group"
             aria-label="Config view"
         >

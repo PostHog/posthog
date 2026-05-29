@@ -884,6 +884,7 @@ export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
 })
 
 export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'sse']).optional(),
     revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
 })
 

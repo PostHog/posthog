@@ -13,7 +13,7 @@
  */
 
 export { AgentChat } from './AgentChat'
-export type { AgentChatProps } from './AgentChat'
+export type { AgentChatProps, TransportError } from './AgentChat'
 
 export { JsonView } from './components/JsonView'
 export type { JsonViewProps } from './components/JsonView'

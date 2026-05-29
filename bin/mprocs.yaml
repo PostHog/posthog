@@ -243,6 +243,16 @@ procs:
             # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
             POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
             POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
+            # llm-gateway routing is opt-in locally — flip to 'true' to send
+            # every model call through the Go gateway at
+            # /Users/benwhite/Development/llm-gateway (bin/start gateway, port
+            # 8080). When 'true', the runner resolves the owning team's `phc_`
+            # per session so POSTHOG_LLM_GATEWAY_KEY isn't needed as a default
+            # bearer. Default 'false' keeps the direct-provider path
+            # (ANTHROPIC_API_KEY / OPENAI_API_KEY) working out of the box.
+            # See docs/agent-platform/plans/llm-gateway-integration.md.
+            AGENT_USE_LLM_GATEWAY: 'false'
+            POSTHOG_LLM_GATEWAY_URL: 'http://localhost:8080/v1'
 
     agent-janitor:
         shell: |-
@@ -254,6 +264,10 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            # Lights up GET /applications/:id/wallet — proxies the agent
+            # owner team's gateway balance for the agent console UI.
+            POSTHOG_LLM_GATEWAY_URL: 'http://localhost:8080/v1'
 
     cymbal:
         shell: |-

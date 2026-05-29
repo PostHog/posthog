@@ -10,13 +10,8 @@ import { z } from 'zod'
 import { SessionQueue } from '@posthog/agent-shared'
 import { SessionEventBus } from '@posthog/agent-shared'
 
-import {
-    authorize,
-    AuthProvider,
-    principalsMatch,
-    principalToSession,
-    PUBLIC_ONLY_AUTH_PROVIDER,
-} from '../enqueue/auth'
+import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
+import { authorize, AuthProvider, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
@@ -75,17 +70,33 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 return
             }
             const sessionPrincipal = principalToSession(auth.principal)
-            const { sessionId, isResume } = await enqueueOrResume(
+            const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
-                    seed: { role: 'user', content: message, timestamp: Date.now() },
+                    seed: { role: 'user', content: message, timestamp: Date.now(), sender: sessionPrincipal },
                     principal: sessionPrincipal,
+                    trigger: 'chat',
+                    requesterDisplay: principalDisplay(sessionPrincipal),
                 }
             )
-            res.json({ ok: true, session_id: sessionId, resumed: isResume, principal: auth.principal })
+            if (outcome.kind === 'elevation_required') {
+                res.status(403).json({
+                    error: 'elevation_required',
+                    elevation_request_id: outcome.elevationRequestId,
+                    session_id: outcome.sessionId,
+                    owner_display: outcome.existingPrincipalDisplay,
+                })
+                return
+            }
+            res.json({
+                ok: true,
+                session_id: outcome.sessionId,
+                resumed: outcome.isResume,
+                principal: auth.principal,
+            })
         })
     )
 
@@ -123,8 +134,21 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 res.status(auth.status).json({ error: auth.reason })
                 return
             }
-            if (!principalsMatch(existing.principal, principalToSession(auth.principal))) {
-                res.status(403).json({ error: 'principal_mismatch' })
+            const incomingPrincipal = principalToSession(auth.principal)
+            const aclCheck = requireAclAccess(existing, incomingPrincipal)
+            if (aclCheck.kind === 'denied') {
+                const req = await recordElevationRequest(deps.queue, existing, {
+                    requester: incomingPrincipal,
+                    requesterDisplay: principalDisplay(incomingPrincipal),
+                    trigger: 'chat',
+                    proposedMessage: {
+                        role: 'user',
+                        content: message,
+                        timestamp: Date.now(),
+                        sender: incomingPrincipal,
+                    },
+                })
+                res.status(403).json(buildElevationResponse(existing, req))
                 return
             }
             // Terminal-state policy (see session-restart redesign):
@@ -146,7 +170,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                     return
                 }
             }
-            await deps.queue.appendPendingInput(sessionId, { role: 'user', content: message, timestamp: Date.now() })
+            await deps.queue.appendPendingInput(sessionId, {
+                role: 'user',
+                content: message,
+                timestamp: Date.now(),
+                sender: incomingPrincipal,
+            })
             await deps.queue.update(sessionId, { state: 'queued' })
             res.json({ ok: true })
         })

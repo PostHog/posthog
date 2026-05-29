@@ -33,7 +33,7 @@ export function StatStrip({ tiles, className }: StatStripProps): React.ReactElem
     return (
         <div
             className={
-                'grid grid-cols-2 gap-0 overflow-hidden rounded-md border border-border bg-background sm:grid-cols-4' +
+                'grid grid-cols-2 gap-0 overflow-hidden rounded-md border border-border bg-card sm:grid-cols-4' +
                 (className ? ` ${className}` : '')
             }
             data-slot="stat-strip"

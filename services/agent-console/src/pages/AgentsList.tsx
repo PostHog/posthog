@@ -105,7 +105,7 @@ export function AgentsList({
                 <button
                     type="button"
                     onClick={() => onCreateAgent?.()}
-                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors hover:bg-accent"
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition-colors hover:bg-accent"
                 >
                     <PlusIcon className="h-3 w-3" />
                     New
@@ -140,7 +140,7 @@ export function AgentsList({
                         {filteredAgents.length === 0 ? (
                             <NoMatches filter={filter} />
                         ) : (
-                            <ul className="divide-y divide-border rounded-md border border-border bg-background">
+                            <ul className="divide-y divide-border rounded-md border border-border bg-card">
                                 {filteredAgents.map((agent) => (
                                     <li key={agent.id}>
                                         <AgentRow
@@ -221,7 +221,7 @@ function EmptyState({ onCreateAgent }: { onCreateAgent?: () => void }): React.Re
             <button
                 type="button"
                 onClick={() => onCreateAgent?.()}
-                className="mt-4 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors hover:bg-accent"
+                className="mt-4 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition-colors hover:bg-accent"
             >
                 <PlusIcon className="h-3 w-3" />
                 New agent

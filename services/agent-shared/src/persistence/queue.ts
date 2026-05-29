@@ -4,7 +4,24 @@
  * in-memory impl below.
  */
 
-import { AgentSession, ConversationMessage } from '../spec/spec'
+import { AgentSession, ConversationMessage, PendingElevationRequest } from '../spec/spec'
+
+/** Shape returned by both `aggregateForApplication` and `aggregateForTeam`. */
+export interface AggregateStats {
+    /** Sessions currently in a live state (queued / running / waiting). */
+    liveCount: number
+    /** Sessions created within the `since` window — all states. */
+    sessionsInWindowCount: number
+    /** Sum of `usage_total.cost_total` across sessions in the window. */
+    spendInWindowUsd: number
+    /** ISO timestamp of the most recent session update — null if none. */
+    lastActivityAt: string | null
+    /** Sessions in `failed` state created within the window. */
+    failedInWindowCount: number
+}
+
+/** Live (non-terminal) session states. `completed`/`closed`/`cancelled`/`failed` are terminal. */
+export const LIVE_SESSION_STATES: AgentSession['state'][] = ['queued', 'running']
 
 export interface ListSessionsOpts {
     limit?: number
@@ -32,6 +49,12 @@ export interface SessionQueue {
     appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void>
     /** Append directly into `conversation` (runner-side use only). */
     appendConversation(sessionId: string, msg: ConversationMessage): Promise<void>
+    /**
+     * Append a pending elevation request to the session. Used by ingress when
+     * `requireAclAccess` rejects an incoming principal — the rejected message
+     * is preserved so a future grant can replay it.
+     */
+    appendPendingElevationRequest(sessionId: string, req: PendingElevationRequest): Promise<void>
     get(sessionId: string): Promise<AgentSession | null>
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
@@ -49,6 +72,26 @@ export interface SessionQueue {
      */
     countByApplication(applicationId: string, opts?: Omit<ListSessionsOpts, 'limit' | 'offset'>): Promise<number>
     /**
+     * Roll up summary stats for an agent — drives the agent-detail
+     * overview tiles. `since` filters cost + sessions count to a
+     * trailing window (e.g. 24h). `liveCount` is independent of
+     * `since`. `lastActivityAt` is the most recent `updated_at`
+     * across all states (null when the agent has no sessions).
+     */
+    aggregateForApplication(applicationId: string, since: string): Promise<AggregateStats>
+    /**
+     * Same shape as `aggregateForApplication`, scoped to every agent
+     * owned by a team. Drives the fleet-stats tile on the agents list.
+     */
+    aggregateForTeam(teamId: number, since: string): Promise<AggregateStats>
+    /**
+     * All sessions for a team currently in a live state — queued,
+     * running, waiting. Drives the live-sessions panel. Capped at
+     * `limit` (default 100) so a single call can't accidentally page
+     * every session.
+     */
+    listLiveForTeam(teamId: number, opts?: { limit?: number }): Promise<AgentSession[]>
+    /**
      * Re-queue sessions stuck in 'running' beyond the TTL (their worker
      * probably crashed). The session's conversation is preserved; a sibling
      * worker picks it up via the normal claim path.
@@ -61,6 +104,14 @@ export interface SessionQueue {
      * Returns `{ requeued, poisoned }` so the janitor can report both.
      */
     reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }>
+    /**
+     * Idle `completed` sessions whose `updated_at` is older than the floor
+     * threshold. The sweep consumes this list and applies per-agent TTL
+     * before deciding to close — `floorMaxAgeMs` is the platform-wide
+     * default, sessions with an opt-in `spec.resume.max_completed_age_ms`
+     * may still be retained.
+     */
+    listIdleCompleted(floorMaxAgeMs: number, limit?: number): Promise<AgentSession[]>
 }
 
 /** In-memory test impl. Not thread-safe across processes. */
@@ -113,6 +164,15 @@ export class MemorySessionQueue implements SessionQueue {
         s.updated_at = new Date().toISOString()
     }
 
+    async appendPendingElevationRequest(sessionId: string, req: PendingElevationRequest): Promise<void> {
+        const s = this.sessions.get(sessionId)
+        if (!s) {
+            return
+        }
+        s.pending_elevation_requests.push(req)
+        s.updated_at = new Date().toISOString()
+    }
+
     async get(sessionId: string): Promise<AgentSession | null> {
         return this.sessions.get(sessionId) ?? null
     }
@@ -161,6 +221,89 @@ export class MemorySessionQueue implements SessionQueue {
             }
             return true
         })
+    }
+
+    async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {
+        const cutoff = Date.now() - floorMaxAgeMs
+        const matches: AgentSession[] = []
+        for (const s of this.sessions.values()) {
+            if (s.state !== 'completed') {
+                continue
+            }
+            const updated = Date.parse(s.updated_at)
+            if (!Number.isFinite(updated) || updated >= cutoff) {
+                continue
+            }
+            matches.push(s)
+            if (matches.length >= limit) {
+                break
+            }
+        }
+        return matches
+    }
+
+    async aggregateForApplication(applicationId: string, since: string): Promise<AggregateStats> {
+        const liveSet = new Set<AgentSession['state']>(LIVE_SESSION_STATES)
+        let liveCount = 0
+        let sessionsInWindowCount = 0
+        let spendInWindowUsd = 0
+        let failedInWindowCount = 0
+        let lastActivityAt: string | null = null
+        for (const s of this.sessions.values()) {
+            if (s.application_id !== applicationId) {
+                continue
+            }
+            if (!lastActivityAt || s.updated_at > lastActivityAt) {
+                lastActivityAt = s.updated_at
+            }
+            if (liveSet.has(s.state)) {
+                liveCount++
+            }
+            if (s.created_at >= since) {
+                sessionsInWindowCount++
+                spendInWindowUsd += s.usage_total?.cost_total ?? 0
+                if (s.state === 'failed') {
+                    failedInWindowCount++
+                }
+            }
+        }
+        return { liveCount, sessionsInWindowCount, spendInWindowUsd, lastActivityAt, failedInWindowCount }
+    }
+
+    async aggregateForTeam(teamId: number, since: string): Promise<AggregateStats> {
+        const liveSet = new Set<AgentSession['state']>(LIVE_SESSION_STATES)
+        let liveCount = 0
+        let sessionsInWindowCount = 0
+        let spendInWindowUsd = 0
+        let failedInWindowCount = 0
+        let lastActivityAt: string | null = null
+        for (const s of this.sessions.values()) {
+            if (s.team_id !== teamId) {
+                continue
+            }
+            if (!lastActivityAt || s.updated_at > lastActivityAt) {
+                lastActivityAt = s.updated_at
+            }
+            if (liveSet.has(s.state)) {
+                liveCount++
+            }
+            if (s.created_at >= since) {
+                sessionsInWindowCount++
+                spendInWindowUsd += s.usage_total?.cost_total ?? 0
+                if (s.state === 'failed') {
+                    failedInWindowCount++
+                }
+            }
+        }
+        return { liveCount, sessionsInWindowCount, spendInWindowUsd, lastActivityAt, failedInWindowCount }
+    }
+
+    async listLiveForTeam(teamId: number, opts: { limit?: number } = {}): Promise<AgentSession[]> {
+        const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
+        const liveSet = new Set<AgentSession['state']>(LIVE_SESSION_STATES)
+        const matches = [...this.sessions.values()].filter((s) => s.team_id === teamId && liveSet.has(s.state))
+        matches.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        return matches.slice(0, limit)
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {

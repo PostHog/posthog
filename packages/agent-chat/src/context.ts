@@ -28,7 +28,18 @@ export type ConciergePageContext =
 
 export type ChatContext =
     | { mode: 'concierge'; page: ConciergePageContext }
-    | { mode: 'playground'; agent: AgentApplicationRef }
+    | {
+          mode: 'playground'
+          agent: AgentApplicationRef
+          /**
+           * When set, the playground talks to a specific non-live
+           * revision via the Django preview-proxy (which mints a
+           * short-lived JWT and forwards to ingress with the
+           * `<slug>-<revHex>` revision-routing prefix). When absent,
+           * it talks to the live revision via the public ingress URL.
+           */
+          previewRevisionId?: string
+      }
 
 export interface StarterPrompt {
     id: string

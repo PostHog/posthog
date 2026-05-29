@@ -201,6 +201,33 @@ export const FrameworkPromptConfigSchema = z.object({
     version_pin: z.number().int().positive().optional(),
 })
 
+/**
+ * Per-agent resumability config — the v0 slice of
+ * `docs/agent-platform/plans/long-running-sessions.md`. v0 covers only the
+ * per-agent TTL on `completed` sessions; compaction + `suspended` state
+ * are deferred per the plan refresh.
+ *
+ * `enabled: false` (the default) preserves today's behaviour: the janitor
+ * closes idle `completed` sessions at the platform-wide
+ * `idleCompletedThresholdMs` (24h). With `enabled: true` the platform
+ * defers closing until the per-agent `max_completed_age_ms` is hit,
+ * letting a Slack assistant watch a thread for a whole sprint or a
+ * weekly cron agent stay reachable across multiple fires.
+ */
+export const ResumeConfigSchema = z.object({
+    enabled: z.boolean().default(false),
+    /**
+     * Override the platform-wide `completed → closed` sweep TTL. Default
+     * 7 days; agents can dial up to whatever the platform admin allows.
+     * Has no effect when `enabled: false`.
+     */
+    max_completed_age_ms: z
+        .number()
+        .int()
+        .positive()
+        .default(7 * 24 * 60 * 60 * 1000),
+})
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -214,6 +241,7 @@ export const AgentSpecSchema = z.object({
     auth: AuthConfigSchema.default({ mode: 'public' }),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
+    resume: ResumeConfigSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
@@ -225,6 +253,7 @@ export type SkillRef = z.infer<typeof SkillRefSchema>
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
 export type FrameworkPromptSection = z.infer<typeof FrameworkPromptSectionSchema>
 export type FrameworkPromptConfig = z.infer<typeof FrameworkPromptConfigSchema>
+export type ResumeConfig = z.infer<typeof ResumeConfigSchema>
 
 export type RevisionState = 'draft' | 'ready' | 'live' | 'archived'
 
@@ -258,6 +287,51 @@ export interface SessionPrincipal {
     team_id?: number
     /** Stable identifier for the principal — pat_id, slack user, etc. */
     id?: string
+}
+
+/**
+ * One slot in a session's ACL allowlist. Exactly one of `principal` or
+ * `scope` is populated. `scope` is the "anyone matching this rule" form;
+ * v0 ships the storage and the matcher but no UI populates it yet.
+ */
+export type SessionAclScope =
+    | { kind: 'team_members'; team_id: number }
+    | { kind: 'org_admins'; org_id: string }
+    | { kind: 'slack_channel'; channel_id: string; workspace_id: string }
+
+export interface SessionAclEntry {
+    principal?: SessionPrincipal
+    scope?: SessionAclScope
+    granted_by: SessionPrincipal
+    granted_at: string
+    /** ISO timestamp; null means no expiry. */
+    expires_at: string | null
+    reason: string | null
+    state: 'active' | 'revoked'
+    revoked_by?: SessionPrincipal
+    revoked_at?: string
+    revoked_reason?: string
+    /** v2: whether this grantee can grant further elevation. Default false. */
+    can_delegate?: boolean
+}
+
+/**
+ * A record of a rejected attempt to advance a session. Populated by the
+ * ingress when `requireAclAccess` denies an incoming principal. v1 surfaces
+ * these in the chat UI / Slack elevation message and lets the session owner
+ * grant access (which moves the entry to `granted` and re-queues the
+ * proposed message into `pending_inputs`).
+ */
+export interface PendingElevationRequest {
+    id: string
+    requester: SessionPrincipal
+    requester_display: string
+    trigger: 'chat' | 'webhook' | 'slack' | 'mcp'
+    proposed_message: ConversationMessage
+    created_at: string
+    state: 'pending' | 'granted' | 'declined' | 'expired'
+    decision_at?: string
+    decision_by?: SessionPrincipal
 }
 
 export interface SessionUsageTotal {
@@ -340,6 +414,18 @@ export interface AgentSession {
      * sessions created before this column existed.
      */
     usage_total: SessionUsageTotal
+    /**
+     * Allowlist of additional principals (or scopes) on top of `principal`.
+     * Empty by default. Consulted by `requireAclAccess` on every resume / send.
+     * v0 has no UI to populate this; v1 adds the grant surface.
+     */
+    acl: SessionAclEntry[]
+    /**
+     * Rejected attempts to advance this session. Each entry preserves the
+     * proposed message so a grant can replay it. v0 records these; v1
+     * surfaces them in the chat UI / Slack thread.
+     */
+    pending_elevation_requests: PendingElevationRequest[]
     created_at: string
     updated_at: string
 }
@@ -356,6 +442,18 @@ export interface UserMessage {
     role: 'user'
     content: string | (TextContent | ImageContent)[]
     timestamp: number
+    /**
+     * Who sent this message. Populated by the ingress on every trigger that
+     * accepts a user message (chat /run + /send, webhook, slack events, mcp
+     * tools/call). Optional for backwards compatibility with existing rows;
+     * absent on messages predating per-message principal stamping.
+     *
+     * Distinct from `AgentSession.principal` (the SESSION owner). When the
+     * session ACL admits multiple principals (B.1), each message carries the
+     * specific sender so per-asker authorisation (the gated-tool flow in #23)
+     * can resolve "who's currently asking the bot to do X?"
+     */
+    sender?: SessionPrincipal
 }
 
 /**

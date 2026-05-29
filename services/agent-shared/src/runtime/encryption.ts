@@ -77,4 +77,24 @@ export class EncryptedFields {
         }
         return out
     }
+
+    /**
+     * Decrypt a Django `EncryptedJSONField` value without forcing values to
+     * strings. `EncryptedJSONField` stores the column as TEXT (per
+     * `EncryptedFieldMixin.get_internal_type`) so the wire format is
+     * identical to `EncryptedTextField`; only the Python-side type is
+     * different. Returns `null` on empty input. Throws if the decoded value
+     * isn't a JSON object.
+     */
+    decryptJson(value: string | null | undefined): Record<string, unknown> | null {
+        if (!value) {
+            return null
+        }
+        const plain = this.decrypt(value)
+        const parsed = JSON.parse(plain)
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('EncryptedFields.decryptJson: decoded value is not a JSON object')
+        }
+        return parsed as Record<string, unknown>
+    }
 }

@@ -5,8 +5,9 @@
  */
 
 import express, { Express, Request, Response } from 'express'
+import type { Pool } from 'pg'
 
-import type { IdentityStore } from '@posthog/agent-shared'
+import type { IdentityStore, IntegrationStore } from '@posthog/agent-shared'
 import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared'
 
 const log = createLogger('ingress')
@@ -71,6 +72,19 @@ export interface BuildAppOpts {
      * See docs/agent-platform/plans/draft-preview-auth.md.
      */
     previewSecret?: string
+    /**
+     * Read-only access to PostHog's integration table. Slack trigger uses it
+     * to fetch a workspace bot token for the Slack → PostHog user bridge
+     * (#23 step 2). Optional — when absent, the bridge is skipped and
+     * AgentUser.posthog_user_id stays null.
+     */
+    integrations?: IntegrationStore | null
+    /**
+     * Direct access to the posthog DB pool. Slack → PostHog user bridge
+     * queries `posthog_user` by email. Optional — required only when
+     * `integrations` is also set.
+     */
+    posthogDb?: Pool | null
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -86,6 +100,17 @@ export function buildApp(opts: BuildAppOpts): Express {
     })
     app.use(
         express.json({
+            verify: (req: Request, _res, buf) => {
+                ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
+            },
+        })
+    )
+    // Slack interactivity posts `application/x-www-form-urlencoded` with a
+    // `payload=<json>` field. The raw body is captured the same way so
+    // signature verification can hash it.
+    app.use(
+        express.urlencoded({
+            extended: false,
             verify: (req: Request, _res, buf) => {
                 ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
             },
@@ -107,6 +132,8 @@ export function buildApp(opts: BuildAppOpts): Express {
         authProvider,
         signingSecret: opts.slackSigningSecret,
         identities: opts.identities,
+        integrations: opts.integrations ?? null,
+        posthogDb: opts.posthogDb ?? null,
     }
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

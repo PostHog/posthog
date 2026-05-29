@@ -20,7 +20,7 @@
 import { useRouter } from 'next/navigation'
 import { useMemo } from 'react'
 
-import { AgentChat, useFakeRunner, type ClientToolHandler } from '@posthog/agent-chat'
+import { AgentChat, useFakeRunner, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
     AgentApplicationRef,
     ChatContext,
@@ -32,12 +32,37 @@ import type {
 } from '@posthog/agent-chat'
 import { conciergeScripts, fallbackScript, waitingSession } from '@posthog/agent-chat/fixtures'
 
+import { IngressError } from '@/lib/agentIngressClient'
 import { bumpReload } from '@/lib/reloadSignal'
 
 import { useDockStore } from './dock-context'
 import { useFocusStore } from './focus-context'
 import { useSession } from './session-context'
 import { useRealRunner } from './useRealRunner'
+
+/**
+ * Translate the runner's `Error` into the wire-aware shape AgentChat
+ * uses to render its `TransportErrorBanner`. We keep this in the dock
+ * (not inside `useRealRunner`) because the agent-chat package is the
+ * boundary: agent-chat should never import the IngressError class.
+ *
+ * Special-cases:
+ *   - `stream:dropped` — synthetic message we set when the SSE stream
+ *     ends without a terminal `completed`/`failed` event. status=-1
+ *     so the banner copy explains it as a connection drop.
+ */
+function asTransportError(err: Error | null): TransportError | null {
+    if (!err) {
+        return null
+    }
+    if (err.message === 'stream:dropped') {
+        return { status: -1, code: 'stream_dropped', detail: 'The event stream closed before the turn finished.' }
+    }
+    if (err instanceof IngressError) {
+        return { status: err.status, code: err.body?.error, detail: err.body?.detail }
+    }
+    return { status: -1, detail: err.message }
+}
 
 /**
  * Maps a focus call to the URL the console should land on. Returns
@@ -115,18 +140,27 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
 
 export function Dock(): React.ReactElement {
     const { context } = useDockStore()
-    // Re-mount the dock when switching mode/agent so the runner hooks
-    // tear down cleanly. Cheaper + safer than trying to thread state
-    // across runner swaps.
-    const key = context.mode === 'playground' ? `playground:${context.agent.slug}` : 'concierge'
+    // Re-mount the dock when switching mode/agent/revision so the
+    // runner hooks tear down cleanly. Cheaper + safer than trying to
+    // thread state across runner swaps.
+    const key =
+        context.mode === 'playground'
+            ? `playground:${context.agent.slug}:${context.previewRevisionId ?? 'live'}`
+            : 'concierge'
     return context.mode === 'playground' ? (
-        <PlaygroundDock key={key} agentRef={context.agent} />
+        <PlaygroundDock key={key} agentRef={context.agent} previewRevisionId={context.previewRevisionId} />
     ) : (
         <ConciergeDock key={key} />
     )
 }
 
-function PlaygroundDock({ agentRef }: { agentRef: AgentApplicationRef }): React.ReactElement {
+function PlaygroundDock({
+    agentRef,
+    previewRevisionId,
+}: {
+    agentRef: AgentApplicationRef
+    previewRevisionId?: string
+}): React.ReactElement {
     const { context, exitPlayground } = useDockStore()
     const focus = useFocusStore()
     const { info } = useSession()
@@ -138,7 +172,21 @@ function PlaygroundDock({ agentRef }: { agentRef: AgentApplicationRef }): React.
         return { kind: 'human', userId: profile?.uuid ?? 'you', displayName }
     }, [info])
 
-    const runner = useRealRunner({ agentSlug: agentRef.slug, agentRef, principal })
+    // The runner fetches `getPreviewToken(teamId, slug, revisionId)`
+    // internally and threads the resulting JWT into every ingress call;
+    // we just hand it the inputs (teamId + revisionId). When not
+    // previewing, the runner uses the public ingress URL — no token,
+    // no team needed.
+    const preview = useMemo(
+        () =>
+            previewRevisionId && info?.teamId != null
+                ? { teamId: info.teamId, revisionId: previewRevisionId }
+                : undefined,
+        [previewRevisionId, info?.teamId]
+    )
+
+    const runner = useRealRunner({ agentSlug: agentRef.slug, agentRef, principal, preview })
+    const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
 
     return (
         <AgentChat
@@ -153,6 +201,9 @@ function PlaygroundDock({ agentRef }: { agentRef: AgentApplicationRef }): React.
             }}
             onNewSession={() => void runner.reset()}
             onSend={(text) => void runner.send(text)}
+            transportError={transportError}
+            onDismissTransportError={runner.clearError}
+            reconnectAttempt={runner.reconnectAttempt}
         />
     )
 }

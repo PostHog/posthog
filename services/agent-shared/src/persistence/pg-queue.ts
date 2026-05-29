@@ -10,12 +10,20 @@
 
 import type { Pool, PoolClient } from 'pg'
 
-import { AgentSession, ConversationMessage, EMPTY_USAGE_TOTAL, SessionUsageTotal } from '../spec/spec'
-import { ListSessionsOpts, SessionQueue } from './queue'
+import {
+    AgentSession,
+    ConversationMessage,
+    EMPTY_USAGE_TOTAL,
+    PendingElevationRequest,
+    SessionAclEntry,
+    SessionUsageTotal,
+} from '../spec/spec'
+import { AggregateStats, LIVE_SESSION_STATES, ListSessionsOpts, SessionQueue } from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
                      conversation, pending_inputs, principal, retry_count,
-                     usage_total, created_at, updated_at`
+                     usage_total, acl, pending_elevation_requests,
+                     created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -25,13 +33,17 @@ export class PgSessionQueue implements SessionQueue {
             `INSERT INTO agent_session
                 (id, application_id, revision_id, team_id, external_key, state,
                  conversation, pending_inputs, principal, retry_count,
-                 usage_total, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::jsonb, $12, $13)
+                 usage_total, acl, pending_elevation_requests,
+                 created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::jsonb,
+                     $12::jsonb, $13::jsonb, $14, $15)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
                 pending_inputs = EXCLUDED.pending_inputs,
                 usage_total = EXCLUDED.usage_total,
+                acl = EXCLUDED.acl,
+                pending_elevation_requests = EXCLUDED.pending_elevation_requests,
                 updated_at = EXCLUDED.updated_at`,
             [
                 session.id,
@@ -45,6 +57,8 @@ export class PgSessionQueue implements SessionQueue {
                 session.principal ? JSON.stringify(session.principal) : null,
                 session.retry_count,
                 JSON.stringify(session.usage_total ?? EMPTY_USAGE_TOTAL),
+                JSON.stringify(session.acl ?? []),
+                JSON.stringify(session.pending_elevation_requests ?? []),
                 session.created_at,
                 session.updated_at,
             ]
@@ -142,6 +156,16 @@ export class PgSessionQueue implements SessionQueue {
         )
     }
 
+    async appendPendingElevationRequest(sessionId: string, req: PendingElevationRequest): Promise<void> {
+        await this.pool.query(
+            `UPDATE agent_session
+             SET pending_elevation_requests = pending_elevation_requests || $2::jsonb,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [sessionId, JSON.stringify([req])]
+        )
+    }
+
     async get(sessionId: string): Promise<AgentSession | null> {
         const r = await this.pool.query<DbRow>(`SELECT ${SELECT_COLS} FROM agent_session WHERE id = $1`, [sessionId])
         if (r.rowCount === 0) {
@@ -191,6 +215,75 @@ export class PgSessionQueue implements SessionQueue {
             params
         )
         return Number(r.rows[0]?.count ?? 0)
+    }
+
+    async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE state = 'completed'
+               AND updated_at < NOW() - ($1 || ' milliseconds')::interval
+             ORDER BY updated_at ASC
+             LIMIT $2`,
+            [String(floorMaxAgeMs), limit]
+        )
+        return r.rows.map(rowToSession)
+    }
+
+    async aggregateForApplication(applicationId: string, since: string): Promise<AggregateStats> {
+        return await this.aggregate('application_id = $1', [applicationId], since)
+    }
+
+    async aggregateForTeam(teamId: number, since: string): Promise<AggregateStats> {
+        return await this.aggregate('team_id = $1', [teamId], since)
+    }
+
+    private async aggregate(scopeWhere: string, scopeParams: unknown[], since: string): Promise<AggregateStats> {
+        // Single round-trip — Postgres rolls everything up so we don't ship
+        // every row back to Node just to count it. `since` is positional so
+        // the same param fills `created_at >=` and the cost/failed filters.
+        const params = [...scopeParams, since, LIVE_SESSION_STATES]
+        const sinceIdx = scopeParams.length + 1
+        const liveStatesIdx = scopeParams.length + 2
+        const r = await this.pool.query<{
+            live_count: string
+            sessions_in_window: string
+            spend_in_window: string | null
+            failed_in_window: string
+            last_activity: Date | null
+        }>(
+            `SELECT
+                COUNT(*) FILTER (WHERE state = ANY($${liveStatesIdx}::text[]))::text AS live_count,
+                COUNT(*) FILTER (WHERE created_at >= $${sinceIdx})::text AS sessions_in_window,
+                COALESCE(SUM((usage_total->>'cost_total')::numeric)
+                    FILTER (WHERE created_at >= $${sinceIdx}), 0)::text AS spend_in_window,
+                COUNT(*) FILTER (WHERE created_at >= $${sinceIdx} AND state = 'failed')::text AS failed_in_window,
+                MAX(updated_at) AS last_activity
+             FROM agent_session
+             WHERE ${scopeWhere}`,
+            params
+        )
+        const row = r.rows[0]
+        return {
+            liveCount: Number(row?.live_count ?? 0),
+            sessionsInWindowCount: Number(row?.sessions_in_window ?? 0),
+            spendInWindowUsd: Number(row?.spend_in_window ?? 0),
+            failedInWindowCount: Number(row?.failed_in_window ?? 0),
+            lastActivityAt: row?.last_activity ? row.last_activity.toISOString() : null,
+        }
+    }
+
+    async listLiveForTeam(teamId: number, opts: { limit?: number } = {}): Promise<AgentSession[]> {
+        const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE team_id = $1 AND state = ANY($2::text[])
+             ORDER BY updated_at DESC
+             LIMIT $3`,
+            [teamId, LIVE_SESSION_STATES, limit]
+        )
+        return r.rows.map(rowToSession)
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
@@ -257,6 +350,8 @@ interface DbRow {
     principal: unknown
     retry_count: number
     usage_total: unknown
+    acl: unknown
+    pending_elevation_requests: unknown
     created_at: Date
     updated_at: Date
 }
@@ -299,6 +394,10 @@ function rowToSession(row: DbRow): AgentSession {
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],
         retry_count: row.retry_count,
         usage_total: parseUsageTotal(row.usage_total),
+        acl: Array.isArray(row.acl) ? (row.acl as SessionAclEntry[]) : [],
+        pending_elevation_requests: Array.isArray(row.pending_elevation_requests)
+            ? (row.pending_elevation_requests as PendingElevationRequest[])
+            : [],
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }

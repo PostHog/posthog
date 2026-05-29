@@ -39,7 +39,7 @@ export function SessionLogs({
     sessionStartedAt,
 }: SessionLogsProps): React.ReactElement {
     return (
-        <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-background">
+        <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">
             <div className="flex h-9 items-center gap-2 border-b border-border bg-muted/20 px-4 text-xs">
                 <span className="font-medium uppercase tracking-wide text-muted-foreground">Logs</span>
                 <span className="text-muted-foreground">·</span>
@@ -243,7 +243,7 @@ function levelTone(level: LogLevel): { dotClass: string; labelClass: string } {
     switch (level) {
         case 'fatal':
         case 'error':
-            return { dotClass: 'bg-destructive-foreground', labelClass: 'text-destructive' }
+            return { dotClass: 'bg-destructive-foreground', labelClass: 'text-destructive-foreground' }
         case 'warn':
             return { dotClass: 'bg-warning-foreground', labelClass: 'text-warning-foreground' }
         case 'info':

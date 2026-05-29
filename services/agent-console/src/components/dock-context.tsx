@@ -16,10 +16,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import type { AgentApplicationRef, ChatContext, ConciergePageContext } from '@posthog/agent-chat'
 
+interface PlaygroundOpts {
+    /**
+     * Talk to this specific non-live revision via the preview-proxy
+     * instead of the live revision. Useful for testing a draft
+     * without promoting it.
+     */
+    previewRevisionId?: string
+}
+
 interface DockStore {
     context: ChatContext
     setPage: (page: ConciergePageContext) => void
-    enterPlayground: (agent: AgentApplicationRef) => void
+    enterPlayground: (agent: AgentApplicationRef, opts?: PlaygroundOpts) => void
     exitPlayground: () => void
 }
 
@@ -27,16 +36,27 @@ const DEFAULT_CONTEXT: ChatContext = { mode: 'concierge', page: { kind: 'unknown
 
 const DockCtx = createContext<DockStore | null>(null)
 
+interface PlaygroundState {
+    agent: AgentApplicationRef
+    previewRevisionId?: string
+}
+
 export function DockContextProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-    // `currentPage` is what the active route reports; `playgroundAgent` is
+    // `currentPage` is what the active route reports; `playgroundState` is
     // an orthogonal sticky overlay. The effective context derives from both.
     const [currentPage, setCurrentPage] = useState<ConciergePageContext>({ kind: 'unknown' })
-    const [playgroundAgent, setPlaygroundAgent] = useState<AgentApplicationRef | null>(null)
+    const [playgroundState, setPlaygroundState] = useState<PlaygroundState | null>(null)
 
     const context: ChatContext = useMemo(
         () =>
-            playgroundAgent ? { mode: 'playground', agent: playgroundAgent } : { mode: 'concierge', page: currentPage },
-        [currentPage, playgroundAgent]
+            playgroundState
+                ? {
+                      mode: 'playground',
+                      agent: playgroundState.agent,
+                      previewRevisionId: playgroundState.previewRevisionId,
+                  }
+                : { mode: 'concierge', page: currentPage },
+        [currentPage, playgroundState]
     )
 
     // Stable setters — they only call the React-stable `setState`s, so the
@@ -44,8 +64,12 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     // `setPage` every time `context` updates, which makes `useSetDockPage`'s
     // useEffect re-fire and loop.
     const setPage = useCallback((page: ConciergePageContext): void => setCurrentPage(page), [])
-    const enterPlayground = useCallback((agent: AgentApplicationRef): void => setPlaygroundAgent(agent), [])
-    const exitPlayground = useCallback((): void => setPlaygroundAgent(null), [])
+    const enterPlayground = useCallback(
+        (agent: AgentApplicationRef, opts?: PlaygroundOpts): void =>
+            setPlaygroundState({ agent, previewRevisionId: opts?.previewRevisionId }),
+        []
+    )
+    const exitPlayground = useCallback((): void => setPlaygroundState(null), [])
 
     const value: DockStore = useMemo(
         () => ({ context, setPage, enterPlayground, exitPlayground }),

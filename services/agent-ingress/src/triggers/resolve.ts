@@ -23,11 +23,20 @@ export async function resolveAgent(
     req: Request,
     res: Response
 ): Promise<ResolvedAgent | null> {
-    // Short-lived JWT that Django mints per preview-proxy hop. The resolver
-    // verifies it on non-live resolutions. Live calls don't need it. See
-    // docs/agent-platform/plans/draft-preview-auth.md.
+    // Short-lived JWT that Django mints for non-live invokes. Header is
+    // the primary channel (used by POST/DELETE and the server-side
+    // preview-proxy); the `?preview_token=` query string fallback exists
+    // for browser `EventSource` callers — the EventSource API can't set
+    // custom headers, so the JWT has to ride in the URL. Either source
+    // is acceptable; header wins if both are present.
+    // See docs/agent-platform/plans/draft-preview-auth.md.
     const previewHeader = req.headers['x-agent-preview-token']
-    const providedToken = typeof previewHeader === 'string' ? previewHeader : undefined
+    const headerToken = typeof previewHeader === 'string' ? previewHeader : undefined
+    const queryToken =
+        typeof req.query?.preview_token === 'string' && req.query.preview_token.length > 0
+            ? req.query.preview_token
+            : undefined
+    const providedToken = headerToken ?? queryToken
 
     const slug = typeof req.params?.slug === 'string' ? req.params.slug : null
     try {

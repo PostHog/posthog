@@ -71,7 +71,12 @@ export interface AgentDetailProps {
      * serializing the partial state onto whichever route owns the agent.
      */
     onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
-    onTryAgent?: () => void
+    /**
+     * Open the dock playground. With `revisionId`, talks to that
+     * specific non-live revision via the preview-proxy; without, the
+     * live revision via the public ingress URL.
+     */
+    onTryAgent?: (opts?: { revisionId?: string }) => void
     onOpenSession?: (sessionId: string) => void
     onBackToList?: () => void
     /** Called after a successful freeze/promote/archive — parent refetches. */
@@ -181,6 +186,7 @@ export function AgentDetail({
                             focusedBundlePath={urlState.filePath}
                             onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
                             onMutated={onRevisionsMutated}
+                            onTryDraft={(revisionId) => onTryAgent?.({ revisionId })}
                         />
                     </Section>
                 </TabsContent>
@@ -218,10 +224,10 @@ function TryInPlaygroundButton({
             onClick={enabled ? onClick : undefined}
             disabled={!enabled}
             className={
-                'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors ' +
+                'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition-colors ' +
                 (enabled
                     ? 'cursor-pointer hover:bg-accent'
-                    : 'cursor-not-allowed text-muted-foreground opacity-60 hover:bg-background')
+                    : 'cursor-not-allowed text-muted-foreground opacity-60 hover:bg-card')
             }
         >
             <PlayIcon className="h-3 w-3" />
@@ -247,8 +253,8 @@ function NoLiveRevisionBanner({
     onOpenConfiguration: () => void
 }): React.ReactElement {
     return (
-        <div className="mt-4 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
-            <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning/40 px-3 py-2 text-xs">
+            <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-foreground" />
             <div className="space-y-0.5">
                 <p className="font-medium text-foreground">No live revision yet</p>
                 <p className="text-muted-foreground">

@@ -46,6 +46,7 @@ import { z } from 'zod'
 
 import { AgentSession, lastAssistantTextPreview, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
 
+import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import {
     authorize,
     AuthProvider,
@@ -240,14 +241,28 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                                 return
                             }
                         }
-                        if (!principalsMatch(existing.principal, principal)) {
-                            res.json(errReply(RPC_UNAUTHORIZED, 'principal_mismatch'))
+                        const aclCheck = requireAclAccess(existing, principal)
+                        if (aclCheck.kind === 'denied') {
+                            const elevationReq = await recordElevationRequest(deps.queue, existing, {
+                                requester: principal,
+                                requesterDisplay: principalDisplay(principal),
+                                trigger: 'mcp',
+                                proposedMessage: {
+                                    role: 'user',
+                                    content: message,
+                                    timestamp: Date.now(),
+                                    sender: principal,
+                                },
+                            })
+                            const body = buildElevationResponse(existing, elevationReq)
+                            res.json(errReply(RPC_UNAUTHORIZED, JSON.stringify(body)))
                             return
                         }
                         await deps.queue.appendPendingInput(continuationId, {
                             role: 'user',
                             content: message,
                             timestamp: Date.now(),
+                            sender: principal,
                         })
                         await deps.queue.update(continuationId, { state: 'queued' })
                         res.json(
@@ -270,22 +285,39 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     // just won't see it in resources/list (they can still
                     // read it by URI since they hold the returned id).
                     const externalKey = mcpSessionId ? `mcp:${mcpSessionId}:${randomUUID()}` : null
-                    const { sessionId } = await enqueueOrResume(
+                    const freshOutcome = await enqueueOrResume(
                         { queue: deps.queue, teamId: deps.teamId },
                         {
                             application: resolved.application,
                             revision: resolved.revision,
                             externalKey,
-                            seed: { role: 'user', content: message, timestamp: Date.now() },
+                            seed: { role: 'user', content: message, timestamp: Date.now(), sender: principal },
                             principal,
+                            trigger: 'mcp',
+                            requesterDisplay: principalDisplay(principal),
                         }
                     )
+                    if (freshOutcome.kind === 'elevation_required') {
+                        // The mcp-session-id-based external key is unique per
+                        // request, so this branch only fires if the upstream
+                        // client deliberately reuses an mcpSessionId across
+                        // principals. Mirror the continuation path's denial
+                        // shape for consistency.
+                        const body = {
+                            error: 'elevation_required' as const,
+                            elevation_request_id: freshOutcome.elevationRequestId,
+                            session_id: freshOutcome.sessionId,
+                            owner_display: freshOutcome.existingPrincipalDisplay,
+                        }
+                        res.json(errReply(RPC_UNAUTHORIZED, JSON.stringify(body)))
+                        return
+                    }
                     res.json(
                         reply({
                             content: [
                                 {
                                     type: 'text',
-                                    text: JSON.stringify({ session_id: sessionId, state: 'queued' }),
+                                    text: JSON.stringify({ session_id: freshOutcome.sessionId, state: 'queued' }),
                                 },
                             ],
                         })
