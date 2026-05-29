@@ -1,6 +1,6 @@
 import './WizardCommandBlock.scss'
 
-import { useState } from 'react'
+import { ComponentType, useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { cn } from 'lib/utils/css-classes'
@@ -23,22 +23,22 @@ import vueImage from '../logos/vue.svg'
 import { useWizardCommand } from '../sdk-install-instructions/components/SetupWizardBanner'
 
 // Supported wizard frameworks for display
-const WIZARD_FRAMEWORKS: { name: string; icon: string | JSX.Element }[] = [
+const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
     { name: 'Next.js', icon: nextjsImage },
     { name: 'React', icon: reactImage },
     { name: 'Angular', icon: angularImage },
     { name: 'Vue', icon: vueImage },
     { name: 'Nuxt', icon: nuxtImage },
-    { name: 'Astro', icon: <AstroLogo /> },
+    { name: 'Astro', icon: AstroLogo },
     { name: 'SvelteKit', icon: svelteImage },
     { name: 'Django', icon: djangoImage },
     { name: 'Flask', icon: flaskImage },
     { name: 'Laravel', icon: laravelImage },
     { name: 'React Native', icon: reactImage },
-    { name: 'iOS', icon: <IOSLogo /> },
+    { name: 'iOS', icon: IOSLogo },
     { name: 'Android', icon: androidImage },
     { name: 'Ruby on Rails', icon: railsImage },
-    { name: 'React Router', icon: <ReactRouterLogo /> },
+    { name: 'React Router', icon: ReactRouterLogo },
     { name: 'Python', icon: pythonImage },
 ]
 
@@ -93,7 +93,7 @@ export function WizardCommandBlock(): JSX.Element {
                                     <img src={fw.icon} alt="" className="w-3 h-3 shrink-0" />
                                 ) : (
                                     <span className="inline-flex w-3 h-3 shrink-0 [&_svg]:!w-3 [&_svg]:!h-3">
-                                        {fw.icon}
+                                        <fw.icon />
                                     </span>
                                 )}
                                 {fw.name}
