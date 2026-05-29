@@ -48,9 +48,11 @@ import {
     ApprovalRequest,
     ApprovalStore,
     BundleStore,
+    buildSystemPrompt,
     ConversationMessage,
     createLogger,
     EMPTY_USAGE_TOTAL,
+    FRAMEWORK_PROMPT_VERSION,
     lastAssistantTextPreview,
     RevisionStore,
     SessionQueue,
@@ -687,6 +689,30 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             }
             const report = await validateRevisionBundle(rev, opts.bundles!)
             res.json(report)
+        })
+    )
+
+    // Render the fully-assembled system prompt for a revision —
+    // framework preamble + agent.md + skills index. Authors (via the
+    // Django proxy / MCP) use this to inspect what the model will
+    // actually see before promotion. Plan §4 (framework-system-prompt.md).
+    app.get(
+        '/revisions/:id/system-prompt',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const rev = await opts.revisions!.getRevision(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const systemPrompt = await buildSystemPrompt(rev, opts.bundles!)
+            res.json({
+                revision_id: req.params.id,
+                framework_prompt_version: FRAMEWORK_PROMPT_VERSION,
+                system_prompt: systemPrompt,
+            })
         })
     )
 

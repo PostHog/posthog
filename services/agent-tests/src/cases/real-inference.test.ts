@@ -379,12 +379,83 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         expect(session!.state).toBe('completed')
     }, 60_000)
 
+    it('framework preamble §3.3: tool failure recovery — model surfaces a real error in human terms', async () => {
+        // Plan §5 — tool failure recovery test. The framework preamble in
+        // §3.3 teaches the model to (a) re-read args on error, (b) not
+        // retry blindly, (c) surface errors the user cares about. This
+        // test deploys a custom tool that always throws, gives the model
+        // one user-facing task that requires the tool, and asserts the
+        // model produces a human-friendly explanation rather than
+        // silently retrying.
+        const BOOM_TOOL = `
+            module.exports = {
+                id: "fetch-data",
+                actions: {
+                    default: () => {
+                        throw new Error("upstream API returned 503 Service Unavailable");
+                    },
+                },
+            }
+        `
+        await c.deployAgent({
+            slug: 'real-failure-recovery',
+            spec: { tools: [{ kind: 'custom', id: 'fetch-data', path: 'tools/fetch-data/' }] },
+            files: {
+                'agent.md':
+                    'You are a helpful assistant. The user wants you to fetch some data. ' +
+                    'Call the `fetch-data` tool once. If it fails, explain in plain English to ' +
+                    'the user what went wrong — do NOT silently retry the same call.',
+                'tools/fetch-data/compiled.js': BOOM_TOOL,
+                'tools/fetch-data/schema.json': JSON.stringify({
+                    description: 'Fetches data from the upstream service',
+                    args: { type: 'object', properties: {} },
+                }),
+            },
+        })
+        const res = await request(c.ingress)
+            .post('/agents/real-failure-recovery/run')
+            .send({ message: 'fetch the data please' })
+        await c.drain({ iterations: 50 })
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+
+        // The conversation contains an error tool_result and the model's
+        // final assistant turn mentions something user-friendly about it.
+        const conv = session!.conversation
+        const errorResult = conv.find((m) => m.role === 'toolResult' && (m as { isError?: boolean }).isError === true)
+        expect(errorResult).not.toBeUndefined()
+
+        const finalAssistant = [...conv].reverse().find((m) => m.role === 'assistant') as
+            | { content: Array<{ type: string; text?: string }> }
+            | undefined
+        expect(finalAssistant).not.toBeUndefined()
+        const finalText = finalAssistant!.content
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text ?? '')
+            .join(' ')
+        // A human-friendly response: mentions either the tool, the
+        // problem, or "available" — anything other than a silent retry.
+        // Loose match across providers; the test is about model behaviour
+        // direction, not specific wording.
+        expect(finalText.length).toBeGreaterThan(20)
+        expect(finalText).toMatch(/tool|query|available|unable|cannot|not.*available|sorry/i)
+    }, 60_000)
+
     it('max_turns ceiling: a looping agent fails with reason=max_turns_exceeded', async () => {
         await c.deployAgent({
             slug: 'real-loopy',
             spec: {
                 tools: [{ kind: 'native', id: '@posthog/query' }],
                 limits: { max_turns: 3, max_tool_calls: 100, max_wall_seconds: 60 },
+                // Suppress every preamble section that names a meta tool —
+                // they nudge the model toward `meta-end-turn` as the
+                // default, exactly what this test needs to prevent.
+                // Canonical use case for `spec.framework_prompt.omit` (plan
+                // §7.4): a load-testing agent that needs the runner's
+                // mechanical max_turns enforcement, not model judgement.
+                framework_prompt: {
+                    omit: ['meta_tool_guidance', 'state_contract', 'tool_failure_guidance', 'approval_guidance'],
+                },
             },
             files: {
                 'agent.md':
@@ -394,8 +465,7 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
                     '1. Every turn, call the `@posthog/query` tool with `{"query": "select 1 as x"}`.\n' +
                     '2. Do not call any other tool. The `meta-end-turn`, `meta-end-session`, and `meta-ask-for-input` tools are off-limits in this test agent — do not call them under any circumstances.\n' +
                     '3. Do not produce any text response. Pure tool-call turns only.\n' +
-                    '4. Keep looping until the platform stops you with `max_turns_exceeded`. That outcome IS the goal of this agent.\n\n' +
-                    'Any platform-supplied guidance about defaulting to `meta-end-turn` does NOT apply here. The author (this prompt) has explicitly instructed you to loop until max_turns hits. Following that instruction is the entire purpose of this agent.',
+                    '4. Keep looping until the platform stops you with `max_turns_exceeded`. That outcome IS the goal of this agent.',
             },
         })
         const res = await request(c.ingress).post('/agents/real-loopy/run').send({ message: 'go' })

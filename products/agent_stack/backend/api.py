@@ -35,7 +35,14 @@ from django.utils import timezone
 import jwt as pyjwt
 import requests
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    inline_serializer,
+)
 from rest_framework import (
     serializers as drf_serializers,
     status,
@@ -46,6 +53,7 @@ from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.jwt import PosthogJwtAudience
@@ -105,6 +113,133 @@ class JanitorUpstreamError(APIException):
             self.status_code = upstream_code
         detail = e.body if e.body is not None else {"detail": e.message}
         super().__init__(detail=detail)
+
+
+# The `log_source` tag the agent runner stamps on every log_entries row.
+# Mirrors `AGENT_SESSION_LOG_SOURCE` in services/agent-shared/src/runtime/
+# log-sink.ts — keep both sides in sync.
+AGENT_SESSION_LOG_SOURCE = "agent_session"
+
+
+# ── Conversation message variants ────────────────────────────────────
+# Module-level so `@extend_schema_field` can reference them. Mirrors
+# `ConversationMessage` (UserMessage | AssistantMessageRecord |
+# ToolResultMessage) in services/agent-shared/src/spec/spec.ts. Each
+# variant becomes its own named component in the generated TS; the
+# parent `_AgentConversationMessageField` ties them into a discriminated
+# union on `role`.
+
+_AGENT_USER_MESSAGE = inline_serializer(
+    name="AgentConversationUserMessage",
+    fields={
+        "role": drf_serializers.ChoiceField(choices=["user"]),
+        # Wire is `string | (TextContent|ImageContent)[]`. DRF can't
+        # express that as a single field — surface it as JSONField so
+        # the generated TS gets `unknown`; consumers narrow on read.
+        "content": drf_serializers.JSONField(
+            help_text="String shorthand, or array of {type:'text'|'image', ...} parts.",
+        ),
+        "timestamp": drf_serializers.IntegerField(help_text="Epoch milliseconds."),
+    },
+)
+_AGENT_ASSISTANT_MESSAGE = inline_serializer(
+    name="AgentConversationAssistantMessage",
+    fields={
+        "role": drf_serializers.ChoiceField(choices=["assistant"]),
+        "content": drf_serializers.ListField(
+            child=drf_serializers.JSONField(),
+            help_text="Array of text/thinking/toolCall parts.",
+        ),
+        "timestamp": drf_serializers.IntegerField(help_text="Epoch milliseconds."),
+        "api": drf_serializers.CharField(required=False),
+        "provider": drf_serializers.CharField(required=False),
+        "model": drf_serializers.CharField(required=False),
+        "usage": drf_serializers.DictField(child=drf_serializers.JSONField(), required=False),
+        "stopReason": drf_serializers.ChoiceField(
+            choices=["stop", "length", "toolUse", "error", "aborted"],
+            required=False,
+        ),
+        "errorMessage": drf_serializers.CharField(required=False),
+    },
+)
+_AGENT_TOOL_RESULT_MESSAGE = inline_serializer(
+    name="AgentConversationToolResultMessage",
+    fields={
+        "role": drf_serializers.ChoiceField(choices=["toolResult"]),
+        "toolCallId": drf_serializers.CharField(),
+        "toolName": drf_serializers.CharField(),
+        "content": drf_serializers.ListField(
+            child=drf_serializers.JSONField(),
+            help_text="Array of {type:'text'|'image', ...} parts.",
+        ),
+        "isError": drf_serializers.BooleanField(),
+        "timestamp": drf_serializers.IntegerField(help_text="Epoch milliseconds."),
+    },
+)
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="AgentConversationMessage",
+        resource_type_field_name="role",
+        serializers={
+            "user": _AGENT_USER_MESSAGE,
+            "assistant": _AGENT_ASSISTANT_MESSAGE,
+            "toolResult": _AGENT_TOOL_RESULT_MESSAGE,
+        },
+    )
+)
+class _AgentConversationMessageField(drf_serializers.JSONField):
+    """JSONField whose OpenAPI schema is the discriminated union of the
+    three conversation-message variants. Runtime validation is JSONField's
+    default (any JSON); the typing only shapes the generated TS so the
+    frontend's `conversationToTurns` mapper gets a real narrowing on `role`."""
+
+    pass
+
+
+# Mirrors `SessionUsageTotal` in services/agent-shared/src/spec/spec.ts.
+# When that widens, widen this — MCP + frontend codegen pulls from here.
+_AGENT_SESSION_USAGE_TOTAL = inline_serializer(
+    name="AgentSessionUsageTotal",
+    fields={
+        "tokens_in": drf_serializers.IntegerField(),
+        "tokens_out": drf_serializers.IntegerField(),
+        "cache_read": drf_serializers.IntegerField(),
+        "cache_write": drf_serializers.IntegerField(),
+        "cost_input": drf_serializers.FloatField(),
+        "cost_output": drf_serializers.FloatField(),
+        "cost_cache_read": drf_serializers.FloatField(),
+        "cost_cache_write": drf_serializers.FloatField(),
+        "cost_total": drf_serializers.FloatField(),
+    },
+)
+
+# Principal kinds the runner stamps onto a session. Mirrors
+# `SessionPrincipal` in services/agent-shared/src/spec/spec.ts.
+_AGENT_SESSION_PRINCIPAL_KINDS = ["anonymous", "service", "internal", "shared_secret", "slack"]
+
+_AGENT_SESSION_PRINCIPAL = inline_serializer(
+    name="AgentSessionPrincipal",
+    fields={
+        "kind": drf_serializers.ChoiceField(
+            choices=_AGENT_SESSION_PRINCIPAL_KINDS,
+            help_text="What kind of principal authenticated the session start.",
+        ),
+        "id": drf_serializers.CharField(
+            required=False,
+            help_text="Stable identifier for the principal (PAT id, slack user id, etc). Absent for anonymous sessions.",
+        ),
+        "team_id": drf_serializers.IntegerField(
+            required=False,
+            help_text="Team the principal belongs to. Absent for anonymous sessions.",
+        ),
+    },
+    allow_null=True,
+)
+
+# Runtime `AgentSession.state` enum. Mirrors agent-shared spec.ts.
+_AGENT_SESSION_STATE_VALUES = ["queued", "running", "completed", "closed", "failed"]
 
 
 @extend_schema(tags=["agent_stack"])
@@ -326,22 +461,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """GET passthrough for the preview-proxy — used for `/listen` SSE."""
         return self.preview_proxy(request, rest=rest, **kwargs)
 
-    # Mirrors `SessionUsageTotal` in services/agent-shared/src/spec/spec.ts.
-    # When that widens, widen this — the MCP + frontend codegen pulls from
-    # here. Cache fields are split because Anthropic prompt-caching bills
-    # them at different rates.
-    _SESSION_USAGE_TOTAL_FIELDS = {
-        "tokens_in": drf_serializers.IntegerField(),
-        "tokens_out": drf_serializers.IntegerField(),
-        "cache_read": drf_serializers.IntegerField(),
-        "cache_write": drf_serializers.IntegerField(),
-        "cost_input": drf_serializers.FloatField(),
-        "cost_output": drf_serializers.FloatField(),
-        "cost_cache_read": drf_serializers.FloatField(),
-        "cost_cache_write": drf_serializers.FloatField(),
-        "cost_total": drf_serializers.FloatField(),
-    }
-
     @extend_schema(
         operation_id="agent_applications_sessions_list",
         parameters=[
@@ -355,7 +474,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description=(
                     "Filter by session state. Comma-separated list accepted "
                     "(e.g. `completed,failed`). Valid values: queued, running, "
-                    "waiting, completed, failed."
+                    "completed, closed, failed."
                 ),
             ),
             OpenApiParameter(
@@ -385,28 +504,31 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             response=inline_serializer(
                 name="AgentApplicationSessionsListResponse",
                 fields={
-                    "sessions": drf_serializers.ListField(
+                    "results": drf_serializers.ListField(
                         child=inline_serializer(
                             name="AgentSessionSummary",
                             fields={
                                 "id": drf_serializers.UUIDField(),
                                 "application_id": drf_serializers.UUIDField(),
                                 "revision_id": drf_serializers.UUIDField(),
-                                "state": drf_serializers.CharField(),
+                                "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
                                 "external_key": drf_serializers.CharField(allow_null=True),
-                                "principal": drf_serializers.DictField(allow_null=True),
-                                "turns": drf_serializers.IntegerField(),
-                                "preview": drf_serializers.CharField(allow_null=True),
-                                "usage_total": inline_serializer(
-                                    name="AgentSessionUsageTotal",
-                                    fields=_SESSION_USAGE_TOTAL_FIELDS,
+                                "principal": _AGENT_SESSION_PRINCIPAL,
+                                "turns": drf_serializers.IntegerField(
+                                    help_text="Count of messages in the conversation — the full transcript ships on the detail endpoint.",
                                 ),
+                                "preview": drf_serializers.CharField(
+                                    allow_null=True,
+                                    help_text="Last assistant text (~120 chars). Null for sessions with no assistant turns yet.",
+                                ),
+                                "usage_total": _AGENT_SESSION_USAGE_TOTAL,
                                 "retry_count": drf_serializers.IntegerField(),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },
                         ),
                     ),
+                    "count": drf_serializers.IntegerField(help_text="Total matching sessions before pagination."),
                 },
             )
         ),
@@ -468,6 +590,41 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ],
         request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApplicationSessionsRetrieveResponse",
+                fields={
+                    "id": drf_serializers.UUIDField(),
+                    "application_id": drf_serializers.UUIDField(),
+                    "revision_id": drf_serializers.UUIDField(),
+                    "team_id": drf_serializers.IntegerField(),
+                    "external_key": drf_serializers.CharField(allow_null=True),
+                    "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
+                    "principal": _AGENT_SESSION_PRINCIPAL,
+                    "conversation": drf_serializers.ListField(
+                        child=_AgentConversationMessageField(),
+                        help_text="Full transcript, or the trailing `last_n` messages if `?last_n=` was supplied.",
+                    ),
+                    "pending_inputs": drf_serializers.ListField(
+                        child=_AgentConversationMessageField(),
+                        help_text="Messages that arrived while a turn was in flight; drained into `conversation` at the start of the next turn.",
+                    ),
+                    "retry_count": drf_serializers.IntegerField(
+                        help_text="Times the janitor has re-queued this session after a stuck-running detection.",
+                    ),
+                    "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                    "created_at": drf_serializers.DateTimeField(),
+                    "updated_at": drf_serializers.DateTimeField(),
+                    "conversation_trimmed": drf_serializers.BooleanField(
+                        help_text="True when `?last_n=` was supplied AND the full conversation exceeded it.",
+                    ),
+                    "conversation_total_turns": drf_serializers.IntegerField(
+                        required=False,
+                        help_text="Total messages in the untrimmed conversation. Present only when `conversation_trimmed=true`.",
+                    ),
+                },
+            )
+        ),
     )
     @action(detail=True, methods=["get"], url_path="sessions/(?P<session_id>[^/.]+)")
     def sessions_retrieve(self, request: Request, session_id: str = "", **kwargs) -> Response:
@@ -494,6 +651,62 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if payload.get("application_id") != str(application.id):
             raise NotFound("Session not found")
         return Response(payload)
+
+    # ── Per-session logs (ClickHouse) ────────────────────────────────
+    # The runner writes structured events via `KafkaLogSink` into the
+    # `log_entries` CH table, tagged with:
+    #   log_source = "agent_session"   (constant; see agent-shared/runtime/log-sink.ts)
+    #   log_source_id = <application_id>
+    #   instance_id   = <session_id>
+    # We use the shared `fetch_log_entries` helper (also used by hog_function,
+    # hog_flow, batch_exports) for filter / paginate semantics.
+
+    @extend_schema(
+        operation_id="agent_applications_session_logs",
+        parameters=[
+            OpenApiParameter(
+                "session_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                required=True,
+                description="UUID of the session whose logs to fetch.",
+            ),
+            LogEntryRequestSerializer,
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApplicationSessionLogsResponse",
+                fields={
+                    "results": LogEntrySerializer(many=True),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="sessions/(?P<session_id>[^/.]+)/logs")
+    def session_logs(self, request: Request, session_id: str = "", **kwargs) -> Response:
+        """Read the runner's structured event log for one session from
+        ClickHouse. Filters (limit / after / before / level / search)
+        match the shared `LogEntryMixin` helper used by hog_function +
+        hog_flow."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        params = LogEntryRequestSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        p = params.validated_data
+        rows = fetch_log_entries(
+            team_id=self.team_id,
+            log_source=AGENT_SESSION_LOG_SOURCE,
+            log_source_id=str(application.id),
+            instance_id=session_id,
+            limit=p["limit"],
+            after=p.get("after"),
+            before=p.get("before"),
+            search=p.get("search"),
+            level=p["level"].split(",") if p.get("level") else None,
+        )
+        return Response({"results": LogEntrySerializer(rows, many=True).data})
 
     # ──────────────────────────── approval-gated tools ────────────────────────
     # See docs/agent-platform/plans/approval-gated-tools.md.
@@ -783,7 +996,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "delete_file",
         "put_bundle",
     ]
-    scope_object_read_actions = ["list", "retrieve", "manifest", "get_file", "get_bundle", "validate"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "manifest",
+        "get_file",
+        "get_bundle",
+        "validate",
+        "system_prompt",
+    ]
     serializer_class = AgentRevisionSerializer
     queryset = AgentRevision.objects.all()
 
@@ -1023,6 +1244,54 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report["errors"] = errors
         report["ok"] = len(errors) == 0
         return Response(report)
+
+    @extend_schema(
+        operation_id="agent_applications_revisions_system_prompt",
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionSystemPromptResponse",
+                fields={
+                    "revision_id": drf_serializers.UUIDField(
+                        help_text="UUID of the revision the prompt was rendered for.",
+                    ),
+                    "framework_prompt_version": drf_serializers.IntegerField(
+                        help_text=(
+                            "Active framework preamble version. Bumps when the "
+                            "platform's `# Platform guidance` content changes "
+                            "meaningfully (decision rules, sections renamed, "
+                            "behavioural defaults flipped). Authors can pin to "
+                            "a specific version via `spec.framework_prompt.version_pin`."
+                        ),
+                    ),
+                    "system_prompt": drf_serializers.CharField(
+                        help_text=(
+                            "Fully-assembled system prompt the runner would pass "
+                            "to pi-ai for a session against this revision. "
+                            "Concatenates the platform framework preamble, the "
+                            "bundle's `agent.md` (or `spec.entrypoint`), and the "
+                            "skills index. Inspect before promotion to confirm "
+                            "the model will see what you expect — see "
+                            "docs/agent-platform/plans/framework-system-prompt.md §4."
+                        ),
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="system_prompt")
+    def system_prompt(self, request: Request, **kwargs) -> Response:
+        """Return the fully-assembled system prompt for this revision.
+
+        Authoring tools call this to preview what the model will actually
+        see at session start — the platform framework preamble plus the
+        bundle's `agent.md` plus the skills index. Useful for debugging
+        author-vs-framework precedence conflicts and verifying
+        `spec.framework_prompt.omit` overrides took effect.
+        """
+        revision: AgentRevision = self.get_object()
+        result = self._call(_janitor().get_system_prompt, str(revision.id))
+        return Response(result)
 
     @extend_schema(request=None)
     @action(detail=True, methods=["post"], url_path="freeze")

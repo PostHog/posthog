@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 26 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -733,6 +733,25 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
 })
 
 /**
+ * Return the fully-assembled system prompt for this revision.
+
+Authoring tools call this to preview what the model will actually
+see at session start — the platform framework preamble plus the
+bundle's `agent.md` plus the skills index. Useful for debugging
+author-vs-framework precedence conflicts and verifying
+`spec.framework_prompt.omit` overrides took effect.
+ */
+export const AgentApplicationsRevisionsSystemPromptParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * Pre-flight checks before freeze + promote: entrypoint file exists,
 every native tool id is registered, every custom tool has its
 compiled.js + schema.json, every skill path exists, every declared
@@ -900,7 +919,7 @@ export const AgentApplicationsSessionsListQueryParams = /* @__PURE__ */ zod.obje
         .string()
         .optional()
         .describe(
-            'Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, failed.'
+            'Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, failed.'
         ),
 })
 

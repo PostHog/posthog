@@ -36,6 +36,7 @@ import {
     AgentApplicationsRevisionsPartialUpdateParams,
     AgentApplicationsRevisionsPromoteCreateParams,
     AgentApplicationsRevisionsRetrieveParams,
+    AgentApplicationsRevisionsSystemPromptParams,
     AgentApplicationsRevisionsValidateCreateParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsListQueryParams,
@@ -563,6 +564,26 @@ const agentApplicationsRevisionsValidateCreate = (): ToolBase<
     },
 })
 
+const AgentApplicationsRevisionsSystemPromptSchema = AgentApplicationsRevisionsSystemPromptParams.omit({
+    project_id: true,
+})
+
+const agentApplicationsRevisionsSystemPrompt = (): ToolBase<
+    typeof AgentApplicationsRevisionsSystemPromptSchema,
+    Schemas.AgentRevisionSystemPromptResponse
+> => ({
+    name: 'agent-applications-revisions-system-prompt',
+    schema: AgentApplicationsRevisionsSystemPromptSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsSystemPromptSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentRevisionSystemPromptResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/system_prompt/`,
+        })
+        return result
+    },
+})
+
 const AgentApplicationsSessionsListSchema = AgentApplicationsSessionsListParams.omit({ project_id: true }).extend(
     AgentApplicationsSessionsListQueryParams.shape
 )
@@ -597,13 +618,13 @@ const AgentApplicationsSessionsRetrieveSchema = AgentApplicationsSessionsRetriev
 
 const agentApplicationsSessionsRetrieve = (): ToolBase<
     typeof AgentApplicationsSessionsRetrieveSchema,
-    Schemas.AgentApplication
+    Schemas.AgentApplicationSessionsRetrieveResponse
 > => ({
     name: 'agent-applications-sessions-retrieve',
     schema: AgentApplicationsSessionsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsSessionsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentApplication>({
+        const result = await context.api.request<Schemas.AgentApplicationSessionsRetrieveResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/sessions/${encodeURIComponent(String(params.session_id))}/`,
             query: {
@@ -681,6 +702,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-promote-create': agentApplicationsRevisionsPromoteCreate,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
     'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
+    'agent-applications-revisions-system-prompt': agentApplicationsRevisionsSystemPrompt,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
     'agent-applications-set-env-create': agentApplicationsSetEnvCreate,

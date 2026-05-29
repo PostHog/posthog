@@ -15,9 +15,9 @@
  *      skills.
  */
 
-import { AgentRevision, BundleStore } from '@posthog/agent-shared'
-
+import { BundleStore } from '../storage/bundle'
 import { renderFrameworkPreamble } from './framework-preamble'
+import { AgentRevision } from './spec'
 
 export async function buildSystemPrompt(rev: AgentRevision, bundle: BundleStore): Promise<string> {
     const parts: string[] = []

@@ -166,6 +166,41 @@ export const AuthConfigSchema = z.object({
  */
 export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
 
+/**
+ * Author-facing knobs for the framework-injected system-prompt preamble.
+ * See docs/agent-platform/plans/framework-system-prompt.md for the
+ * section catalogue and rationale.
+ */
+export const FrameworkPromptSectionSchema = z.enum([
+    /** Plan §3.1 — meta-tool decision rules. */
+    'meta_tool_guidance',
+    /** Plan §3.2 — `completed` vs `closed` contract. */
+    'state_contract',
+    /** Plan §3.3 — tool failure recovery flow. */
+    'tool_failure_guidance',
+    /** Plan §3.4 — approval-gated tool result envelope handling. */
+    'approval_guidance',
+    /** Plan §3.5 — extended-reasoning hint (only injected when spec.reasoning ∈ {high, xhigh}). */
+    'reasoning_hint',
+])
+
+export const FrameworkPromptConfigSchema = z.object({
+    /**
+     * Sections to omit from the framework preamble. Reviewer-discoverable
+     * (typed + validated at freeze time) escape hatch — see plan §7.4.
+     * Unknown values are rejected by the enum.
+     */
+    omit: z.array(FrameworkPromptSectionSchema).default([]),
+    /**
+     * Pin the framework preamble version. When unset (default), the
+     * runner uses the latest version. When set, the runner renders the
+     * preamble as it was at that version — reproducibility escape hatch
+     * for authors who don't want a platform upgrade to change frozen
+     * revisions. See plan §7.3. Don't expect this to see much use.
+     */
+    version_pin: z.number().int().positive().optional(),
+})
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -178,6 +213,7 @@ export const AgentSpecSchema = z.object({
     entrypoint: z.string().default('agent.md'),
     auth: AuthConfigSchema.default({ mode: 'public' }),
     reasoning: ReasoningEffortSchema.optional(),
+    framework_prompt: FrameworkPromptConfigSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
@@ -187,6 +223,8 @@ export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type SkillRef = z.infer<typeof SkillRefSchema>
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
+export type FrameworkPromptSection = z.infer<typeof FrameworkPromptSectionSchema>
+export type FrameworkPromptConfig = z.infer<typeof FrameworkPromptConfigSchema>
 
 export type RevisionState = 'draft' | 'ready' | 'live' | 'archived'
 

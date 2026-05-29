@@ -578,6 +578,21 @@
             "readOnlyHint": true
         }
     },
+    "agent-applications-revisions-system-prompt": {
+        "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Preview the assembled system prompt for a revision",
+        "title": "Preview the assembled system prompt for a revision",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "agent-applications-revisions-validate-create": {
         "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`.",
         "category": "Agent stack",

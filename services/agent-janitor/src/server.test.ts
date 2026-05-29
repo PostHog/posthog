@@ -385,6 +385,28 @@ describe('janitor HTTP', () => {
         return { revisions, bundles, app, revisionId: rev.id }
     }
 
+    it('GET /revisions/:id/system-prompt returns the assembled prompt + framework version', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'agent.md', '## Author content\n\nThis is the author-side prompt.')
+        const res = await request(app).get(`/revisions/${revisionId}/system-prompt`)
+        expect(res.status).toBe(200)
+        expect(res.body.revision_id).toBe(revisionId)
+        expect(res.body.framework_prompt_version).toBeGreaterThanOrEqual(1)
+        const prompt = res.body.system_prompt as string
+        // Framework preamble landed first…
+        expect(prompt).toContain('Platform guidance')
+        expect(prompt).toContain('@posthog/meta-end-turn')
+        // …then the author content.
+        expect(prompt).toContain('This is the author-side prompt.')
+        expect(prompt.indexOf('Platform guidance')).toBeLessThan(prompt.indexOf('This is the author-side prompt.'))
+    })
+
+    it('GET /revisions/:id/system-prompt 404s for an unknown revision', async () => {
+        const { app } = await mkRevisionApp()
+        const res = await request(app).get('/revisions/00000000-0000-0000-0000-000000000000/system-prompt')
+        expect(res.status).toBe(404)
+    })
+
     it('GET /revisions/:id/manifest returns the file list + state', async () => {
         const { app, bundles, revisionId } = await mkRevisionApp()
         await bundles.write(revisionId, 'agent.md', 'hello')

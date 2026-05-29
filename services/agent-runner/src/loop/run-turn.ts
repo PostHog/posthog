@@ -41,14 +41,13 @@ import {
     SessionEventBus,
     SessionEventKind,
 } from '@posthog/agent-shared'
+import { buildSystemPrompt, FRAMEWORK_PROMPT_VERSION } from '@posthog/agent-shared'
 
 import { PiClient } from '../models/pi-client'
 import { parseApprovalDecidedMarker } from './approval-marker'
 import { buildToolList } from './build-tool-list'
 import { dispatchApproved, dispatchOne } from './dispatch-one'
-import { FRAMEWORK_PROMPT_VERSION } from './framework-preamble'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
-import { buildSystemPrompt } from './system-prompt'
 
 export interface RunSessionDeps {
     pi: PiClient

@@ -100,6 +100,16 @@ class JanitorClient:
     def validate(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/validate")
 
+    def get_system_prompt(self, revision_id: str) -> dict:
+        """Return the fully-assembled system prompt for a revision.
+
+        The runner builds this same prompt at session start — framework
+        preamble + agent.md + skills index. Authoring tools surface it so
+        the author can inspect what the model will actually see. See
+        docs/agent-platform/plans/framework-system-prompt.md §4.
+        """
+        return self._call("GET", f"/revisions/{revision_id}/system-prompt")
+
     # ── sessions ───────────────────────────────────────────────────────────
 
     def list_sessions(

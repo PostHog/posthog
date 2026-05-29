@@ -380,6 +380,15 @@ export interface WriteFileRequestApi {
     content: string
 }
 
+export interface AgentRevisionSystemPromptResponseApi {
+    /** UUID of the revision the prompt was rendered for. */
+    revision_id: string
+    /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
+    framework_prompt_version: number
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+    system_prompt: string
+}
+
 export interface AgentRevisionValidationErrorApi {
     code: string
     message: string
@@ -592,30 +601,194 @@ export interface AgentSessionUsageTotalApi {
 }
 
 /**
- * @nullable
+ * * `anonymous` - anonymous
+ * `service` - service
+ * `internal` - internal
+ * `shared_secret` - shared_secret
+ * `slack` - slack
  */
-export type AgentSessionSummaryApiPrincipal = { [key: string]: unknown } | null
+export type AgentSessionPrincipalKindEnumApi =
+    (typeof AgentSessionPrincipalKindEnumApi)[keyof typeof AgentSessionPrincipalKindEnumApi]
+
+export const AgentSessionPrincipalKindEnumApi = {
+    Anonymous: 'anonymous',
+    Service: 'service',
+    Internal: 'internal',
+    SharedSecret: 'shared_secret',
+    Slack: 'slack',
+} as const
+
+export interface AgentSessionPrincipalApi {
+    /** What kind of principal authenticated the session start.
+
+  * `anonymous` - anonymous
+  * `service` - service
+  * `internal` - internal
+  * `shared_secret` - shared_secret
+  * `slack` - slack */
+    kind: AgentSessionPrincipalKindEnumApi
+    /** Stable identifier for the principal (PAT id, slack user id, etc). Absent for anonymous sessions. */
+    id?: string
+    /** Team the principal belongs to. Absent for anonymous sessions. */
+    team_id?: number
+}
+
+/**
+ * * `queued` - queued
+ * `running` - running
+ * `completed` - completed
+ * `closed` - closed
+ * `failed` - failed
+ */
+export type AgentSessionStateEnumApi = (typeof AgentSessionStateEnumApi)[keyof typeof AgentSessionStateEnumApi]
+
+export const AgentSessionStateEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Completed: 'completed',
+    Closed: 'closed',
+    Failed: 'failed',
+} as const
 
 export interface AgentSessionSummaryApi {
+    usage_total: AgentSessionUsageTotalApi
+    principal: AgentSessionPrincipalApi | null
     id: string
     application_id: string
     revision_id: string
-    state: string
+    state: AgentSessionStateEnumApi
     /** @nullable */
     external_key: string | null
-    /** @nullable */
-    principal: AgentSessionSummaryApiPrincipal
+    /** Count of messages in the conversation — the full transcript ships on the detail endpoint. */
     turns: number
-    /** @nullable */
+    /**
+     * Last assistant text (~120 chars). Null for sessions with no assistant turns yet.
+     * @nullable
+     */
     preview: string | null
-    usage_total: AgentSessionUsageTotalApi
     retry_count: number
     created_at: string
     updated_at: string
 }
 
 export interface AgentApplicationSessionsListResponseApi {
-    sessions: AgentSessionSummaryApi[]
+    results: AgentSessionSummaryApi[]
+    /** Total matching sessions before pagination. */
+    count: number
+}
+
+export type AgentConversationUserMessageApiRole =
+    (typeof AgentConversationUserMessageApiRole)[keyof typeof AgentConversationUserMessageApiRole]
+
+export const AgentConversationUserMessageApiRole = {
+    User: 'user',
+} as const
+
+export interface AgentConversationUserMessageApi {
+    role: AgentConversationUserMessageApiRole
+    /** String shorthand, or array of {type:'text'|'image', ...} parts. */
+    content: unknown
+    /** Epoch milliseconds. */
+    timestamp: number
+}
+
+export type AgentConversationAssistantMessageApiRole =
+    (typeof AgentConversationAssistantMessageApiRole)[keyof typeof AgentConversationAssistantMessageApiRole]
+
+export const AgentConversationAssistantMessageApiRole = {
+    Assistant: 'assistant',
+} as const
+
+/**
+ * * `stop` - stop
+ * `length` - length
+ * `toolUse` - toolUse
+ * `error` - error
+ * `aborted` - aborted
+ */
+export type StopReasonEnumApi = (typeof StopReasonEnumApi)[keyof typeof StopReasonEnumApi]
+
+export const StopReasonEnumApi = {
+    Stop: 'stop',
+    Length: 'length',
+    ToolUse: 'toolUse',
+    Error: 'error',
+    Aborted: 'aborted',
+} as const
+
+export type AgentConversationAssistantMessageApiUsage = { [key: string]: unknown }
+
+export interface AgentConversationAssistantMessageApi {
+    role: AgentConversationAssistantMessageApiRole
+    /** Array of text/thinking/toolCall parts. */
+    content: unknown[]
+    /** Epoch milliseconds. */
+    timestamp: number
+    api?: string
+    provider?: string
+    model?: string
+    usage?: AgentConversationAssistantMessageApiUsage
+    stopReason?: StopReasonEnumApi
+    errorMessage?: string
+}
+
+export type AgentConversationToolResultMessageApiRole =
+    (typeof AgentConversationToolResultMessageApiRole)[keyof typeof AgentConversationToolResultMessageApiRole]
+
+export const AgentConversationToolResultMessageApiRole = {
+    ToolResult: 'toolResult',
+} as const
+
+export interface AgentConversationToolResultMessageApi {
+    role: AgentConversationToolResultMessageApiRole
+    toolCallId: string
+    toolName: string
+    /** Array of {type:'text'|'image', ...} parts. */
+    content: unknown[]
+    isError: boolean
+    /** Epoch milliseconds. */
+    timestamp: number
+}
+
+export type AgentConversationMessageApi =
+    | AgentConversationUserMessageApi
+    | AgentConversationAssistantMessageApi
+    | AgentConversationToolResultMessageApi
+
+export interface AgentApplicationSessionsRetrieveResponseApi {
+    usage_total: AgentSessionUsageTotalApi
+    principal: AgentSessionPrincipalApi | null
+    id: string
+    application_id: string
+    revision_id: string
+    team_id: number
+    /** @nullable */
+    external_key: string | null
+    state: AgentSessionStateEnumApi
+    /** Full transcript, or the trailing `last_n` messages if `?last_n=` was supplied. */
+    conversation: AgentConversationMessageApi[]
+    /** Messages that arrived while a turn was in flight; drained into `conversation` at the start of the next turn. */
+    pending_inputs: AgentConversationMessageApi[]
+    /** Times the janitor has re-queued this session after a stuck-running detection. */
+    retry_count: number
+    created_at: string
+    updated_at: string
+    /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
+    conversation_trimmed: boolean
+    /** Total messages in the untrimmed conversation. Present only when `conversation_trimmed=true`. */
+    conversation_total_turns?: number
+}
+
+export interface LogEntryApi {
+    log_source_id: string
+    instance_id: string
+    timestamp: string
+    level: string
+    message: string
+}
+
+export interface AgentApplicationSessionLogsResponseApi {
+    results: LogEntryApi[]
 }
 
 export type SetEnvRequestApiEnv = { [key: string]: string }
@@ -640,6 +813,36 @@ export interface AgentNativeToolEntryApi {
 export interface AgentNativeToolsListResponseApi {
     tools: AgentNativeToolEntryApi[]
 }
+
+/**
+ * * `user` - user
+ */
+export type AgentConversationUserMessageRoleEnumApi =
+    (typeof AgentConversationUserMessageRoleEnumApi)[keyof typeof AgentConversationUserMessageRoleEnumApi]
+
+export const AgentConversationUserMessageRoleEnumApi = {
+    User: 'user',
+} as const
+
+/**
+ * * `assistant` - assistant
+ */
+export type AgentConversationAssistantMessageRoleEnumApi =
+    (typeof AgentConversationAssistantMessageRoleEnumApi)[keyof typeof AgentConversationAssistantMessageRoleEnumApi]
+
+export const AgentConversationAssistantMessageRoleEnumApi = {
+    Assistant: 'assistant',
+} as const
+
+/**
+ * * `toolResult` - toolResult
+ */
+export type AgentConversationToolResultMessageRoleEnumApi =
+    (typeof AgentConversationToolResultMessageRoleEnumApi)[keyof typeof AgentConversationToolResultMessageRoleEnumApi]
+
+export const AgentConversationToolResultMessageRoleEnumApi = {
+    ToolResult: 'toolResult',
+} as const
 
 export type AgentApplicationsListParams = {
     /**
@@ -723,7 +926,7 @@ export type AgentApplicationsSessionsListParams = {
      */
     revision_id?: string
     /**
-     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, failed.
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, failed.
      */
     state?: string
 }
@@ -733,4 +936,36 @@ export type AgentApplicationsSessionsRetrieveParams = {
      * If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.
      */
     last_n?: number
+}
+
+export type AgentApplicationsSessionLogsParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
 }

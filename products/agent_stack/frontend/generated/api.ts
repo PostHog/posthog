@@ -11,7 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AgentApplicationApi,
     AgentApplicationApprovalsListResponseApi,
+    AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
+    AgentApplicationSessionsRetrieveResponseApi,
     AgentApplicationsApprovalsListParams,
     AgentApplicationsListParams,
     AgentApplicationsPreviewProxyGetParams,
@@ -20,11 +22,13 @@ import type {
     AgentApplicationsRevisionsFileRetrieveParams,
     AgentApplicationsRevisionsFileUpdateParams,
     AgentApplicationsRevisionsListParams,
+    AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
     AgentApprovalsDecideResponseApi,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
+    AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
@@ -663,6 +667,34 @@ export const agentApplicationsRevisionsPromoteCreate = async (
     })
 }
 
+export const getAgentApplicationsRevisionsSystemPromptUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/system_prompt/`
+}
+
+/**
+ * Return the fully-assembled system prompt for this revision.
+
+Authoring tools call this to preview what the model will actually
+see at session start — the platform framework preamble plus the
+bundle's `agent.md` plus the skills index. Useful for debugging
+author-vs-framework precedence conflicts and verifying
+`spec.framework_prompt.omit` overrides took effect.
+ */
+export const agentApplicationsRevisionsSystemPrompt = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentRevisionSystemPromptResponseApi> => {
+    return apiMutator<AgentRevisionSystemPromptResponseApi>(
+        getAgentApplicationsRevisionsSystemPromptUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAgentApplicationsRevisionsValidateCreateUrl = (
     projectId: string,
     applicationId: string,
@@ -1066,11 +1098,57 @@ export const agentApplicationsSessionsRetrieve = async (
     sessionId: string,
     params?: AgentApplicationsSessionsRetrieveParams,
     options?: RequestInit
-): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsSessionsRetrieveUrl(projectId, id, sessionId, params), {
-        ...options,
-        method: 'GET',
+): Promise<AgentApplicationSessionsRetrieveResponseApi> => {
+    return apiMutator<AgentApplicationSessionsRetrieveResponseApi>(
+        getAgentApplicationsSessionsRetrieveUrl(projectId, id, sessionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsSessionLogsUrl = (
+    projectId: string,
+    id: string,
+    sessionId: string,
+    params?: AgentApplicationsSessionLogsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
     })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/sessions/${sessionId}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/sessions/${sessionId}/logs/`
+}
+
+/**
+ * Read the runner's structured event log for one session from
+ClickHouse. Filters (limit / after / before / level / search)
+match the shared `LogEntryMixin` helper used by hog_function +
+hog_flow.
+ */
+export const agentApplicationsSessionLogs = async (
+    projectId: string,
+    id: string,
+    sessionId: string,
+    params?: AgentApplicationsSessionLogsParams,
+    options?: RequestInit
+): Promise<AgentApplicationSessionLogsResponseApi> => {
+    return apiMutator<AgentApplicationSessionLogsResponseApi>(
+        getAgentApplicationsSessionLogsUrl(projectId, id, sessionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAgentApplicationsSetEnvCreateUrl = (projectId: string, id: string) => {

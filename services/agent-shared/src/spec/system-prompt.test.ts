@@ -83,7 +83,7 @@ describe('buildSystemPrompt', () => {
         expect(authorIdx).toBeGreaterThan(preambleIdx)
     })
 
-    it('framework preamble covers meta-tool decision rules + state contract', async () => {
+    it('framework preamble covers all default sections', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const spec = AgentSpecSchema.parse({ model: 'x' })
@@ -103,7 +103,61 @@ describe('buildSystemPrompt', () => {
 
         // §3.2 — conversation-state contract.
         expect(prompt).toContain('Conversation state')
-        expect(prompt).toContain('completed')
-        expect(prompt).toContain('closed')
+        expect(prompt).toMatch(/`completed`/)
+        expect(prompt).toMatch(/`closed`/)
+
+        // §3.3 — tool failure handling.
+        expect(prompt).toMatch(/When a tool you called returns an error/i)
+
+        // §3.4 — approval-gated tools.
+        expect(prompt).toMatch(/approval-gated/i)
+        expect(prompt).toContain('"state": "queued"')
+    })
+
+    it('spec.framework_prompt.omit suppresses specific sections', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({
+            model: 'x',
+            framework_prompt: { omit: ['tool_failure_guidance', 'approval_guidance'] },
+        })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle)
+
+        // Omitted sections dropped.
+        expect(prompt).not.toMatch(/When a tool you called returns an error/i)
+        expect(prompt).not.toMatch(/approval-gated/i)
+        // Other sections still present.
+        expect(prompt).toContain('@posthog/meta-end-turn')
+        expect(prompt).toContain('Conversation state')
+    })
+
+    it('reasoning hint only fires for high / xhigh', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+
+        // No spec.reasoning → no hint.
+        const noneSpec = AgentSpecSchema.parse({ model: 'x' })
+        const nonePrompt = await buildSystemPrompt(makeRev(noneSpec), bundle)
+        expect(nonePrompt).not.toMatch(/Reasoning budget/)
+
+        // spec.reasoning: 'low' → no hint (normal model behaviour).
+        const lowSpec = AgentSpecSchema.parse({ model: 'x', reasoning: 'low' })
+        const lowPrompt = await buildSystemPrompt(makeRev(lowSpec), bundle)
+        expect(lowPrompt).not.toMatch(/Reasoning budget/)
+
+        // spec.reasoning: 'high' → hint injected.
+        const highSpec = AgentSpecSchema.parse({ model: 'x', reasoning: 'high' })
+        const highPrompt = await buildSystemPrompt(makeRev(highSpec), bundle)
+        expect(highPrompt).toMatch(/Reasoning budget/)
+        expect(highPrompt).toMatch(/extended reasoning/i)
+
+        // Omit still wins over the hint.
+        const omittedSpec = AgentSpecSchema.parse({
+            model: 'x',
+            reasoning: 'high',
+            framework_prompt: { omit: ['reasoning_hint'] },
+        })
+        const omittedPrompt = await buildSystemPrompt(makeRev(omittedSpec), bundle)
+        expect(omittedPrompt).not.toMatch(/Reasoning budget/)
     })
 })

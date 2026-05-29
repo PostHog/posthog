@@ -9,7 +9,6 @@
  */
 
 export * from './loop/run-turn'
-export * from './loop/system-prompt'
 export * from './loop/tool-dispatch'
 export * from './workers/worker'
 export * from './models/pi-client'

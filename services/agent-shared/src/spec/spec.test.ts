@@ -43,6 +43,52 @@ describe('AgentSpecSchema', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
     })
 
+    describe('framework_prompt config', () => {
+        it('defaults to undefined when not present', () => {
+            const spec = AgentSpecSchema.parse({ model: 'x' })
+            expect(spec.framework_prompt).toBeUndefined()
+        })
+
+        it('parses an empty config with default omit list', () => {
+            const spec = AgentSpecSchema.parse({ model: 'x', framework_prompt: {} })
+            expect(spec.framework_prompt?.omit).toEqual([])
+        })
+
+        it('parses a populated omit list', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                framework_prompt: { omit: ['meta_tool_guidance', 'reasoning_hint'] },
+            })
+            expect(spec.framework_prompt?.omit).toEqual(['meta_tool_guidance', 'reasoning_hint'])
+        })
+
+        it('rejects unknown omit values', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    framework_prompt: { omit: ['unknown_section'] },
+                })
+            ).toThrow()
+        })
+
+        it('parses a version_pin', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                framework_prompt: { version_pin: 1 },
+            })
+            expect(spec.framework_prompt?.version_pin).toBe(1)
+        })
+
+        it('rejects negative version_pin', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    framework_prompt: { version_pin: 0 },
+                })
+            ).toThrow()
+        })
+    })
+
     describe('approval-gated tools', () => {
         it('defaults tools to requires_approval: false with admin-only policy', () => {
             const spec = AgentSpecSchema.parse({
