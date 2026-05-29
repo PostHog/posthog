@@ -72,7 +72,7 @@ def compute_metric_fingerprint(
         fingerprint_data["only_count_matured_users"] = True
 
     if excluded_variants:
-        fingerprint_data["excluded_variants"] = sorted(excluded_variants)
+        fingerprint_data["excluded_variants"] = sorted(set(excluded_variants))
 
     # Create deterministic JSON string with sorted keys at all levels
     json_str = json.dumps(fingerprint_data, sort_keys=True, separators=(",", ":"))
