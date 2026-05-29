@@ -2,7 +2,7 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
-import { drawPieSlices, drawPieSliceShape } from '../../core/pie-canvas-renderer'
+import { drawPieSlices, drawPieSliceShape } from '../../core/radial-canvas-renderer'
 import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
 import type { RadialLayoutBuilder } from '../../core/RadialChart'
