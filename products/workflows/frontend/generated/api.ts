@@ -48,6 +48,21 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getInternalHogFlowsProcessDueSchedulesCreateUrl = () => {
+    return `/api/internal/hog_flows/process_due_schedules`
+}
+
+/**
+ * Internal endpoint called by the scheduler service to process due schedules.
+Handles both executing due schedules and initializing next_run_at for new ones.
+ */
+export const internalHogFlowsProcessDueSchedulesCreate = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -567,5 +582,38 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius`
+}
+
+/**
+ * Internal endpoint for Node.js services to query user blast radius.
+Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius_persons`
+}
+
+/**
+ * Internal endpoint for Node.js services to query user blast radius persons with pagination.
+Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
+    teamId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusPersonsCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
     })
 }
