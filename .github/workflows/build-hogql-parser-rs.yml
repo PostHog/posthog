@@ -83,7 +83,7 @@ jobs:
     build-wheels:
         name: Build wheels on ${{ matrix.os }} (${{ matrix.target }})
         needs: check-version
-        runs-on: ${{ matrix.runner || matrix.os }}
+        runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         if: needs.check-version.outputs.parser-release-needed == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
@@ -92,20 +92,16 @@ jobs:
             matrix:
                 include:
                     - os: ubuntu-22.04
-                      runner: posthog-hetzner
                       target: x86_64
                       manylinux: 2_28
                     - os: ubuntu-22.04-arm
-                      runner: posthog-hetzner
                       target: aarch64
                       manylinux: 2_28
                     # musllinux: alpine docker users (e.g. distroless setups).
                     - os: ubuntu-22.04
-                      runner: posthog-hetzner
                       target: x86_64
                       manylinux: musllinux_1_2
                     - os: ubuntu-22.04-arm
-                      runner: posthog-hetzner
                       target: aarch64
                       manylinux: musllinux_1_2
                     - os: macos-14
