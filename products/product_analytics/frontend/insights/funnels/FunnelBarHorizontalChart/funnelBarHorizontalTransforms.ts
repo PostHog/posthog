@@ -47,7 +47,9 @@ export function buildFunnelBarHorizontalData(
         return { series: [], labels: [] }
     }
 
-    const labels = steps.map((step) => step.name)
+    // Band keys must be unique — funnels often repeat the same event, so step names collide and
+    // d3.scaleBand would collapse them into one band. The visible step names come from StepDecorations.
+    const labels = steps.map((_, stepIndex) => String(stepIndex))
 
     if (isBreakdownLayout(steps)) {
         return { series: buildBreakdownSeries(steps, options), labels }

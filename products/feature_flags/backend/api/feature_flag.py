@@ -431,7 +431,9 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
     return len(filter_json.encode("utf-8"))
 
 
-def _filter_person_properties_for_flag(filters: dict[str, Any], person_properties: dict[str, Any]) -> dict[str, Any]:
+def _filter_person_properties_for_flag(
+    filters: dict[str, Any], person_properties: dict[str, Any], flag_key: str | None = None
+) -> dict[str, Any]:
     """
     Filter person_properties to only include keys referenced by the given flag filters.
 
@@ -440,20 +442,23 @@ def _filter_person_properties_for_flag(filters: dict[str, Any], person_propertie
     response can leak property values that weren't relevant at the requested
     point in time.
 
-    Walks ``groups`` (regular release conditions), ``super_groups`` (early-access
-    gating), and ``multivariate.override_property_values`` (per-variant property
-    overrides). Cohort-typed conditions reference person properties indirectly
+    Walks ``groups`` (regular release conditions),
+    ``multivariate.override_property_values`` (per-variant property overrides),
+    and the ``feature_enrollment`` flag (which implies ``$feature_enrollment/<key>``).
+    Cohort-typed conditions reference person properties indirectly
     via the cohort definition; this helper does not resolve cohorts, so a flag
     whose only conditions are cohort lookups returns an empty person_properties
     block.
     """
     referenced_keys: set[str] = set()
 
-    for section in ("groups", "super_groups"):
-        for group in filters.get(section, []) or []:
-            for prop in group.get("properties", []) or []:
-                if prop.get("type") == "person" and prop.get("key"):
-                    referenced_keys.add(prop["key"])
+    if filters.get("feature_enrollment") and flag_key:
+        referenced_keys.add(f"$feature_enrollment/{flag_key}")
+
+    for group in filters.get("groups", []) or []:
+        for prop in group.get("properties", []) or []:
+            if prop.get("type") == "person" and prop.get("key"):
+                referenced_keys.add(prop["key"])
 
     for override in (filters.get("multivariate", {}) or {}).get("override_property_values", []) or []:
         if override.get("type") == "person" and override.get("key"):
@@ -1686,17 +1691,7 @@ class FeatureFlagSerializer(
                     f"Please enable the dependency flags first."
                 )
 
-        # First apply all transformations to validated_data
-        validated_key = validated_data.get("key", None)
-        old_key = instance.key
         self._update_filters(validated_data)
-
-        # TRICKY: Update super_groups if key is changing, since the super groups depend on the key name.
-        # Note: feature_enrollment is a boolean and doesn't need updating on key change —
-        # the enrollment property key ($feature_enrollment/{flag_key}) is derived at evaluation time.
-        if validated_key and validated_key != old_key:
-            filters = validated_data.get("filters", instance.filters) or {}
-            validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
         # Resolve `has_encrypted_payloads` against the instance so a partial PATCH
         # that omits the boolean still routes through the right path.
@@ -1754,11 +1749,12 @@ class FeatureFlagSerializer(
                     payloads.pop("true", None)
                 filters["payloads"] = payloads
 
-        # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4).
-        # Uses the same inject-into-validated_data pattern as _update_super_groups_for_key_change.
+        # Opportunistically strip legacy keys on save.
         previous_filters = validated_data.get("filters") or instance.filters
-        if previous_filters and "holdout_groups" in previous_filters:
-            validated_data["filters"] = {k: v for k, v in previous_filters.items() if k != "holdout_groups"}
+        if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
+            validated_data["filters"] = {
+                k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
+            }
 
         version = request.data.get("version", -1)
 
@@ -2002,30 +1998,6 @@ class FeatureFlagSerializer(
         if hasattr(obj, "_active_experiments"):
             return [{"id": exp.id, "name": exp.name} for exp in obj._active_experiments]
         return [{"id": exp.id, "name": exp.name} for exp in obj.experiment_set.filter(deleted=False)]
-
-    def _update_super_groups_for_key_change(self, validated_key: str, old_key: str, filters: dict) -> dict:
-        if not (validated_key and validated_key != old_key and "super_groups" in filters):
-            return filters
-
-        updated_filters = filters.copy()
-        updated_filters["super_groups"] = [
-            {
-                **group,
-                "properties": [
-                    {
-                        **prop,
-                        "key": (
-                            f"$feature_enrollment/{validated_key}"
-                            if prop.get("key", "").startswith("$feature_enrollment/")
-                            else prop["key"]
-                        ),
-                    }
-                    for prop in group.get("properties", [])
-                ],
-            }
-            for group in filters["super_groups"]
-        ]
-        return updated_filters
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
@@ -4048,7 +4020,9 @@ class FeatureFlagViewSet(
                 "reason": reason,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(evaluation_filters, person_properties),
+                "person_properties": _filter_person_properties_for_flag(
+                    evaluation_filters, person_properties, flag_key=feature_flag.key
+                ),
                 "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": detailed_conditions,
             }

@@ -447,9 +447,24 @@ def sync_old_schemas_with_new_schemas(
     _update_labels(old_schemas, new_schemas)
 
     new_schema_names = list(new_schemas.keys())
-    schemas_to_create = [name for name in new_schema_names if name not in old_schemas_names]
 
-    schemas_to_possibly_delete = [schema for schema in old_schemas_names if schema not in new_schema_names]
+    # Discovery names a table qualified (`schema.table`) or bare (`table`) depending on config, so
+    # bare and qualified mean the same table — else a live row is wrongly disabled/duplicated. Two
+    # qualified names still need exact equality so same-named tables in different schemas stay distinct.
+    def _same_table(a: str, b: str) -> bool:
+        one_qualified = ("." in a) != ("." in b)
+        return a == b or (one_qualified and a.rpartition(".")[2] == b.rpartition(".")[2])
+
+    # Create discovered names not already stored; flag stored names discovery no longer reports.
+    schemas_to_create: list[str] = []
+    for new_name in new_schema_names:
+        if not any(_same_table(new_name, old_name) for old_name in old_schemas_names):
+            schemas_to_create.append(new_name)
+
+    schemas_to_possibly_delete: list[str] = []
+    for old_name in old_schemas_names:
+        if not any(_same_table(old_name, new_name) for new_name in new_schema_names):
+            schemas_to_possibly_delete.append(old_name)
     deleted_schemas: list[str] = []
     actually_created: list[str] = []
 
