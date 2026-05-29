@@ -66,15 +66,22 @@ from products.signals.eval.common import (
     MatchFailureMode,
     get_signals_stream,
 )
+from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
 
 
 class EvalGroupingPipeline:
+    def _eval_team(self):
+        """Lightweight Team stand-in for the pipeline helpers — they only read .id."""
+        from unittest.mock import MagicMock
+
+        return MagicMock(id=EVAL_TEAM_ID)
+
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, online):
+    def _setup(self, posthog_client, openai_client, gateway_client, mock_temporal, limit, no_capture, online):
         self.posthog_client = posthog_client
-        self.gemini_client = gemini_client
+        self.gateway_client = gateway_client
         self.openai_client = openai_client
         self.store = EmbeddingStore(openai_client)
         self.report_store = ReportStore()
@@ -264,6 +271,7 @@ class EvalGroupingPipeline:
 
         if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
             outputs = await _summarize_long_descriptions(
+                team=self._eval_team(),
                 outputs=outputs,
                 summarization_prompt=config.summarization_prompt,
                 threshold=config.description_summarization_threshold_chars,
@@ -273,10 +281,10 @@ class EvalGroupingPipeline:
         output = outputs[0]
 
         if config.actionability_prompt:
-            is_actionable, thoughts = await _check_actionability(
-                self.gemini_client, output, config.actionability_prompt
+            is_actionable = await _check_actionability(
+                self.gateway_client, EVAL_TEAM_ID, output, config.actionability_prompt
             )
-            await self._capture_pre_emit_actionability(case, thoughts, is_actionable)
+            await self._capture_pre_emit_actionability(case, None, is_actionable)
             if not is_actionable:
                 return None
 
