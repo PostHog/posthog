@@ -28,7 +28,7 @@
             "type": "string"
         },
         "state": {
-            "description": "Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, waiting, completed, failed.",
+            "description": "Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, failed.",
             "type": "string"
         }
     },
