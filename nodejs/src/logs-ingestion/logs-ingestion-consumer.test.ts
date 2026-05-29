@@ -1152,35 +1152,43 @@ describe('LogsIngestionConsumer', () => {
             expect(metricNames).toContain('bytes_ingested_retention_30d')
         })
 
-        it('should emit the retention tier matching the team retention_days', async () => {
-            const usageStats = new Map([
-                [
-                    team.id,
-                    {
-                        bytesReceived: 500,
-                        recordsReceived: 5,
-                        bytesAllowed: 500,
-                        recordsAllowed: 5,
-                        bytesDropped: 0,
-                        recordsDropped: 0,
-                        piiReplacements: 0,
-                        retentionDays: 90,
-                    },
-                ],
-            ])
+        it.each([
+            { retentionDays: 14, absent: ['bytes_ingested_retention_30d', 'bytes_ingested_retention_90d'] },
+            { retentionDays: 30, absent: ['bytes_ingested_retention_14d', 'bytes_ingested_retention_90d'] },
+            { retentionDays: 90, absent: ['bytes_ingested_retention_14d', 'bytes_ingested_retention_30d'] },
+        ])(
+            'should emit only bytes_ingested_retention_${retentionDays}d for the matching tier',
+            async ({ retentionDays, absent }) => {
+                const usageStats = new Map([
+                    [
+                        team.id,
+                        {
+                            bytesReceived: 500,
+                            recordsReceived: 5,
+                            bytesAllowed: 500,
+                            recordsAllowed: 5,
+                            bytesDropped: 0,
+                            recordsDropped: 0,
+                            piiReplacements: 0,
+                            retentionDays,
+                        },
+                    ],
+                ])
 
-            await consumer['emitUsageMetrics'](usageStats)
+                await consumer['emitUsageMetrics'](usageStats)
 
-            const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
-            const retentionMetric = messages
-                .map((m) => parseMetricValue(m.value))
-                .find((m) => m?.metric_name === 'bytes_ingested_retention_90d')
+                const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                const retentionMetric = messages
+                    .map((m) => parseMetricValue(m.value))
+                    .find((m) => m?.metric_name === `bytes_ingested_retention_${retentionDays}d`)
 
-            expect(retentionMetric?.count).toBe(500)
-            const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
-            expect(metricNames).not.toContain('bytes_ingested_retention_30d')
-            expect(metricNames).not.toContain('bytes_ingested_retention_14d')
-        })
+                expect(retentionMetric?.count).toBe(500)
+                const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
+                for (const name of absent) {
+                    expect(metricNames).not.toContain(name)
+                }
+            }
+        )
 
         it('should skip zero-count metrics', async () => {
             const usageStats = new Map([
