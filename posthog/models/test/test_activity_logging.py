@@ -1,6 +1,8 @@
+from typing import cast
+
 from django.test import TestCase
 
-from posthog.models.activity_logging.activity_log import Change, describe_change, dict_changes_between
+from posthog.models.activity_logging.activity_log import AuditableScope, Change, describe_change, dict_changes_between
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -74,4 +76,4 @@ class TeatActivityLog(TestCase):
             "widget": None,
         }
 
-        self.assertEqual(dict_changes_between("DashboardTile", previous, new), [])
+        self.assertEqual(dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new), [])

@@ -1,3 +1,5 @@
+from typing import Any
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
@@ -9,7 +11,8 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -171,7 +174,9 @@ class TestDashboardWidgets(APIBaseTest):
         real_check = UserAccessControl.check_access_level_for_resource
 
         def deny_error_tracking_only(
-            user_access_control: UserAccessControl, resource: str, required_level: str = "viewer"
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
         ) -> bool:
             if resource == "error_tracking":
                 return False
@@ -333,8 +338,8 @@ class TestDashboardWidgets(APIBaseTest):
         assert dashboard_json["tiles"][0]["widget"]["widget_type"] == "error_tracking_list"
         assert dashboard_json["tiles"][0]["widget"]["config"]["limit"] == 12
 
-    def _widget_template_payload(self, **overrides: object) -> dict:
-        tile = {
+    def _widget_template_payload(self, **overrides: Any) -> dict[str, Any]:
+        tile: dict[str, Any] = {
             "type": "WIDGET",
             "widget_type": "error_tracking_list",
             "config": {"limit": 12},
@@ -353,7 +358,9 @@ class TestDashboardWidgets(APIBaseTest):
         real_check = UserAccessControl.check_access_level_for_resource
 
         def deny_error_tracking_only(
-            user_access_control: UserAccessControl, resource: str, required_level: str = "viewer"
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
         ) -> bool:
             if resource == "error_tracking":
                 return False
@@ -422,7 +429,11 @@ class TestDashboardWidgets(APIBaseTest):
 
         create_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget", activity="created")
         assert create_logs.count() == 1
-        assert create_logs.first().detail["name"] == "error_tracking_list"
+        create_log = create_logs.first()
+        assert create_log is not None
+        detail = create_log.detail
+        assert detail is not None
+        assert detail["name"] == "error_tracking_list"
 
         tile = dashboard_json["tiles"][0]
         tile["widget"]["config"] = {"limit": 20}

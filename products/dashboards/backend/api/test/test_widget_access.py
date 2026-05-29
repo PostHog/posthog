@@ -5,7 +5,8 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
@@ -14,7 +15,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_product_access_error,
 )
 from products.dashboards.backend.widget_catalog import get_widget_product_access_denied_message
-from products.dashboards.backend.widget_registry import get_widget_registry_entry
+from products.dashboards.backend.widget_registry import WidgetRegistryEntry, get_widget_registry_entry
 
 
 class TestWidgetAccess(BaseTest):
@@ -27,7 +28,7 @@ class TestWidgetAccess(BaseTest):
         self.assertEqual(message, "You do not have access to future product.")
 
     def test_registry_entry_without_product_access_allows(self) -> None:
-        entry = {
+        entry: WidgetRegistryEntry = {
             "validate_config": lambda config: config,
             "query_fn": lambda team, config: {},
             "required_scopes": [],
@@ -42,7 +43,7 @@ class TestWidgetAccess(BaseTest):
         user_access_control = UserAccessControl(self.user, self.team)
         real_check = UserAccessControl.check_access_level_for_resource
 
-        def deny_error_tracking_only(resource: str, required_level: str = "viewer") -> bool:
+        def deny_error_tracking_only(resource: APIScopeObject, required_level: AccessControlLevel = "viewer") -> bool:
             if resource == "error_tracking":
                 return False
             return real_check(user_access_control, resource, required_level)

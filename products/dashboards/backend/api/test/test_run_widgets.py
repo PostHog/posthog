@@ -7,7 +7,8 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.widget_layouts import MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import (
@@ -209,7 +210,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_widgets_enabled", return_value=False)
-    def test_disabled_when_feature_flag_off(self, _mock_flag: patch) -> None:
+    def test_disabled_when_feature_flag_off(self, _mock_flag: MagicMock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
@@ -225,7 +226,9 @@ class TestDashboardRunWidgets(APIBaseTest):
         real_check = UserAccessControl.check_access_level_for_resource
 
         def deny_error_tracking_only(
-            user_access_control: UserAccessControl, resource: str, required_level: str = "viewer"
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
         ) -> bool:
             if resource == "error_tracking":
                 return False
