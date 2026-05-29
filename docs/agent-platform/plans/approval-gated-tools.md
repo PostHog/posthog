@@ -1,13 +1,26 @@
 # Design — control flows / approval-gated tool use
 
-**Status:** draft / open questions. **Owner:** ben.
+**Status:** draft (v0.2). **Owner:** ben.
 
 This is `_TODO.md` item #3. It extends `AgentSpec` so an author can mark
 individual tool calls as "requires approval". When the model tries to
-invoke one, the session parks; an approval lands via either a PostHog UI
-flow or an authorized MCP path; the session resumes with the approved
-args (possibly edited by the approver). Builds on the
-[long-running-sessions](long-running-sessions.md) lifecycle.
+invoke one, the platform queues an approval request and returns a
+synthetic "queued + here's the link" result to the model — **the session
+doesn't park**. The model can keep talking to the user, call other
+(non-gated) tools, share the approval link, etc. When the approver
+decides, the platform runs the tool with the approved args (option A,
+[discussion thread in the plan history]) and injects the real result
+back into the session as a synthetic tool_result message; the model
+sees a normal tool result and reasons about what to do next.
+
+> **Design pivot from v0.1 draft.** The original plan parked the
+> session in `waiting` until the approval landed (mirroring
+> `meta-ask-for-input`). v0.2 instead treats the approval queue as a
+> session **side artifact** the model is told about and can continue to
+> work around. This keeps the chat alive, removes the
+> `pending_approval` vs `ask_for_input` wake conflict, and lets a Slack
+> agent post the approval link and answer follow-ups while the
+> approver acts on their own time.
 
 ## 1. Problem
 
@@ -42,28 +55,62 @@ tool only fires on approval and only with the approved args.
 A tool call is approval-gated when:
 
 1. The tool's `ToolRef` in `AgentSpec` declares `requires_approval: true`.
-2. The runner intercepts the model's tool invocation **before**
-   dispatching it. The args are captured; the session parks in `waiting`;
-   a `PendingApproval` row is created.
-3. The approval surface (UI / MCP) shows: agent identity, session
-   context, tool id + description, the model's proposed args, free-form
-   reasoning (if the model added any). The approver can:
-   - **Approve as-is** — tool runs with the model's exact args.
-   - **Approve with edits** — approver modifies args, tool runs with the
-     edited args. The edit is part of the audit record.
-   - **Reject with reason** — tool result becomes a synthetic error
-     message back to the model containing the reason; the session
-     unparks and the model decides what to do next (typically:
-     apologize, ask a clarifying question, give up).
-4. On approval, the session unparks (waiting → queued). The runner
-   resumes mid-turn: the in-flight tool call now executes with the
-   approved (possibly edited) args. The model sees a normal tool result.
+2. The runner's dispatcher intercepts the invocation **before** the tool
+   handler runs. It writes a `tool_approval_request` row, then returns a
+   synthetic tool_result to the model containing the queue notice + a
+   link to the approval surface.
+3. The session **stays in its normal state** — `running` if the turn
+   continues, `completed` if the model wraps up cleanly. Approval requests
+   are session side artifacts, not state-machine vertices. The model can
+   - communicate the link to the user ("I've queued the refund — your
+     team lead can approve at <link>"),
+   - call other (non-gated) tools to keep working,
+   - answer follow-up questions on `/send`.
+4. The approval surface (UI / MCP) shows: agent identity, session
+   context, tool id + description, the model's proposed args, the
+   assistant message that emitted the call (text + thinking blocks, so
+   the approver sees the model's reasoning). The approver can:
+   - **Approve as-is** — tool dispatches platform-side with the model's
+     exact args. The real result lands as a synthetic tool_result.
+   - **Approve with edits** — approver modifies args (only when the
+     spec opts in via `allow_edit: true`), tool dispatches with edited
+     args. The diff between proposed and decided args is the audit
+     signal.
+   - **Reject with reason** — no tool dispatch. A synthetic message
+     telling the model "the call was rejected, reason: …" lands in
+     `pending_inputs`.
+5. On approval, the platform runs the tool with the approved args
+   (option A in the design thread). The real result, the decision
+   metadata (who, when, edited?), and the dispatch outcome (success or
+   downstream tool failure) all land on the `tool_approval_request` row.
+   A synthetic tool_result message ("tool X with request_id Y was
+   approved, here's the result") is injected into `pending_inputs`. The
+   model wakes on the next turn drain and sees a normal tool result.
 
-Crucially, the model is **not told** whether the call required approval.
-The contract from the model's perspective is "I called the tool, I got a
-result (or an error)". This keeps tools composable and the model's
-mental model simple. The author declares the policy; the platform
-enforces it transparently.
+### The "model is told" contract
+
+The model **is** told its call queued for approval — without this it
+can't communicate the link to the user or work around the pause. The
+synthetic result on intercept looks like:
+
+```json
+{
+  "role": "tool",
+  "tool_call_id": "tc_abc",
+  "content": {
+    "approval": {
+      "request_id": "ar_xyz",
+      "state": "queued",
+      "approver_hint": "an authorized admin on this team",
+      "approval_url": "https://posthog.com/agents/<slug>/approvals/ar_xyz"
+    }
+  }
+}
+```
+
+Authors should write their `agent.md` accordingly — "if a tool returns
+`approval.state: queued`, share the `approval_url` with the user and
+let them know it's pending review."
 
 ## 3. Spec config
 
@@ -80,23 +127,32 @@ New optional field on `ToolRefSchema` (defined in
       "requires_approval": true,
 
       // NEW — optional richer policy. When absent, defaults to
-      // { approvers: ["session_owner"], allow_edit: true, ttl_ms: 86400000 }.
+      // { approvers: ["team_admins"], allow_edit: false, ttl_ms: 86400000 }.
       "approval_policy": {
         // Who is allowed to approve. See §6.
-        //   "session_owner" — the principal that initiated the session
-        //   "agent_owner"   — the user who authored the agent
-        //   "team_members"  — any active member of the agent's team
-        //   "org_admins"    — any org-level admin
-        // List is OR'd. First listed wins for default routing UX.
-        "approvers": ["session_owner", "team_members"],
+        //   "team_admins"   — anyone with admin scope on the agent's team
+        //                     (the only v0 option — see §6 for why)
+        // Other scopes (`session_owner`, `agent_owner`, `team_members`,
+        // `org_admins`) reserved for future plan revisions once the
+        // principal-resolution story is sound for all trigger types.
+        "approvers": ["team_admins"],
 
-        // Can the approver edit args before approval? Default true.
-        "allow_edit": true,
+        // Can the approver edit args before approval? Default FALSE —
+        // edits change who the audit log holds responsible. Authors
+        // opt in only when they actually want approvers tweaking
+        // values (refund-amount-tweak case).
+        "allow_edit": false,
 
-        // How long a PendingApproval can sit before auto-rejecting and
-        // returning an error to the model. Default: 24h.
-        // Past this, runner gets a synthetic "approval_expired" error.
+        // How long a tool_approval_request can sit before auto-rejecting
+        // and surfacing an "approval_expired" message to the model.
+        // Default: 24h.
         "ttl_ms": 86400000,
+
+        // Allow non-human MCP callers (PAT-authed agent sessions) to
+        // approve via the MCP path. Default FALSE — otherwise agent A
+        // could approve agent B's gated calls just by sharing a team.
+        // Authoring AI dry-run sandboxes flip this for self-testing.
+        "allow_agent_approver": false,
       },
     },
     {
@@ -127,233 +183,406 @@ Spec validation runs at freeze time (per `agent-authoring-flow.md` §3).
 Invalid: `requires_approval: true` on a tool the agent doesn't actually
 list; `ttl_ms` below 1 minute or above 7 days; `approvers: []`.
 
-## 4. State machine + tool dispatch
+## 4. Dispatch flow + wake mechanics
 
-### 4.1 New dispatch outcome
+### 4.1 The dispatcher intercept
 
-`ToolDispatchOutcome` in `services/agent-runner/src/loop/tool-dispatch.ts`
-gains a new variant alongside `ok | error | suspend | end`:
+`dispatchTool` in `services/agent-runner/src/loop/tool-dispatch.ts`
+checks the resolved tool's `requires_approval` flag **before** invoking
+the handler. If set:
 
-```typescript
-export type ToolDispatchOutcome =
-  | { kind: 'ok'; result: unknown }
-  | { kind: 'error'; message: string }
-  | { kind: 'suspend'; prompt: string }
-  | { kind: 'end'; summary?: string }
-  // NEW
-  | { kind: 'pending_approval'; approval_id: string }
-```
+1. Compute a canonical hash of the args (sort keys, JSON.stringify,
+   sha256). See §5 for the canonicalisation rule.
+2. UPSERT a `tool_approval_request` row keyed by `(session_id,
+tool_name, args_hash)`. If a row with `state: pending` exists, return
+   that row's id; never duplicate (idempotency). If a row exists in
+   `rejected` / `expired` / `dispatched`, **insert a new row** —
+   rejection is terminal for the original request, but the model can
+   re-issue and ask for review again (with prior-rejection context
+   surfaced in the synthetic result, see §4.4).
+3. Return the **synthetic queued tool_result** to the runner (shape
+   in §2). Dispatch never touches the actual tool handler.
 
-`dispatchTool` checks the resolved spec's `requires_approval` flag
-**before** invoking the underlying handler. If set, it persists a
-`PendingApproval` row, returns `{ kind: 'pending_approval', approval_id }`,
-and never touches the tool. The runner translates this to the same
-`state: 'waiting'` outcome as `suspend`, with metadata pointing at the
-approval row.
+The runner emits a `tool_result` lifecycle event as it would for any
+dispatch, then moves on. No state-machine change — the session keeps
+running. If this was the last tool call in the turn, the model gets the
+synthetic result on the next turn and reacts (typically: tells the
+user, asks if anything else is needed). If there are other (non-gated)
+tools in the same turn, they dispatch normally.
 
-### 4.2 State transitions (per `long-running-sessions.md` §3 wording)
+### 4.2 State machine impact — none
 
-```text
-running → waiting           : approval-gated tool intercepted
-waiting → queued            : approval lands (approved or rejected)
-                              — pending_inputs gets the synthetic tool_result
-waiting → failed            : approval ttl elapsed; runner emits error
-                              and the model gets one chance to recover
-```
+The session stays in its current state. No `waiting` parking, no
+`waiting_reason` field, no compose-with-`ask_for_input` conflict. A
+session can have N open approval requests and still be `completed`,
+`running`, or anything else — the approval rows are independent.
 
-Approvals park in **`waiting`**, never `suspended`. Per the long-running
-plan's §10: approvals shouldn't compact, since the approver sees a UI
-that shows the agent's recent context, and that context must be intact
-until the approval lands. The janitor's `compact_after_ms` skip rule:
-sessions with an open `PendingApproval` are exempt from compaction.
+This is the key shift from v0.1. The model treats a queued approval
+the same way it would treat a long-running tool that returns a "ticket
+to check later" — completely natural in conversation.
 
-### 4.3 The runner intercept
+### 4.3 The approval decision
 
-The dispatcher already returns control-flow signals to the turn loop
-(`run-turn.ts`). Adding `pending_approval` is a small change:
+Approver decides via UI / MCP. The approval endpoint:
 
-- `dispatch-one.ts` checks `toolRef.requires_approval` at the top of
-  `dispatchOne`, writes a `PendingApproval` row keyed by
-  `(session_id, turn_index, tool_call_id, tool_name, proposed_args)`,
-  returns the new outcome.
-- `run-turn.ts` treats `pending_approval` like `suspend`: persists
-  partial conversation state (the assistant message with the tool_call
-  is saved, but no `tool_result` yet), flips state to `waiting`, emits a
-  `waiting` event with `reason: 'pending_approval'`.
-
-### 4.4 Wake mechanics
-
-Mirrors the existing `external_key` wake path
-(`services/agent-ingress/src/enqueue/enqueue.ts`):
-
-1. Approver decides via UI/MCP. The approval API resolves the
-   `PendingApproval` row → writes the synthetic `tool_result` message
-   into `pending_inputs` → updates session state `waiting → queued`.
-2. Runner picks up the session. At turn start it drains
-   `pending_inputs` into `conversation` (same code path as `/send`
-   today, lines 144–147 of `run-turn.ts`). The model now sees the
-   tool_result and continues the turn.
-
-The synthetic tool_result shape:
+1. Validates the calling principal against `approver_scope` on the row
+   (§6).
+2. Updates the row to `state: approving`, stamps `decision_by`,
+   `decision_at`, `decision_reason`, optionally `decided_args`.
+3. **Runs the tool platform-side** with the approved args. The
+   dispatch uses the same `dispatchTool` path as normal — same sandbox,
+   same secret broker, same integration credentials — but with
+   `requires_approval` skipped for THIS dispatch (a one-shot bypass
+   token tied to the approval id). The tool's real result + any
+   downstream error lands in `dispatch_outcome JSONB` on the row.
+4. Flips the row to `state: dispatched` (success) or `state:
+dispatched_failed` (tool threw). The approval decision and the
+   dispatch outcome are separately recorded — the human approved the
+   intent; whether it executed cleanly is the tool's behaviour.
+5. Writes a synthetic tool_result message into the session's
+   `pending_inputs`:
 
 ```jsonc
-// approve
-{ "role": "tool", "tool_call_id": "...", "content": "<actual tool result JSON>" }
+// approve → dispatched
+{
+  "role": "tool",
+  "tool_call_id": "tc_abc",  // matches the original call
+  "content": {
+    "approval": {
+      "request_id": "ar_xyz",
+      "state": "approved",
+      "decided_by": "user_42",
+      "edited_args": false,
+    },
+    "result": <actual tool result>,
+  },
+}
+
+// approve → dispatched_failed
+{
+  "role": "tool",
+  "tool_call_id": "tc_abc",
+  "is_error": true,
+  "content": {
+    "approval": { "request_id": "ar_xyz", "state": "approved", ... },
+    "error": "<tool's error message>",
+  },
+}
 
 // reject
 {
   "role": "tool",
-  "tool_call_id": "...",
-  "content": "{\"error\": \"approval_rejected\", \"reason\": \"<approver reason>\"}"
+  "tool_call_id": "tc_abc",
+  "is_error": true,
+  "content": {
+    "approval": {
+      "request_id": "ar_xyz",
+      "state": "rejected",
+      "decided_by": "user_42",
+      "reason": "<approver text>",
+    },
+  },
 }
 
-// expired
+// expired (janitor sweep)
 {
   "role": "tool",
-  "tool_call_id": "...",
-  "content": "{\"error\": \"approval_expired\", \"reason\": \"no approver responded within 24h\"}"
+  "tool_call_id": "tc_abc",
+  "is_error": true,
+  "content": {
+    "approval": { "request_id": "ar_xyz", "state": "expired" },
+  },
 }
 ```
 
-Importantly, on **approve**, the runner re-dispatches the tool with
-the approved args and writes the **real** result into `pending_inputs`.
-The model never sees a synthetic shape; it sees a normal tool result.
-On **reject/expired**, the model gets the synthetic error and decides
-its next move.
+6. Wakes the session if it isn't running. Same enqueue path the
+   `/send` endpoint already uses: write to `pending_inputs`, set
+   `state: queued`, runner picks up next.
 
-## 5. PendingApproval storage
+The model wakes, the next turn drains `pending_inputs` into
+`conversation`, the model sees a normal tool_result message, and
+continues the chat — typically with "the refund has been processed"
+or "the approver said no because …".
 
-New table (or row on existing `agent_session` JSONB — see open
-question #4). Tentative schema:
+### 4.4 Re-issue after rejection
 
-```sql
-CREATE TABLE agent_pending_approval (
-    id              UUID PRIMARY KEY,
-    session_id      UUID NOT NULL REFERENCES agent_session(id) ON DELETE CASCADE,
-    team_id         BIGINT NOT NULL,
-    tool_call_id    TEXT NOT NULL,
-    tool_name       TEXT NOT NULL,
-    proposed_args   JSONB NOT NULL,
-    -- approvers allowed to act on this row, resolved at park time
-    -- ("session_owner: <uuid>", "team:<id>:members", "team:<id>:admins")
-    approver_scope  JSONB NOT NULL,
-    state           TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'rejected', 'expired')),
-    decision_by     UUID NULL,        -- principal id when decided
-    decision_at     TIMESTAMP NULL,
-    decision_reason TEXT NULL,
-    decided_args    JSONB NULL,       -- present only if approver edited args
-    created_at      TIMESTAMP NOT NULL DEFAULT now(),
-    expires_at      TIMESTAMP NOT NULL,
-    UNIQUE (session_id, tool_call_id)
-);
-CREATE INDEX ON agent_pending_approval (state, expires_at);
-CREATE INDEX ON agent_pending_approval (team_id, state, created_at DESC);
+If the model issues the same tool call after a prior request was
+`rejected` / `expired`, the dispatcher creates a new row (rejection is
+terminal for the original) but surfaces the prior decision in the new
+synthetic queued result:
+
+```jsonc
+{
+  "approval": {
+    "request_id": "ar_new",
+    "state": "queued",
+    "approval_url": "...",
+    "prior_decision": {
+      "state": "rejected",
+      "reason": "amount too high — try under $25",
+    },
+  },
+}
 ```
 
-Lives in the agent-platform DB (same DB as `agent_session`). `team_id`
-is denormalized from the session for fast index-only listing per the
-[CLAUDE.md tenant-isolation rule](../../../CLAUDE.md).
+This lets the model give the user context — "I tried this before and
+the approver pushed back on the amount; I'm asking again with $25."
+Without this, the model would re-propose the same args ad infinitum.
+
+## 5. `tool_approval_request` storage
+
+Dedicated table, FK to `agent_session`. Separate from the session JSONB
+so the UI can render approvals per-team (cross-session listings, "what
+needs my review?" dashboards) without walking session blobs.
+
+```sql
+CREATE TABLE agent_tool_approval_request (
+    id              UUID PRIMARY KEY,
+    session_id      UUID NOT NULL REFERENCES agent_session(id) ON DELETE CASCADE,
+    application_id  UUID NOT NULL,  -- denormalised from session for app-level rollups
+    team_id         BIGINT NOT NULL,  -- denormalised for fast tenant-scoped listing
+    revision_id     UUID NOT NULL,    -- pin to the revision that proposed the call
+    turn            INT NOT NULL,     -- which turn of the session emitted this
+    tool_call_id    TEXT NOT NULL,    -- pi-ai ToolCall.id, surfaces in the synthetic result
+    tool_name       TEXT NOT NULL,
+    proposed_args   JSONB NOT NULL,
+    args_hash       BYTEA NOT NULL,   -- sha256 of canonical_args (sort_keys + JSON.stringify)
+    -- Snapshot of the assistant message that emitted the call.
+    -- Lets the UI show the model's reasoning (text + thinking blocks)
+    -- alongside the proposed args. Stored verbatim; we don't re-fetch
+    -- the conversation later because compaction may truncate it.
+    assistant_message JSONB NOT NULL,
+    -- Approver scope resolved at request time. v0 = ["team_admins"];
+    -- future revisions add session_owner / agent_owner / etc once the
+    -- principal story is sound for non-UI triggers (see §6).
+    approver_scope  JSONB NOT NULL,
+    state           TEXT NOT NULL CHECK (state IN (
+        'queued',              -- waiting for an approver
+        'approving',           -- decision landed, tool dispatch in flight
+        'dispatched',          -- tool ran successfully after approval
+        'dispatched_failed',   -- tool ran but threw (audit: human approved intent, tool broke)
+        'rejected',            -- approver said no
+        'expired'              -- ttl elapsed before any decision
+    )),
+    decision_by     UUID NULL,
+    decision_at     TIMESTAMPTZ NULL,
+    decision_reason TEXT NULL,
+    decided_args    JSONB NULL,        -- present when approver edited (allow_edit: true)
+    dispatch_outcome JSONB NULL,       -- {result?: <real tool result>, error?: <message>}
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    -- Idempotency: a queued request for the same canonical args is
+    -- returned to the caller as-is, never duplicated. Hits the dispatcher
+    -- intercept path when the model issues the same call twice while one
+    -- is still pending. Filtered to state='queued' so subsequent issues
+    -- after rejection / expiry create a new row.
+    UNIQUE (session_id, tool_name, args_hash) WHERE state = 'queued'
+);
+CREATE INDEX ON agent_tool_approval_request (state, expires_at);
+CREATE INDEX ON agent_tool_approval_request (team_id, state, created_at DESC);
+CREATE INDEX ON agent_tool_approval_request (application_id, state, created_at DESC);
+CREATE INDEX ON agent_tool_approval_request (session_id, created_at DESC);
+```
+
+Lives in the agent runtime DB alongside `agent_session`. `team_id` +
+`application_id` are denormalised for fast tenant- and agent-scoped
+listings per the [CLAUDE.md tenant-isolation rule](../../../CLAUDE.md).
+
+### 5.1 Canonical args hashing
+
+Keying on raw `proposed_args` JSONB would treat `{a:1, b:2}` and
+`{b:2, a:1}` as distinct. To produce a stable hash:
+
+1. **Recursive sort** all object keys (`Object.keys(...).sort()`).
+2. **JSON.stringify** the result with no whitespace.
+3. **SHA-256** the UTF-8 bytes.
+
+Numbers, booleans, strings, arrays, null all pass through unchanged.
+Floating-point edge cases (e.g. `1.0` vs `1`) are left as-is — the
+model rarely produces them and a model that does will see new
+approvals; that's fine.
+
+Hash is computed once on intercept and stored on the row. The
+idempotency check is a single index lookup.
 
 ## 6. Authorization — who can approve
 
-Two layers:
+### 6.1 v0: admin-only
 
-**a. Spec-declared `approvers` list.** Resolved at park time into
-`approver_scope` on the row. Example: `["session_owner", "team_members"]`
-on a session initiated by user U in team T resolves to
-`[{ kind: "principal", id: U }, { kind: "team_members", team_id: T }]`.
+The only `approvers` value v0 accepts is `["team_admins"]` (default).
+The approval API requires the calling principal to be:
 
-**b. Approval API check.** When the approval lands (UI or MCP), the
-caller's principal is checked against `approver_scope`. Reuses the
-session's existing principal-resolution (strict-principal already
-enforces sender identity on `/send`).
+1. **A real human user**, authenticated via PostHog session cookie or
+   a personal API key. PATs scoped to an agent ("agent service token")
+   are rejected unless the spec sets `allow_agent_approver: true`.
+2. **An admin of the agent's team**, per the existing PostHog ACL —
+   any user with admin-level scope on the team that owns the agent
+   application.
 
-Conflict modes:
+The rationale for starting here: the original plan defaulted to
+`session_owner` + `team_members`. Both broke down on contact with
+real-world triggers:
 
-- `session_owner` is the initiating principal — i.e. the user whose
-  `/send` started the session. For Slack-triggered sessions, that's the
-  Slack-mapped PostHog user. For webhook triggers, the principal is
-  whoever owns the webhook secret.
-- `agent_owner` is the user listed as `AgentApplication.created_by`. For
-  agents created via the authoring MCP, this is the authoring user.
-- `team_members` / `org_admins` use the existing PostHog ACL: any
-  active membership row counts. **No** elevation across teams without
-  the `per-session access elevation` (`_TODO` #5) flow first.
+- **`session_owner`** only resolves to a real human for chat-trigger
+  sessions with PAT auth. For Slack, the principal is a Slack-mapped
+  user that often has no PostHog account (external customer in a
+  shared channel); for webhook, the principal is whoever owns the
+  webhook secret (the agent author, not the caller). Building the
+  approval API on a notion that doesn't resolve gives us a feature
+  that works in demos and fails in production.
+- **`team_members`** lets anyone on the team approve, which means any
+  team-scoped service PAT could too — including the PAT of a sibling
+  agent. The whole point of approval gating is human oversight; that
+  loophole defeats it.
 
-Audit: every approval/rejection writes to the platform's existing
+Admin-only sidesteps both: admin scope is a real PostHog ACL row,
+admins are humans (by org policy), and the surface for adding new
+approver scopes can come later when we sort out the principal-
+resolution story for each trigger type.
+
+### 6.2 What's deferred (and why)
+
+The richer set of approver scopes from the v0.1 draft —
+`session_owner`, `agent_owner`, `team_members`, `org_admins` — are
+**reserved for a future plan revision**. Each one has a real use case
+but each also needs prerequisite work:
+
+- **`session_owner`** — needs the `per-session access elevation`
+  ([\_TODO #5](_TODO.md)) plan to land first so we have a consistent
+  notion of "the human who initiated this session" across all
+  triggers.
+- **`agent_owner`** — works today (`AgentApplication.created_by`) but
+  many production agents will be created by a service identity (the
+  authoring AI), making `agent_owner` resolve to a non-human. Useful
+  once we distinguish "human author" from "automation author."
+- **`team_members`** — usable today but flips the "humans only"
+  default. Probably gated on a `require_human_approver: false` spec
+  field once we have a real use case.
+- **`org_admins`** — useful for cross-team escalation. Pairs naturally
+  with the future notification-escalation work (§7.3).
+
+### 6.3 Audit
+
+Every approval / rejection / expiry writes to the platform's existing
 activity log (`activity-logging-expert` agent's territory) with
-`action: approve_tool_call` / `reject_tool_call`, `target: session_id`,
-`detail: { tool_name, decided_args, reason }`.
+`action: approve_tool_call` / `reject_tool_call` / `expire_tool_call`,
+`target: session_id`, `detail: { request_id, tool_name,
+proposed_args, decided_args?, edited: boolean, reason?,
+dispatch_outcome }`. The diff between `proposed_args` and `decided_args`
+is the most important audit signal — surface it prominently in the
+session timeline.
 
 ## 7. Approval surfaces
 
-### 7.1 PostHog UI
+### 7.1 Link is the notification (v0)
 
-New tab on the session detail page: **"Pending approvals"**. Lists each
-`pending` approval row with:
+The synthetic queued tool_result the model receives contains an
+`approval_url` — a deep link to the PostHog approval page. The author's
+`agent.md` instructs the model to share this URL with the user / on
+the Slack thread / wherever the trigger surface lives. The user
+forwards the link to an admin, or the admin already has access.
 
-- Agent identity + revision link
-- Originating trigger (Slack thread? webhook? UI?)
-- Recent conversation excerpt (last ~5 turns)
-- Tool id + description (pulled from the tool registry)
-- Proposed args, editable JSON view
-- `Approve` / `Reject` buttons + reason textbox
+This deliberately punts on:
 
-On submit, calls `POST /agent-sessions/:id/approvals/:approvalId` with
-`{ decision, edited_args?, reason? }`. The endpoint runs the
-authorization check (§6), updates the row, runs the unpark path (§4.4),
+- **Push notifications** (Slack DMs to admins, email digests, etc.) —
+  needs proper fan-out + dedupe and isn't required for the v0 loop to
+  function. See §7.3.
+- **Per-trigger affordances** (Slack button blocks, MCP resource
+  embeds) — useful but trigger-specific work that should land once
+  the v0 surface is real. See §7.3.
+
+The link surface trades off polish for simplicity — until someone
+actually uses an approval-gated agent in production we don't know
+which fan-out pattern matters. Shipping the link first lets us learn
+where the friction is.
+
+### 7.2 PostHog UI
+
+New tab on the session detail page: **"Approval requests"**. Lists
+every row for the session in any state, with the queued ones at the
+top. Each row shows:
+
+- Tool id + description (pulled from the tool registry).
+- Proposed args (read-only JSON view by default; editable when the
+  spec declares `allow_edit: true`).
+- The assistant message that emitted the call (text + thinking blocks,
+  not just the tool args) so the approver sees the model's reasoning.
+- For a queued row: `Approve` / `Reject` buttons + reason textbox.
+- For a decided row: who decided, when, what they edited (if
+  anything), and the dispatch outcome (success / tool error).
+
+A separate team-level **"Approvals inbox"** scene (URL: `/agents/approvals`)
+lists every queued request across every agent on the team — admin's
+unified view. Filters by agent, tool, age. Same row UI; links to the
+session detail tab.
+
+Both views call `POST /agent_applications/:slug/approvals/:approvalId`
+with `{ decision, edited_args?, reason? }`. The endpoint runs the
+auth check (§6), updates the row, runs the dispatch + wake path (§4.3),
 returns 200.
 
-Notifications: each `pending_approval` event fires a notification (via
-the platform's notification skill — see `sending-notifications`) to
-each principal in `approver_scope`. The notification deep-links to the
-approval UI. TTL warnings (`expires_at - 1h`) re-notify if still
-pending.
+### 7.3 Deferred — to its own follow-up plan
 
-### 7.2 MCP path
+These all matter; none of them are required for v0 to be useful.
+Tracked as a follow-up: `approval-notifications.md` (TODO).
 
-New MCP tool: `agent-platform-list-pending-approvals` and
-`agent-platform-decide-approval`.
+- **Notification fan-out + dedupe.** Push to admins via the existing
+  PostHog notification system with single-claim semantics so a 50-
+  person team doesn't pelt every admin per call.
+- **Slack button blocks.** The Slack trigger renders the approval URL
+  as an interactive button; clicking deep-links to the PostHog
+  approval page.
+- **Escalation policy.** No decision in 1h → notify the agent owner.
+  No decision in 4h → notify org admins. 24h → expire.
+- **TTL re-warning at `expires_at - 1h`** so a stale-but-still-valid
+  request gets one more shot before expiring.
 
-- `list_pending_approvals(filter?: { session_id?, tool_name? })` —
-  returns approvals visible to the calling principal.
-- `decide_approval(approval_id, decision, edited_args?, reason?)` —
-  same endpoint as the UI, same auth check.
+### 7.4 MCP path
 
-This lets an external agent (a "reviewer agent") triage approvals
-programmatically. Critically, the reviewer agent is **not** the agent
-whose call is being approved — that would be a self-approval loop. The
-authorization check rejects approvals where the calling principal is
-the same agent's session principal. (Self-approval requires explicit
-spec opt-in; see §9 #5.)
+New MCP tools on the `agent_stack` surface:
 
-## 8. Composition with `meta-ask-for-input`
+- `agent-applications-approvals-list({ application_id?, state?, limit? })` —
+  returns approvals visible to the calling principal. Defaults to
+  `state: queued`. Pagination via the standard limit/offset shape.
+- `agent-applications-approvals-decide({ application_id, approval_id,
+decision, edited_args?, reason? })` — same endpoint as the UI, same
+  auth check.
 
-Both park in `waiting`. The runner needs to distinguish them so the
-unpark path picks the right behavior:
+The auth check enforces:
 
-- `session.waiting_reason: 'ask_for_input' | 'pending_approval' | 'long_running' | ...`
-  — new field on the session row.
-- Wake-event handlers branch on `waiting_reason`:
-  - `ask_for_input` — the next `/send` becomes the user's reply.
-  - `pending_approval` — `/send` is **rejected** with 409 (the session
-    isn't accepting free-form input right now); only the approval API
-    can advance it.
-  - `long_running` — `/send` accepted as normal.
+1. **Human principal only.** PATs scoped to an agent service are
+   rejected unless the spec opts in via `allow_agent_approver: true`.
+2. **Admin of the agent's team** (per §6).
+3. **No self-approval.** A call where `request.user` is the agent's
+   own service principal is rejected outright regardless of
+   `allow_agent_approver` — agents can never approve their own gated
+   calls, only those of a different agent within their team (and only
+   when the spec opts in).
 
-This prevents accidental "the user typed something in Slack while an
-approval was pending" → the model interprets the typed message as the
-approval. The user sees: "this session is waiting on approval, please
-use the approval link". (The notification surface from §7 makes this
-obvious.)
+## 8. Composition with `meta-ask-for-input` and parallel tool calls
 
-Side-effect: an agent can _combine_ both. Model calls
-`meta-ask-for-input("Want me to delete team 42?")`. User says "yes".
-Model then calls `team-delete(team_id=42)`. The team-delete still
-parks for approval if the spec says so — even though the user already
-said yes informally, the approval gate is a separate, audited step. The
-spec author decides whether the gate is redundant; if so, they don't
-mark the tool as `requires_approval` and rely on `ask_for_input` alone.
+The v0.2 design eliminates the old composition headaches by NOT
+parking the session:
+
+- **`ask_for_input` still parks the session in `waiting`** (its
+  existing behaviour). A gated tool call **doesn't** — the session
+  stays `running` / `completed` / whatever it was. No state
+  collision, no `waiting_reason` discriminator.
+- **`/send` works the same as today** during an open approval request:
+  it appends a user message and the model picks up on the next turn.
+  The pending approval request is independent of the chat flow.
+- **Multiple tool calls in one assistant message** are handled
+  individually. The dispatcher loops over the model's tool calls; any
+  gated ones return the synthetic queued result, any non-gated ones
+  dispatch normally. The model sees a normal turn from its
+  perspective: some calls returned data, some calls returned
+  `{approval: {state: queued}}`. It reasons about the mix.
+- **Belt-and-braces gating.** An author who wants the user to
+  informally agree AND the platform to formally gate just composes
+  `meta-ask-for-input` then a `requires_approval: true` tool. Both
+  fire — the model asks "shall I?", the user says yes, the model
+  calls the tool, the platform parks the call for admin review. The
+  spec author decides which gates apply for which tool.
 
 ## 9. Open questions
 
@@ -365,110 +594,109 @@ mark the tool as `requires_approval` and rely on `ask_for_input` alone.
    for it.
 2. **Auto-approval rules.** Mirror image: "approve any `insight-create`
    where `team_id == owner_team`". Same `match:` schema as #1, with
-   `action: "auto_approve"` instead of `"require_approval"`. Useful for
-   reducing approver fatigue. Defer.
+   `action: "auto_approve"` instead of `"require_approval"`. Useful
+   for reducing approver fatigue once we move beyond admin-only. Defer.
 3. **MCP-tool approval gating.** Per §3, `spec.mcps[]` tools aren't
    listed individually in spec. Need a `mcp_approvals` policy keyed by
    `(mcp_id, tool_name_glob)`. Probably a v1 follow-up; v0 only gates
    tools that appear in `tools[]`.
-4. **Storage shape — row vs JSONB.** New table `agent_pending_approval`
-   (§5) keeps queries fast and the session row small. Alternative:
-   embed in session JSONB as `session.pending_approval`. Single-row
-   means simpler atomic writes but adds JSONB churn on every approval
-   decision. Going with the table for clean indexing. Revisit if write
-   volume is low.
-5. **Self-approval.** A "reviewer agent" calling the MCP approval tool
-   on its own session is auto-rejected. But there's a legitimate case:
-   an authoring AI test-running its own agent in a dry-run sandbox
-   should auto-approve to keep tests automatic. Spec opt-in:
-   `approval_policy.allow_self_approval: true`. Only meaningful when
-   the agent's principal _is_ the approver scope (rare). Defer to v1.
-6. **Approver edits and audit.** When approver edits args, the diff
-   between `proposed_args` and `decided_args` is the most important
-   audit signal — surface it prominently in the activity log and the
-   session timeline.
-7. **Notification dedupe.** Multiple principals in `approver_scope`
-   means multiple notifications per approval. First-to-act resolves the
-   row; the others should see "already decided" in the UI rather than 404. Easy — the list endpoint filters by state.
-8. **Edit beyond schema.** What if the approver edits args into a shape
-   the tool's input schema rejects? Server-side: re-validate
+4. **Edit beyond schema.** What if the approver edits args into a
+   shape the tool's input schema rejects? Server-side: re-validate
    `decided_args` against the tool's Zod schema; reject the approval
    submission with a 422. UI: surface schema errors inline before
    submit.
-9. **End-of-turn vs mid-turn approval.** Today's model providers may
-   return multiple tool calls in one assistant message. If two of those
-   are approval-gated, do we park on the first and re-run the model on
-   resume (losing the other tool calls), or batch them into one
-   approval surface? Probably batch: one `PendingApproval` row per
-   `tool_call_id`, all flagged on park; approver sees them as a group;
-   all must decide before the session resumes. Worth a follow-up
-   prototype.
-10. **Composition with long-running `suspended`.** A long-running
-    session in `suspended` that the model wakes and then immediately
-    invokes an approval-gated tool: rehydrate, intercept, park _back_
-    into `waiting` (not `suspended`). The intermediate compaction is
-    fine; we don't re-compact during the approval window.
+5. **Cancel-after-approve.** The window between
+   `state: approving` and `state: dispatched` is small but real —
+   approver hits approve, regrets it, wants to cancel. v0 disallows
+   (the dispatch is in flight). v1 could add a `cancelling` state
+   that aborts mid-dispatch via the runner's existing AbortSignal.
+6. **Rate limits.** A runaway agent could create thousands of pending
+   approvals before anyone notices. Pair with
+   [rate-limiting-sessions.md](rate-limiting-sessions.md): per-team
+   daily cap on `tool_approval_request` rows. Defer to that plan.
+7. **Side-effect compaction.** Long-running sessions ([long-running-
+   sessions.md](long-running-sessions.md)) may compact the
+   conversation. The approval row's `assistant_message` snapshot keeps
+   the audit story whole even if the original conversation gets
+   truncated. No skip-compaction rule needed (cf. v0.1, which needed
+   one).
 
 ## 10. Rollout
 
-This is additive — disabled by default per tool. Phases:
+Additive — disabled by default per tool. Existing agents see zero
+behaviour change.
 
-**v0** (foundation):
+**v0 — foundation.** Not yet built.
 
 - Add `ToolRef.requires_approval` + `approval_policy` to
-  `services/agent-shared/src/spec/spec.ts`. Default false.
-- Schema migration: new `agent_pending_approval` table.
-- Add `pending_approval` outcome + intercept in runner dispatch.
-- Add `waiting_reason` field on `agent_session`.
-- Add `POST /agent-sessions/:id/approvals/:approvalId` endpoint
-  (Django side, agent-ingress).
-- Activity-log: register `approve_tool_call` / `reject_tool_call`.
-- Existing agents see zero behavior change.
+  `services/agent-shared/src/spec/spec.ts`. Defaults: `false`,
+  `{approvers: ["team_admins"], allow_edit: false, ttl_ms: 86400000,
+allow_agent_approver: false}`.
+- Schema migration: new `agent_tool_approval_request` table.
+- Dispatcher intercept in
+  `services/agent-runner/src/loop/dispatch-one.ts`: UPSERT-by-hash,
+  return synthetic queued tool_result. Idempotency unit-tested.
+- Django actions on `AgentApplicationViewSet`:
+  - `agent-applications-approvals-list`
+  - `agent-applications-approvals-decide`
+- Approval-decide path: validate principal, dispatch tool with
+  approved args (one-shot bypass), record outcome on row, inject
+  synthetic tool_result into `pending_inputs`, wake session.
+- Janitor sweep: expire `state: queued` rows past `expires_at`,
+  inject expiry message.
+- Activity-log: register `approve_tool_call` / `reject_tool_call` /
+  `expire_tool_call`.
+- e2e case in `agent-tests/` covering the full loop: gated call →
+  queued result → approval decision → tool dispatch → synthetic
+  result → model continues.
 
-**v1** (first real users):
+**v1 — first real users + UI.** After v0.
 
 - Pick one internal agent — the ops / infra-mutating one — and gate
-  one destructive tool. Approver is the agent owner.
-- Build the session-detail "Pending approvals" tab in the PostHog UI.
-- Wire notifications via the existing skill.
+  one destructive tool.
+- Build the session-detail "Approval requests" tab + the team-level
+  `/agents/approvals` inbox.
 - Watch: false-positive rate (approver always says yes →
-  `requires_approval` is wrong), expiry rate (approvers asleep at the
-  wheel), edit rate (signals the model proposes bad args).
+  `requires_approval` is wrong), expiry rate (approvers asleep at
+  the wheel), edit rate (signals the model proposes bad args).
+- Spin up the `approval-notifications.md` follow-up plan.
 
-**v2** (broad availability + MCP):
+**v2 — broader scopes + MCP polish.** After v1.
 
-- Expose `requires_approval` in the authoring wizard / MCP YAML
-  descriptions.
-- Document approval-gating in the authoring skill.
-- Ship the MCP approval tools (`list_pending_approvals`,
-  `decide_approval`).
-- Per-args-pattern policy if at least two agents are asking for it
-  (open q #1).
+- Surface `requires_approval` in the authoring wizard / MCP YAML.
+- Document approval-gating in the authoring skill (heuristic: gate
+  tools whose name contains `delete`, `remove`, `cancel`, `send` by
+  default unless the author opts out).
+- Land per-args-pattern policy if ≥2 agents are asking (open q #1).
+- Open approver scopes beyond `team_admins` once principal-
+  resolution is sound for each trigger type (see §6.2).
 
 ## 11. Dependencies + what this enables
 
-**Depends on:**
+**Hard depends on:** nothing — v0.2 doesn't park the session, so
+`long-running-sessions.md` is no longer a prerequisite. (The session
+keeps running; approvals are side artifacts.)
 
-- `long-running-sessions.md` — the `waiting → queued` wake mechanism
-  and the `compact_after_ms` skip rule for sessions with open
-  approvals.
+**Composes with:**
 
-**Enables / interacts with:**
+- [`per-session-access-elevation.md`](per-session-access-elevation.md) —
+  needed before approver scopes can expand beyond `team_admins`
+  (see §6.2).
+- [`rate-limiting-sessions.md`](rate-limiting-sessions.md) — pair the
+  per-session approval count with a per-team daily cap so a runaway
+  agent can't flood the inbox.
+- [`agent-authoring-flow.md`](agent-authoring-flow.md) — the authoring
+  AI reasons about which tools to gate. Reference authoring skill
+  should include heuristics ("tools whose name contains `delete`,
+  `remove`, `cancel`, `send` warrant `requires_approval` by default
+  unless the author explicitly opts out").
 
-- `_TODO` #4 (rate limiting) — pending approvals don't count against
-  the concurrent-running cap (they're waiting) but probably _should_
-  count against a separate "pending approvals per team" budget so a
-  runaway agent can't flood approvers.
-- `_TODO` #5 (per-session access elevation) — when an unauthorized
-  principal tries to approve, the platform can surface the elevation
-  flow ("you're not in `approver_scope`; ask <session_owner> to grant
-  you approval rights on this session").
-- `agent-authoring-flow.md` — the authoring AI should reason about
-  which tools to gate when drafting the spec. The reference authoring
-  skill should include heuristics: "tools whose name contains
-  `delete`, `remove`, `cancel`, `send` warrant `requires_approval` by
-  default unless the author explicitly opts out".
+**What this unblocks:**
+
+- A real "human-in-the-loop" story for agents that touch consequential
+  state (refunds, deletes, deploys).
 - `self-healing-agents` (future plan) — false-positive / expiry /
-  edit-rate signals from approvals are exactly the kind of feedback a
-  self-healing agent could use to refine its tool args before
-  proposing them.
+  edit-rate signals are first-class feedback for an agent that wants
+  to refine its tool args before proposing them.
+- Future `approval-notifications.md` plan (see §7.3) — push/email/Slack
+  fan-out with dedupe + escalation; rides on top of v0's link surface.
