@@ -130,55 +130,59 @@ class MigrationTaxResult:
     carriers_found: int
 
 
+def outlier_merge_durations(sources: list[dict[str, float]]) -> dict[str, float]:
+    """Outlier-merge per-test durations across N input dicts.
+
+    Each source carries the full test map with fresh values only for tests
+    actually measured by that source; the rest are stale passthroughs from
+    a shared input file. A naive last-write-wins merge overwrites real
+    values with stale ones — instead pick the per-test value that differs
+    from the majority across sources. Falls back to first value if all
+    sources agree.
+
+    Single source of truth for outlier merging — used both by per-segment
+    artifact processing (TimingMerger over ShardTimings) and by the
+    cross-segment merge step in the timing update workflow.
+    """
+    if not sources:
+        return {}
+    if len(sources) == 1:
+        return dict(sources[0])
+
+    test_keys: set[str] = set()
+    for source in sources:
+        test_keys.update(source.keys())
+
+    merged: dict[str, float] = {}
+    for test in test_keys:
+        values = [source[test] for source in sources if test in source]
+        if not values:
+            continue
+        merged[test] = _pick_outlier(values)
+    return merged
+
+
+def _pick_outlier(values: list[float]) -> float:
+    if len(set(values)) == 1:
+        return values[0]
+    counter = Counter(values)
+    most_common_val = counter.most_common(1)[0][0]
+    outliers = [v for v in values if v != most_common_val]
+    return outliers[0] if outliers else most_common_val
+
+
 class TimingMerger:
     """Merges per-shard timing artifacts using outlier detection.
 
-    Each shard writes the full test map via --store-durations, but only
-    updates durations for tests it actually ran. Non-run tests retain
-    stale values from the previous .test_durations. A naive merge
-    (last-write-wins) can overwrite real values with stale ones.
-
-    This merger collects all values per test across shards and picks
-    the outlier (the value from the shard that actually ran the test).
+    Thin wrapper around outlier_merge_durations() that adapts the
+    ShardTimings interface used by per-segment processing.
     """
 
     def __init__(self, shards: list[ShardTimings]):
         self.shards = shards
 
     def merge(self) -> dict[str, float]:
-        if not self.shards:
-            return {}
-
-        if len(self.shards) == 1:
-            return dict(self.shards[0].durations)
-
-        test_keys: set[str] = set()
-        for shard in self.shards:
-            test_keys.update(shard.durations.keys())
-
-        merged = {}
-        for test in test_keys:
-            values = [shard.durations.get(test, 0) for shard in self.shards]
-            merged[test] = self._pick_real_value(values)
-
-        return merged
-
-    @staticmethod
-    def _pick_real_value(values: list[float]) -> float:
-        """Pick the real duration from a list of per-shard values.
-
-        Most values are stale (identical across shards). The outlier—the
-        value that differs from the majority—is the real measurement from
-        the shard that ran this test.
-        """
-        unique = set(values)
-        if len(unique) == 1:
-            return values[0]
-
-        counter = Counter(values)
-        most_common_val = counter.most_common(1)[0][0]
-        outliers = [v for v in values if v != most_common_val]
-        return outliers[0] if outliers else most_common_val
+        return outlier_merge_durations([shard.durations for shard in self.shards])
 
 
 class MigrationTaxCorrector:
@@ -435,11 +439,30 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
+def run_merge_files(input_files: list[Path], output_file: Path) -> None:
+    """Merge mode: outlier-merge already-merged per-segment files into one output."""
+    sources: list[dict[str, float]] = []
+    for path in input_files:
+        if not path.exists():
+            logger.info("  skipping missing input %s", path)
+            continue
+        with open(path) as f:
+            sources.append(json.load(f))
+    if not sources:
+        logger.warning("No input files found to merge")
+
+    merged = outlier_merge_durations(sources)
+    with open(output_file, "w") as f:
+        json.dump(merged, f, indent=4, sort_keys=True)
+        f.write("\n")
+    logger.info("Merged %d tests across %d segment(s) into %s", len(merged), len(sources), output_file)
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     parser = argparse.ArgumentParser(description="Prepare test durations for pytest-split sharding")
-    parser.add_argument("artifacts_dir", type=Path, help="Directory containing timing artifacts")
+    parser.add_argument("artifacts_dir", type=Path, nargs="?", help="Directory containing timing artifacts")
     parser.add_argument("output_file", type=Path, help="Output file for processed durations")
     parser.add_argument(
         "--segment",
@@ -464,8 +487,23 @@ def main():
         action="store_true",
         help="Filter to only tests that exist in the codebase (runs pytest --collect-only)",
     )
+    parser.add_argument(
+        "--merge-files",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="Merge mode: outlier-merge the given duration files and write to output_file. "
+        "Ignores artifacts_dir and the other artifact-processing flags.",
+    )
 
     args = parser.parse_args()
+
+    if args.merge_files:
+        run_merge_files(args.merge_files, args.output_file)
+        return
+
+    if args.artifacts_dir is None:
+        parser.error("artifacts_dir is required unless --merge-files is given")
 
     # Load per-shard timing data
     logger.info("Loading timing artifacts from %s...", args.artifacts_dir)

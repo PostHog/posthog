@@ -185,41 +185,12 @@ jobs:
                       echo "Processed Dagster timing data"
                   fi
 
-                  # Outlier-merge across segment files: each segment file contains
-                  # fresh values for tests that segment actually ran, and stale
-                  # passthroughs from the input .test_durations for everything else.
-                  # Naive dict.update() across segments would let stale passthroughs
-                  # from a later segment overwrite fresh values from an earlier one.
-                  # Outlier detection picks the per-test value that differs from the
-                  # majority across segment files — that's the fresh measurement.
-                  python3 -c "
-                  import json
-                  from collections import Counter
-
-                  paths = ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations', '/tmp/dagster_durations']
-                  segment_data = {}
-                  for path in paths:
-                      try:
-                          with open(path) as f: segment_data[path] = json.load(f)
-                      except FileNotFoundError: pass
-
-                  all_keys = set().union(*(d.keys() for d in segment_data.values()))
-                  durations = {}
-                  for key in all_keys:
-                      values = [d[key] for d in segment_data.values() if key in d]
-                      if len(set(values)) == 1:
-                          durations[key] = values[0]
-                          continue
-                      counter = Counter(values)
-                      most_common_val = counter.most_common(1)[0][0]
-                      outliers = [v for v in values if v != most_common_val]
-                      durations[key] = outliers[0] if outliers else most_common_val
-
-                  with open('.test_durations', 'w') as f:
-                      json.dump(durations, f, indent=4, sort_keys=True)
-                      f.write('\n')
-                  print(f'Merged {len(durations)} tests across {len(segment_data)} segments')
-                  "
+                  # Outlier-merge across per-segment outputs. Single implementation
+                  # in optimize_test_durations.py (outlier_merge_durations) is shared
+                  # with per-segment artifact processing and covered by tests next
+                  # to the script — see test_optimize_test_durations.py.
+                  uv run .github/scripts/optimize_test_durations.py .test_durations \
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
                   rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
 
             - name: Check for changes
