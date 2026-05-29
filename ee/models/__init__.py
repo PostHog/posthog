@@ -8,7 +8,6 @@ from .assistant import (
 )
 from .dashboard_privilege import DashboardPrivilege
 from .event_definition import EnterpriseEventDefinition
-from .hook import Hook
 from .license import License
 from .property_definition import EnterprisePropertyDefinition
 from .rbac.access_control import AccessControl
@@ -29,7 +28,6 @@ __all__ = [
     "Conversation",
     "EnterpriseEventDefinition",
     "EnterprisePropertyDefinition",
-    "Hook",
     "License",
     "Role",
     "RoleMembership",

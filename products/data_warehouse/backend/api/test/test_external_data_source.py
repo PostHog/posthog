@@ -5297,7 +5297,7 @@ class TestCreateWebhook(APIBaseTest):
         )
 
     def _create_hog_function_template(self):
-        from posthog.models.hog_function_template import HogFunctionTemplate
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
         return HogFunctionTemplate.objects.create(
             template_id="template-warehouse-source-stripe",
@@ -5347,8 +5347,9 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_success(self, mock_create_webhook, _mock_flag):
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5397,7 +5398,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_external_creation_fails(self, mock_create_webhook, _mock_flag):
         mock_create_webhook.return_value = self._webhook_result(success=False, error="Permission denied")
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5451,8 +5452,9 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook, _mock_flag):
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5499,7 +5501,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_saves_extra_inputs(self, mock_create_webhook, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_test123"})
 
@@ -5523,7 +5525,7 @@ class TestCreateWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs(self, mock_create_webhook, mock_inputs_updated, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result()
         mock_inputs_updated.return_value = (True, None)
@@ -5661,7 +5663,7 @@ class TestCreateWebhook(APIBaseTest):
     ):
         from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
         self._create_hog_function_template()
@@ -5752,7 +5754,7 @@ class TestCreateWebhook(APIBaseTest):
         # have zero schemas on webhook sync (e.g. Stripe with all schemas on incremental
         # polling) and still need its signing secret rotated to keep the existing
         # webhook hog function authenticating deliveries.
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result()
         mock_inputs_updated.return_value = (True, None)
@@ -5786,8 +5788,9 @@ class TestCreateWebhook(APIBaseTest):
         create_webhook endpoint must populate schema_mapping for every webhook schema.
         Webhook schemas have sync_type='webhook' (not 'incremental')."""
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -6148,7 +6151,7 @@ class TestWebhookInfo(APIBaseTest):
         )
 
     def _create_hog_function(self, source: ExternalDataSource, enabled: bool = True):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         return HogFunction.objects.create(
             team=self.team,
@@ -6278,7 +6281,7 @@ class TestWebhookInfo(APIBaseTest):
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
     )
     def test_webhook_info_masks_set_secret_input(self, _mock_info, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = self._create_stripe_source()
         hog_function = self._create_hog_function(source)
@@ -6330,7 +6333,7 @@ class TestDeleteWebhook(APIBaseTest):
         )
 
     def _create_hog_function(self, source: ExternalDataSource, enabled: bool = True):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         return HogFunction.objects.create(
             team=self.team,
@@ -6494,8 +6497,9 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
 
@@ -6539,7 +6543,7 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
     def test_destroy_source_continues_if_webhook_cleanup_fails(
         self, _mock_delete_webhook, mock_capture_exception, _mock_flag
     ):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,

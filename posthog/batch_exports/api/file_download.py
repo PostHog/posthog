@@ -281,6 +281,8 @@ class FileDownloadBatchExportOnDemandViewSet(
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
                 max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
+                include_events=instance.batch_export_on_demand.destination.config.get("include_events", None),
+                exclude_events=instance.batch_export_on_demand.destination.config.get("exclude_events", None),
             )
         except Exception:
             LOGGER.exception("batch_export_on_demand.fail_to_start")

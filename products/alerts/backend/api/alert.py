@@ -961,7 +961,7 @@ def handle_alert_subscription_change(
 
 @receiver(pre_delete, sender=AlertConfiguration)
 def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
     for hog_function in HogFunction.objects.filter(
         team_id=instance.team_id,
