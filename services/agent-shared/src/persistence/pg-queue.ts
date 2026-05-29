@@ -133,6 +133,14 @@ export class PgSessionQueue implements SessionQueue {
             sets.push(`usage_total = $${i++}::jsonb`)
             params.push(JSON.stringify(patch.usage_total))
         }
+        if (patch.acl !== undefined) {
+            sets.push(`acl = $${i++}::jsonb`)
+            params.push(JSON.stringify(patch.acl))
+        }
+        if (patch.pending_elevation_requests !== undefined) {
+            sets.push(`pending_elevation_requests = $${i++}::jsonb`)
+            params.push(JSON.stringify(patch.pending_elevation_requests))
+        }
         await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
     }
 
