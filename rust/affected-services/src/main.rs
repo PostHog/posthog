@@ -97,6 +97,12 @@ fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
         .args(["diff", "--name-only", &format!("{base_ref}...HEAD")])
         .output()
         .context("failed to run git diff")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "git diff exited with {}: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
     Ok(String::from_utf8(out.stdout)?
         .lines()
         .filter(|l| !l.is_empty())
