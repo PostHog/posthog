@@ -6,6 +6,7 @@ from django.db import models
 
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import normalize_widget_type
 
@@ -18,8 +19,6 @@ class DashboardWidgetVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-
         return DashboardWidget
 
     @classmethod

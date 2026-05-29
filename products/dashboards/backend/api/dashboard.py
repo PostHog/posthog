@@ -97,6 +97,8 @@ from products.dashboards.backend.widget_layouts import (
     stack_widget_layout_at_bottom,
 )
 from products.dashboards.backend.widget_registry import (
+    EXPECTED_WIDGET_TYPES,
+    WIDGET_TYPE_ALIASES,
     get_widget_registry_entry,
     normalize_widget_type,
     validate_widget_config,
@@ -152,6 +154,12 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 RUN_WIDGETS_QUERY_CONCURRENCY = 4
+
+WIDGET_TYPE_API_HELP = (
+    "Widget type identifier. Supported values: "
+    + ", ".join(sorted(EXPECTED_WIDGET_TYPES | set(WIDGET_TYPE_ALIASES.keys())))
+    + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
+)
 
 
 class _RunWidgetQueryWorkItem(TypedDict):
@@ -467,12 +475,13 @@ class MoveTileRequestSerializer(serializers.Serializer):
 class AddDashboardWidgetRequestSerializer(serializers.Serializer):
     widget_type = serializers.CharField(
         max_length=64,
-        help_text="Widget type identifier from dashboard-widget-catalog-list.",
+        help_text=WIDGET_TYPE_API_HELP,
     )
     config = serializers.JSONField(
         help_text=(
             "Widget-specific configuration JSON. Shape depends on widget_type; "
-            "see config_schema_hints in dashboard-widget-catalog-list."
+            "see config_schema_hints in dashboard-widget-catalog-list "
+            f"(currently: {', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
         ),
     )
     name = serializers.CharField(
@@ -512,7 +521,10 @@ class AddDashboardWidgetsBatchRequestSerializer(serializers.Serializer):
 class UpdateDashboardWidgetRequestSerializer(serializers.Serializer):
     config = serializers.JSONField(
         required=False,
-        help_text="Updated widget configuration JSON. Validated for the tile's widget_type.",
+        help_text=(
+            "Updated widget configuration JSON. Validated for the tile's widget_type; "
+            "see config_schema_hints in dashboard-widget-catalog-list."
+        ),
     )
     name = serializers.CharField(
         max_length=400,
@@ -1293,6 +1305,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
 
     @staticmethod
+    def _widget_tile_validation_error(exc: serializers.ValidationError) -> serializers.ValidationError:
+        detail = exc.detail
+        if isinstance(detail, dict) and "widget" in detail and len(detail) == 1:
+            return exc
+        if isinstance(detail, dict):
+            if "widget_type" in detail:
+                return serializers.ValidationError({"widget": detail["widget_type"]})
+            if "config" in detail:
+                return serializers.ValidationError({"widget": detail["config"]})
+        return serializers.ValidationError({"widget": detail})
+
+    @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
@@ -1476,16 +1500,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
             else:
-                canonical_widget_type = normalize_widget_type(str(widget_type))
-                if get_widget_registry_entry(canonical_widget_type) is None:
-                    raise serializers.ValidationError({"widget": f"Unknown widget type: {widget_type}."})
-                probe_widget = DashboardWidget(
-                    widget_type=canonical_widget_type,
-                    config=config,
-                    team_id=instance.team_id,
-                )
-                DashboardSerializer._check_widget_tile_product_access(probe_widget, user_access_control)
-                config = validate_widget_config(canonical_widget_type, config)
+                try:
+                    canonical_widget_type, config = prepare_widget_tile_create(
+                        team_id=instance.team_id,
+                        widget_type=str(widget_type),
+                        config=config,
+                        user_access_control=user_access_control,
+                    )
+                except serializers.ValidationError as exc:
+                    raise DashboardSerializer._widget_tile_validation_error(exc) from exc
+
                 widget = DashboardWidget.objects.create(
                     team_id=instance.team_id,
                     widget_type=canonical_widget_type,
@@ -2138,6 +2162,7 @@ class DashboardsViewSet(
             with transaction.atomic():
                 tile.prepare_move_to_dashboard(to_dashboard)
                 tile.dashboard_id = to_dashboard
+                # Destination is scoped to the current project; align team_id when moving within it.
                 tile.team_id = to_dashboard_obj.team_id
                 tile.save(update_fields=["dashboard_id", "team_id"])
         except DjangoValidationError:

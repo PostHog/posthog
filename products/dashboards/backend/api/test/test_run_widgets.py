@@ -5,11 +5,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.widget_layouts import MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
+    WIDGET_REGISTRY,
     get_widget_registry_entry,
     validate_widget_config,
 )
@@ -19,8 +22,6 @@ from products.dashboards.backend.widgets.error_tracking_list import validate_err
 
 class TestWidgetRegistry(APIBaseTest):
     def test_expected_widget_types_matches_registry(self) -> None:
-        from products.dashboards.backend.widget_registry import WIDGET_REGISTRY
-
         assert EXPECTED_WIDGET_TYPES == frozenset(WIDGET_REGISTRY.keys())
 
     def test_widget_catalog_matches_registry(self) -> None:
@@ -68,9 +69,15 @@ class TestDashboardRunWidgets(APIBaseTest):
             "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
             return_value=True,
         )
+        self.widget_create_flag_patcher = patch(
+            "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
+            return_value=True,
+        )
         self.widgets_flag_patcher.start()
+        self.widget_create_flag_patcher.start()
 
     def tearDown(self) -> None:
+        self.widget_create_flag_patcher.stop()
         self.widgets_flag_patcher.stop()
         super().tearDown()
 
@@ -82,18 +89,23 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
 
-    def test_requires_tile_ids(self) -> None:
+    @parameterized.expand(
+        [
+            ("missing_param", None, "tile_ids is required"),
+            ("empty_param", "", "tile_ids is required"),
+        ]
+    )
+    def test_run_widgets_rejects_missing_or_empty_tile_ids(
+        self, _name: str, tile_ids_param: str | None, expected_detail: str
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_run_widgets_rejects_empty_tile_ids(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        query_params = {} if tile_ids_param is None else {"tile_ids": tile_ids_param}
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
-            {"tile_ids": ""},
+            query_params,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_detail, response.json()["detail"])
 
     @patch(
         "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
@@ -266,9 +278,6 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertNotIn("secret_table", body["results"][0]["error"])
 
     def test_run_widgets_denies_without_api_scope_on_personal_api_key(self) -> None:
-        from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import generate_random_token_personal, hash_key_value
-
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
         tile_id = dashboard_json["tiles"][0]["id"]

@@ -616,7 +616,9 @@ def _create_tile_for_widget(
     *,
     user_access_control: UserAccessControl | None = None,
 ) -> None:
-    from products.dashboards.backend.widget_create import prepare_widget_tile_create
+    from products.dashboards.backend.widget_create import (
+        prepare_widget_tile_create,  # noqa: PLC0415 — breaks posthog.models import cycle
+    )
 
     normalized_widget_type, validated_config = prepare_widget_tile_create(
         team_id=dashboard.team_id,

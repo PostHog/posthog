@@ -11,9 +11,9 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
-    get_widget_product_access_denied_message,
     get_widget_product_access_error,
 )
+from products.dashboards.backend.widget_catalog import get_widget_product_access_denied_message
 from products.dashboards.backend.widget_registry import get_widget_registry_entry
 
 
