@@ -279,6 +279,30 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             },
         ],
     })),
+    loaders(({ values }) => ({
+        tileQueryResponse: [
+            null as { results?: unknown } | null,
+            {
+                loadTileValues: async (_: unknown, breakpoint) => {
+                    const query = values.overviewHogqlQuery
+                    if (!query) {
+                        return null
+                    }
+                    await breakpoint(300)
+                    try {
+                        const response = await performQuery(query)
+                        breakpoint()
+                        return response as { results?: unknown }
+                    } catch (error) {
+                        posthog.captureException(error as Error, {
+                            scope: 'accountsOverviewTilesLogic.loadTileValues',
+                        })
+                        throw error
+                    }
+                },
+            },
+        ],
+    })),
     selectors({
         numericColumns: [
             (s) => [s.accountsColumnGroups],
@@ -329,30 +353,6 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 parseTileValues(response, tiles),
         ],
     }),
-    loaders(({ values }) => ({
-        tileQueryResponse: [
-            null as { results?: unknown } | null,
-            {
-                loadTileValues: async (_: unknown, breakpoint) => {
-                    const query = values.overviewHogqlQuery
-                    if (!query) {
-                        return null
-                    }
-                    await breakpoint(300)
-                    try {
-                        const response = await performQuery(query)
-                        breakpoint()
-                        return response as { results?: unknown }
-                    } catch (error) {
-                        posthog.captureException(error as Error, {
-                            scope: 'accountsOverviewTilesLogic.loadTileValues',
-                        })
-                        throw error
-                    }
-                },
-            },
-        ],
-    })),
     listeners(({ actions }) => {
         const reload = (): void => actions.loadTileValues(undefined)
         return {
