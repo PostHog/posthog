@@ -205,7 +205,7 @@ description: 'Everything about PostHog AI features'
 ### Good: `exploring-llm-traces`
 
 A focused skill that guides the agent through a specific workflow –
-see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/llm_analytics/skills/exploring-llm-traces/SKILL.md):
+see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/ai_observability/skills/exploring-llm-traces/SKILL.md):
 
 - Declares the exact MCP tools it relies on (`posthog:query-llm-traces-list`, `posthog:query-llm-trace`, `posthog:execute-sql`).
 - Explains the `$ai_trace` / `$ai_span` / `$ai_generation` / `$ai_embedding` event hierarchy
@@ -215,7 +215,7 @@ see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/ma
 - Uses progressive disclosure – details like the full event schema live in `references/`
   so the entry point stays focused.
 - Ships with pre-written Python helpers in
-  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/llm_analytics/skills/exploring-llm-traces/scripts)
+  [`scripts/`](https://github.com/PostHog/posthog/tree/master/products/ai_observability/skills/exploring-llm-traces/scripts)
   that cover the common workflows.
   The agent runs these instead of re-deriving the shape of the trace JSON,
   slicing nested payloads by hand, or burning tokens on exploratory parsing –

@@ -195,6 +195,8 @@ export interface AssistantMessageMetadata {
     form?: AssistantForm
     /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
+    /** Provenance for non-LLM-authored messages. Format: `slash_command:<name>`. */
+    source?: string
 }
 
 export interface AssistantToolCall {
@@ -497,6 +499,12 @@ export type AssistantTool =
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'list_llm_skills'
+    | 'get_llm_skill'
+    | 'get_llm_skill_file'
+    | 'create_llm_skill'
+    | 'update_llm_skill'
+    | 'archive_llm_skill'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
     | 'marketing_diagnose_setup'
@@ -517,7 +525,7 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
     UserInterview = 'user_interview',
 }

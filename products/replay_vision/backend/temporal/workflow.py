@@ -153,8 +153,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_CREATE_OBSERVATION_RETRY,
         )
-        if not create_result.was_created:
-            return  # Existing observation owns this (scanner, session_id); its workflow drives it.
+        if not create_result.was_created or create_result.observation_id is None:
+            return  # Either an existing observation owns this (scanner, session_id), or the org's monthly quota is exhausted.
 
         observation_id = create_result.observation_id
         scanner_type = create_result.scanner_type

@@ -4221,6 +4221,8 @@ class TestExperimentService(APIBaseTest):
         [
             ("created_at",),
             ("-created_at",),
+            ("created_by",),
+            ("-created_by",),
             ("name",),
             ("-name",),
             ("start_date",),

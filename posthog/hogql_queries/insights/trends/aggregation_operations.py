@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.utils import is_groups_math
@@ -74,6 +75,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
+            tag_contains_user_hogql()
             parsed = parse_expr(self.series.math_hogql)
             # An outer alias on the user expression (`avg(x) as foo`) is shadowed by the
             # `AS total` wrap added downstream. If we leave it in place, ClickHouse's
