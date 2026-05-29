@@ -1028,14 +1028,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if not is_valid:
                 raise ValidationError(error_message)
 
-            if self.prefix_required(source_type):
-                if not prefix:
+            if not prefix:
+                if self.prefix_required(source_type):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": "Source type already exists. Prefix is required"},
                     )
-                if self.prefix_exists(source_type, prefix):
-                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
             self.team_id
@@ -1514,12 +1514,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
     def prefix_required(self, source_type: str) -> bool:
-        source_type_exists = (
+        # A prefix is only needed when a no-prefix source of the same type already
+        # exists. Two no-prefix sources would write to the same table names; sources
+        # with distinct prefixes (including one no-prefix + N prefixed) have separate
+        # table namespaces and cannot collide.
+        no_prefix_source_exists = (
             ExternalDataSource.objects.exclude(deleted=True)
             .filter(team_id=self.team.pk, source_type=source_type)
+            .filter(Q(prefix__isnull=True) | Q(prefix=""))
             .exists()
         )
-        return source_type_exists
+        return no_prefix_source_exists
 
     def prefix_exists(self, source_type: str, prefix: str) -> bool:
         prefix_exists = (
@@ -1960,14 +1965,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             return Response(status=status.HTTP_200_OK)
 
-        if self.prefix_required(source_type):
-            if not prefix:
+        if not prefix:
+            if self.prefix_required(source_type):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Source type already exists. Prefix is required"},
                 )
-            elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+        elif self.prefix_exists(source_type, prefix):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
 
