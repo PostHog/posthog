@@ -192,7 +192,7 @@ async def reset_rows_synced_if_needed(
         and not should_resume
     ):
         job.rows_synced = 0
-        await database_sync_to_async_pool(lambda: job.save(update_fields=["rows_synced", "updated_at"]))()
+        await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
 
 def validate_incremental_sync(

@@ -169,7 +169,7 @@ class BatchConsumer:
                     logger.info(
                         "shutdown_mid_group",
                         team_id=team_id,
-                        schema_id=schema_id,
+                        external_data_schema_id=schema_id,
                         batch_id=batch.id,
                         batch_index=batch.batch_index,
                         remaining=len(batches) - batches.index(batch),
@@ -181,7 +181,7 @@ class BatchConsumer:
                     logger.info(
                         "group_halted_by_non_success",
                         team_id=team_id,
-                        schema_id=schema_id,
+                        external_data_schema_id=schema_id,
                         run_uuid=batch.run_uuid,
                         batch_index=batch.batch_index,
                         remaining=len(batches) - batches.index(batch) - 1,

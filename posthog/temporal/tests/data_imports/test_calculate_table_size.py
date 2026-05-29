@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [
-    pytest.mark.django_db,
+    pytest.mark.django_db(transaction=True),
 ]
 
 
