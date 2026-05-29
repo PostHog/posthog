@@ -493,8 +493,10 @@ function BarChartInner<Meta = unknown>({
     const seriesRef = useLatest(series)
     const labelsRef = useLatest(labels)
 
-    // Stacked/percent segments share a band slot — rewrite the click payload to the
-    // segment under the cursor so drop-off fillers and per-breakdown segments route correctly.
+    // Bars share a band slot — rewrite the click payload to the bar the cursor actually
+    // landed on. Stacked/percent segments stack along the value axis; grouped bars sit side
+    // by side on the band axis. Without this, both report the first visible series, so
+    // per-breakdown segments and drop-off fillers all route to series[0].
     const wrapClickData = useCallback(
         (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
@@ -502,6 +504,14 @@ function BarChartInner<Meta = unknown>({
                 return clickData
             }
             return (
+                resolveClickedGroupedSegment({
+                    clickData,
+                    d3Scales,
+                    barLayout,
+                    isHorizontal,
+                    topStackedKeyByAxis,
+                    series: seriesRef.current,
+                }) ??
                 resolveClickedStackedSegment({
                     clickData,
                     d3Scales,
@@ -511,7 +521,8 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis,
                     series: seriesRef.current,
                     labels: labelsRef.current,
-                }) ?? clickData
+                }) ??
+                clickData
             )
         },
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
@@ -554,6 +565,64 @@ function BarChartInner<Meta = unknown>({
             {chart}
         </div>
     )
+}
+
+/** Grouped-layout counterpart to {@link resolveClickedStackedSegment}. Grouped bars share a
+ *  band but sit at different group offsets, so `buildPointClickData`'s "first visible series"
+ *  is wrong for every click outside series[0]'s slot. Picks the series whose group slot is
+ *  nearest the cursor on the band axis — the value axis is ignored, so a click above a short
+ *  bar still selects its column (matches chart.js `mode: 'point', axis: 'x'`). Returns `null`
+ *  when the layout isn't grouped, the cursor is absent, or the nearest slot is already the
+ *  reported series, signalling the caller to pass the original `clickData` through unchanged. */
+export function resolveClickedGroupedSegment<Meta>({
+    clickData,
+    d3Scales,
+    barLayout,
+    isHorizontal,
+    topStackedKeyByAxis,
+    series,
+}: {
+    clickData: PointClickData<Meta>
+    d3Scales: BarScaleSet
+    barLayout: BarLayout
+    isHorizontal: boolean
+    topStackedKeyByAxis: Map<string, string>
+    series: Series<Meta>[]
+}): PointClickData<Meta> | null {
+    if (isStackedLayout(barLayout)) {
+        return null
+    }
+    const { cursor, label, dataIndex } = clickData
+    if (!cursor) {
+        return null
+    }
+    const cursorBandCoord = isHorizontal ? cursor.y : cursor.x
+    let nearest: { series: Series<Meta>; distance: number } | null = null
+    for (const { series: s, bar } of iterBarsAtCursor({
+        series,
+        label,
+        dataIndex,
+        scales: d3Scales,
+        layout: barLayout,
+        isHorizontal,
+        topStackedKeyByAxis,
+    })) {
+        const center = isHorizontal ? bar.y + bar.height / 2 : bar.x + bar.width / 2
+        const distance = Math.abs(cursorBandCoord - center)
+        if (!nearest || distance < nearest.distance) {
+            nearest = { series: s, distance }
+        }
+    }
+    if (!nearest || nearest.series.key === clickData.series.key) {
+        return null
+    }
+    const value = clickData.crossSeriesData.find((d) => d.series.key === nearest!.series.key)?.value ?? clickData.value
+    return {
+        ...clickData,
+        series: nearest.series,
+        seriesIndex: series.findIndex((s) => s.key === nearest!.series.key),
+        value,
+    }
 }
 
 /** Pure helper extracted so the click-rewrite is unit-testable and the component-level

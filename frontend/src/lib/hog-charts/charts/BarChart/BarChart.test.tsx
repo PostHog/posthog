@@ -455,6 +455,39 @@ describe('BarChart', () => {
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
         })
 
+        it('grouped onPointClick routes to the sub-band under the cursor, not the first series', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'grouped' }}
+                    onPointClick={onPointClick}
+                />
+            )
+            // Band center lands in `b`'s sub-band — the same position the grouped tooltip
+            // narrows to. Before the grouped click-routing fix this reported `a` (series[0]).
+            await chart.clickAtIndex(1)
+            const clickB: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickB.series.key).toBe('b')
+            expect(clickB.value).toBe(15)
+            expect(clickB.seriesIndex).toBe(1)
+
+            onPointClick.mockClear()
+            // Well left of center sits in `a`'s sub-band.
+            const step = dimensions.plotWidth / (LABELS.length - 1)
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 1 - dimensions.plotWidth * 0.1,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            fireEvent.click(chart.element)
+            const clickA: PointClickData = onPointClick.mock.calls[0][0]
+            expect(clickA.series.key).toBe('a')
+            expect(clickA.value).toBe(20)
+            expect(clickA.seriesIndex).toBe(0)
+        })
+
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
