@@ -227,7 +227,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
-                ) as DashboardType<QueryBasedInsightModel>
+                )
                 deleteFromTree('dashboard', String(id))
                 return deleted
             },
@@ -306,10 +306,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 updateDashboardSuccess: (state, { dashboard }) =>
                     dashboard ? { ...state, [dashboard.id]: dashboard } : state,
-                deleteDashboardSuccess: (state, { dashboard }) => ({
-                    ...state,
-                    [dashboard.id]: { ...state[dashboard.id], deleted: true },
-                }),
+                deleteDashboardSuccess: (state, { dashboard }) =>
+                    dashboard ? { ...state, [dashboard.id]: { ...state[dashboard.id], deleted: true } } : state,
                 delayedDeleteDashboard: (state, { id }) => {
                     // This gives us time to leave the /dashboard/:deleted_id page
                     const { [id]: _discard, ...rest } = state
@@ -411,6 +409,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
+            if (!dashboard) {
+                return
+            }
             const currentTeam = teamLogic.values.currentTeam
             if (currentTeam && 'primary_dashboard' in currentTeam && currentTeam.primary_dashboard === dashboard.id) {
                 teamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, primary_dashboard: null })

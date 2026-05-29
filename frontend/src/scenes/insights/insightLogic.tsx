@@ -350,6 +350,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return state
             },
             [dashboardsModel.actionTypes.deleteDashboardSuccess]: (state, { dashboard }) => {
+                if (!dashboard) {
+                    return state
+                }
                 const { id } = dashboard
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },

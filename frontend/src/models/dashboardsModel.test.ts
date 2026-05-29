@@ -215,6 +215,25 @@ describe('the dashboards model', () => {
         })
     })
 
+    it('does not crash when deleteDashboardSuccess receives a null payload', async () => {
+        // Regression test: a 204 / empty API response would surface as a null `dashboard`
+        // in the success action, and subscribers used to assume it was always populated.
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': { count: 0, results: [] },
+            },
+        })
+        logic = dashboardsModel()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteDashboardSuccess(null as any)
+        }).toDispatchActions(['deleteDashboardSuccess'])
+
+        expect(logic.values.rawDashboards).toEqual({})
+    })
+
     it('does not clear primary_dashboard when deleting a non-primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })

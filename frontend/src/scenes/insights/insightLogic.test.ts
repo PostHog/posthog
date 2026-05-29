@@ -765,6 +765,18 @@ describe('insightLogic', () => {
                 })
         })
 
+        it('does not crash when deleteDashboardSuccess fires with a null payload', async () => {
+            // Regression test: a 204 / empty API response would propagate as null through
+            // getQueryBasedDashboard, and destructuring the payload here used to throw.
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.deleteDashboardSuccess(null as unknown as DashboardType<QueryBasedInsightModel>)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
+
         it('reacts to duplication of dashboard attaching it to new dashboard', async () => {
             await expectLogic(logic, () => {
                 insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 42] })
