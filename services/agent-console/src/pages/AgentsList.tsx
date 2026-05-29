@@ -195,7 +195,10 @@ function AgentRow({
             <div className="flex shrink-0 items-center gap-3 text-[0.6875rem] text-muted-foreground">
                 {liveCount > 0 ? (
                     <span className="inline-flex items-center gap-1 rounded-md bg-info/10 px-1.5 py-0.5 font-mono text-info-foreground">
-                        <span className="inline-flex h-1 w-1 animate-pulse rounded-full bg-info" aria-hidden />
+                        <span
+                            className="inline-flex h-1 w-1 animate-pulse rounded-full bg-info-foreground"
+                            aria-hidden
+                        />
                         {liveCount} live
                     </span>
                 ) : null}
@@ -244,13 +247,14 @@ function NoMatches({ filter }: { filter: Filter }): React.ReactElement {
 }
 
 function statusOf(agent: AgentApplicationFixture): { dotClass: string; label: string } {
+    // Saturated `-foreground` variants — see notes in SessionsList.stateTone.
     if (agent.archived) {
         return { dotClass: 'bg-muted-foreground/40', label: 'Archived' }
     }
     if (agent.live_revision) {
-        return { dotClass: 'bg-success', label: 'Live' }
+        return { dotClass: 'bg-success-foreground', label: 'Live' }
     }
-    return { dotClass: 'bg-warning', label: 'Draft' }
+    return { dotClass: 'bg-warning-foreground', label: 'Draft' }
 }
 
 function formatRelative(iso: string): string {

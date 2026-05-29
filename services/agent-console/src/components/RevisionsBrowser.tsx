@@ -474,18 +474,19 @@ function EmptyDetail(): React.ReactElement {
 }
 
 function stateTone(state: AgentRevisionFixture['state'], isLive: boolean): { dotClass: string; label: string } {
+    // Saturated `-foreground` variants for visibility on the light surface.
     if (isLive) {
-        return { dotClass: 'bg-success', label: 'live' }
+        return { dotClass: 'bg-success-foreground', label: 'live' }
     }
     switch (state) {
         case 'draft':
-            return { dotClass: 'bg-warning', label: 'draft' }
+            return { dotClass: 'bg-warning-foreground', label: 'draft' }
         case 'ready':
-            return { dotClass: 'bg-info', label: 'ready' }
+            return { dotClass: 'bg-info-foreground', label: 'ready' }
         case 'archived':
             return { dotClass: 'bg-muted-foreground/40', label: 'archived' }
         case 'live':
-            return { dotClass: 'bg-success', label: 'live' }
+            return { dotClass: 'bg-success-foreground', label: 'live' }
         default:
             return { dotClass: 'bg-muted-foreground/40', label: state }
     }

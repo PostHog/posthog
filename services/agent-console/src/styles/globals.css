@@ -32,13 +32,93 @@
 @source "../../app/**/*.{ts,tsx}";
 @source "../../../../packages/agent-chat/src/**/*.{ts,tsx}";
 
+/* ─────────────────────────────────────────────────────────────────
+ * PostHog brand alignment
+ *
+ * Quill ships a "PostHog-ish" default theme (hue 90, tint 0.006,
+ * oklch brand orange/yellow) but the main PostHog app uses slightly
+ * different values (hue 75, tint ≈0.013, hsl-derived brand colors).
+ * Pin Quill's overridable theme vars to PostHog's exact values so the
+ * agent-console reads as the same product visually.
+ *
+ * If PostHog frontend ever shifts these, mirror the change here —
+ * source of truth: `frontend/src/styles/base.scss`
+ * (--color-posthog-3000-50 + --color-posthog-brand-*).
+ * ───────────────────────────────────────────────────────────────── */
+:root {
+    /* Surface tint — matches `hsl(75deg 14% 95%)` (PostHog 3000-50). */
+    --theme-hue: 75;
+    --theme-tint: 0.013;
+
+    /* Brand orange `hsl(19 100% 48%)` → equivalent oklch. */
+    --primary-light: oklch(0.644 0.234 31deg);
+
+    /* Brand yellow `hsl(43 94% 57%)` → equivalent oklch. */
+    --primary-dark: oklch(0.82 0.17 85deg);
+}
+
+/* Match PostHog's font stack so headings + body type read the same.
+ * Inter + MatterSQ are loaded from the same CDN PostHog frontend uses. */
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 400 700;
+    src: url('https://d1sdjtjk6xzm7.cloudfront.net/Inter.woff2') format('woff2');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: MatterSQ;
+    font-style: normal;
+    font-weight: 500;
+    src: url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2') format('woff2');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: MatterSQ;
+    font-style: normal;
+    font-weight: 700;
+    src: url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2') format('woff2');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: MatterSQ;
+    font-style: normal;
+    font-weight: 800;
+    src: url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Bold.woff2') format('woff2');
+    font-display: swap;
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;
     }
 
     body {
+        font-family:
+            -apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', Roboto, 'Helvetica Neue', helvetica, arial,
+            sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+
         @apply bg-background text-foreground;
+    }
+
+    /* Headings use MatterSQ — PostHog's title font — to match the chrome. */
+    h1,
+    h2,
+    h3 {
+        font-family:
+            MatterSQ,
+            -apple-system,
+            BlinkMacSystemFont,
+            Inter,
+            'Segoe UI',
+            Roboto,
+            'Helvetica Neue',
+            helvetica,
+            arial,
+            sans-serif;
     }
 }
 

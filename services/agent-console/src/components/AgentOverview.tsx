@@ -278,25 +278,27 @@ function RecentSessionRow({ session, onClick }: { session: ChatSession; onClick?
 }
 
 function stateTone(state: ChatSession['state']): { dotClass: string; label: string } {
+    // Same reasoning as SessionsList — `*-foreground` is the saturated
+    // medium tone that reads on the light surface.
     switch (state) {
         case 'streaming':
-            return { dotClass: 'bg-info animate-pulse', label: 'streaming' }
+            return { dotClass: 'bg-info-foreground animate-pulse', label: 'streaming' }
         case 'awaiting_approval':
-            return { dotClass: 'bg-warning', label: 'awaiting approval' }
+            return { dotClass: 'bg-warning-foreground', label: 'awaiting approval' }
         case 'awaiting_client_tool':
-            return { dotClass: 'bg-info', label: 'awaiting client' }
+            return { dotClass: 'bg-info-foreground', label: 'awaiting client' }
         case 'completed':
-            return { dotClass: 'bg-success', label: 'completed' }
+            return { dotClass: 'bg-success-foreground', label: 'completed' }
         case 'failed':
         case 'error':
-            return { dotClass: 'bg-destructive', label: state }
+            return { dotClass: 'bg-destructive-foreground', label: state }
         case 'cancelled':
             return { dotClass: 'bg-muted-foreground/60', label: 'cancelled' }
         case 'disconnected':
             return { dotClass: 'bg-muted-foreground/60', label: 'disconnected' }
         case 'idle':
         default:
-            return { dotClass: 'bg-success', label: 'idle' }
+            return { dotClass: 'bg-success-foreground', label: 'idle' }
     }
 }
 

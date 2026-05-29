@@ -217,15 +217,18 @@ function short(id: string): string {
 }
 
 function kindToneFor(kind: string): { badgeClass: string } {
+    // `bg-*` in Quill light mode is the pastel tone meant for FILLED
+    // badges directly (no opacity modifier). Use the full color + the
+    // saturated `*-foreground` text so the badge reads at small sizes.
     switch (kind) {
         case 'chat':
-            return { badgeClass: 'bg-info/15 text-info-foreground' }
+            return { badgeClass: 'bg-info text-info-foreground' }
         case 'tool':
-            return { badgeClass: 'bg-warning/15 text-warning-foreground' }
+            return { badgeClass: 'bg-warning text-warning-foreground' }
         case 'event':
-            return { badgeClass: 'bg-success/15 text-success-foreground' }
+            return { badgeClass: 'bg-success text-success-foreground' }
         case 'error':
-            return { badgeClass: 'bg-destructive/15 text-destructive' }
+            return { badgeClass: 'bg-destructive text-destructive-foreground' }
         case 'meta':
         default:
             return { badgeClass: 'bg-muted text-muted-foreground' }
@@ -235,14 +238,16 @@ function kindToneFor(kind: string): { badgeClass: string } {
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
 function levelTone(level: LogLevel): { dotClass: string; labelClass: string } {
+    // Saturated `-foreground` for the dot — see notes in
+    // AgentOverview.stateTone.
     switch (level) {
         case 'fatal':
         case 'error':
-            return { dotClass: 'bg-destructive', labelClass: 'text-destructive' }
+            return { dotClass: 'bg-destructive-foreground', labelClass: 'text-destructive' }
         case 'warn':
-            return { dotClass: 'bg-warning', labelClass: 'text-warning-foreground' }
+            return { dotClass: 'bg-warning-foreground', labelClass: 'text-warning-foreground' }
         case 'info':
-            return { dotClass: 'bg-info', labelClass: 'text-info-foreground' }
+            return { dotClass: 'bg-info-foreground', labelClass: 'text-info-foreground' }
         case 'debug':
         default:
             return { dotClass: 'bg-muted-foreground/40', labelClass: 'text-muted-foreground' }
