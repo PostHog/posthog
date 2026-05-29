@@ -153,6 +153,8 @@ class TestEngineeringAnalyticsLogicMapping(BaseTest):
     @parameterized.expand(
         [
             ("dependabot[bot]", True),
+            ("dependabot", True),
+            ("github-actions", True),
             ("posthog-bot", True),
             ("renovate", True),
             ("alice", False),
