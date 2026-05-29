@@ -44,6 +44,7 @@ from .activities.provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .activities.refresh_sandbox_credentials import RefreshSandboxCredentialsInput, refresh_sandbox_credentials
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
@@ -89,6 +90,7 @@ class CIFollowUpDecision(StrEnum):
 # workers should import these directly from `products.tasks.backend.temporal.constants`.
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
+    CREDENTIAL_REFRESH_INITIAL_DELAY,
     DEFAULT_CI_MESSAGE,
     INACTIVITY_TIMEOUT,
     MAX_CI_REPETITIONS,
@@ -357,6 +359,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
+        credential_refresh_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -409,6 +412,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_task = asyncio.ensure_future(
                     self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
                 )
+
+            # Keep GitHub (and any other long-lived) credentials fresh inside the
+            # warm sandbox for the lifetime of the run — installation tokens live
+            # only ~1h, so a continuously-active run outlives them without this.
+            if self.context.has_github_credentials:
+                credential_refresh_task = asyncio.ensure_future(self._credential_refresh_loop(sandbox_id))
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -576,6 +585,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         finally:
+            if credential_refresh_task is not None:
+                await self._cancel_relay(credential_refresh_task)
+
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
                 # When `use_modal_resume_snapshots` is off, resume relies on the
@@ -871,6 +883,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await relay_task
         except (asyncio.CancelledError, Exception):
             pass
+
+    async def _credential_refresh_loop(self, sandbox_id: str) -> None:
+        """Periodically re-inject fresh credentials into the running sandbox.
+
+        Sandbox credentials (GitHub token; user *or* installation, per authorship)
+        are frozen into ``.git/config`` and the agentsh env file at boot/resume and
+        expire while the sandbox stays warm. This loop re-applies them in place on a
+        token-aware cadence so ``git``/``gh`` auth never lapses mid-run. Runs
+        concurrently with the agent and is cancelled on completion.
+        """
+        next_refresh_seconds = CREDENTIAL_REFRESH_INITIAL_DELAY.total_seconds()
+        while True:
+            await workflow.sleep(next_refresh_seconds)
+            try:
+                result = await workflow.execute_activity(
+                    refresh_sandbox_credentials,
+                    RefreshSandboxCredentialsInput(context=self.context, sandbox_id=sandbox_id),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+                next_refresh_seconds = result.next_refresh_seconds
+            except Exception as e:
+                # Non-fatal: keep the run alive and retry on the default cadence.
+                workflow.logger.warning(f"Sandbox credential refresh failed (non-fatal): {e}")
+                next_refresh_seconds = CREDENTIAL_REFRESH_INITIAL_DELAY.total_seconds()
 
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
         """Create a filesystem snapshot for interactive sandbox resume."""

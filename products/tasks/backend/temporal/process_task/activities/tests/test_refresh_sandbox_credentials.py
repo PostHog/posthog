@@ -1,0 +1,73 @@
+import pytest
+from unittest.mock import MagicMock, patch
+
+from asgiref.sync import async_to_sync
+
+from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
+    RefreshSandboxCredentialsInput,
+    refresh_sandbox_credentials,
+)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRefreshSandboxCredentialsActivity:
+    @pytest.fixture
+    def sandbox(self):
+        fake = MagicMock()
+        fake.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+        fake.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+        return fake
+
+    def test_refreshes_github_credentials_and_reports_interval(
+        self, activity_environment, task_context, test_task, sandbox
+    ):
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+                return_value="ghs_fresh",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
+            ) as track_event,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == ["github"]
+        assert output.next_refresh_seconds == 20 * 60
+
+        # git remote rewrite + env-file read both ran against the sandbox.
+        assert any("git remote set-url origin" in str(c.args[0]) for c in sandbox.execute.call_args_list)
+        sandbox.write_file.assert_called_once()
+
+        track_event.assert_called_once()
+        event_name = track_event.call_args[0][0]
+        assert event_name == "sandbox_credentials_refreshed"
+        assert track_event.call_args.kwargs["properties"]["refreshed_kinds"] == ["github"]
+
+    def test_credential_failure_is_non_fatal(self, activity_environment, task_context, test_task, sandbox):
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+                side_effect=RuntimeError("token mint failed"),
+            ),
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+        ):
+            # Must not raise — a failed refresh should not kill the run.
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == []
