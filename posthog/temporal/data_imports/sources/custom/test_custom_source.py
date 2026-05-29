@@ -574,3 +574,29 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
         threaded_config = mock_resource.call_args.args[0]
         assert threaded_config["client"]["paginator"] == paginator_config
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_cursor_type_stripped_before_rest_engine(self, mock_resource):
+        # cursor_type informs schema field typing but is not a valid kwarg for the
+        # engine's Incremental(**config) — it must be removed before the manifest
+        # reaches rest_api_resource, while the other incremental keys survive.
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+            "cursor_type": "integer",
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+
+        threaded_incremental = mock_resource.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
+        assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
