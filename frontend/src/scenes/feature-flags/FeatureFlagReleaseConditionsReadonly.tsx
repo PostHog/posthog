@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { IconFlag } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
+import { IconFlag, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
