@@ -377,6 +377,28 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
 
+    def test_metrics_mode_returns_aggregations_and_no_rows(self):
+        create_account(team_id=self.team.id, name="A")
+        create_account(team_id=self.team.id, name="B")
+        create_account(team_id=self.team.id, name="C")
+        _, response = self._run_query(metrics=["count()"], select=[])
+        self.assertEqual(response.results, [])
+        self.assertEqual(response.columns, [])
+        self.assertEqual(response.metricsResults, [3])
+
+    def test_metrics_mode_reuses_table_where_clause(self):
+        create_account(team_id=self.team.id, name="Acme")
+        create_account(team_id=self.team.id, name="Other")
+        _, response = self._run_query(metrics=["count()"], select=[], search="acme")
+        self.assertEqual(response.metricsResults, [1])
+
+    def test_metrics_mode_respects_team_isolation(self):
+        create_account(team_id=self.team.id, name="Mine")
+        other_team = Team.objects.create(organization=self.organization)
+        create_account(team_id=other_team.id, name="Theirs")
+        _, response = self._run_query(metrics=["count()"], select=[])
+        self.assertEqual(response.metricsResults, [1])
+
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertTrue(runner.validate_query_runner_access(self.user))

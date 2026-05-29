@@ -2,6 +2,7 @@ from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQ
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -37,21 +38,24 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        raw_selects = list(self.query.select) if self.query.select else list(DEFAULT_COLUMNS)
-
-        seen: set[str] = set()
+        # In metrics mode we never produce per-row results, so skip the column
+        # resolution (which fails when `select` is empty and would surface a
+        # confusing error when callers only ask for aggregations).
         self.columns: list[str] = []
         self._select_exprs: list[ast.Expr] = []
-        for raw in raw_selects:
-            column_name, expr = self._resolve_column(raw)
-            if column_name in seen:
-                continue
-            seen.add(column_name)
-            self.columns.append(column_name)
-            self._select_exprs.append(expr)
-        if NAME_COLUMN not in seen:
-            self.columns.insert(0, NAME_COLUMN)
-            self._select_exprs.insert(0, self._name_tuple_expr())
+        if not self.query.metrics:
+            raw_selects = list(self.query.select) if self.query.select else list(DEFAULT_COLUMNS)
+            seen: set[str] = set()
+            for raw in raw_selects:
+                column_name, expr = self._resolve_column(raw)
+                if column_name in seen:
+                    continue
+                seen.add(column_name)
+                self.columns.append(column_name)
+                self._select_exprs.append(expr)
+            if NAME_COLUMN not in seen:
+                self.columns.insert(0, NAME_COLUMN)
+                self._select_exprs.insert(0, self._name_tuple_expr())
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context,
@@ -88,7 +92,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             ),
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def _build_where_exprs(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
         if self.query.search and self.query.search.strip():
@@ -113,6 +117,10 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             for json_key in ROLE_FIELDS.values():
                 where_exprs.append(self._role_id_isnull(json_key))
 
+        return where_exprs
+
+    def to_query(self) -> ast.SelectQuery:
+        where_exprs = self._build_where_exprs()
         order_clauses = self.query.orderBy or [DEFAULT_ORDER_BY]
 
         return ast.SelectQuery(
@@ -123,6 +131,18 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             ),
             where=ast.And(exprs=where_exprs) if where_exprs else None,
             order_by=[parse_order_expr(_normalize_order_clause(c), timings=self.timings) for c in order_clauses],
+        )
+
+    def _to_metrics_query(self, metrics: list[str]) -> ast.SelectQuery:
+        where_exprs = self._build_where_exprs()
+        select_exprs = [parse_expr(expr) for expr in metrics]
+        return ast.SelectQuery(
+            select=select_exprs,
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["system", "accounts"]),
+                alias="accounts",
+            ),
+            where=ast.And(exprs=where_exprs) if where_exprs else None,
         )
 
     def _tag_filter_expr(self, tag_names: list[str]) -> ast.Expr:
@@ -161,6 +181,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
 
     def _calculate(self) -> AccountsQueryResponse:
+        if self.query.metrics:
+            return self._calculate_metrics(self.query.metrics)
+
         response = self.paginator.execute_hogql_query(
             query_type="AccountsQuery",
             query=self.to_query(),
@@ -188,4 +211,34 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             timings=response.timings,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
+        )
+
+    def _calculate_metrics(self, metrics: list[str]) -> AccountsQueryResponse:
+        response = execute_hogql_query(
+            query_type="AccountsMetricsQuery",
+            query=self._to_metrics_query(metrics),
+            team=self.team,
+            user=self.user,
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+
+        row = response.results[0] if response.results else []
+        metrics_results: list[float | int | None] = [
+            (value if isinstance(value, (int, float)) else None) for value in row
+        ]
+        while len(metrics_results) < len(metrics):
+            metrics_results.append(None)
+
+        return AccountsQueryResponse(
+            kind="AccountsQuery",
+            columns=[],
+            results=[],
+            types=[],
+            metricsResults=metrics_results,
+            hogql=response.hogql or "",
+            timings=response.timings,
+            modifiers=self.modifiers,
+            limit=self.query.limit or 0,
+            offset=self.query.offset or 0,
         )

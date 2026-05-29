@@ -40,6 +40,13 @@
                 "limit": {
                     "$ref": "#/definitions/integer"
                 },
+                "metrics": {
+                    "description": "Aggregation expressions evaluated against the filtered account set. When set, the runner skips the regular row fetch and returns one value per metric in `metricsResults`.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -106,6 +113,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -4839,6 +4853,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -14075,6 +14096,13 @@
                                 },
                                 "limit": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "metricsResults": {
+                                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                                    "items": {
+                                        "type": ["number", "null"]
+                                    },
+                                    "type": "array"
                                 },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33363,6 +33391,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -34607,6 +34642,13 @@
                         },
                         "limit": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "metricsResults": {
+                            "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",

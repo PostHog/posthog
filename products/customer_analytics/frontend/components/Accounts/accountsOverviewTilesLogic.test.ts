@@ -1,11 +1,14 @@
+import { NodeKind } from '~/queries/schema/schema-general'
+
 import {
     AccountsOverviewTile,
-    buildOverviewHogqlQuery,
+    buildOverviewAccountsQuery,
     isNumericColumnType,
     numericColumnOptions,
     OverviewFilters,
     parseTileValues,
     stripHogqlAlias,
+    tileMetricExpression,
 } from './accountsOverviewTilesLogic'
 
 const EMPTY_FILTERS: OverviewFilters = {
@@ -72,21 +75,44 @@ describe('numericColumnOptions', () => {
     })
 })
 
-describe('buildOverviewHogqlQuery', () => {
+describe('tileMetricExpression', () => {
+    it('produces the right HogQL fragment per metric type', () => {
+        expect(tileMetricExpression({ id: 'x', label: 'l', metric: { type: 'count' } })).toBe('count()')
+        expect(
+            tileMetricExpression({
+                id: 'x',
+                label: 'l',
+                metric: { type: 'sum', columnExpression: 'health_score', columnLabel: 'Health score' },
+            })
+        ).toBe('sum(health_score)')
+        expect(
+            tileMetricExpression({
+                id: 'x',
+                label: 'l',
+                metric: { type: 'avg', columnExpression: 'health_score', columnLabel: 'Health score' },
+            })
+        ).toBe('avg(health_score)')
+        expect(
+            tileMetricExpression({
+                id: 'x',
+                label: 'l',
+                metric: {
+                    type: 'count_threshold',
+                    columnExpression: 'health_score',
+                    columnLabel: 'Health score',
+                    operator: '<',
+                    value: 6,
+                },
+            })
+        ).toBe('countIf(health_score < 6)')
+    })
+})
+
+describe('buildOverviewAccountsQuery', () => {
     const tiles: AccountsOverviewTile[] = [
         { id: 'a', label: 'Accounts', metric: { type: 'count' } },
         {
             id: 'b',
-            label: 'Sum',
-            metric: { type: 'sum', columnExpression: 'health_score', columnLabel: 'Health score' },
-        },
-        {
-            id: 'c',
-            label: 'Avg',
-            metric: { type: 'avg', columnExpression: 'health_score', columnLabel: 'Health score' },
-        },
-        {
-            id: 'd',
             label: 'At risk',
             metric: {
                 type: 'count_threshold',
@@ -99,39 +125,31 @@ describe('buildOverviewHogqlQuery', () => {
     ]
 
     it('returns null when there are no tiles', () => {
-        expect(buildOverviewHogqlQuery([], EMPTY_FILTERS)).toBeNull()
+        expect(buildOverviewAccountsQuery([], EMPTY_FILTERS)).toBeNull()
     })
 
-    it('builds a select with one column per tile and aliases FROM as accounts', () => {
-        const result = buildOverviewHogqlQuery(tiles, EMPTY_FILTERS)
-        expect(result?.query).toBe(
-            'SELECT count() AS tile_a, sum(health_score) AS tile_b, avg(health_score) AS tile_c, ' +
-                'countIf(health_score < 6) AS tile_d FROM system.accounts AS accounts'
-        )
+    it('emits an AccountsQuery in metrics mode with one expression per tile', () => {
+        expect(buildOverviewAccountsQuery(tiles, EMPTY_FILTERS)).toMatchObject({
+            kind: NodeKind.AccountsQuery,
+            metrics: ['count()', 'countIf(health_score < 6)'],
+            select: [],
+        })
     })
 
-    it('escapes single quotes in the search filter', () => {
-        const result = buildOverviewHogqlQuery(tiles.slice(0, 1), { ...EMPTY_FILTERS, searchQuery: "O'Reilly" })
-        expect(result?.query).toContain("name ILIKE '%O\\'Reilly%'")
-        expect(result?.query).toContain("external_id ILIKE '%O\\'Reilly%'")
-    })
-
-    it('emits a tags subquery when tagsFilter is set', () => {
-        const result = buildOverviewHogqlQuery(tiles.slice(0, 1), { ...EMPTY_FILTERS, tagsFilter: ['enterprise'] })
-        expect(result?.query).toContain('FROM system._account_tagged_items AS ti')
-        expect(result?.query).toContain("t.name IN ('enterprise')")
-    })
-
-    it('applies role filters and all-unassigned together', () => {
-        const result = buildOverviewHogqlQuery(tiles.slice(0, 1), {
+    it('forwards filter fields onto the AccountsQuery so the runner reuses its WHERE logic', () => {
+        const result = buildOverviewAccountsQuery(tiles, {
             ...EMPTY_FILTERS,
+            searchQuery: '  acme  ',
+            tagsFilter: ['enterprise'],
             csmFilter: 42,
             allRolesUnassigned: true,
         })
-        expect(result?.query).toContain("JSONExtract(properties, 'csm', 'id', 'Nullable(Int64)') = 42")
-        expect(result?.query).toContain("isNull(JSONExtract(properties, 'csm', 'id', 'Nullable(Int64)'))")
-        expect(result?.query).toContain("isNull(JSONExtract(properties, 'account_executive', 'id', 'Nullable(Int64)'))")
-        expect(result?.query).toContain("isNull(JSONExtract(properties, 'account_owner', 'id', 'Nullable(Int64)'))")
+        expect(result).toMatchObject({
+            search: 'acme',
+            tagNames: ['enterprise'],
+            csm: 42,
+            allRolesUnassigned: true,
+        })
     })
 })
 
@@ -145,30 +163,26 @@ describe('parseTileValues', () => {
         },
     ]
 
-    it('zips by column alias when columns are present', () => {
-        expect(parseTileValues({ columns: ['tile_b', 'tile_a'], results: [[7.5, 42]] }, tiles)).toEqual({
-            a: 42,
-            b: 7.5,
-        })
+    function responseWith(metricsResults: (number | null)[] | undefined): any {
+        return {
+            kind: NodeKind.AccountsQuery,
+            results: [],
+            columns: [],
+            types: [],
+            hogql: '',
+            limit: 0,
+            offset: 0,
+            metricsResults,
+        }
+    }
+
+    it('reads metric values in tile order', () => {
+        expect(parseTileValues(responseWith([42, 7.5]), tiles)).toEqual({ a: 42, b: 7.5 })
     })
 
-    it('falls back to row order when columns are missing', () => {
-        expect(parseTileValues({ results: [[42, 7.5]] }, tiles)).toEqual({ a: 42, b: 7.5 })
-    })
-
-    it('returns null for tiles whose alias is not in the response', () => {
-        expect(parseTileValues({ columns: ['tile_a'], results: [[42]] }, tiles)).toEqual({ a: null, b: null })
-    })
-
-    it('returns null for missing or malformed values', () => {
-        expect(parseTileValues({ columns: ['tile_a', 'tile_b'], results: [[null, 'not a number']] }, tiles)).toEqual({
-            a: null,
-            b: null,
-        })
-    })
-
-    it('returns all-nulls when results is missing or empty', () => {
+    it('returns null when metricsResults is missing or malformed', () => {
         expect(parseTileValues(null, tiles)).toEqual({ a: null, b: null })
-        expect(parseTileValues({ results: [] }, tiles)).toEqual({ a: null, b: null })
+        expect(parseTileValues(responseWith(undefined), tiles)).toEqual({ a: null, b: null })
+        expect(parseTileValues(responseWith([null, null]), tiles)).toEqual({ a: null, b: null })
     })
 })

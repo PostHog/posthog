@@ -4,14 +4,12 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { AccountsQuery, AccountsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
-
-export const ACCOUNTS_OVERVIEW_TILE_ID_PREFIX = 'tile_'
 
 export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
 export type AccountsOverviewThresholdOperator = (typeof ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS)[number]
@@ -71,68 +69,7 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
         )
 }
 
-function quoteHogqlString(value: string): string {
-    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-}
-
-export interface OverviewFilters {
-    searchQuery: string
-    tagsFilter: string[]
-    allRolesUnassigned: boolean
-    csmFilter: RoleFilterValue
-    accountExecutiveFilter: RoleFilterValue
-    accountOwnerFilter: RoleFilterValue
-}
-
-// Build a HogQL WHERE clause matching `AccountsQueryRunner.to_query`. Keep the
-// logic aligned with the backend so tile counts agree with the rows the user
-// sees in the table.
-function buildWhereClause(filters: OverviewFilters): string {
-    const conditions: string[] = []
-
-    if (filters.searchQuery.trim()) {
-        const pattern = quoteHogqlString(`%${filters.searchQuery.trim()}%`)
-        conditions.push(`(name ILIKE ${pattern} OR external_id ILIKE ${pattern})`)
-    }
-
-    if (filters.tagsFilter.length > 0) {
-        const tagList = filters.tagsFilter.map(quoteHogqlString).join(', ')
-        conditions.push(
-            `id IN (SELECT ti.account_id FROM system._account_tagged_items AS ti ` +
-                `INNER JOIN system.tags AS t ON t.id = ti.tag_id ` +
-                `WHERE t.name IN (${tagList}))`
-        )
-    }
-
-    const ROLE_KEYS = [
-        { value: filters.csmFilter, jsonKey: 'csm' },
-        { value: filters.accountExecutiveFilter, jsonKey: 'account_executive' },
-        { value: filters.accountOwnerFilter, jsonKey: 'account_owner' },
-    ]
-
-    for (const { value, jsonKey } of ROLE_KEYS) {
-        if (value === null || value === undefined) {
-            continue
-        }
-        if (typeof value === 'number' && Number.isFinite(value)) {
-            conditions.push(`JSONExtract(properties, ${quoteHogqlString(jsonKey)}, 'id', 'Nullable(Int64)') = ${value}`)
-        }
-    }
-
-    if (filters.allRolesUnassigned) {
-        for (const { jsonKey } of ROLE_KEYS) {
-            conditions.push(`isNull(JSONExtract(properties, ${quoteHogqlString(jsonKey)}, 'id', 'Nullable(Int64)'))`)
-        }
-    }
-
-    return conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
-}
-
-function tileSelectAlias(tile: AccountsOverviewTile): string {
-    return `${ACCOUNTS_OVERVIEW_TILE_ID_PREFIX}${tile.id.replace(/[^A-Za-z0-9_]/g, '_')}`
-}
-
-function tileSelectExpression(tile: AccountsOverviewTile): string {
+export function tileMetricExpression(tile: AccountsOverviewTile): string {
     const { metric } = tile
     switch (metric.type) {
         case 'count':
@@ -146,23 +83,51 @@ function tileSelectExpression(tile: AccountsOverviewTile): string {
     }
 }
 
-export function buildOverviewHogqlQuery(tiles: AccountsOverviewTile[], filters: OverviewFilters): HogQLQuery | null {
+export interface OverviewFilters {
+    searchQuery: string
+    tagsFilter: string[]
+    allRolesUnassigned: boolean
+    csmFilter: RoleFilterValue
+    accountExecutiveFilter: RoleFilterValue
+    accountOwnerFilter: RoleFilterValue
+}
+
+// Build an AccountsQuery in metrics mode — the backend runner reuses the same
+// WHERE clause it builds for the table, so tile values stay consistent with
+// the rows the user sees.
+export function buildOverviewAccountsQuery(
+    tiles: AccountsOverviewTile[],
+    filters: OverviewFilters
+): AccountsQuery | null {
     if (tiles.length === 0) {
         return null
     }
-    const selectClauses = tiles.map((tile) => `${tileSelectExpression(tile)} AS ${tileSelectAlias(tile)}`).join(', ')
-    const whereClause = buildWhereClause(filters)
-    // Alias the FROM as `accounts` so column expressions that walk joins
-    // (e.g. `accounts.health.score`) resolve — matches AccountsQueryRunner.
-    const query = `SELECT ${selectClauses} FROM system.accounts AS accounts ${whereClause}`.trim()
-    return {
-        kind: NodeKind.HogQLQuery,
-        query,
-        tags: {
-            ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-            name: 'customer_analytics_accounts_overview',
-        },
+    const query: AccountsQuery = {
+        kind: NodeKind.AccountsQuery,
+        metrics: tiles.map(tileMetricExpression),
+        select: [],
+        tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_overview' },
     }
+    const trimmed = filters.searchQuery.trim()
+    if (trimmed) {
+        query.search = trimmed
+    }
+    if (filters.tagsFilter.length > 0) {
+        query.tagNames = filters.tagsFilter
+    }
+    if (filters.allRolesUnassigned) {
+        query.allRolesUnassigned = true
+    }
+    if (filters.csmFilter !== null) {
+        query.csm = filters.csmFilter
+    }
+    if (filters.accountExecutiveFilter !== null) {
+        query.accountExecutive = filters.accountExecutiveFilter
+    }
+    if (filters.accountOwnerFilter !== null) {
+        query.accountOwner = filters.accountOwnerFilter
+    }
+    return query
 }
 
 function readNumeric(raw: unknown): number | null {
@@ -173,38 +138,15 @@ function readNumeric(raw: unknown): number | null {
     return Number.isFinite(numeric) ? numeric : null
 }
 
-// Zip by column alias rather than by row index — a stale response left in
-// state while a follow-up query is in flight would otherwise project values
-// onto the wrong tile when tiles are added or removed.
 export function parseTileValues(
-    response: { results?: unknown; columns?: unknown } | null,
+    response: AccountsQueryResponse | null,
     tiles: AccountsOverviewTile[]
 ): Record<string, number | null> {
     const values: Record<string, number | null> = {}
-    const results = response && Array.isArray(response.results) ? response.results : null
-    const row = results && Array.isArray(results[0]) ? (results[0] as unknown[]) : null
-    const columns = response && Array.isArray(response.columns) ? (response.columns as unknown[]) : null
-    if (!row) {
-        for (const tile of tiles) {
-            values[tile.id] = null
-        }
-        return values
-    }
-    if (columns && columns.length === row.length) {
-        const indexByAlias = new Map<string, number>()
-        columns.forEach((name, index) => {
-            if (typeof name === 'string') {
-                indexByAlias.set(name, index)
-            }
-        })
-        for (const tile of tiles) {
-            const index = indexByAlias.get(tileSelectAlias(tile))
-            values[tile.id] = index === undefined ? null : readNumeric(row[index])
-        }
-        return values
-    }
+    const metricsResults = response?.metricsResults
     tiles.forEach((tile, index) => {
-        values[tile.id] = readNumeric(row[index])
+        const raw = Array.isArray(metricsResults) ? metricsResults[index] : null
+        values[tile.id] = readNumeric(raw)
     })
     return values
 }
@@ -302,10 +244,10 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     })),
     loaders(({ values }) => ({
         tileQueryResponse: [
-            null as { results?: unknown; columns?: unknown } | null,
+            null as AccountsQueryResponse | null,
             {
                 loadTileValues: async (_: unknown, breakpoint) => {
-                    const query = values.overviewHogqlQuery
+                    const query = values.overviewQuery
                     if (!query) {
                         return null
                     }
@@ -313,7 +255,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                     try {
                         const response = await performQuery(query)
                         breakpoint()
-                        return response as { results?: unknown }
+                        return response as AccountsQueryResponse
                     } catch (error) {
                         posthog.captureException(error as Error, {
                             scope: 'accountsOverviewTilesLogic.loadTileValues',
@@ -363,17 +305,15 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 accountOwnerFilter,
             }),
         ],
-        overviewHogqlQuery: [
+        overviewQuery: [
             (s) => [s.reconciledTiles, s.overviewFilters],
-            (tiles: AccountsOverviewTile[], filters: OverviewFilters): HogQLQuery | null =>
-                buildOverviewHogqlQuery(tiles, filters),
+            (tiles: AccountsOverviewTile[], filters: OverviewFilters): AccountsQuery | null =>
+                buildOverviewAccountsQuery(tiles, filters),
         ],
         tileValues: [
             (s) => [s.tileQueryResponse, s.reconciledTiles],
-            (
-                response: { results?: unknown; columns?: unknown } | null,
-                tiles: AccountsOverviewTile[]
-            ): Record<string, number | null> => parseTileValues(response, tiles),
+            (response: AccountsQueryResponse | null, tiles: AccountsOverviewTile[]): Record<string, number | null> =>
+                parseTileValues(response, tiles),
         ],
     }),
     listeners(({ actions }) => {
