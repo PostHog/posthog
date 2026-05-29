@@ -168,34 +168,32 @@ def _enforce_peer_ip_safe(hostname: str, sock: socket.socket | None, team_id: in
             raise BlockedHostError(f"Blocked connection to {hostname!r}: peer {peer_ip!r} is an internal address")
 
 
-class _SSRFGuardedHTTPConnection(HTTPConnection):
-    """`HTTPConnection` that re-checks the peer IP once the socket is open."""
+class _SSRFGuardMixin:
+    """Re-checks the peer IP once the socket is open.
 
-    def __init__(self, *args: Any, ssrf_team_id: int | None = None, **kwargs: Any) -> None:
-        self._ssrf_team_id = ssrf_team_id
-        super().__init__(*args, **kwargs)
-
-    def connect(self) -> None:
-        super().connect()
-        _enforce_peer_ip_safe(self.host, self.sock, self._ssrf_team_id)
-
-
-class _SSRFGuardedHTTPSConnection(HTTPSConnection):
-    """`HTTPSConnection` that re-checks the peer IP once the socket is open.
-
-    The check runs after `super().connect()`, i.e. after the TLS handshake.
-    A handshake with an internal host sends no application data, and the
-    HTTP request itself is never dispatched — so the SSRF payload never
-    reaches the peer.
+    Mix into an `HTTPConnection`/`HTTPSConnection` subclass. The check runs
+    after `super().connect()` — for HTTPS that is after the TLS handshake. A
+    handshake with an internal host sends no application data, and the HTTP
+    request itself is never dispatched, so the SSRF payload never reaches the
+    peer. Validating the socket's real peer IP (rather than a pre-resolved one)
+    is what makes the guard safe against DNS rebinding.
     """
 
     def __init__(self, *args: Any, ssrf_team_id: int | None = None, **kwargs: Any) -> None:
-        self._ssrf_team_id = ssrf_team_id
+        self._ssrf_team_id: int | None = ssrf_team_id
         super().__init__(*args, **kwargs)
 
     def connect(self) -> None:
-        super().connect()
-        _enforce_peer_ip_safe(self.host, self.sock, self._ssrf_team_id)
+        super().connect()  # type: ignore[misc]
+        _enforce_peer_ip_safe(self.host, self.sock, self._ssrf_team_id)  # type: ignore[attr-defined]
+
+
+class _SSRFGuardedHTTPConnection(_SSRFGuardMixin, HTTPConnection):
+    """`HTTPConnection` that re-checks the peer IP once the socket is open."""
+
+
+class _SSRFGuardedHTTPSConnection(_SSRFGuardMixin, HTTPSConnection):
+    """`HTTPSConnection` that re-checks the peer IP once the socket is open (after the TLS handshake)."""
 
 
 class _SSRFGuardedHTTPConnectionPool(HTTPConnectionPool):
