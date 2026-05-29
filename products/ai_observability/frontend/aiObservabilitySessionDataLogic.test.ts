@@ -9,8 +9,8 @@ import { AnyResponseType, DataTableNode, LLMTrace, NodeKind, TracesQuery } from 
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 
-import { llmAnalyticsSessionDataLogic, SessionDataLogicProps } from './llmAnalyticsSessionDataLogic'
-import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
+import { aiObservabilitySessionDataLogic, SessionDataLogicProps } from './aiObservabilitySessionDataLogic'
+import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 
 jest.mock('lib/api')
 // The summarization batch-check endpoint fires whenever traces appear via a
@@ -87,11 +87,11 @@ function dataNode(props: SessionDataLogicProps): ReturnType<typeof dataNodeLogic
 }
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
-const scenes: any = { LLMAnalyticsSession: blankScene }
+const scenes: any = { AIObservabilitySession: blankScene }
 
-describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
-    let logic: ReturnType<typeof llmAnalyticsSessionDataLogic.build>
-    let sessionLogic: ReturnType<typeof llmAnalyticsSessionLogic.build>
+describe('aiObservabilitySessionDataLogic — bulk session-events loader', () => {
+    let logic: ReturnType<typeof aiObservabilitySessionDataLogic.build>
+    let sessionLogic: ReturnType<typeof aiObservabilitySessionLogic.build>
 
     beforeEach(() => {
         jest.resetAllMocks()
@@ -100,7 +100,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         sceneLogic.actions.setTabs([
             { id: TAB_ID, title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
         ])
-        sessionLogic = llmAnalyticsSessionLogic({ tabId: TAB_ID })
+        sessionLogic = aiObservabilitySessionLogic({ tabId: TAB_ID })
         sessionLogic.mount()
     })
 
@@ -112,7 +112,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('loadAllSessionEvents groups flat rows into fullTraces by trace_id', async () => {
         const traces = [traceSummary('trace-1'), traceSummary('trace-2'), traceSummary('trace-3')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         // Properties arrive as JSON-encoded strings (verified against prod
@@ -143,7 +143,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('loadAllSessionEvents preserves trace summary fields when merging events', async () => {
         const traces = [traceSummary('trace-1', { traceName: 'rich-name', errorCount: 7, totalLatency: 12.34 })]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockResolvedValue({
@@ -168,7 +168,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         // would set bulkLoadError and blank the whole UI.
         const traces = [traceSummary('trace-1')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
         const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
 
@@ -197,7 +197,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('loadAllSessionEvents toggles bulkLoading true then false', async () => {
         const traces = [traceSummary('trace-1')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         let resolveQuery: (value: any) => void = () => {}
@@ -217,7 +217,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('loadAllSessionEvents on failure sets bulkLoadError and clears in-flight', async () => {
         const traces = [traceSummary('trace-1'), traceSummary('trace-2')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockRejectedValueOnce(new Error('clickhouse timeout'))
@@ -241,7 +241,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('subscription fires loadAllSessionEvents exactly once when traces first appear', async () => {
         // No cachedResults — traces start empty.
         const props = buildProps()
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         const node = dataNode(props)
@@ -261,7 +261,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('subscription refires loadAllSessionEvents when pagination appends new unloaded traces', async () => {
         const initial = [traceSummary('trace-1')]
         const props = buildProps({ cachedResults: buildCachedResults(initial) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockResolvedValue({
@@ -297,7 +297,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
         // backend's `merge_heavy_properties`.
         const traces = [traceSummary('trace-1')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockResolvedValue({
@@ -342,7 +342,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
             traceSummary('trace-2', { createdAt: '2026-01-15T12:30:00.000Z' }),
         ]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         // The traces subscription auto-fires loadAllSessionEvents in addition to
@@ -410,7 +410,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
             traceSummary('trace-new', { createdAt: '2026-05-20T12:00:00.000Z' }),
         ]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockImplementation((q: any) => {
@@ -490,7 +490,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
             traceSummary('trace-2', { createdAt: '2026-05-20T12:30:00.000Z' }),
         ]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         const rows = [
@@ -545,7 +545,7 @@ describe('llmAnalyticsSessionDataLogic — bulk session-events loader', () => {
     it('loadAllSessionEvents handles empty results without erroring', async () => {
         const traces = [traceSummary('trace-1'), traceSummary('trace-2')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
-        logic = llmAnalyticsSessionDataLogic(props)
+        logic = aiObservabilitySessionDataLogic(props)
         logic.mount()
 
         mockApi.query.mockResolvedValue({ results: [] } as any)
