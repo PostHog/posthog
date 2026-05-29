@@ -165,3 +165,132 @@ export function principalDisplay(p: SessionPrincipal | null): string {
     }
     return p.kind
 }
+
+export type AuthorizeGrantResult =
+    | { ok: true }
+    | { ok: false; reason: 'not_session_owner' | 'request_not_pending' | 'request_not_found' }
+
+/**
+ * Authorize a would-be granter for a specific PendingElevationRequest. v0
+ * rule: only the session's primary principal can grant; v1 will widen this
+ * to delegated ACL entries with `can_delegate: true` (and to org-admin
+ * super-grants for abandoned sessions). The check stays in one place so the
+ * Slack interactivity handler and the future REST grant endpoint share it.
+ */
+export function authorizeGrant(
+    session: AgentSession,
+    requestId: string,
+    actor: SessionPrincipal | null
+): AuthorizeGrantResult {
+    const request = (session.pending_elevation_requests ?? []).find((r) => r.id === requestId)
+    if (!request) {
+        return { ok: false, reason: 'request_not_found' }
+    }
+    if (request.state !== 'pending') {
+        return { ok: false, reason: 'request_not_pending' }
+    }
+    if (!principalsMatch(session.principal, actor)) {
+        return { ok: false, reason: 'not_session_owner' }
+    }
+    return { ok: true }
+}
+
+export interface ApplyGrantInput {
+    requestId: string
+    granter: SessionPrincipal
+    reason?: string | null
+    /**
+     * Optional expiry on the new ACL entry (ms from now). null = no expiry.
+     * Mirrors the plan §5.5 "Forever / 24h / Until this session ends" picker.
+     */
+    expiresInMs?: number | null
+}
+
+export interface ApplyGrantResult {
+    request: PendingElevationRequest
+    aclEntry: SessionAclEntry
+}
+
+/**
+ * Apply a grant: add an ACL entry for the requester, mark the request
+ * `granted`, replay the proposed message into `pending_inputs`, and re-queue
+ * the session so the runner picks it up. Idempotency: re-applying the same
+ * granted request short-circuits — caller can safely retry.
+ */
+export async function applyElevationGrant(
+    queue: SessionQueue,
+    session: AgentSession,
+    input: ApplyGrantInput
+): Promise<ApplyGrantResult> {
+    const requests = session.pending_elevation_requests ?? []
+    const request = requests.find((r) => r.id === input.requestId)
+    if (!request) {
+        throw new Error(`elevation request ${input.requestId} not found on session ${session.id}`)
+    }
+    if (request.state !== 'pending') {
+        throw new Error(`elevation request ${input.requestId} is ${request.state}, not pending`)
+    }
+
+    const now = new Date().toISOString()
+    const aclEntry: SessionAclEntry = {
+        principal: request.requester,
+        granted_by: input.granter,
+        granted_at: now,
+        expires_at:
+            input.expiresInMs != null && input.expiresInMs > 0
+                ? new Date(Date.now() + input.expiresInMs).toISOString()
+                : null,
+        reason: input.reason ?? null,
+        state: 'active',
+    }
+    const nextAcl = [...(session.acl ?? []), aclEntry]
+    const nextRequests = requests.map((r) =>
+        r.id === input.requestId ? { ...r, state: 'granted' as const, decision_at: now, decision_by: input.granter } : r
+    )
+
+    await queue.update(session.id, {
+        acl: nextAcl,
+        pending_elevation_requests: nextRequests,
+    })
+    // Replay the requester's would-be message so the runner sees it on the
+    // next turn. Done after the ACL mutation so a crash between leaves the
+    // grant landed (the message will re-deliver next time anyway via the
+    // user's natural retry).
+    await queue.appendPendingInput(session.id, request.proposed_message)
+    await queue.update(session.id, { state: 'queued' })
+
+    return { request: nextRequests.find((r) => r.id === input.requestId)!, aclEntry }
+}
+
+export interface ApplyDeclineInput {
+    requestId: string
+    decider: SessionPrincipal
+    reason?: string | null
+}
+
+/**
+ * Apply a decline: mark the request `declined`, do not mutate the ACL, do
+ * not advance the session. Idempotency mirrors `applyElevationGrant`.
+ */
+export async function applyElevationDecline(
+    queue: SessionQueue,
+    session: AgentSession,
+    input: ApplyDeclineInput
+): Promise<PendingElevationRequest> {
+    const requests = session.pending_elevation_requests ?? []
+    const request = requests.find((r) => r.id === input.requestId)
+    if (!request) {
+        throw new Error(`elevation request ${input.requestId} not found on session ${session.id}`)
+    }
+    if (request.state !== 'pending') {
+        throw new Error(`elevation request ${input.requestId} is ${request.state}, not pending`)
+    }
+    const now = new Date().toISOString()
+    const nextRequests = requests.map((r) =>
+        r.id === input.requestId
+            ? { ...r, state: 'declined' as const, decision_at: now, decision_by: input.decider }
+            : r
+    )
+    await queue.update(session.id, { pending_elevation_requests: nextRequests })
+    return nextRequests.find((r) => r.id === input.requestId)!
+}

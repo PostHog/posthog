@@ -91,6 +91,17 @@ export function buildApp(opts: BuildAppOpts): Express {
             },
         })
     )
+    // Slack interactivity posts `application/x-www-form-urlencoded` with a
+    // `payload=<json>` field. The raw body is captured the same way so
+    // signature verification can hash it.
+    app.use(
+        express.urlencoded({
+            extended: false,
+            verify: (req: Request, _res, buf) => {
+                ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
+            },
+        })
+    )
     app.get('/healthz', (_req, res) => {
         res.json({ ok: true })
     })

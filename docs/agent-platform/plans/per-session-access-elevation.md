@@ -443,10 +443,35 @@ Deferred from v0 (rolled into v1):
 
 **v1** (UX):
 
-- Build the Slack elevation message (blocks + interactivity handler).
+- **Slack interactivity handler ✅ shipped:** ingress now exposes
+  `POST /agents/<slug>/slack/interactivity`, parses the form-encoded
+  `payload=<json>` body, verifies the signing secret, and dispatches
+  via the shared `authorizeGrant` / `applyElevationGrant` /
+  `applyElevationDecline` helpers in
+  `services/agent-ingress/src/enqueue/acl.ts`. Owner-only authorisation
+  (delegated grants are v2); non-owners get a Slack-style ephemeral
+  response. Granting writes the ACL entry, replays the requester's
+  proposed message into `pending_inputs`, flips state to `queued` so
+  the runner picks it up on the next turn.
+- **Pending — outbound Slack post (blocks message in the thread on
+  rejection).** The Slack bot token already exists in PostHog: every
+  team can connect Slack via Settings → Integrations and the token
+  lands in `posthog/models/integration.py:147` alongside the same
+  table HogFunctions reads from. The agent platform just hasn't been
+  wired to that table yet — `resolveIntegrations` in
+  `services/agent-runner/src/index.ts:140` is a `() => ({})` stub.
+  Once a small Django proxy + a runner/ingress resolver lands (tracked
+  as a separate task — see `_TODO.md`), every Slack-using agent works
+  in prod, not just the elevation post. The elevation outbound becomes
+  a one-call addition: `slackPostMessageV1` with the team's token, the
+  thread_ts from the rejected event, and a blocks payload built from
+  `encodeElevationActionValue` (already exported from
+  `services/agent-ingress/src/triggers/slack.ts`).
 - Build the chat UI inline elevation panel.
 - Build the per-session ACL management scene in PostHog (grant /
-  revoke / view audit).
+  revoke / view audit). Will reuse the same `applyElevationGrant` /
+  `applyElevationDecline` helpers the Slack interactivity handler now
+  shares.
 - Notifications to the primary principal (Slack DM / email).
 
 **v2** (broad):

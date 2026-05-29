@@ -11,8 +11,9 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { Request, Response, Router } from 'express'
 import { z } from 'zod'
 
-import { IdentityStore, SessionQueue } from '@posthog/agent-shared'
+import { IdentityStore, SessionPrincipal, SessionQueue } from '@posthog/agent-shared'
 
+import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
@@ -125,7 +126,164 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             res.json({ ok: true, session_id: outcome.sessionId, resumed: outcome.isResume })
         })
     )
+
+    // Slack interactivity: button clicks on the elevation message land here.
+    // Slack posts `application/x-www-form-urlencoded` with a `payload` field
+    // carrying URL-encoded JSON. We verify the signing secret, parse the
+    // payload, and dispatch grant/decline to the ACL helpers.
+    r.post(
+        '/slack/interactivity',
+        asyncHandler(async (req: Request, res: Response) => {
+            if (deps.signingSecret && !verifySlackSignature(req, deps.signingSecret)) {
+                res.status(401).json({ error: 'invalid_signature' })
+                return
+            }
+            const rawPayload = (req.body as { payload?: string } | undefined)?.payload
+            if (typeof rawPayload !== 'string') {
+                res.status(400).json({ error: 'missing_payload' })
+                return
+            }
+            let payload: SlackInteractivityPayload
+            try {
+                payload = JSON.parse(rawPayload) as SlackInteractivityPayload
+            } catch {
+                res.status(400).json({ error: 'invalid_payload' })
+                return
+            }
+            const action = payload.actions?.[0]
+            const decoded = action ? decodeElevationActionValue(action.value) : null
+            if (!action || !decoded) {
+                res.status(400).json({ error: 'no_elevation_action' })
+                return
+            }
+            const { sessionId, requestId, decision } = decoded
+            const session = await deps.queue.get(sessionId)
+            if (!session) {
+                res.status(404).json({ error: 'session_not_found' })
+                return
+            }
+            const workspaceId = payload.team?.id ?? payload.user?.team_id ?? 'unknown'
+            const clickerId = payload.user?.id ?? ''
+            const clickerPrincipal: SessionPrincipal = {
+                kind: 'slack',
+                team_id: deps.teamId,
+                id: await resolveSlackUserId(deps, session.application_id, workspaceId, clickerId),
+            }
+            const authz = authorizeGrant(session, requestId, clickerPrincipal)
+            if (!authz.ok) {
+                if (authz.reason === 'not_session_owner') {
+                    // Slack's interactivity contract: 200 + an ephemeral message
+                    // shows only to the clicking user without polluting the thread.
+                    res.json({
+                        response_type: 'ephemeral',
+                        replace_original: false,
+                        text: 'Only the session owner can decide this elevation request.',
+                    })
+                    return
+                }
+                if (authz.reason === 'request_not_pending') {
+                    res.json({
+                        response_type: 'ephemeral',
+                        replace_original: false,
+                        text: 'This elevation request has already been decided.',
+                    })
+                    return
+                }
+                res.status(404).json({ error: authz.reason })
+                return
+            }
+            if (decision === 'grant') {
+                const result = await applyElevationGrant(deps.queue, session, {
+                    requestId,
+                    granter: clickerPrincipal,
+                })
+                res.json({
+                    response_type: 'in_channel',
+                    replace_original: true,
+                    text: `✓ Access granted to ${result.request.requester_display}.`,
+                })
+                return
+            }
+            if (decision === 'decline') {
+                const declined = await applyElevationDecline(deps.queue, session, {
+                    requestId,
+                    decider: clickerPrincipal,
+                })
+                res.json({
+                    response_type: 'in_channel',
+                    replace_original: true,
+                    text: `✗ Request from ${declined.requester_display} declined.`,
+                })
+                return
+            }
+            res.status(400).json({ error: 'unknown_decision' })
+        })
+    )
+
     return r
+}
+
+/**
+ * Parse the opaque `value` Slack carries from the elevation message back to
+ * the interactivity payload. We pack `(sessionId, requestId, decision)` into
+ * one string so the button definition stays self-contained.
+ */
+export function encodeElevationActionValue(opts: {
+    sessionId: string
+    requestId: string
+    decision: 'grant' | 'decline'
+}): string {
+    return `elevation:${opts.decision}:${opts.sessionId}:${opts.requestId}`
+}
+
+export function decodeElevationActionValue(
+    value: string | undefined
+): { sessionId: string; requestId: string; decision: 'grant' | 'decline' } | null {
+    if (!value) {
+        return null
+    }
+    const parts = value.split(':')
+    if (parts.length !== 4 || parts[0] !== 'elevation') {
+        return null
+    }
+    const decision = parts[1]
+    if (decision !== 'grant' && decision !== 'decline') {
+        return null
+    }
+    return { decision, sessionId: parts[2], requestId: parts[3] }
+}
+
+interface SlackInteractivityPayload {
+    type?: string
+    team?: { id?: string }
+    user?: { id?: string; team_id?: string }
+    actions?: Array<{ action_id?: string; value?: string }>
+}
+
+/**
+ * Resolve a clicking Slack user to the same AgentUser id the events trigger
+ * would produce for that user. When the identity store is wired this is a
+ * stable lookup; without it we fall back to the raw `workspace:user` tuple
+ * which matches what the events trigger persists.
+ */
+async function resolveSlackUserId(
+    deps: SlackTriggerDeps,
+    applicationId: string,
+    workspaceId: string,
+    userId: string
+): Promise<string> {
+    const principalId = `${workspaceId}:${userId}`
+    if (!deps.identities) {
+        return principalId
+    }
+    const agentUser = await deps.identities.findOrCreate({
+        team_id: deps.teamId,
+        application_id: applicationId,
+        principal_kind: 'slack',
+        principal_id: principalId,
+        metadata: { workspace: workspaceId, slack_user: userId },
+    })
+    return agentUser.id
 }
 
 interface SlackEvent {
@@ -173,6 +331,15 @@ export const slackTrigger: TriggerModule = {
             method: 'POST',
             path: '/slack/events',
             bodySchema: z.toJSONSchema(SlackEventBodySchema),
+            auth: 'slack_signing',
+        },
+        {
+            method: 'POST',
+            path: '/slack/interactivity',
+            // Slack posts urlencoded `payload=<json>` — published schema is the
+            // decoded JSON so authoring tools see the actual interactivity
+            // contract, not just an opaque form-data envelope.
+            bodySchema: z.toJSONSchema(z.object({ payload: z.string() })),
             auth: 'slack_signing',
         },
     ],

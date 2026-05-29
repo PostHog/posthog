@@ -132,6 +132,168 @@ describe('slack trigger: real e2e', () => {
         expect(session!.pending_elevation_requests[0].trigger).toBe('slack')
     })
 
+    describe('slack interactivity: elevation grant / decline', () => {
+        // The button `value` shape the ingress encodes/decodes — keep in sync
+        // with `encodeElevationActionValue` in services/agent-ingress/src/triggers/slack.ts.
+        function buildPayload(opts: {
+            sessionId: string
+            requestId: string
+            decision: 'grant' | 'decline'
+            user: string
+            workspaceId?: string
+        }): string {
+            return JSON.stringify({
+                type: 'block_actions',
+                team: { id: opts.workspaceId ?? 'unknown' },
+                user: { id: opts.user },
+                actions: [
+                    {
+                        action_id: 'elevation_decision',
+                        value: `elevation:${opts.decision}:${opts.sessionId}:${opts.requestId}`,
+                    },
+                ],
+            })
+        }
+
+        async function setupRejectedRequest(slug: string): Promise<{ sessionId: string; requestId: string }> {
+            c.setScript([fauxText('first reply'), fauxText('after grant')])
+            await c.deployAgent({ slug, spec: {} })
+            const first = await request(c.ingress)
+                .post(`/agents/${slug}/slack/events`)
+                .send(slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }))
+            await c.drain()
+            const bob = await request(c.ingress)
+                .post(`/agents/${slug}/slack/events`)
+                .send(slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }))
+            return { sessionId: first.body.session_id, requestId: bob.body.elevation_request_id }
+        }
+
+        it('owner grant: ACL entry written, bob message replays, session re-queues', async () => {
+            const { sessionId, requestId } = await setupRejectedRequest('gated-grant')
+
+            const grant = await request(c.ingress)
+                .post('/agents/gated-grant/slack/interactivity')
+                .send({
+                    payload: buildPayload({
+                        sessionId,
+                        requestId,
+                        decision: 'grant',
+                        user: 'U-ALICE',
+                    }),
+                })
+            expect(grant.status).toBe(200)
+            expect(grant.body.text).toMatch(/granted/i)
+
+            // Drain a turn so the runner picks up bob's now-replayed message.
+            await c.drain()
+            const session = await c.queue.get(sessionId)
+            expect(session!.acl).toHaveLength(1)
+            expect(session!.acl[0].state).toBe('active')
+            expect(session!.pending_elevation_requests[0].state).toBe('granted')
+            // Conversation now reflects bob's message being delivered.
+            const userMsgs = session!.conversation.filter((m) => m.role === 'user')
+            expect(userMsgs.map((m) => m.content)).toEqual(['alice opens', 'bob barges in'])
+        })
+
+        it('non-owner click: ephemeral message, request stays pending', async () => {
+            const { sessionId, requestId } = await setupRejectedRequest('gated-noowner')
+
+            const stranger = await request(c.ingress)
+                .post('/agents/gated-noowner/slack/interactivity')
+                .send({
+                    payload: buildPayload({
+                        sessionId,
+                        requestId,
+                        decision: 'grant',
+                        user: 'U-CAROL',
+                    }),
+                })
+            expect(stranger.status).toBe(200)
+            expect(stranger.body.response_type).toBe('ephemeral')
+            expect(stranger.body.text).toMatch(/only the session owner/i)
+
+            const session = await c.queue.get(sessionId)
+            expect(session!.acl).toHaveLength(0)
+            expect(session!.pending_elevation_requests[0].state).toBe('pending')
+        })
+
+        it('decline: marks request declined, does not advance the session', async () => {
+            const { sessionId, requestId } = await setupRejectedRequest('gated-decline')
+
+            const decline = await request(c.ingress)
+                .post('/agents/gated-decline/slack/interactivity')
+                .send({
+                    payload: buildPayload({
+                        sessionId,
+                        requestId,
+                        decision: 'decline',
+                        user: 'U-ALICE',
+                    }),
+                })
+            expect(decline.status).toBe(200)
+            expect(decline.body.text).toMatch(/declined/i)
+
+            const session = await c.queue.get(sessionId)
+            expect(session!.acl).toHaveLength(0)
+            expect(session!.pending_inputs).toHaveLength(0)
+            expect(session!.pending_elevation_requests[0].state).toBe('declined')
+        })
+
+        it('replaying a grant on an already-decided request returns "already decided"', async () => {
+            const { sessionId, requestId } = await setupRejectedRequest('gated-replay')
+
+            const first = await request(c.ingress)
+                .post('/agents/gated-replay/slack/interactivity')
+                .send({
+                    payload: buildPayload({
+                        sessionId,
+                        requestId,
+                        decision: 'grant',
+                        user: 'U-ALICE',
+                    }),
+                })
+            expect(first.status).toBe(200)
+            await c.drain()
+
+            const second = await request(c.ingress)
+                .post('/agents/gated-replay/slack/interactivity')
+                .send({
+                    payload: buildPayload({
+                        sessionId,
+                        requestId,
+                        decision: 'grant',
+                        user: 'U-ALICE',
+                    }),
+                })
+            expect(second.status).toBe(200)
+            expect(second.body.response_type).toBe('ephemeral')
+            expect(second.body.text).toMatch(/already been decided/i)
+        })
+
+        it('missing payload returns 400', async () => {
+            await c.deployAgent({ slug: 'gated-bad', spec: {} })
+            const res = await request(c.ingress).post('/agents/gated-bad/slack/interactivity').send({})
+            expect(res.status).toBe(400)
+            expect(res.body.error).toBe('missing_payload')
+        })
+
+        it('unknown session id returns 404', async () => {
+            await c.deployAgent({ slug: 'gated-missing', spec: {} })
+            const res = await request(c.ingress)
+                .post('/agents/gated-missing/slack/interactivity')
+                .send({
+                    payload: buildPayload({
+                        sessionId: '00000000-0000-0000-0000-000000000000',
+                        requestId: 'fake',
+                        decision: 'grant',
+                        user: 'U-ALICE',
+                    }),
+                })
+            expect(res.status).toBe(404)
+            expect(res.body.error).toBe('session_not_found')
+        })
+    })
+
     it('distinct threads create distinct sessions', async () => {
         await c.deployAgent({ slug: 'distinct', spec: {} })
         const a = await request(c.ingress)
