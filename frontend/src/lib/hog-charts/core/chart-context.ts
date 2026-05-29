@@ -41,16 +41,22 @@ export interface ChartLayoutContextValue<Meta = unknown> {
     axis: ChartAxisContextValue
 }
 
+/** The segment the cursor resolved to within a band (stacked bars: the visible slice). */
+export interface HoverSegment {
+    seriesKey: string
+    dataIndex: number
+}
+
 /** Hover state isolated from layout so mousemoves don't invalidate every overlay.
  *  Only {@link Crosshair} (and consumers of {@link useChartHover}) re-render. */
 export interface ChartHoverContextValue {
     /** Index of the currently hovered data point, or -1 when not hovering. */
     hoverIndex: number
     /** The segment the cursor actually resolved to, for chart types that disambiguate within
-     *  a band (stacked bars: the visible slice under the cursor). `undefined` when the chart
-     *  doesn't resolve segments (overlays fall back to `hoverIndex`); `null` when it does but
-     *  the cursor is over no segment (e.g. the empty track past a bar) — overlays target nothing. */
-    hoverSegment?: { seriesKey: string; dataIndex: number } | null
+     *  a band. `undefined` when the chart doesn't resolve segments (overlays fall back to
+     *  `hoverIndex`); `null` when it does but the cursor is over no segment (e.g. the empty
+     *  track past a bar) — overlays target nothing. */
+    hoverSegment?: HoverSegment | null
 }
 
 /** Merged layout + hover shape returned by {@link useChart}. */

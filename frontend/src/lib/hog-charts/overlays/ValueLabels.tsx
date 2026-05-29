@@ -448,7 +448,7 @@ export function ValueLabels({
         // off `hoverSegment` — `hoverIndex` is ambiguous when segments share a band. `null` means
         // the cursor is over no segment (e.g. past the bar), so nothing lifts.
         if (hoverSegment !== undefined) {
-            if (!hoverSegment) {
+            if (hoverSegment === null) {
                 return false
             }
             if (c.seriesIndex === -1) {

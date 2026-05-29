@@ -13,6 +13,7 @@ import {
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
+import type { HoverSegment } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
 import { useLatest } from '../../core/hooks/useLatest'
@@ -525,7 +526,7 @@ function BarChartInner<Meta = unknown>({
             hoverIndex: number,
             hoverPosition: { x: number; y: number } | null,
             scales: ChartScales
-        ): { seriesKey: string; dataIndex: number } | null => {
+        ): HoverSegment | null => {
             if (
                 !isStackedLayout(barLayout) ||
                 !hoverPosition ||

@@ -7,7 +7,7 @@ import { Tooltip } from '../overlays/Tooltip'
 import { normalizeAxisLabel } from '../utils/axis-labels'
 import { composeDrawHoverWithCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
-import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
+import type { ChartHoverContextValue, ChartLayoutContextValue, HoverSegment } from './chart-context'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
@@ -68,6 +68,19 @@ function resolveHoverAnimationMs(animateHover: boolean | number | undefined): nu
     return 0
 }
 
+// Primitive signature of the resolved hover segment, used as a memo key so the hover context
+// identity only changes when the segment changes. `'none'` = no resolver, `'empty'` = resolver
+// ran but the cursor is over no segment.
+function hoverSegmentSignature(segment: HoverSegment | null | undefined): string {
+    if (segment === undefined) {
+        return 'none'
+    }
+    if (segment === null) {
+        return 'empty'
+    }
+    return `${segment.seriesKey} ${segment.dataIndex}`
+}
+
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
 }
@@ -120,7 +133,7 @@ export interface ChartProps<Meta = unknown> {
         hoverIndex: number,
         hoverPosition: { x: number; y: number } | null,
         scales: ChartScales
-    ) => { seriesKey: string; dataIndex: number } | null
+    ) => HoverSegment | null
 }
 
 export function Chart<Meta = unknown>({
@@ -295,12 +308,7 @@ export function Chart<Meta = unknown>({
         resolveHoverSegment && scales ? (resolveHoverSegment(hoverIndex, hoverPosition, scales) ?? null) : undefined
     // Key the memo on a primitive so the context identity only changes when the resolved segment
     // changes — not on every mousemove within the same segment.
-    const hoverSegmentKey =
-        hoverSegment === undefined
-            ? 'none'
-            : hoverSegment === null
-              ? 'empty'
-              : `${hoverSegment.seriesKey} ${hoverSegment.dataIndex}`
+    const hoverSegmentKey = hoverSegmentSignature(hoverSegment)
     const hoverValue = useMemo<ChartHoverContextValue>(
         () => ({ hoverIndex, hoverSegment }),
         // eslint-disable-next-line react-hooks/exhaustive-deps

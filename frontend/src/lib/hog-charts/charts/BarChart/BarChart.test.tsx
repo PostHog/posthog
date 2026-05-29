@@ -445,18 +445,23 @@ describe('BarChart', () => {
                         <ValueLabels />
                     </BarChart>
                 )
-                const liftOf = (text: string): string =>
-                    Array.from(chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).find(
-                        (d) => d.textContent === text
-                    )?.style.transform ?? ''
+                const liftOf = (text: string): string => {
+                    const el = Array.from(
+                        chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')
+                    ).find((d) => d.textContent === text)
+                    if (!el) {
+                        throw new Error(`no value label "${text}"`)
+                    }
+                    return el.style.transform
+                }
 
-                // Cursor in the small slice (0..20): only 'small's label (20) lifts.
+                // small slice (0..20)
                 fireEvent.mouseMove(chart.element, { clientX: xForValue(10), clientY: yMidBand })
                 await waitFor(() => expect(liftOf('20')).toContain('translate(6px, 0px)'))
                 expect(liftOf('50')).not.toContain('6px')
                 expect(liftOf('100')).not.toContain('6px')
 
-                // Move into the mid slice (20..50): the lift follows to 'mid's label (50).
+                // mid slice (20..50) — lift follows the cursor
                 fireEvent.mouseMove(chart.element, { clientX: xForValue(30), clientY: yMidBand })
                 await waitFor(() => expect(liftOf('50')).toContain('translate(6px, 0px)'))
                 expect(liftOf('20')).not.toContain('6px')

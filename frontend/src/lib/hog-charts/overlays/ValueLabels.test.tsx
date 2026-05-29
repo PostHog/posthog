@@ -321,9 +321,26 @@ describe('ValueLabels', () => {
             { key: 's1', label: 'S1', color: '#0f0', data: [0, 20] },
         ]
         const ctx = makeContext(series, { labels: ['Mon', 'Mon'], hoverSegment: null, hoverIndex: 1 })
-        for (const d of labelDivs(renderInChart(ctx, <ValueLabels />).container)) {
-            expect(d.style.transform).not.toContain('-6px')
-        }
+        const transforms = labelDivs(renderInChart(ctx, <ValueLabels />).container).map((d) => d.style.transform)
+        transforms.forEach((t) => expect(t).not.toContain('-6px'))
+    })
+
+    it('stack-total mode: lifts the total whose band the hovered segment sits in, not the others', () => {
+        // Totals: Mon = 10 + 5 = 15, Tue = 20 + 15 = 35. Hovering a segment in the Mon band
+        // lifts Mon's total label; Tue's must stay put.
+        const series: ResolvedSeries[] = [
+            { key: 'a', label: 'A', color: '#f00', data: [10, 20] },
+            { key: 'b', label: 'B', color: '#0f0', data: [5, 15] },
+        ]
+        const ctx = makeContext(series, { labels: ['Mon', 'Tue'], hoverSegment: { seriesKey: 'a', dataIndex: 0 } })
+        const byText = Object.fromEntries(
+            labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container).map((d) => [
+                d.textContent,
+                d.style.transform,
+            ])
+        )
+        expect(byText['15']).toContain('-6px')
+        expect(byText['35']).not.toContain('-6px')
     })
 
     it('in percent layout, formatter receives each segment fraction (0..1), not raw data', () => {

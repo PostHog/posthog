@@ -2,7 +2,7 @@ import { render, type RenderResult } from '@testing-library/react'
 import type { ReactNode } from 'react'
 
 import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
-import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
+import type { BaseChartContext, ChartLayoutContextValue, HoverSegment } from '../core/chart-context'
 import type { ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { dimensions as DEFAULT_DIMENSIONS } from './jsdom'
 
@@ -19,7 +19,7 @@ export interface OverlayContextOverrides {
     axisOrientation?: 'vertical' | 'horizontal'
     isPercent?: boolean
     hoverIndex?: number
-    hoverSegment?: { seriesKey: string; dataIndex: number } | null
+    hoverSegment?: HoverSegment | null
     xTickFormatter?: (value: string, index: number) => string | null
 }
 
