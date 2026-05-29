@@ -146,6 +146,28 @@ class JanitorClient:
             params["last_n"] = last_n
         return self._call("GET", f"/sessions/{session_id}", params=params)
 
+    # ── fleet stats ────────────────────────────────────────────────────────
+    # Roll-up endpoints powering the agent-console overview tiles. The
+    # janitor side owns the JSONB read so Django doesn't reach across DBs.
+
+    def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:
+        params: dict[str, Any] = {"application_id": application_id}
+        if since:
+            params["since"] = since
+        return self._call("GET", "/sessions/stats", params=params)
+
+    def aggregate_for_team(self, team_id: int, *, since: str | None = None) -> dict:
+        params: dict[str, Any] = {"team_id": team_id}
+        if since:
+            params["since"] = since
+        return self._call("GET", "/fleet/stats", params=params)
+
+    def list_live_for_team(self, team_id: int, *, limit: int | None = None) -> dict:
+        params: dict[str, Any] = {"team_id": team_id}
+        if limit is not None:
+            params["limit"] = limit
+        return self._call("GET", "/sessions/live", params=params)
+
     def clone_from(self, target_revision_id: str, source_revision_id: str) -> dict:
         return self._call(
             "POST",

@@ -572,14 +572,47 @@ export async function archiveRevision(teamId: number, slug: string, revisionId: 
     )
 }
 
-/* ── Read endpoints not yet served by Django — Phase C ───────────── */
+/* ── Fleet / agent rollups (Phase C) ───────────────────────────────── */
+
+/**
+ * Shape the janitor returns from `/sessions/stats` and `/fleet/stats`, surfaced
+ * unchanged through Django. Kept here (vs in `@posthog/agent-chat`) because
+ * agent-chat's `AgentStats` / `FleetStats` are consumer-facing types — the
+ * window is implied (24h) and the field names match the UI labels.
+ */
+interface AggregateStatsWire {
+    liveCount: number
+    sessionsInWindowCount: number
+    spendInWindowUsd: number
+    lastActivityAt: string | null
+    failedInWindowCount: number
+}
 
 export async function getAgentStats(teamId: number, slug: string): Promise<AgentStats> {
-    return getJson<AgentStats>(posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/stats/`))
+    const wire = await getJson<AggregateStatsWire>(
+        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/stats/`)
+    )
+    return {
+        liveCount: wire.liveCount,
+        sessions24hCount: wire.sessionsInWindowCount,
+        spend24hUsd: wire.spendInWindowUsd,
+        lastActivityAt: wire.lastActivityAt ?? undefined,
+        failureRate24h:
+            wire.sessionsInWindowCount > 0 ? wire.failedInWindowCount / wire.sessionsInWindowCount : undefined,
+    }
 }
 
 export async function getFleetStats(teamId: number): Promise<FleetStats> {
-    return getJson<FleetStats>(posthogUrl(teamId, `/agent_fleet/stats/`))
+    const wire = await getJson<AggregateStatsWire>(posthogUrl(teamId, `/agent_fleet/stats/`))
+    return {
+        liveSessionCount: wire.liveCount,
+        sessions24hCount: wire.sessionsInWindowCount,
+        spend24hUsd: wire.spendInWindowUsd,
+        // Approvals roll-up isn't part of this aggregate yet — defer to a
+        // dedicated approvals-stats endpoint. Surfaced as 0 so the tile
+        // renders without an "attention" treatment.
+        approvalsPendingCount: 0,
+    }
 }
 
 export async function listLiveSessions(teamId: number): Promise<ChatSession[]> {

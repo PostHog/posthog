@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentAggregateStatsApi,
     AgentApplicationApi,
     AgentApplicationApprovalsListResponseApi,
     AgentApplicationPreviewTokenResponseApi,
@@ -27,7 +28,11 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
+    AgentFleetLiveSessionsParams,
+    AgentFleetLiveSessionsResponseApi,
+    AgentFleetStatsParams,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
     AgentRevisionSystemPromptResponseApi,
@@ -1218,6 +1223,97 @@ export const agentApplicationsSetEnvCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setEnvRequestApi),
+    })
+}
+
+export const getAgentApplicationsStatsUrl = (projectId: string, id: string, params?: AgentApplicationsStatsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/stats/`
+}
+
+/**
+ * Roll-up stats for the agent — drives the agent-detail overview tiles.
+ */
+export const agentApplicationsStats = async (
+    projectId: string,
+    id: string,
+    params?: AgentApplicationsStatsParams,
+    options?: RequestInit
+): Promise<AgentAggregateStatsApi> => {
+    return apiMutator<AgentAggregateStatsApi>(getAgentApplicationsStatsUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentFleetLiveSessionsUrl = (projectId: string, params?: AgentFleetLiveSessionsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_fleet/live_sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_fleet/live_sessions/`
+}
+
+/**
+ * Live (non-terminal) sessions across every agent owned by this team, newest activity first.
+ */
+export const agentFleetLiveSessions = async (
+    projectId: string,
+    params?: AgentFleetLiveSessionsParams,
+    options?: RequestInit
+): Promise<AgentFleetLiveSessionsResponseApi> => {
+    return apiMutator<AgentFleetLiveSessionsResponseApi>(getAgentFleetLiveSessionsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentFleetStatsUrl = (projectId: string, params?: AgentFleetStatsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_fleet/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_fleet/stats/`
+}
+
+/**
+ * Roll-up stats across every agent owned by this team.
+ */
+export const agentFleetStats = async (
+    projectId: string,
+    params?: AgentFleetStatsParams,
+    options?: RequestInit
+): Promise<AgentAggregateStatsApi> => {
+    return apiMutator<AgentAggregateStatsApi>(getAgentFleetStatsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

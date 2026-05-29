@@ -6,6 +6,23 @@
 
 import { AgentSession, ConversationMessage, PendingElevationRequest } from '../spec/spec'
 
+/** Shape returned by both `aggregateForApplication` and `aggregateForTeam`. */
+export interface AggregateStats {
+    /** Sessions currently in a live state (queued / running / waiting). */
+    liveCount: number
+    /** Sessions created within the `since` window — all states. */
+    sessionsInWindowCount: number
+    /** Sum of `usage_total.cost_total` across sessions in the window. */
+    spendInWindowUsd: number
+    /** ISO timestamp of the most recent session update — null if none. */
+    lastActivityAt: string | null
+    /** Sessions in `failed` state created within the window. */
+    failedInWindowCount: number
+}
+
+/** Live (non-terminal) session states. `completed`/`closed`/`cancelled`/`failed` are terminal. */
+export const LIVE_SESSION_STATES: AgentSession['state'][] = ['queued', 'running']
+
 export interface ListSessionsOpts {
     limit?: number
     offset?: number
@@ -54,6 +71,26 @@ export interface SessionQueue {
      * and `offset` are ignored — the count is over the full filtered set.
      */
     countByApplication(applicationId: string, opts?: Omit<ListSessionsOpts, 'limit' | 'offset'>): Promise<number>
+    /**
+     * Roll up summary stats for an agent — drives the agent-detail
+     * overview tiles. `since` filters cost + sessions count to a
+     * trailing window (e.g. 24h). `liveCount` is independent of
+     * `since`. `lastActivityAt` is the most recent `updated_at`
+     * across all states (null when the agent has no sessions).
+     */
+    aggregateForApplication(applicationId: string, since: string): Promise<AggregateStats>
+    /**
+     * Same shape as `aggregateForApplication`, scoped to every agent
+     * owned by a team. Drives the fleet-stats tile on the agents list.
+     */
+    aggregateForTeam(teamId: number, since: string): Promise<AggregateStats>
+    /**
+     * All sessions for a team currently in a live state — queued,
+     * running, waiting. Drives the live-sessions panel. Capped at
+     * `limit` (default 100) so a single call can't accidentally page
+     * every session.
+     */
+    listLiveForTeam(teamId: number, opts?: { limit?: number }): Promise<AgentSession[]>
     /**
      * Re-queue sessions stuck in 'running' beyond the TTL (their worker
      * probably crashed). The session's conversation is preserved; a sibling
@@ -203,6 +240,70 @@ export class MemorySessionQueue implements SessionQueue {
             }
         }
         return matches
+    }
+
+    async aggregateForApplication(applicationId: string, since: string): Promise<AggregateStats> {
+        const liveSet = new Set<AgentSession['state']>(LIVE_SESSION_STATES)
+        let liveCount = 0
+        let sessionsInWindowCount = 0
+        let spendInWindowUsd = 0
+        let failedInWindowCount = 0
+        let lastActivityAt: string | null = null
+        for (const s of this.sessions.values()) {
+            if (s.application_id !== applicationId) {
+                continue
+            }
+            if (!lastActivityAt || s.updated_at > lastActivityAt) {
+                lastActivityAt = s.updated_at
+            }
+            if (liveSet.has(s.state)) {
+                liveCount++
+            }
+            if (s.created_at >= since) {
+                sessionsInWindowCount++
+                spendInWindowUsd += s.usage_total?.cost_total ?? 0
+                if (s.state === 'failed') {
+                    failedInWindowCount++
+                }
+            }
+        }
+        return { liveCount, sessionsInWindowCount, spendInWindowUsd, lastActivityAt, failedInWindowCount }
+    }
+
+    async aggregateForTeam(teamId: number, since: string): Promise<AggregateStats> {
+        const liveSet = new Set<AgentSession['state']>(LIVE_SESSION_STATES)
+        let liveCount = 0
+        let sessionsInWindowCount = 0
+        let spendInWindowUsd = 0
+        let failedInWindowCount = 0
+        let lastActivityAt: string | null = null
+        for (const s of this.sessions.values()) {
+            if (s.team_id !== teamId) {
+                continue
+            }
+            if (!lastActivityAt || s.updated_at > lastActivityAt) {
+                lastActivityAt = s.updated_at
+            }
+            if (liveSet.has(s.state)) {
+                liveCount++
+            }
+            if (s.created_at >= since) {
+                sessionsInWindowCount++
+                spendInWindowUsd += s.usage_total?.cost_total ?? 0
+                if (s.state === 'failed') {
+                    failedInWindowCount++
+                }
+            }
+        }
+        return { liveCount, sessionsInWindowCount, spendInWindowUsd, lastActivityAt, failedInWindowCount }
+    }
+
+    async listLiveForTeam(teamId: number, opts: { limit?: number } = {}): Promise<AgentSession[]> {
+        const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
+        const liveSet = new Set<AgentSession['state']>(LIVE_SESSION_STATES)
+        const matches = [...this.sessions.values()].filter((s) => s.team_id === teamId && liveSet.has(s.state))
+        matches.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        return matches.slice(0, limit)
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {

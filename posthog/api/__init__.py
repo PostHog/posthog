@@ -47,7 +47,12 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
-from products.agent_stack.backend.api import AgentApplicationViewSet, AgentNativeToolsViewSet, AgentRevisionViewSet
+from products.agent_stack.backend.api import (
+    AgentApplicationViewSet,
+    AgentFleetViewSet,
+    AgentNativeToolsViewSet,
+    AgentRevisionViewSet,
+)
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -1452,6 +1457,12 @@ projects_router.register(
     r"agent_native_tools",
     AgentNativeToolsViewSet,
     "project_agent_native_tools",
+    ["project_id"],
+)
+projects_router.register(
+    r"agent_fleet",
+    AgentFleetViewSet,
+    "project_agent_fleet",
     ["project_id"],
 )
 # Session reads go to the runtime DB via the janitor (GET /sessions/:id) —

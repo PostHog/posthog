@@ -155,6 +155,84 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(a!.state).toBe('running')
     })
 
+    it('PgSessionQueue aggregateForApplication + aggregateForTeam + listLiveForTeam', async () => {
+        if (!reachable) {
+            return
+        }
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const app = await revisions.createApplication({ team_id: 7, slug: 'agg', name: 'Agg', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        // Sibling app on a different team — must not leak into either roll-up.
+        const otherApp = await revisions.createApplication({
+            team_id: 99,
+            slug: 'other',
+            name: 'Other',
+            description: '',
+        })
+        const otherRev = await revisions.createRevision({
+            application_id: otherApp.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const now = Date.now()
+        const inWindow = new Date(now - 60_000).toISOString()
+        const outWindow = new Date(now - 48 * 60 * 60 * 1000).toISOString()
+        const mk = (
+            id: string,
+            state: string,
+            created: string,
+            cost: number,
+            applicationId = app.id,
+            revisionId = rev.id,
+            teamId = 7
+        ): Parameters<typeof queue.enqueue>[0] => ({
+            id,
+            application_id: applicationId,
+            revision_id: revisionId,
+            team_id: teamId,
+            external_key: null,
+            state: state as Parameters<typeof queue.enqueue>[0]['state'],
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: cost },
+            created_at: created,
+            updated_at: created,
+        })
+        await queue.enqueue(mk(randomUUID(), 'running', inWindow, 0.5))
+        await queue.enqueue(mk(randomUUID(), 'completed', inWindow, 1.0))
+        await queue.enqueue(mk(randomUUID(), 'failed', inWindow, 0.25))
+        await queue.enqueue(mk(randomUUID(), 'completed', outWindow, 99)) // outside window
+        await queue.enqueue(mk(randomUUID(), 'running', inWindow, 999, otherApp.id, otherRev.id, 99))
+
+        const sinceIso = new Date(now - 24 * 60 * 60 * 1000).toISOString()
+        const appStats = await queue.aggregateForApplication(app.id, sinceIso)
+        expect(appStats.liveCount).toBe(1)
+        expect(appStats.sessionsInWindowCount).toBe(3)
+        expect(appStats.spendInWindowUsd).toBeCloseTo(0.5 + 1.0 + 0.25, 5)
+        expect(appStats.failedInWindowCount).toBe(1)
+        expect(appStats.lastActivityAt).not.toBeNull()
+
+        const teamStats = await queue.aggregateForTeam(7, sinceIso)
+        expect(teamStats.liveCount).toBe(1)
+        expect(teamStats.sessionsInWindowCount).toBe(3)
+        expect(teamStats.spendInWindowUsd).toBeCloseTo(1.75, 5)
+
+        const live = await queue.listLiveForTeam(7)
+        expect(live).toHaveLength(1)
+        expect(live[0].state).toBe('running')
+    })
+
     it('PgSessionQueue appendPendingInput buffers into pending_inputs JSONB', async () => {
         if (!reachable) {
             return

@@ -290,6 +290,30 @@ _AGENT_SESSION_PRINCIPAL = inline_serializer(
 # Runtime `AgentSession.state` enum. Mirrors agent-shared spec.ts.
 _AGENT_SESSION_STATE_VALUES = ["queued", "running", "completed", "closed", "cancelled", "failed"]
 
+# Roll-up shape returned by the janitor's `/sessions/stats` and `/fleet/stats`
+# endpoints. Used both by the per-application action and the fleet viewset.
+_AGENT_AGGREGATE_STATS = inline_serializer(
+    name="AgentAggregateStats",
+    fields={
+        "liveCount": drf_serializers.IntegerField(
+            help_text="Sessions currently in a live state (queued / running).",
+        ),
+        "sessionsInWindowCount": drf_serializers.IntegerField(
+            help_text="Sessions created within the `since` window across all states.",
+        ),
+        "spendInWindowUsd": drf_serializers.FloatField(
+            help_text="Sum of `usage_total.cost_total` across sessions in the window.",
+        ),
+        "lastActivityAt": drf_serializers.DateTimeField(
+            allow_null=True,
+            help_text="ISO timestamp of the most recent session update — null when there are no sessions.",
+        ),
+        "failedInWindowCount": drf_serializers.IntegerField(
+            help_text="Sessions in `failed` state created within the window.",
+        ),
+    },
+)
+
 
 @extend_schema(tags=["agent_stack"])
 class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -319,6 +343,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
+        "stats",
         # POST → `preview_proxy`, GET (SSE `listen`) → `preview_proxy_get`.
         # DRF uses the bound function name as `view.action`, so the GET
         # variant is its own entry in the scope-check map.
@@ -589,6 +614,35 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "ingress_slug": f"{application.slug}-{revision.id.hex}",
             }
         )
+
+    @extend_schema(
+        operation_id="agent_applications_stats",
+        parameters=[
+            OpenApiParameter(
+                "since",
+                OpenApiTypes.DATETIME,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_AGENT_AGGREGATE_STATS),
+        description="Roll-up stats for the agent — drives the agent-detail overview tiles.",
+    )
+    @action(detail=True, methods=["get"], url_path="stats")
+    def stats(self, request: Request, **kwargs) -> Response:
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().aggregate_for_application(
+                str(application.id),
+                since=request.query_params.get("since") or None,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
 
     @extend_schema(
         operation_id="agent_applications_sessions_list",
@@ -1537,6 +1591,107 @@ class AgentNativeToolsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(_janitor().native_tools())
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
+
+
+@extend_schema(tags=["agent_stack"])
+class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Team-wide agent fleet rollups.
+
+    URLs:
+        GET /api/projects/<team>/agent_fleet/stats/           — aggregate counts + spend across every agent in the team
+        GET /api/projects/<team>/agent_fleet/live_sessions/   — live sessions for every agent in the team
+
+    Both endpoints proxy the janitor (which owns the runtime DB). Used by
+    the agent-console "fleet" overview to render the cards on the agents
+    list without per-agent N+1.
+    """
+
+    scope_object = "agent_application"
+    scope_object_read_actions = ["stats", "live_sessions"]
+
+    @extend_schema(
+        operation_id="agent_fleet_stats",
+        parameters=[
+            OpenApiParameter(
+                "since",
+                OpenApiTypes.DATETIME,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_AGENT_AGGREGATE_STATS),
+        description="Roll-up stats across every agent owned by this team.",
+    )
+    @action(detail=False, methods=["get"], url_path="stats")
+    def stats(self, request: Request, **kwargs) -> Response:
+        try:
+            payload = _janitor().aggregate_for_team(
+                int(self.team_id),
+                since=request.query_params.get("since") or None,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_fleet_live_sessions",
+        parameters=[
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Cap on returned sessions (default 100, max 500).",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentFleetLiveSessionsResponse",
+                fields={
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentFleetLiveSessionSummary",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "application_id": drf_serializers.UUIDField(),
+                                "revision_id": drf_serializers.UUIDField(),
+                                "team_id": drf_serializers.IntegerField(),
+                                "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
+                                "external_key": drf_serializers.CharField(allow_null=True),
+                                "principal": _AGENT_SESSION_PRINCIPAL,
+                                "turns": drf_serializers.IntegerField(
+                                    help_text="Messages in the conversation so far.",
+                                ),
+                                "preview": drf_serializers.CharField(
+                                    allow_null=True,
+                                    help_text="Last assistant text (~120 chars). Null when no assistant turns yet.",
+                                ),
+                                "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                                "created_at": drf_serializers.DateTimeField(),
+                                "updated_at": drf_serializers.DateTimeField(),
+                            },
+                        ),
+                    ),
+                },
+            ),
+        ),
+        description="Live (non-terminal) sessions across every agent owned by this team, newest activity first.",
+    )
+    @action(detail=False, methods=["get"], url_path="live_sessions")
+    def live_sessions(self, request: Request, **kwargs) -> Response:
+        limit_param = request.query_params.get("limit")
+        try:
+            limit = int(limit_param) if limit_param is not None else None
+        except ValueError:
+            raise ValidationError("limit must be an integer")
+        try:
+            payload = _janitor().list_live_for_team(int(self.team_id), limit=limit)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
 
 
 # Suppress unused-import warning for the type re-export below.

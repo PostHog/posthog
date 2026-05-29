@@ -18,7 +18,7 @@ import {
     SessionAclEntry,
     SessionUsageTotal,
 } from '../spec/spec'
-import { ListSessionsOpts, SessionQueue } from './queue'
+import { AggregateStats, LIVE_SESSION_STATES, ListSessionsOpts, SessionQueue } from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
                      conversation, pending_inputs, principal, retry_count,
@@ -226,6 +226,62 @@ export class PgSessionQueue implements SessionQueue {
              ORDER BY updated_at ASC
              LIMIT $2`,
             [String(floorMaxAgeMs), limit]
+        )
+        return r.rows.map(rowToSession)
+    }
+
+    async aggregateForApplication(applicationId: string, since: string): Promise<AggregateStats> {
+        return await this.aggregate('application_id = $1', [applicationId], since)
+    }
+
+    async aggregateForTeam(teamId: number, since: string): Promise<AggregateStats> {
+        return await this.aggregate('team_id = $1', [teamId], since)
+    }
+
+    private async aggregate(scopeWhere: string, scopeParams: unknown[], since: string): Promise<AggregateStats> {
+        // Single round-trip — Postgres rolls everything up so we don't ship
+        // every row back to Node just to count it. `since` is positional so
+        // the same param fills `created_at >=` and the cost/failed filters.
+        const params = [...scopeParams, since, LIVE_SESSION_STATES]
+        const sinceIdx = scopeParams.length + 1
+        const liveStatesIdx = scopeParams.length + 2
+        const r = await this.pool.query<{
+            live_count: string
+            sessions_in_window: string
+            spend_in_window: string | null
+            failed_in_window: string
+            last_activity: Date | null
+        }>(
+            `SELECT
+                COUNT(*) FILTER (WHERE state = ANY($${liveStatesIdx}::text[]))::text AS live_count,
+                COUNT(*) FILTER (WHERE created_at >= $${sinceIdx})::text AS sessions_in_window,
+                COALESCE(SUM((usage_total->>'cost_total')::numeric)
+                    FILTER (WHERE created_at >= $${sinceIdx}), 0)::text AS spend_in_window,
+                COUNT(*) FILTER (WHERE created_at >= $${sinceIdx} AND state = 'failed')::text AS failed_in_window,
+                MAX(updated_at) AS last_activity
+             FROM agent_session
+             WHERE ${scopeWhere}`,
+            params
+        )
+        const row = r.rows[0]
+        return {
+            liveCount: Number(row?.live_count ?? 0),
+            sessionsInWindowCount: Number(row?.sessions_in_window ?? 0),
+            spendInWindowUsd: Number(row?.spend_in_window ?? 0),
+            failedInWindowCount: Number(row?.failed_in_window ?? 0),
+            lastActivityAt: row?.last_activity ? row.last_activity.toISOString() : null,
+        }
+    }
+
+    async listLiveForTeam(teamId: number, opts: { limit?: number } = {}): Promise<AgentSession[]> {
+        const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE team_id = $1 AND state = ANY($2::text[])
+             ORDER BY updated_at DESC
+             LIMIT $3`,
+            [teamId, LIVE_SESSION_STATES, limit]
         )
         return r.rows.map(rowToSession)
     }
