@@ -51,13 +51,19 @@ def _bot_definition_rows() -> list[tuple[int, int, str, list[str], list[str]]]:
     return rows
 
 
+def _escape_sql_string(s: str) -> str:
+    # Escape backslashes before quotes — ClickHouse treats \X as an escape sequence in string literals,
+    # so r"desktop\.hog\.dev" would silently become "desktop.hog.dev" (broader regex) without this.
+    return s.replace("\\", "\\\\").replace("'", "''")
+
+
 def _format_array(values: list[str]) -> str:
-    escaped = ", ".join(f"'{v.replace(chr(39), chr(39) + chr(39))}'" for v in values)
+    escaped = ", ".join(f"'{_escape_sql_string(v)}'" for v in values)
     return f"[{escaped}]"
 
 
 def _format_pattern(pattern: str) -> str:
-    return pattern.replace("'", "''")
+    return _escape_sql_string(pattern)
 
 
 BOT_DEFINITION_DATA_SQL = """
