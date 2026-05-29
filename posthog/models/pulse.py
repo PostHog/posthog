@@ -3,10 +3,6 @@ from django.db import models
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
-PULSE_ACTIVITY_SCOPE = "Pulse"
-PULSE_ACTIVITY_VERB = "surfaced"
-PULSE_DIGEST_READY_EVENT = "$pulse_digest_ready"
-
 
 class PulseDigestStatus(models.TextChoices):
     PENDING = "pending"
@@ -28,10 +24,25 @@ class PulseSubscriptionFrequency(models.TextChoices):
     DAILY = "daily"
 
 
-class PulseChannel(models.TextChoices):
-    IN_APP = "in_app"
-    SLACK = "slack"
-    EMAIL = "email"
+class DetectionMode(models.TextChoices):
+    CHANGE_V1 = "change_v1"
+    DISCOVERY = "discovery"  # v2 seam — rejected at API validation in v1
+
+
+class Sensitivity(models.TextChoices):
+    CONSERVATIVE = "conservative"
+    BALANCED = "balanced"
+    SENSITIVE = "sensitive"
+    CUSTOM = "custom"
+
+
+# Single source of truth for sensitivity → (min_change_pct, robust_z_threshold).
+# CUSTOM intentionally absent: it reads the subscription's own fields.
+SENSITIVITY_PRESETS: dict[str, tuple[float, float]] = {
+    Sensitivity.CONSERVATIVE: (0.40, 3.5),
+    Sensitivity.BALANCED: (0.25, 3.5),
+    Sensitivity.SENSITIVE: (0.15, 3.0),
+}
 
 
 class PulseDigest(CreatedMetaFields, UUIDTModel):
