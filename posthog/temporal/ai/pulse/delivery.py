@@ -1,81 +1,18 @@
-"""Delivery: persist findings to Postgres and emit CDP internal event + bell notifications."""
+"""Delivery: persist findings to Postgres, then fan out one in-app notification per team member."""
 
-import dataclasses
 from datetime import UTC, datetime
-from typing import Any
 
 from django.db import transaction
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-from posthog.exceptions_capture import capture_exception
-from posthog.models import PulseDigest, PulseFinding, PulseSubscription
-from posthog.models.activity_logging.activity_log import (
-    ActivityContextBase,
-    Detail,
-    LogActivityEntry,
-    bulk_log_activity,
-)
-from posthog.models.pulse import (
-    PULSE_ACTIVITY_SCOPE,
-    PULSE_ACTIVITY_VERB,
-    PULSE_DIGEST_READY_EVENT,
-    PulseDigestStatus,
-    PulseFindingFeedback,
-)
+from posthog.models import OrganizationMembership, PulseDigest, PulseFinding, PulseSubscription, Team
+from posthog.models.pulse import PulseDigestStatus, PulseFindingFeedback
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import EnrichedFinding
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclasses.dataclass(frozen=True)
-class PulseActivityContext(ActivityContextBase):
-    digest_id: str = ""
-    metric_label: str = ""
-    narrative: str = ""
-    current_value: float = 0.0
-    baseline_value: float = 0.0
-    change_pct: float = 0.0
-    z_score: float = 0.0
-    attribution_breakdown: dict[str, Any] | None = None
-
-
-def _emit_activity_log_entries(
-    team_id: int, digest_id: str, findings_with_ids: list[tuple[str, EnrichedFinding]]
-) -> None:
-    """One ActivityLog row per finding so the side-panel bell picks it up. Bulk-inserted."""
-    entries: list[LogActivityEntry] = [
-        LogActivityEntry(
-            organization_id=None,
-            team_id=team_id,
-            user=None,
-            was_impersonated=False,
-            item_id=finding_id,
-            scope=PULSE_ACTIVITY_SCOPE,
-            activity=PULSE_ACTIVITY_VERB,
-            detail=Detail(
-                name=finding.descriptor.label,
-                context=PulseActivityContext(
-                    digest_id=digest_id,
-                    metric_label=finding.descriptor.label,
-                    narrative=finding.narrative,
-                    current_value=finding.current_value,
-                    baseline_value=finding.baseline_value,
-                    change_pct=finding.change_pct,
-                    z_score=finding.z_score,
-                    attribution_breakdown=finding.attribution_breakdown,
-                ),
-            ),
-        )
-        for finding_id, finding in findings_with_ids
-    ]
-    try:
-        bulk_log_activity(entries)
-    except Exception:
-        logger.exception("pulse_activity_log_failed", team_id=team_id, digest_id=digest_id)
 
 
 def _persist_findings_sync(
@@ -116,36 +53,70 @@ def _persist_findings_sync(
         return [(str(row.id), f) for row, f in zip(created, findings)]
 
 
-def _emit_internal_event(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> None:
-    """Fire `$pulse_digest_ready` so CDP HogFunction destinations can route to Slack/email."""
-    try:
-        props = {
-            "digest_id": digest_id,
-            "finding_count": len(findings),
-            "findings": [
-                {
-                    "metric": f.descriptor.label,
-                    "narrative": f.narrative,
-                    "current_value": f.current_value,
-                    "baseline_value": f.baseline_value,
-                    "change_pct": f.change_pct,
-                    "z_score": f.z_score,
-                    "attribution": f.attribution_breakdown,
-                }
-                for f in findings
-            ],
-        }
-        produce_internal_event(
-            team_id=team_id,
-            event=InternalEventEvent(
-                event=PULSE_DIGEST_READY_EVENT,
-                distinct_id=f"team_{team_id}",
-                properties=props,
-            ),
+def _pulse_notification_title(findings: list[EnrichedFinding]) -> str:
+    top = findings[0]
+    direction = "up" if top.change_pct > 0 else "down"
+    headline = f"{top.descriptor.label} is {direction} {abs(top.change_pct):.0%}"
+    if len(findings) > 1:
+        headline += f" (+{len(findings) - 1} more)"
+    return headline[:255]
+
+
+def _dispatch_pulse_notifications(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> None:
+    """Fan out one in-app notification per team member for a delivered digest.
+
+    Idempotent: a Temporal retry that re-enters delivery re-checks has_been_dispatched
+    per recipient (keyed on digest_id) and skips anyone already notified.
+    """
+    # Lazy import: the pulse package is eagerly preloaded via posthog.api, and importing the
+    # notifications facade at module level triggers an app-init circular import. It resolves
+    # fine at activity-call time, matching the pattern in selection.py.
+    from products.notifications.backend.facade.api import (
+        NotificationData,
+        NotificationType,
+        Priority,
+        SourceType,
+        TargetType,
+        create_notification,
+        has_been_dispatched,
+    )
+
+    if not findings:
+        return
+
+    title = _pulse_notification_title(findings)
+    body = findings[0].narrative
+    source_url = f"/pulse?digest={digest_id}"
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return
+    member_ids = OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
+        "user_id", flat=True
+    )
+    for user_id in member_ids:
+        if has_been_dispatched(
+            notification_type=NotificationType.PULSE_DIGEST,
+            target_type=TargetType.USER,
+            target_id=str(user_id),
+            resource_id=digest_id,
+            source_id=digest_id,
+        ):
+            continue
+        create_notification(
+            NotificationData(
+                team_id=team_id,
+                notification_type=NotificationType.PULSE_DIGEST,
+                priority=Priority.NORMAL,
+                title=title,
+                body=body,
+                target_type=TargetType.USER,
+                target_id=str(user_id),
+                resource_id=digest_id,
+                source_url=source_url,
+                source_type=SourceType.PULSE,
+                source_id=digest_id,
+            )
         )
-    except Exception as e:
-        capture_exception(e, additional_properties={"feature": "pulse", "digest_id": digest_id})
-        logger.exception("pulse_emit_internal_event_failed", team_id=team_id, digest_id=digest_id)
 
 
 def _update_subscription_timestamps_sync(team_id: int) -> None:
@@ -165,5 +136,15 @@ def _persist_sync(team_id: int, digest_id: str, findings: list[EnrichedFinding])
 
 
 async def persist_findings(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> list[str]:
-    """Persist findings and mark the digest DELIVERED. Notification fan-out is a separate step (workstream E)."""
+    """Persist findings and mark the digest DELIVERED. Notification fan-out is a separate step."""
     return await _persist_sync(team_id, digest_id, findings)
+
+
+async def notify_digest(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> None:
+    """Fan out in-app notifications for a delivered digest.
+
+    Runs after persist_findings so a rolled-back persist never produces orphan notifications.
+    create_notification defers the Kafka publish to on_commit, so the row write and the
+    notification stay consistent.
+    """
+    await database_sync_to_async(_dispatch_pulse_notifications)(team_id, digest_id, findings)

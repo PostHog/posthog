@@ -12,7 +12,7 @@ from posthog.models.pulse import PulseDigestStatus, PulseSubscription
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse import metrics
-from posthog.temporal.ai.pulse.delivery import persist_findings
+from posthog.temporal.ai.pulse.delivery import notify_digest, persist_findings
 from posthog.temporal.ai.pulse.detection import detect_changes
 from posthog.temporal.ai.pulse.narrative import enrich_findings
 from posthog.temporal.ai.pulse.selection import select_candidates
@@ -101,6 +101,16 @@ async def enrich_findings_activity(inputs: EnrichFindingsInputs) -> list[Enriche
 @activity.defn
 async def persist_findings_activity(inputs: DeliverDigestInputs) -> list[str]:
     return await persist_findings(
+        team_id=inputs.team_id,
+        digest_id=inputs.digest_id,
+        findings=inputs.findings,
+    )
+
+
+@activity.defn
+async def notify_digest_activity(inputs: DeliverDigestInputs) -> None:
+    """Fan out one in-app notification per team member. Idempotent across Temporal retries."""
+    await notify_digest(
         team_id=inputs.team_id,
         digest_id=inputs.digest_id,
         findings=inputs.findings,
@@ -260,6 +270,19 @@ class PulseScanWorkflow(PostHogWorkflow):
 
             await workflow.execute_activity(
                 persist_findings_activity,
+                DeliverDigestInputs(
+                    team_id=inputs.team_id,
+                    digest_id=digest_id,
+                    findings=enriched,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=retry_policy,
+            )
+
+            # Notify AFTER persist so a rolled-back persist never produces orphan notifications.
+            # The fan-out is idempotent per recipient, so a retry past this point is safe.
+            await workflow.execute_activity(
+                notify_digest_activity,
                 DeliverDigestInputs(
                     team_id=inputs.team_id,
                     digest_id=digest_id,
