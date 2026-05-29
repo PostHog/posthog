@@ -28,15 +28,16 @@ jobs:
                   owner: PostHog
                   repositories: posthog-foss
 
-            # blob:none skips historical blobs (avoids a full-history clone); the full
-            # commit graph keeps pushes connected. Lazy blob fetches need origin auth,
-            # so persist-credentials stays default-on.
+            # blob:none avoids a full-history clone; full commit graph keeps pushes connected.
+            # persist-credentials:false so checkout's default-token auth header doesn't shadow
+            # the app token we push with (posthog is public, so lazy blob fetches still work).
             - name: Checkout posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
                   fetch-tags: true
+                  persist-credentials: false
 
             # Stage on a branch, not master, so master never momentarily exposes raw
             # posthog (ee/, non-MIT LICENSE) before the FOSS cleanup commit lands.
