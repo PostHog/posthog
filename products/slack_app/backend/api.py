@@ -1491,7 +1491,10 @@ def route_posthog_code_event_to_relevant_region(
     incoming_host = request.get_host()
     proxied = _was_proxied(request)
     other_domain = _other_region_domain(incoming_host)
-    can_defer_to_other_region = not _is_us_host(incoming_host) and not proxied
+    # In local dev we run a single instance, so cross-region routing is meaningless: the only
+    # consumer is this process. Disable both the probe and the proxy hop and always handle
+    # locally.
+    can_defer_to_other_region = not _is_us_host(incoming_host) and not proxied and not settings.DEBUG
 
     logger.info(
         "posthog_code_route_enter",
@@ -1507,12 +1510,6 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
-
-    # In local dev we run a single instance pretending to be both regions: forcing one proxy hop
-    # on the original delivery exercises the at-most-one-hop guarantee end-to-end against the
-    # same process. The loop header makes the second hop run the normal logic.
-    if settings.DEBUG and not proxied:
-        return _proxy_event_and_return_route(request, other_domain)
 
     if event_type == "app_mention":
         ignore_reason = _app_mention_ignore_reason(event)
@@ -1608,8 +1605,11 @@ def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: b
 def _route_to_other_region_or_drop(
     request: HttpRequest, slack_team_id: str, *, proxied: bool, other_domain: str
 ) -> str:
-    """No local match: either forward to the other region or drop if we are the second hop."""
-    if proxied:
+    """No local match: either forward to the other region or drop if we are the second hop.
+
+    In local dev there is no other region to forward to, so we just record the miss and stop.
+    """
+    if proxied or settings.DEBUG:
         logger.warning(
             "posthog_code_no_integration_found",
             slack_team_id=slack_team_id,
@@ -2158,9 +2158,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         proxied=proxied,
     )
 
-    if not local and not proxied:
+    if not local and not proxied and not settings.DEBUG:
         # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
         # nothing new — just forward to the other region. The loop header keeps us at one hop.
+        # Skipped in local dev where there is only one region to talk to.
         target = _other_region_domain(incoming_host)
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
