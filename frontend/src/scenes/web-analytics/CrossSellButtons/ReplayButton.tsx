@@ -1,8 +1,42 @@
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+} from '~/types'
+
+/**
+ * Build a property filter for a breakdown value. When the value is the
+ * BREAKDOWN_NULL_DISPLAY placeholder ("(none)"), the property isn't literally
+ * set to "(none)" — it just isn't set — so use IsNotSet instead of an exact
+ * match.
+ */
+const buildBreakdownPropertyFilter = (
+    key: string,
+    type: PropertyFilterType.Event | PropertyFilterType.Session | PropertyFilterType.Person,
+    value: string
+): AnyPropertyFilter => {
+    if (value === BREAKDOWN_NULL_DISPLAY) {
+        return {
+            key,
+            type,
+            value: null,
+            operator: PropertyOperator.IsNotSet,
+        } as AnyPropertyFilter
+    }
+    return {
+        key,
+        type,
+        value: [value],
+        operator: PropertyOperator.Exact,
+    } as AnyPropertyFilter
+}
 
 /**
  * Map breakdown types to their corresponding property filter type
@@ -127,24 +161,21 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                     {
                         type: FilterLogicalOperator.And,
                         values: [
-                            {
-                                key: '$entry_utm_source',
-                                type: PropertyFilterType.Session,
-                                value: [values[0] || ''],
-                                operator: PropertyOperator.Exact,
-                            },
-                            {
-                                key: '$entry_utm_medium',
-                                type: PropertyFilterType.Session,
-                                value: [values[1] || ''],
-                                operator: PropertyOperator.Exact,
-                            },
-                            {
-                                key: '$entry_utm_campaign',
-                                type: PropertyFilterType.Session,
-                                value: [values[2] || ''],
-                                operator: PropertyOperator.Exact,
-                            },
+                            buildBreakdownPropertyFilter(
+                                '$entry_utm_source',
+                                PropertyFilterType.Session,
+                                values[0] ?? BREAKDOWN_NULL_DISPLAY
+                            ),
+                            buildBreakdownPropertyFilter(
+                                '$entry_utm_medium',
+                                PropertyFilterType.Session,
+                                values[1] ?? BREAKDOWN_NULL_DISPLAY
+                            ),
+                            buildBreakdownPropertyFilter(
+                                '$entry_utm_campaign',
+                                PropertyFilterType.Session,
+                                values[2] ?? BREAKDOWN_NULL_DISPLAY
+                            ),
                         ],
                     },
                 ],
@@ -203,14 +234,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
             values: [
                 {
                     type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            key: key,
-                            type: type,
-                            value: [value],
-                            operator: PropertyOperator.Exact,
-                        },
-                    ],
+                    values: [buildBreakdownPropertyFilter(key, type, value)],
                 },
             ],
         },

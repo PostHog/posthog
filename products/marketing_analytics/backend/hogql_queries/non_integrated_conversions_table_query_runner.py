@@ -82,6 +82,7 @@ class NonIntegratedConversionsTableQueryRunner(
             query_type="non_integrated_conversions_table_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

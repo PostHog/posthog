@@ -1,12 +1,17 @@
 {
     "name": "@posthog/products-product-analytics",
     "scripts": {
-        "backend:test": "echo 'No backend tests'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@testing-library/react": "*"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

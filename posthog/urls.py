@@ -31,12 +31,12 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_callback.personal_finish import github_link_complete
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.user_integration import github_link_complete
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -47,6 +47,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
@@ -57,7 +58,7 @@ from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
 from products.surveys.backend.api.survey import public_survey_page
-from products.user_interviews.backend.webhooks import (
+from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
@@ -272,6 +273,10 @@ urlpatterns = [
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
+    path(
+        "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
+    ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -407,6 +412,20 @@ urlpatterns = [
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
 
+# Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
+# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
+# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
+# the catch-all matches first and the redirect is unreachable.
+if settings.CLOUD_DEPLOYMENT == "EU":
+    urlpatterns.insert(
+        0,
+        path(
+            "api/llm_analytics/@me/spend/",
+            personal_spend_eu_redirect,
+            name="personal_spend_eu_redirect",
+        ),
+    )
+
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
@@ -463,6 +482,7 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     "verify_email",
+    r"agentic/account-mismatch",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

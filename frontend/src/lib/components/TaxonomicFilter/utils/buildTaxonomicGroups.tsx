@@ -7,8 +7,7 @@ import {
     buildAutocaptureSeriesShortcuts,
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
     DataWarehousePopoverField,
     SimpleOption,
@@ -470,7 +469,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 .filter(
                     (o) => !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(o.value)
                 ),
-            getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+            getIcon: getRevenueAnalyticsDefinitionIcon,
             getName: (option: PropertyDefinition) => {
                 const coreDefinition = getCoreFilterDefinition(
                     option.id,
@@ -489,7 +488,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Logs',
             searchPlaceholder: 'logs',
             type: TaxonomicFilterGroupType.Logs,
-            options: [{ key: 'message', name: 'Message', propertyFilterType: 'log' }],
+            options: [
+                { key: 'message', name: 'message', propertyFilterType: 'log' },
+                { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
+                { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
+                { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
+            ],
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items
@@ -784,7 +788,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.Persons,
             endpoint: `api/environments/${teamId}/persons/`,
             getName: (person: PersonType) => person.name || 'Anon user?',
-            getValue: (person: PersonType) => person.distinct_ids[0],
+            getValue: (person: PersonType) => person.distinct_ids?.[0],
             getPopoverHeader: () => `Person`,
         },
         {
@@ -996,32 +1000,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 'name' in item ? (item.name ?? null) : null,
             getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
         },
-        {
-            name: 'Recent',
-            searchPlaceholder: 'recent',
-            type: TaxonomicFilterGroupType.RecentFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: recentTaxonomicFiltersLogic,
-            value: 'recentFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Recent',
-        } as TaxonomicFilterGroup,
-        {
-            name: 'Pinned',
-            searchPlaceholder: 'pinned',
-            type: TaxonomicFilterGroupType.PinnedFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: taxonomicFilterPinnedPropertiesLogic,
-            value: 'pinnedFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Pinned',
-        } as TaxonomicFilterGroup,
+        ...RECENT_PINNED_TAB_DEFINITIONS,
         ...groupAnalyticsTaxonomicGroups,
         ...groupAnalyticsTaxonomicGroupNames,
     ]

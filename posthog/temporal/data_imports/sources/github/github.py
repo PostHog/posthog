@@ -2,7 +2,7 @@ import re
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -44,6 +44,16 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
+    # workflow_runs has a different param surface: it accepts neither
+    # state/sort/direction nor `since`, and always returns newest-first by
+    # created_at. We intentionally send no time filter either — its `created`
+    # filter would cap the result set to GitHub's 1,000-result search limit and
+    # silently drop rows on busy repos. Incremental sync is handled instead by
+    # paginating newest-first and stopping at the cursor (see get_rows), so the
+    # request stays a plain paged read regardless of incremental state.
+    if endpoint == "workflow_runs":
+        return {"per_page": config.page_size}
+
     params: dict[str, Any] = {
         "per_page": config.page_size,
         "state": "all",
@@ -77,6 +87,29 @@ def _build_initial_url(config: GithubEndpointConfig, repository: str, params: di
     if not params:
         return f"{GITHUB_BASE_URL}{path}"
     return f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
+
+
+def _resolve_sort_mode(
+    config: GithubEndpointConfig,
+    endpoint: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Literal["asc", "desc"]:
+    """The order rows are actually emitted in. SourceResponse.sort_mode must
+    match this, otherwise the pipeline persists the cursor watermark assuming
+    the wrong direction (e.g. advancing past unread older rows).
+
+    Most endpoints emit asc on the first sync / full refresh (stable offset
+    pagination via sort=created&direction=asc) and only flip to their
+    configured sort once a cutoff exists. workflow_runs is different: it ignores
+    sort/direction and always returns newest-first, so it emits desc on every
+    sync — including the first.
+    """
+    if endpoint == "workflow_runs":
+        return config.sort_mode
+    if should_use_incremental_field and db_incremental_field_last_value:
+        return config.sort_mode
+    return "asc"
 
 
 def _get_headers(access_token: str, endpoint: str) -> dict[str, str]:
@@ -246,9 +279,9 @@ def get_rows(
     headers = _get_headers(personal_access_token, endpoint)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
-    # Only use the endpoint's configured sort mode when we actually have a cutoff;
-    # otherwise the full refresh uses asc for stable offset pagination.
-    actual_sort_mode = config.sort_mode if should_use_incremental_field and db_incremental_field_last_value else "asc"
+    actual_sort_mode = _resolve_sort_mode(
+        config, endpoint, should_use_incremental_field, db_incremental_field_last_value
+    )
 
     stop_field: str | None = None
     stop_cutoff: Any = None
@@ -292,7 +325,10 @@ def get_rows(
         response = fetch_page(url)
 
         data = response.json()
-        # GitHub list endpoints return a JSON array at the top level.
+        # Most GitHub list endpoints return a JSON array at the top level,
+        # but some (e.g. /actions/runs) wrap results in {"<resource>": [...]}.
+        if config.response_data_path and isinstance(data, dict):
+            data = data.get(config.response_data_path, [])
         if not isinstance(data, list) or not data:
             break
 
@@ -343,8 +379,8 @@ def github_source(
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
-    actual_sort_mode = (
-        endpoint_config.sort_mode if should_use_incremental_field and db_incremental_field_last_value else "asc"
+    actual_sort_mode = _resolve_sort_mode(
+        endpoint_config, endpoint, should_use_incremental_field, db_incremental_field_last_value
     )
 
     return SourceResponse(

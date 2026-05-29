@@ -1,8 +1,6 @@
 # Contributing to hog-charts
 
-For people working on the library itself — adding a chart type, adjusting the
-draw loop, extending overlays. If you're embedding a chart in product code,
-read the [README](../README.md) instead.
+For people working on the library itself — adding a chart type, adjusting the draw loop, extending overlays. If you're embedding a chart in product code, read the [README](../README.md) instead.
 
 ## Layers
 
@@ -15,29 +13,18 @@ read the [README](../README.md) instead.
 
 Where new code goes:
 
-- Pure geometry (scales, layouts) → `core/scales.ts`, `core/bar-layout.ts`,
-  or a sibling. Test these directly under `core/`.
+- Pure geometry (scales, layouts) → `core/scales.ts`, `core/bar-layout.ts`, or a sibling. Test these directly under `core/`.
 - Drawing primitives → `core/canvas-renderer.ts`. Stateless, no React.
 - Chart-type React → `charts/<name>/<Name>.tsx`.
-- DOM overlays → `overlays/<Name>.tsx`. Read context via `useChartLayout()`
-  / `useChartHover()`.
+- DOM overlays → `overlays/<Name>.tsx`. Read context via `useChartLayout()` / `useChartHover()`.
 
 ## Conventions
 
-- **No kea, no PostHog imports.** Theme, colors, and data are passed in as
-  props. The library has no app dependencies — it's used by trends but
-  shouldn't know about them.
-- **`ChartScales` must not expose d3 types.** Public interface is
-  `x(label) => px`, `y(value) => px`, `yTicks() => number[]`. d3 stays
-  inside the chart-type's `createScales`.
-- **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`,
-  no React or side effects. State lives in React; drawing reads it.
-- **Overlays use the granular hooks.** `useChartLayout()` doesn't re-render
-  on hover; `useChartHover()` does. Use `useChart()` only when an overlay
-  genuinely needs both — it re-renders on every mousemove.
-- **Pure logic is tested at the `core/` layer.** Chart-level tests assert on
-  the rendered DOM through the `HogChart` accessor — see
-  [TESTING.md](./TESTING.md).
+- **No kea, no PostHog imports.** Theme, colors, and data are passed in as props. The library has no app dependencies — it's used by trends but shouldn't know about them.
+- **`ChartScales` must not expose d3 types.** Public interface is `x(label) => px`, `y(value) => px`, `yTicks() => number[]`. d3 stays inside the chart-type's `createScales`.
+- **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no React or side effects. State lives in React; drawing reads it.
+- **Overlays use the granular hooks.** `useChartLayout()` doesn't re-render on hover; `useChartHover()` does. Use `useChart()` only when an overlay genuinely needs both — it re-renders on every mousemove.
+- **Pure logic is tested at the `core/` layer.** Chart-level tests assert on the rendered DOM through the `HogChart` accessor — see [TESTING.md](./TESTING.md).
 
 ## Adding a new chart type
 

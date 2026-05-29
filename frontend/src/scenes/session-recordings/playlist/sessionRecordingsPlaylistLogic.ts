@@ -25,7 +25,7 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isString, objectClean, objectsEqual } from 'lib/utils'
+import { isString, objectClean, objectsEqual, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
@@ -51,6 +51,7 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
+    SavedSessionRecordingPlaylistsResult,
     SessionRecordingId,
     SessionRecordingType,
     UniversalFilterValue,
@@ -607,7 +608,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
-        setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
+        setIsAddToCollectionModalOpen: (isAddToCollectionModalOpen: boolean) => ({ isAddToCollectionModalOpen }),
+        setAddToCollectionSearch: (addToCollectionSearch: string) => ({ addToCollectionSearch }),
+        setIsCreatingNewCollectionInModal: (isCreatingNewCollectionInModal: boolean) => ({
+            isCreatingNewCollectionInModal,
+        }),
         setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
         handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
         handleBulkMarkAsViewed: (shortId?: string) => ({ shortId }),
@@ -716,6 +721,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         order: params.order,
                         order_direction: params.order_direction,
                     }
+                },
+            },
+        ],
+        collectionsForBulkAdd: [
+            { results: [], count: 0 } as SavedSessionRecordingPlaylistsResult,
+            {
+                loadCollectionsForBulkAdd: async (_, breakpoint) => {
+                    const response = await api.recordings.listPlaylists(
+                        toParams({
+                            limit: 30,
+                            order: '-last_modified_at',
+                            type: 'collection',
+                            search: values.addToCollectionSearch || undefined,
+                        })
+                    )
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -885,16 +907,34 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
             },
         ],
-        isNewCollectionDialogOpen: [
+        isAddToCollectionModalOpen: [
             false,
             {
-                setIsNewCollectionDialogOpen: (_, { isNewCollectionDialogOpen }) => isNewCollectionDialogOpen,
+                setIsAddToCollectionModalOpen: (_, { isAddToCollectionModalOpen }) => isAddToCollectionModalOpen,
+            },
+        ],
+        addToCollectionSearch: [
+            '',
+            {
+                setAddToCollectionSearch: (_, { addToCollectionSearch }) => addToCollectionSearch,
+                setIsAddToCollectionModalOpen: () => '',
+            },
+        ],
+        isCreatingNewCollectionInModal: [
+            false,
+            {
+                setIsCreatingNewCollectionInModal: (_, { isCreatingNewCollectionInModal }) =>
+                    isCreatingNewCollectionInModal,
+                setIsAddToCollectionModalOpen: () => false,
             },
         ],
         newCollectionName: [
             '',
             {
                 setNewCollectionName: (_, { newCollectionName }) => newCollectionName,
+                setIsAddToCollectionModalOpen: () => '',
+                setIsCreatingNewCollectionInModal: (state, { isCreatingNewCollectionInModal }) =>
+                    isCreatingNewCollectionInModal ? state : '',
             },
         ],
     })),
@@ -1233,10 +1273,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             if (newPlaylist) {
                 actions.handleBulkAddToPlaylist(newPlaylist.short_id)
-                actions.setIsNewCollectionDialogOpen(false)
-                actions.setNewCollectionName('')
+                actions.setIsAddToCollectionModalOpen(false)
                 onSuccess()
             }
+        },
+        setIsAddToCollectionModalOpen: ({ isAddToCollectionModalOpen }) => {
+            if (isAddToCollectionModalOpen) {
+                actions.loadCollectionsForBulkAdd(null)
+            }
+        },
+        setAddToCollectionSearch: async (_, breakpoint) => {
+            await breakpoint(200)
+            actions.loadCollectionsForBulkAdd(null)
         },
         handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
             await lemonToast.promise(

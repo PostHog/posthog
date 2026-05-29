@@ -115,7 +115,8 @@ class TestBedrockSpecific:
         "model,expected_litellm_model",
         [
             pytest.param("claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="anthropic_name_mapped"),
-            pytest.param("claude-opus-4-7", "bedrock/us.anthropic.claude-opus-4-7-v1", id="opus_4_7_inference_profile"),
+            pytest.param("claude-opus-4-7", "bedrock/us.anthropic.claude-opus-4-7", id="opus_4_7_inference_profile"),
+            pytest.param("claude-opus-4-8", "bedrock/us.anthropic.claude-opus-4-8", id="opus_4_8_inference_profile"),
             pytest.param(
                 "us.anthropic.claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="already_bedrock_id"
             ),
@@ -133,7 +134,7 @@ class TestBedrockSpecific:
         expected_litellm_model: str,
     ) -> None:
         # Regression: litellm needs the "bedrock/" prefix to route requests; without
-        # it, regional inference profile ids (e.g. "us.anthropic.claude-opus-4-7-v1")
+        # it, regional inference profile ids (e.g. "us.anthropic.claude-opus-4-7")
         # don't match litellm's pattern matchers and the request 400s with
         # "LLM Provider NOT provided" before leaving the gateway.
         mock_response = MagicMock()

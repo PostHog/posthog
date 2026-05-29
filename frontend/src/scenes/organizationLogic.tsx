@@ -27,6 +27,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_invite'
         | 'members_can_use_personal_api_keys'
         | 'is_ai_data_processing_approved'
+        | 'is_ai_training_opted_in'
         | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
@@ -182,6 +183,10 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
+        },
+        updateOrganizationFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            lemonToast.error(`Failed to update organization: ${apiError?.detail || error || 'Unknown error'}`)
         },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {

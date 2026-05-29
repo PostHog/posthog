@@ -117,6 +117,38 @@ def test_requiring_query_orchestration(
     assert res == result
 
 
+@pytest.mark.parametrize(
+    "math_hogql",
+    [
+        "avg((properties.duration_seconds)/60) as avg_duration_mins",
+        "avg((properties.duration_seconds)/60) AS avg_duration_mins",
+        "sum(properties.amount) as total_amount",
+    ],
+)
+@pytest.mark.django_db
+def test_hogql_math_strips_outer_user_alias(math_hogql: str):
+    """The user's outer alias on a `math=hogql` expression is shadowed by the downstream
+    `AS total` wrap. Leaving it in place causes ClickHouse's new analyzer to reject the
+    query with MULTIPLE_EXPRESSIONS_FOR_ALIAS (code 179) because `ORDER BY total` expands
+    into a copy of the SELECT expression with the inner alias stripped, producing two
+    AST-different `AS total` projections.
+    """
+    team = Team()
+    series = EventsNode(event="$pageview", math="hogql", math_hogql=math_hogql)
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.select_aggregation()
+
+    assert isinstance(result, ast.Call)
+    assert result.name == "ifNull"
+    to_float = result.args[0]
+    assert isinstance(to_float, ast.Call)
+    assert to_float.name == "toFloat"
+    # The expression inside toFloat must NOT be an Alias; the user's `as foo` is stripped.
+    assert not isinstance(to_float.args[0], ast.Alias)
+
+
 @pytest.mark.django_db
 def test_math_multiplier_with_sum():
     team = Team()

@@ -57,7 +57,7 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
-// Builds the resolver mcp.ts hands to initPostHogMcpAnalytics in single-exec
+// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
 // mode: given a request, return the inner tool's { name, description } when
 // the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
 // here (alongside parseExecCallInnerToolName) so tests can import the exact
@@ -202,8 +202,12 @@ export function createExecTool(
                         return fullOutput
                     }
 
-                    // Schema too large — return summary with drill-down hints
-                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
+                    // Schema too large — return summary with drill-down hints.
+                    // Each complex field's `hint` carries the imperative to run
+                    // `schema` before populating it, so no separate directive is
+                    // needed here.
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    return serialize(topShape, summary)
                 }
 
                 case 'schema': {
@@ -215,6 +219,9 @@ export function createExecTool(
                     const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
 
                     if (!fieldPath) {
+                        // The bare `schema <tool>` view is always a summary. Any
+                        // field that still needs drilling carries the imperative
+                        // in its own `hint`, so the summary stands on its own.
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
@@ -232,10 +239,12 @@ export function createExecTool(
                         return serialized
                     }
 
-                    // Field schema too large — return summary with sub-path hints
+                    // Field schema too large — return a summary instead. The
+                    // summary's complex sub-fields carry the drill-down `hint`,
+                    // so the response shape stays the same as the inline case
+                    // (`{ field, schema }`) — no separate top-level note.
                     return JSON.stringify({
                         field: fieldPath,
-                        note: `Full schema is ${Math.ceil(serialized.length / 6000)}k+ tokens. Showing summary. Drill into sub-fields for details.`,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
                 }
@@ -301,9 +310,9 @@ export function createExecTool(
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `undefined` bypasses the coding-agent suppression in
+                                // Passing `false` bypasses coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.
-                                clientName: undefined,
+                                suppressStructuredContentForFormattedResults: false,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

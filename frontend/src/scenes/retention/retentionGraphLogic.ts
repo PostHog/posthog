@@ -47,14 +47,15 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 retentionFilter: RetentionFilter | null | undefined,
                 isPropertyValueAggregation: boolean
             ): RetentionTrendPayload[] => {
-                const { period } = retentionFilter || {}
+                const { period, cohortLabelStartIndex } = retentionFilter || {}
+                const offset = cohortLabelStartIndex ?? 0
 
                 return results.map((cohortRetention: ProcessedRetentionPayload, datasetIndex) => {
                     return {
                         ...cohortRetention,
                         id: datasetIndex,
                         days: cohortRetention.values.map((value) => value.cellDate.toISOString()),
-                        labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
+                        labels: cohortRetention.values.map((_, index) => `${period} ${index + offset}`),
                         count: 0,
                         label: formatRetentionCohortLabel(cohortRetention, period),
                         data: cohortRetention.values.map((value) =>
@@ -229,7 +230,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         return []
                     }
 
-                    const { period } = retentionFilter || {}
+                    const { period, cohortLabelStartIndex } = retentionFilter || {}
+                    const offset = cohortLabelStartIndex ?? 0
                     const meanSeries: RetentionTrendPayload[] = []
                     let seriesId = 0
 
@@ -241,7 +243,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         }
 
                         const numIntervals = meanData.meanPercentages.length
-                        const days = Array.from({ length: numIntervals }, (_, i) => `${period} ${i}`)
+                        const days = Array.from({ length: numIntervals }, (_, i) => `${period} ${i + offset}`)
 
                         // Use centralized breakdown display names
                         const displayLabel = breakdownDisplayNames[String(meanData.label ?? '')] || meanData.label
@@ -280,7 +282,8 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 if (!retentionFilter || !results) {
                     return []
                 }
-                const { period, retentionCustomBrackets, selectedInterval } = retentionFilter
+                const { period, retentionCustomBrackets, selectedInterval, cohortLabelStartIndex } = retentionFilter
+                const offset = cohortLabelStartIndex ?? 0
 
                 // When an interval is selected, show cohort dates on x-axis
                 if (selectedInterval !== null && selectedInterval !== undefined) {
@@ -296,11 +299,11 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 const unit = dateOptionPlurals[period || 'Day']
 
                 if (retentionCustomBrackets) {
-                    const labels = [`${period || 'Day'} 0`]
+                    const labels = [`${period || 'Day'} ${offset}`]
                     let cumulativeTotal = 1
                     for (const bracketSize of retentionCustomBrackets) {
-                        const start = cumulativeTotal
-                        const end = cumulativeTotal + bracketSize - 1
+                        const start = cumulativeTotal + offset
+                        const end = cumulativeTotal + bracketSize - 1 + offset
                         if (start === end) {
                             labels.push(`${unit} ${start}`)
                         } else {
@@ -310,7 +313,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     }
                     return labels
                 }
-                return results?.[0]?.values.map((_, i) => `${period} ${i}`)
+                return results?.[0]?.values.map((_, i) => `${period} ${i + offset}`)
             },
         ],
     }),

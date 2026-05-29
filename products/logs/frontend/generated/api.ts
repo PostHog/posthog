@@ -33,11 +33,9 @@ import type {
     PaginatedLogsAlertEventListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
-    PaginatedPluginLogEntryListApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
-    PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -748,38 +746,6 @@ export const logsValuesRetrieve = async (
     options?: RequestInit
 ): Promise<_LogsValuesResponseApi> => {
     return apiMutator<_LogsValuesResponseApi>(getLogsValuesRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPluginConfigsLogsListUrl = (
-    projectId: string,
-    pluginConfigId: number,
-    params?: PluginConfigsLogsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
-}
-
-export const pluginConfigsLogsList = async (
-    projectId: string,
-    pluginConfigId: number,
-    params?: PluginConfigsLogsListParams,
-    options?: RequestInit
-): Promise<PaginatedPluginLogEntryListApi> => {
-    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
         ...options,
         method: 'GET',
     })

@@ -23,17 +23,28 @@ class CupedQueryConfig:
     lookback_days: int = DEFAULT_CUPED_LOOKBACK_DAYS
 
 
-def _parse_lookback_days(value: Any) -> int:
+def _parse_lookback_days(value: Any, fallback: int = DEFAULT_CUPED_LOOKBACK_DAYS) -> int:
     try:
         days = int(value)
     except (TypeError, ValueError):
-        return DEFAULT_CUPED_LOOKBACK_DAYS
+        return fallback
 
     if days < MIN_CUPED_LOOKBACK_DAYS:
         return MIN_CUPED_LOOKBACK_DAYS
     if days > MAX_CUPED_LOOKBACK_DAYS:
         return MAX_CUPED_LOOKBACK_DAYS
     return days
+
+
+def _resolve_lookback_days(experiment_value: Any, team_default: Any) -> int:
+    """Resolve lookback days using precedence: experiment value > team default > hardcoded default.
+
+    Invalid values at either level fall through to the next level rather than failing.
+    """
+    team_fallback = _parse_lookback_days(team_default) if team_default is not None else DEFAULT_CUPED_LOOKBACK_DAYS
+    if experiment_value is None:
+        return team_fallback
+    return _parse_lookback_days(experiment_value, fallback=team_fallback)
 
 
 def _metric_supports_cuped(metric: object) -> bool:
@@ -59,16 +70,27 @@ def _metric_supports_cuped(metric: object) -> bool:
     return False
 
 
-def get_cuped_config(stats_config: dict | None, metric: object) -> CupedQueryConfig:
+def get_cuped_config(
+    stats_config: dict | None,
+    metric: object,
+    team_default_enabled: bool = False,
+    team_default_lookback_days: int | None = None,
+) -> CupedQueryConfig:
     if not _metric_supports_cuped(metric):
         return CupedQueryConfig()
 
     cuped_config = (stats_config or {}).get("cuped") or {}
-    enabled = bool(cuped_config.get("enabled", False))
+    # Distinguish "experiment hasn't set this" from "experiment explicitly disabled it":
+    # only the latter should override a team default of `True`.
+    if "enabled" in cuped_config:
+        enabled = bool(cuped_config["enabled"])
+    else:
+        enabled = team_default_enabled
+
     if not enabled:
         return CupedQueryConfig()
 
     return CupedQueryConfig(
         enabled=True,
-        lookback_days=_parse_lookback_days(cuped_config.get("lookback_days", DEFAULT_CUPED_LOOKBACK_DAYS)),
+        lookback_days=_resolve_lookback_days(cuped_config.get("lookback_days"), team_default_lookback_days),
     )

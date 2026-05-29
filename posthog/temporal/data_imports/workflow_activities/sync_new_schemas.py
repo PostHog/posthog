@@ -10,8 +10,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.sources import SourceRegistry
 
 from products.data_warehouse.backend.data_load.service import delete_discover_schemas_schedule
-from products.data_warehouse.backend.models import ExternalDataSource, sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
 

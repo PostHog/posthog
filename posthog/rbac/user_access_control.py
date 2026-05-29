@@ -85,9 +85,15 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "llm_skill": "llm_analytics",
+    "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "dashboard_template": "dashboard",
+    # Marketing analytics doesn't have its own RBAC resource yet — inherit from
+    # web_analytics so the existing per-team controls actually gate it (matches
+    # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
+    # AccessControlResourceType.WebAnalytics).
+    "marketing_analytics": "web_analytics",
 }
 
 tracer = trace.get_tracer(__name__)
@@ -295,8 +301,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
-    if name in ("replaylens", "replayobservation"):
-        return "replay_lens"
+    if name in ("replayscanner", "replayobservation"):
+        return "replay_scanner"
     if name == "deploymentproject":
         # DeploymentProject + Deployment share the `deployment` scope/resource
         # so RBAC checks (scope, queryset filter, object-level) fire for both

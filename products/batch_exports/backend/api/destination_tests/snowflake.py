@@ -8,6 +8,12 @@ from products.batch_exports.backend.api.destination_tests.base import (
     Status,
 )
 
+# Pin Snowflake's per-session statement count to 1 to block multi-statement
+# execution. This is already the connector default, but setting it explicitly
+# means an account-level override cannot accidentally enable multi-statement
+# execution.
+_SNOWFLAKE_SESSION_PARAMETERS: dict[str, str | int] = {"MULTI_STATEMENT_COUNT": 1}
+
 
 def try_load_private_key(
     private_key: str | None = None, private_key_passphrase: str | None = None
@@ -90,6 +96,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
                 private_key=private_key,
                 # wrap role in quotes in case it contains lowercase or special characters
                 role=f'"{self.role}"' if self.role is not None else None,
+                session_parameters=_SNOWFLAKE_SESSION_PARAMETERS,
             )
         except (OperationalError, InterfaceError, DatabaseError) as err:
             if err.msg is not None and "404 Not Found" in err.msg:
@@ -172,6 +179,7 @@ class SnowflakeWarehouseTestStep(DestinationTestStep):
             account=self.account,
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
+            session_parameters=_SNOWFLAKE_SESSION_PARAMETERS,
         )
 
         with connection.cursor() as cursor:
@@ -261,6 +269,7 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
             warehouse=self.warehouse,
+            session_parameters=_SNOWFLAKE_SESSION_PARAMETERS,
         )
 
         with connection:
@@ -355,6 +364,7 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
             private_key=private_key,
             role=f'"{self.role}"' if self.role is not None else None,
             warehouse=self.warehouse,
+            session_parameters=_SNOWFLAKE_SESSION_PARAMETERS,
         )
 
         with connection:

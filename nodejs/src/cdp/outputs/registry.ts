@@ -1,4 +1,4 @@
-import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../../ingestion/common/outputs'
+import { APP_METRICS_OUTPUT, HOG_INVOCATION_RESULTS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../../ingestion/common/outputs'
 import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
 import {
     BATCH_HOGFLOW_REQUESTS_OUTPUT,
@@ -29,6 +29,10 @@ export function createCdpOutputsRegistry() {
         .register(LOG_ENTRIES_OUTPUT, {
             topicKey: 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC',
             producerKey: 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER',
+        })
+        .register(HOG_INVOCATION_RESULTS_OUTPUT, {
+            topicKey: 'HOG_INVOCATION_RESULTS_TOPIC',
+            producerKey: 'HOG_INVOCATION_RESULTS_PRODUCER',
         })
         .register(PREFILTERED_EVENTS_OUTPUT, {
             topicKey: 'CDP_PREFILTERED_EVENTS_TOPIC',

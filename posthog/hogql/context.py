@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from posthog.schema import HogQLNotice, HogQLQueryModifiers
+from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
@@ -65,6 +65,10 @@ class HogQLContext:
     # Errors returned with the metadata query
     errors: list["HogQLNotice"] = field(default_factory=list)
 
+    # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
+    # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
+    data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
@@ -123,6 +127,9 @@ class HogQLContext:
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
+        self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning
 
     @cached_property
     def project_id(self) -> int:

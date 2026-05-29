@@ -5,13 +5,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema
-from posthog.api.insight import InsightViewSet, capture_legacy_api_call
 from posthog.api.utils import action
 from posthog.decorators import cached_by_filters
-from posthog.models import Insight
 from posthog.models.filters import Filter
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.api.insight import InsightViewSet, capture_legacy_api_call
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 

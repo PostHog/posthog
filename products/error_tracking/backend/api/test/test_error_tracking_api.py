@@ -6,6 +6,7 @@ from unittest.mock import ANY, Mock, patch
 
 from boto3 import resource
 from botocore.config import Config
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
@@ -271,6 +272,7 @@ class TestErrorTracking(APIBaseTest):
 
         symbol_set = ErrorTrackingSymbolSet.objects.get(id=response_json["symbol_set_id"])
         assert symbol_set.content_hash is None
+        assert symbol_set.last_used is None
 
     def test_finish_upload_fails_if_file_not_found(self):
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -316,6 +318,7 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert symbol_set.content_hash == "this_is_a_content_hash"
+        assert symbol_set.last_used is None
 
     def test_can_bulk_delete_symbol_sets(self) -> None:
         ss1 = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
@@ -629,6 +632,7 @@ class TestErrorTracking(APIBaseTest):
 
         assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+        assert symbol_set.last_used is None
 
     def test_bulk_start_upload_skips_uploaded_symbol_sets(self) -> None:
         release = ErrorTrackingRelease.objects.create(
@@ -679,7 +683,66 @@ class TestErrorTracking(APIBaseTest):
 
         new_symbol_set = ErrorTrackingSymbolSet.objects.get(ref=new_chunk_id)
         assert new_symbol_set.release_id == release.id
+        assert new_symbol_set.last_used is None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
+
+    @parameterized.expand(
+        [
+            ("default_rejects", {}, status.HTTP_400_BAD_REQUEST, "content_hash_mismatch", "unchanged"),
+            ("skip_on_conflict", {"skip_on_conflict": True}, status.HTTP_201_CREATED, None, "unchanged"),
+            ("force", {"force": True}, status.HTTP_201_CREATED, None, "overwritten"),
+            (
+                "force_and_skip_rejected",
+                {"force": True, "skip_on_conflict": True},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_conflict_handling",
+                "unchanged",
+            ),
+        ]
+    )
+    def test_bulk_start_upload_handles_content_mismatch(
+        self,
+        _name: str,
+        request_flags: dict[str, bool],
+        expected_status: int,
+        expected_code: str | None,
+        expected_outcome: str,
+    ) -> None:
+        chunk_id = str(uuid7())
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": chunk_id,
+                        "content_hash": "different_hash",
+                    }
+                ],
+                **request_flags,
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        if expected_code:
+            assert response.json()["code"] == expected_code
+        if expected_outcome == "overwritten":
+            assert response.json()["id_map"][chunk_id]["symbol_set_id"] == str(symbol_set.id)
+
+        symbol_set.refresh_from_db()
+        if expected_outcome == "unchanged":
+            assert symbol_set.storage_ptr == "existing"
+            assert symbol_set.content_hash == "already_uploaded"
+        else:
+            assert symbol_set.storage_ptr != "existing"
+            assert symbol_set.content_hash is None
 
     def test_bulk_start_upload_fail_restart_with_no_content_hash(self) -> None:
         existing_chunk_id = str(uuid7())

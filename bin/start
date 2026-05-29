@@ -5,6 +5,25 @@ set -e
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
+# 1Password: auto-resolve op:// references in .env.local.
+# Must run before lock acquisition: `exec op run ...` keeps the bash fds open
+# in the op-run process, so if we held fd 9's flock here the re-exec'd child
+# bin/start would fail to acquire it.
+if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
+    if [ -z "$_POSTHOG_OP_RESOLVED" ]; then
+        if command -v op &>/dev/null; then
+            echo "🔐 Resolving secrets from .env.local via 1Password"
+            export _POSTHOG_OP_RESOLVED=1
+            exec op run --env-file="$REPOSITORY_ROOT/.env.local" -- "$0" "$@"
+        else
+            echo "⚠️  .env.local contains 1Password refs (op://) but 'op' CLI is not installed."
+            echo "   These refs will be skipped — services that depend on them will fail with their own"
+            echo "   'missing key' errors. To resolve them automatically, install: brew install 1password-cli"
+            echo "   Or replace op:// refs with literal values in .env.local."
+        fi
+    fi
+fi
+
 cleanup_lock() {
     rm -f "$LOCK_FILE"
 }
@@ -19,10 +38,54 @@ fi
 
 trap cleanup_lock EXIT INT TERM
 
-export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://seaweedfs:8333}
+# Environment variables are defined in:
+#   .env.services     - service connection defaults (shared with containers
+#                       and hobby via docker-compose env_file)
+#   .env.development  - dev-mode runtime knobs (DEBUG, OTEL, etc.)
+#   .env.local        - your overrides + 1Password secrets (gitignored,
+#                       copy .env.local.example to get started)
+#
+# Source env files respecting precedence:
+#   shell env > .env.local > .env.development > .env.services
+# Only set vars that aren't already in the environment.
+# op:// refs are always skipped here — they only get resolved by `op run` in
+# the re-exec block above. Sourcing them as literals would set env vars to
+# garbage strings that break downstream services with cryptic errors.
+source_env_defaults() {
+    if [[ ! -f "$1" ]]; then
+        echo "⚠️  Expected env file missing: $1 — skipping. Did your checkout get truncated?" >&2
+        return 0
+    fi
+    # Use explicit if/fi (not `[[ ... ]] && cmd`) so the loop body always
+    # returns 0. With `&&`, the last iteration's `[[ -z … ]]` returning false
+    # (variable already set) makes the function return non-zero, and `set -e`
+    # silently kills the entire script — no error, no output, just exit. This
+    # was the root cause of "hogli start" failing in Cursor and other terminals
+    # where some of the trailing env vars happened to already be in the shell.
+    while IFS='=' read -r name value; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        # Substring match so quoted ("op://...") and space-padded values are
+        # also caught — mirrors what op run itself accepts.
+        [[ "$value" == *op://* ]] && continue
+        if [[ -z "${!name:-}" ]]; then
+            export "$name=$value"
+        fi
+    done < "$1"
+    return 0
+}
+# .env.local: already in env if processed by op run, otherwise source directly
+if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; then
+    source_env_defaults "$REPOSITORY_ROOT/.env.local"
+elif [[ ! -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -f "$REPOSITORY_ROOT/.env.local.example" ]]; then
+    echo "💡 No .env.local found — running with committed defaults only."
+    echo "   For personal overrides or secrets: cp .env.local.example .env.local"
+fi
+source_env_defaults "$REPOSITORY_ROOT/.env.development"
+source_env_defaults "$REPOSITORY_ROOT/.env.services"
 
-export DEBUG=${DEBUG:-1}
-export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+# Limit Rust parallel compilation jobs to reduce CPU contention when multiple
+# services start simultaneously via mprocs (they share a build lock anyway)
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
@@ -34,27 +97,8 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -z "${CARGO_TARGET_AARCH64_APPLE_DARWIN
     export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
 fi
 
-export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
-export API_QUERIES_PER_TEAM='{"1": 100}'
-
-# Internal request token for Python <-> Rust service communication
-export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
-
-# Dagster
+# Computed vars (need REPOSITORY_ROOT)
 export DAGSTER_HOME=$REPOSITORY_ROOT/.dagster_home
-export DAGSTER_UI_HOST=${DAGSTER_UI_HOST:-localhost}
-export DAGSTER_UI_PORT=${DAGSTER_UI_PORT:-3030}
-export DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=${DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN:-3000}
-
-# OpenTelemetry Environment Variables
-export OTEL_SERVICE_NAME="posthog-local-dev"
-export OTEL_PYTHON_LOG_LEVEL="debug"
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" # Collector's OTLP gRPC port is mapped to host
-export OTEL_TRACES_EXPORTER="otlp"
-export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
-export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
-export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
-export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 
 # Tracing is disabled by default - requires 'tracing' intent for Jaeger/otel-collector
 # Note: otel-collector uses significant CPU/memory resources
@@ -68,44 +112,21 @@ else
     export OTEL_SDK_DISABLED="true"
 fi
 
-if [ -f .env ]; then
-    set -o allexport
-    source .env
-    set +o allexport
-fi
+# Vars below need bash variable expansion in their defaults (${PGHOST:-db},
+# $PERSONS_DATABASE_URL, etc.) — must stay in this script because
+# .env.development is sourced via a loader that doesn't re-expand $-refs.
 
-# Ducklake
-export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-db}
-export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
-export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
-export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
-export DUCKLAKE_RDS_PASSWORD=${DUCKLAKE_RDS_PASSWORD:-posthog}
-export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
-export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
-export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
-export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
-export POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET=${POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET:-1}
-
-# These default to localhost/127.0.0.1 in Node.js/Rust configs
-export CDP_REDIS_HOST=${CDP_REDIS_HOST:-redis7}
-export SESSION_RECORDING_API_REDIS_HOST=${SESSION_RECORDING_API_REDIS_HOST:-redis7}
-export COOKIELESS_REDIS_HOST=${COOKIELESS_REDIS_HOST:-redis7}
-export TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
 # Persons DB — Node.js and Rust use different env var names for the same connection
 export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
 export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+# nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
 export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
+# nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
 export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
-# Error tracking — Node.js ingestion consumer needs to reach Cymbal (Rust) on the host
-# Using lvh.me instead of localhost for cross-platform compatibility
-export ERROR_TRACKING_CYMBAL_BASE_URL=${ERROR_TRACKING_CYMBAL_BASE_URL:-http://lvh.me:3302}
 export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
 export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
 export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
 export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
-
-# Duckgres
-export DUCKGRES_PORT=${DUCKGRES_PORT:-15432}
 
 # Geo files
 ./bin/download-mmdb

@@ -23,10 +23,13 @@ from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
+from products.warehouse_sources.backend.models.external_data_source import (
+    get_direct_external_data_source_for_connection,
+)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -40,7 +43,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         settings: Optional[HogQLGlobalSettings] = None,
         **kwargs,
     ):
-        self.settings = settings or HogQLGlobalSettings(enable_analyzer=True)
+        self.settings = settings or HogQLGlobalSettings()
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -88,6 +91,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
+        tag_contains_user_hogql()
         if (
             self.is_query_service
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST

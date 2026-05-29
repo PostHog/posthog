@@ -21,13 +21,14 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Insight, Team
+from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 

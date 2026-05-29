@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { Properties } from '~/plugin-scaffold'
 
 import { PreIngestionEvent, ProjectId, Team, TeamId } from '../../types'
+import { sanitizeString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { TeamManager } from '../../utils/team-manager'
@@ -110,7 +111,7 @@ async function upsertGroup(
             teamId,
             projectId,
             groupTypeIndex,
-            groupKey.toString(),
+            sanitizeString(groupKey.toString()),
             groupPropertiesToSet || {},
             timestamp
         )
