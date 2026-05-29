@@ -2,6 +2,8 @@
 
 import { notFound, useRouter } from 'next/navigation'
 
+import type { LogEntry } from '@posthog/agent-chat/fixtures'
+
 import { useSetDockPage } from '@/components/dock-context'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getAgent, getSession, listLogsForSession } from '@/lib/apiClient'
@@ -15,7 +17,12 @@ export function SessionDetailClient({ slug, sessionId }: { slug: string; session
 
     const agent = useResource(() => getAgent(teamId, slug), [teamId, slug])
     const session = useResource(() => getSession(teamId, slug, sessionId), [teamId, slug, sessionId])
-    const logs = useResource(() => listLogsForSession(teamId, slug, sessionId), [teamId, slug, sessionId])
+    // Logs is Phase C (no Django endpoint yet). Tolerate any failure
+    // and render an empty entries pane — the playback half still works.
+    const logs = useResource(
+        () => listLogsForSession(teamId, slug, sessionId).catch(() => [] as LogEntry[]),
+        [teamId, slug, sessionId]
+    )
 
     if (
         (agent.error instanceof ApiError && agent.error.status === 404) ||
@@ -23,11 +30,11 @@ export function SessionDetailClient({ slug, sessionId }: { slug: string; session
     ) {
         notFound()
     }
-    const error = agent.error ?? session.error ?? logs.error
+    const error = agent.error ?? session.error
     if (error) {
         return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {error.message}</div>
     }
-    if (!agent.data || !session.data || !logs.data) {
+    if (!agent.data || !session.data || logs.loading) {
         return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
     }
 
@@ -36,7 +43,7 @@ export function SessionDetailClient({ slug, sessionId }: { slug: string; session
             slug={slug}
             agent={agent.data}
             session={session.data}
-            logs={logs.data}
+            logs={logs.data ?? []}
             onBackToList={() => router.push('/')}
             onBackToAgent={() => router.push(`/agents/${slug}`)}
         />
