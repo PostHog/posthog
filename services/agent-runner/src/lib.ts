@@ -10,6 +10,7 @@
 
 export * from './loop/run-turn'
 export * from './loop/tool-dispatch'
+export * from './loop/per-asker-auth'
 export * from './workers/worker'
 export * from './models/pi-client'
 export * from './models/faux-pi-client'

@@ -26,7 +26,7 @@ import { Pool } from 'pg'
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
-import { PiAiClient, Worker } from '@posthog/agent-runner'
+import { IsAskerInApproverScope, PiAiClient, Worker } from '@posthog/agent-runner'
 import type { IdentityStore } from '@posthog/agent-shared'
 import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
 import {
@@ -117,6 +117,15 @@ export interface BuildClusterOpts {
      * `getModel('anthropic', 'claude-sonnet-4-7')`) for real-inference tests.
      */
     model?: Model<string>
+    /**
+     * Per-asker authorisation shortcut for approval-gated tools (#23
+     * step 3). The harness doesn't carry a real
+     * `posthog_organizationmembership` table, so tests stub the auth
+     * decision directly — typically by inspecting the latest user-turn's
+     * sender id. Omit to preserve B.2 v0 behaviour (every gated call
+     * queues regardless of asker).
+     */
+    isAskerInApproverScope?: IsAskerInApproverScope
 }
 
 let _pool: Pool | null = null
@@ -197,6 +206,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         resolveModel: resolveModelForHarness,
         approvals,
         buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
+        isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
