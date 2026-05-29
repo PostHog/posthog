@@ -21572,7 +21572,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -21679,7 +21679,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "debug": {
@@ -21824,7 +21824,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "explain": {
