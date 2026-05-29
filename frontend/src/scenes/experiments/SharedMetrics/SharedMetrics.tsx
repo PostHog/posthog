@@ -17,6 +17,7 @@ import {
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { pluralize } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,10 +25,10 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { isLegacySharedMetric, matchesSharedMetricSearch } from '../utils'
+import { isLegacySharedMetric } from '../utils'
 import { InlineTagEditor } from './InlineTagEditor'
 import { SharedMetric } from './sharedMetricLogic'
-import { sharedMetricsLogic } from './sharedMetricsLogic'
+import { PAGE_SIZE, sharedMetricsLogic } from './sharedMetricsLogic'
 
 export const scene: SceneExport = {
     component: SharedMetrics,
@@ -35,14 +36,13 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId } = useValues(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, pagination, count, page } =
+        useValues(sharedMetricsLogic)
     const { setSearchTerm, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
 
-    const searchLower = searchTerm.toLowerCase()
-    const filteredMetrics = searchTerm
-        ? (sharedMetrics || []).filter((metric) => matchesSharedMetricSearch(metric, searchLower))
-        : sharedMetrics || []
+    const startCount = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+    const endCount = page * PAGE_SIZE < count ? page * PAGE_SIZE : count
 
     const columns: LemonTableColumns<SharedMetric> = [
         {
@@ -70,7 +70,6 @@ export function SharedMetrics(): JSX.Element {
                     />
                 )
             },
-            sorter: (a, b) => a.name.localeCompare(b.name),
         },
         {
             key: 'description',
@@ -178,20 +177,31 @@ export function SharedMetrics(): JSX.Element {
                 having to set them up each time.
             </LemonBanner>
             <div className="flex justify-between items-center gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search shared metrics..."
-                    value={searchTerm}
-                    onChange={setSearchTerm}
-                />
+                <div className="flex items-center gap-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search shared metrics..."
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                    />
+                    {count ? (
+                        <span className="text-secondary whitespace-nowrap">
+                            {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(
+                                count,
+                                'metric'
+                            )}`}
+                        </span>
+                    ) : null}
+                </div>
                 <LemonButton size="small" type="primary" to={urls.experimentsSharedMetric('new')}>
                     New shared metric
                 </LemonButton>
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={filteredMetrics}
+                dataSource={sharedMetrics}
                 loading={sharedMetricsLoading}
+                pagination={pagination}
                 emptyState={<div>You haven't created any shared metrics yet.</div>}
             />
         </div>
