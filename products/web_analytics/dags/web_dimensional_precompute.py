@@ -1,21 +1,25 @@
 """Scheduled population of the fixed-dimension web precompute tables.
 
-This is the "source of work" that replaces the v2 pre-aggregation Dagster ETL
-(`web_preaggregated.py`). Instead of a staging-table + partition-swap per team,
-it drives the precomputation framework: for every enabled team it calls
+This job drives the precomputation framework: for each selected team it calls
 `ensure_*_dimensional_precomputed` over a rolling 90-day window, and the
 framework splits that into daily jobs, tracks them in Postgres
-(`PreaggregationJob`) and only (re)computes windows whose jobs have expired.
+(`PreaggregationJob`) and only (re)computes windows whose jobs have expired. So
+the heavy raw-table scan happens on a schedule for a known audience rather than
+lazily on every user query, while re-runs are cheap because already-fresh
+windows are skipped.
 
-So the heavy raw-table scan happens on a schedule for a known audience rather
-than lazily on every user query, while re-runs are cheap because already-fresh
-windows are skipped. The audience reuses v2's team selection
-(`get_team_ids_from_sources`) so teams can be moved over incrementally.
+Rollout is intentionally decoupled from the v2 pre-aggregation pipeline and its
+team selection: the audience is an explicit allowlist from the
+`WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs). Unset
+or empty means the job is a no-op, so it ships dark and is opt-in per team — we
+turn it on for a couple of internal teams first to compare against v2 before
+widening. There is no dependency on the v2 team-selection dictionary or flag.
 
 The write path is not yet wired into any query runner — this job only populates
-the tables.
+the tables (so the new output can be compared with v2's side by side).
 """
 
+import os
 from datetime import UTC, datetime, timedelta
 
 import dagster
@@ -30,7 +34,6 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_stats_dimensional_precomputed,
 )
 from products.web_analytics.dags.web_preaggregated import skip_on_kill_switch
-from products.web_analytics.dags.web_preaggregated_team_selection import get_team_ids_from_sources
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
@@ -38,6 +41,20 @@ logger = structlog.get_logger(__name__)
 # Rolling window kept warm. Matches the lazy precompute MAX_PRECOMPUTE_DAYS so a
 # later read path can serve any sub-window without falling back to raw tables.
 PRECOMPUTE_WINDOW_DAYS = 90
+
+# Comma-separated team IDs to precompute. Empty/unset → the job is a no-op.
+SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
+
+
+def get_selected_team_ids() -> list[int]:
+    """Parse the team allowlist from the env var. Invalid/blank entries are skipped."""
+    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR, "")
+    ids = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.append(int(part))
+    return ids
 
 
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(
@@ -75,12 +92,17 @@ def _ensure_for_team(context: dagster.OpExecutionContext, team: Team, start: dat
 
 @dagster.op
 def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Drive `ensure_*_dimensional_precomputed` over the rolling window for every enabled team."""
+    """Drive `ensure_*_dimensional_precomputed` over the rolling window for each selected team."""
     end = datetime.now(UTC)
     start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
 
-    team_ids = get_team_ids_from_sources(context)
+    team_ids = get_selected_team_ids()
     context.log.info(f"web_dimensional_precompute_start teams={len(team_ids)} window=[{start}, {end})")
+    if not team_ids:
+        context.log.info(f"web_dimensional_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
+        result = {"teams": 0, "failures": 0}
+        context.add_output_metadata(result)
+        return result
 
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
 
@@ -103,9 +125,9 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
 @dagster.job(
     description=(
         f"Populates the fixed-dimension web precompute tables (web_stats_dimensional_preaggregated / "
-        f"web_bounces_dimensional_preaggregated) over the trailing {PRECOMPUTE_WINDOW_DAYS} days for every team "
-        f"in v2's team selection, by driving the precomputation framework's ensure_precomputed. Re-runs only "
-        f"recompute windows whose jobs have expired."
+        f"web_bounces_dimensional_preaggregated) over the trailing {PRECOMPUTE_WINDOW_DAYS} days for the teams in "
+        f"the {SELECTED_TEAM_IDS_ENV_VAR} allowlist, by driving the precomputation framework's ensure_precomputed. "
+        f"No-op when the allowlist is empty. Re-runs only recompute windows whose jobs have expired."
     ),
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
