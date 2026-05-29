@@ -2,6 +2,8 @@
 
 import { notFound, useRouter, useSearchParams } from 'next/navigation'
 
+import type { ChatSession } from '@posthog/agent-chat'
+
 import { useSetDockPage, useDockStore } from '@/components/dock-context'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getAgent, getAgentStats, listRevisions, listSessionsForAgent } from '@/lib/apiClient'
@@ -82,25 +84,21 @@ function AgentDetailInner({
 
     const { enterPlayground } = useDockStore()
 
-    // Phase C endpoint — tolerate 404 so the page still renders.
-    const stats = useResource(
-        () =>
-            getAgentStats(teamId, slug).catch((err: unknown) => {
-                if (err instanceof ApiError && err.status === 404) {
-                    return null
-                }
-                throw err
-            }),
+    // Stats: Phase C endpoint, may 404. Treat any failure as "no stats yet".
+    // Sessions: proxies the janitor — may 502 if it isn't running locally.
+    //   Render with an empty list rather than failing the whole page.
+    // Revisions + agent: must succeed.
+    const stats = useResource(() => getAgentStats(teamId, slug).catch(() => null), [teamId, slug])
+    const sessions = useResource(
+        () => listSessionsForAgent(teamId, slug).catch(() => [] as ChatSession[]),
         [teamId, slug]
     )
-    const sessions = useResource(() => listSessionsForAgent(teamId, slug), [teamId, slug])
     const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug])
 
-    if (sessions.error ?? revisions.error) {
-        const message = (sessions.error ?? revisions.error)?.message ?? 'Unknown error'
-        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {message}</div>
+    if (revisions.error) {
+        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {revisions.error.message}</div>
     }
-    if (stats.loading || sessions.loading || revisions.loading || !sessions.data || !revisions.data) {
+    if (stats.loading || sessions.loading || revisions.loading || !revisions.data) {
         return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
     }
 
@@ -111,13 +109,14 @@ function AgentDetailInner({
         lastActivityAt: undefined,
         failureRate24h: undefined,
     }
+    const effectiveSessions = sessions.data ?? []
 
     return (
         <AgentDetail
             agent={agent}
             revisions={revisions.data}
             stats={effectiveStats}
-            sessions={sessions.data}
+            sessions={effectiveSessions}
             urlState={urlState}
             onChangeUrlState={onChangeUrlState}
             onTryAgent={() => enterPlayground(agentRef)}
