@@ -10,6 +10,7 @@
         "dev": "next dev -p 3040",
         "build": "next build",
         "start": "next start -p 3040",
+        "setup:local": "node bin/setup-local-env.mjs",
         "typescript:check": "tsc --noEmit -p .",
         "storybook": "storybook dev -p 6041 --no-open",
         "build-storybook": "storybook build"

@@ -16,6 +16,8 @@ In prod the equivalent OAuth app is created by ops via the PostHog admin
 UI and the credentials are supplied via the deploy's env.
 """
 
+import sys
+import json
 import secrets
 
 from django.conf import settings
@@ -43,6 +45,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Don't rotate the client_secret if the app already exists (won't re-print it either).",
         )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Emit a single JSON object to stdout (consumed by the agent-console setup script).",
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -52,10 +59,14 @@ class Command(BaseCommand):
 
         redirect_uri = options["redirect_uri"]
         keep_secret = options["keep_secret"]
+        as_json = options["json"]
 
         existing = OAuthApplication.objects.filter(client_id=DEV_CLIENT_ID).first()
 
         if existing and keep_secret:
+            if as_json:
+                self._emit_json(client_id=DEV_CLIENT_ID, client_secret=None, redirect_uri=existing.redirect_uris)
+                return
             print(f"OAuth app already exists for client_id={DEV_CLIENT_ID}; secret unchanged.")
             print(f"Redirect URIs: {existing.redirect_uris}")
             return
@@ -66,7 +77,7 @@ class Command(BaseCommand):
             existing.client_secret = new_secret
             existing.redirect_uris = redirect_uri
             existing.save(update_fields=["client_secret", "redirect_uris"])
-            print(f"Rotated client_secret for existing OAuth app (client_id={DEV_CLIENT_ID}).")
+            status = "rotated"
         else:
             OAuthApplication.objects.create(
                 name=DEV_APP_NAME,
@@ -77,8 +88,16 @@ class Command(BaseCommand):
                 redirect_uris=redirect_uri,
                 algorithm="RS256",
             )
-            print(f"Created OAuth app (client_id={DEV_CLIENT_ID}).")
+            status = "created"
 
+        if as_json:
+            self._emit_json(client_id=DEV_CLIENT_ID, client_secret=new_secret, redirect_uri=redirect_uri)
+            return
+
+        if status == "rotated":
+            print(f"Rotated client_secret for existing OAuth app (client_id={DEV_CLIENT_ID}).")
+        else:
+            print(f"Created OAuth app (client_id={DEV_CLIENT_ID}).")
         print()
         print("Paste into services/agent-console/.env.local:")
         print()
@@ -86,3 +105,18 @@ class Command(BaseCommand):
         print(f"POSTHOG_OAUTH_CLIENT_SECRET={new_secret}")
         print()
         print(f"Redirect URI registered: {redirect_uri}")
+
+    def _emit_json(self, *, client_id: str, client_secret: str | None, redirect_uri: str) -> None:
+        # Emit ONLY the JSON to stdout so callers can parse it cleanly even
+        # when Django startup logs are noisy on stderr. Set verbosity=0 on
+        # invocation to keep stdout single-line.
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "clientId": client_id,
+                    "clientSecret": client_secret,
+                    "redirectUri": redirect_uri,
+                }
+            )
+        )
+        sys.stdout.write("\n")

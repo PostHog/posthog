@@ -31,5 +31,5 @@ export function middleware(request: NextRequest): NextResponse {
 export const config = {
     // Skip Next.js internals, static assets, public files, and (most importantly)
     // every `/api/*` route — those handle their own auth.
-    matcher: ['/((?!api/|_next/|favicon\\.ico$|mockServiceWorker\\.js$).*)'],
+    matcher: ['/((?!api|_next|favicon.ico|mockServiceWorker.js).*)'],
 }
