@@ -38,23 +38,54 @@ export function DockHeader({
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
+    const previewRevisionId = context.mode === 'playground' ? context.previewRevisionId : undefined
+
+    // Playground mode gets a strongly-tinted bar so it's impossible to
+    // confuse "talking *to* the agent" with the ambient concierge chat.
+    // Uses the brand-orange primary tone (high chroma) at low opacity
+    // for the surface, full-strength for the badge + accent line.
+    const containerClass = isPlayground
+        ? 'flex items-center gap-2 border-b-2 border-primary bg-primary/10 px-4 py-2.5'
+        : 'flex items-center gap-2 border-b border-border px-4 py-2.5'
 
     return (
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-            <div className="flex items-center gap-2">
+        <div className={containerClass}>
+            {isPlayground ? (
                 <span
-                    className={
-                        isPlayground
-                            ? 'inline-flex h-1.5 w-1.5 rounded-full bg-warning'
-                            : 'inline-flex h-1.5 w-1.5 rounded-full bg-success'
-                    }
-                    aria-hidden
-                />
-                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{mode}</span>
-            </div>
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground" title={subject}>
+                    className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-foreground"
+                    aria-label="Playground mode"
+                >
+                    <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground" aria-hidden />
+                    Playground
+                </span>
+            ) : (
+                <div className="flex items-center gap-2">
+                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-success-foreground" aria-hidden />
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{mode}</span>
+                </div>
+            )}
+            <span
+                className={
+                    'min-w-0 flex-1 truncate text-sm ' +
+                    (isPlayground ? 'font-medium text-foreground' : 'text-foreground')
+                }
+                title={previewRevisionId ? `${subject} (preview revision)` : subject}
+            >
                 {subject}
             </span>
+            {/* Preview-revision pill: lit up when the playground is talking
+             *  to a non-live revision via Django's preview-proxy rather
+             *  than the public ingress URL. Skipped for the live-revision
+             *  path to keep the header quieter when nothing's special. */}
+            {previewRevisionId ? (
+                <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-warning-foreground/40 bg-warning/40 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-warning-foreground"
+                    title={`Talking to draft revision ${previewRevisionId} via the preview proxy.`}
+                >
+                    Draft
+                    <code className="font-mono normal-case opacity-70">{shortRevisionId(previewRevisionId)}</code>
+                </span>
+            ) : null}
 
             {/* Focus toggle — only meaningful in concierge mode (in playground
                 the dock is talking *to* the agent, not navigating the console). */}
@@ -80,7 +111,7 @@ export function DockHeader({
                 <button
                     type="button"
                     onClick={() => onExitPlayground?.()}
-                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/20 hover:text-foreground"
                     aria-label="Exit playground"
                 >
                     <XIcon className="h-3 w-3" />
@@ -89,6 +120,13 @@ export function DockHeader({
             ) : null}
         </div>
     )
+}
+
+function shortRevisionId(id: string): string {
+    // Mirrors `short()` in the console's RevisionsBrowser — last 8 chars of
+    // the trailing UUID segment. Short enough to read in the header pill,
+    // unique enough to disambiguate sibling drafts at a glance.
+    return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
 }
 
 function FocusToggle({

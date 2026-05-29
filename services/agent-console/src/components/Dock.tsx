@@ -115,18 +115,27 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
 
 export function Dock(): React.ReactElement {
     const { context } = useDockStore()
-    // Re-mount the dock when switching mode/agent so the runner hooks
-    // tear down cleanly. Cheaper + safer than trying to thread state
-    // across runner swaps.
-    const key = context.mode === 'playground' ? `playground:${context.agent.slug}` : 'concierge'
+    // Re-mount the dock when switching mode/agent/revision so the
+    // runner hooks tear down cleanly. Cheaper + safer than trying to
+    // thread state across runner swaps.
+    const key =
+        context.mode === 'playground'
+            ? `playground:${context.agent.slug}:${context.previewRevisionId ?? 'live'}`
+            : 'concierge'
     return context.mode === 'playground' ? (
-        <PlaygroundDock key={key} agentRef={context.agent} />
+        <PlaygroundDock key={key} agentRef={context.agent} previewRevisionId={context.previewRevisionId} />
     ) : (
         <ConciergeDock key={key} />
     )
 }
 
-function PlaygroundDock({ agentRef }: { agentRef: AgentApplicationRef }): React.ReactElement {
+function PlaygroundDock({
+    agentRef,
+    previewRevisionId,
+}: {
+    agentRef: AgentApplicationRef
+    previewRevisionId?: string
+}): React.ReactElement {
     const { context, exitPlayground } = useDockStore()
     const focus = useFocusStore()
     const { info } = useSession()
@@ -138,7 +147,20 @@ function PlaygroundDock({ agentRef }: { agentRef: AgentApplicationRef }): React.
         return { kind: 'human', userId: profile?.uuid ?? 'you', displayName }
     }, [info])
 
-    const runner = useRealRunner({ agentSlug: agentRef.slug, agentRef, principal })
+    // The runner fetches `getPreviewToken(teamId, slug, revisionId)`
+    // internally and threads the resulting JWT into every ingress call;
+    // we just hand it the inputs (teamId + revisionId). When not
+    // previewing, the runner uses the public ingress URL — no token,
+    // no team needed.
+    const preview = useMemo(
+        () =>
+            previewRevisionId && info?.teamId != null
+                ? { teamId: info.teamId, revisionId: previewRevisionId }
+                : undefined,
+        [previewRevisionId, info?.teamId]
+    )
+
+    const runner = useRealRunner({ agentSlug: agentRef.slug, agentRef, principal, preview })
 
     return (
         <AgentChat

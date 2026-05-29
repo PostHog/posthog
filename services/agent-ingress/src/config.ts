@@ -42,7 +42,7 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe(
-            'HMAC secret shared with Django. Verifies x-agent-preview-token on non-live invokes. Unset → gate bypassed (dev / harness). See docs/agent-platform/plans/draft-preview-auth.md.'
+            "HMAC secret shared with Django (must match Django's `AGENT_PREVIEW_SECRET`). Verifies x-agent-preview-token on non-live invokes. Unset → gate bypassed (dev / harness only). See docs/agent-platform/plans/draft-preview-auth.md."
         ),
 })
 
@@ -59,13 +59,5 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
 })
 
 export function loadAgentIngressConfig(env: NodeJS.ProcessEnv = process.env): AgentIngressConfig {
-    const cfg = loadConfigFromEnv(AgentIngressConfigSchema, ENV_KEY_MAP, env)
-    // Legacy fallback: pre-AGENT_PREVIEW_SECRET deployments shared INTERNAL_SECRET
-    // between Django and the node services. Honor it here so existing prod
-    // configs keep working without an env split. Plan: drop the fallback once
-    // every env explicitly sets AGENT_PREVIEW_SECRET.
-    if (!cfg.previewSecret && env.INTERNAL_SECRET) {
-        cfg.previewSecret = env.INTERNAL_SECRET
-    }
-    return cfg
+    return loadConfigFromEnv(AgentIngressConfigSchema, ENV_KEY_MAP, env)
 }

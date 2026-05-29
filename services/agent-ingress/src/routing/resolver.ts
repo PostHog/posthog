@@ -79,11 +79,13 @@ export interface ResolverOpts {
     teamId: number
     /**
      * HMAC secret shared with Django. Django mints a short-lived JWT (aud =
-     * `posthog:agent_preview`, claims `{ app, rev }`) and sends it as
-     * `x-agent-preview-token` on every preview-proxy hop; the resolver
-     * verifies signature + exp + claim-binding on non-live resolutions.
-     * Leave undefined to bypass the gate (dev / harness path); production
-     * wires `AGENT_PREVIEW_SECRET`.
+     * `posthog:agent_preview`, claims `{ app, rev }`); the caller forwards
+     * it as either the `x-agent-preview-token` header (POST/DELETE + the
+     * server-side preview-proxy) or the `?preview_token=` query parameter
+     * (browser `EventSource` for `/listen`, since EventSource can't set
+     * headers). The resolver verifies signature + exp + claim-binding on
+     * non-live resolutions. Leave undefined to bypass the gate (dev /
+     * harness path); production wires `AGENT_PREVIEW_SECRET`.
      */
     previewSecret?: string
 }

@@ -29,6 +29,7 @@ import type {
 } from '@posthog/agent-chat/fixtures'
 
 import type {
+    AgentApplicationPreviewTokenResponseApi,
     AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
     AgentApplicationSessionsRetrieveResponseApi,
@@ -491,6 +492,39 @@ function mapLogLevel(level: string): LogEntry['level'] {
         case 'INFO':
         default:
             return 'info'
+    }
+}
+
+/* ── Preview-token (direct-to-ingress chat for non-live revisions) ── */
+
+/**
+ * Mint a short-lived JWT for talking to a non-live revision directly
+ * via the public ingress URL. The console fetches this when it enters
+ * preview-playground mode for a draft, then attaches the token to
+ * every ingress call (header for POST/DELETE, `?preview_token=` for
+ * `/listen` since `EventSource` can't set headers).
+ *
+ * Mirror of the Django `preview_token` action; the JWT payload + secret
+ * are shared with the legacy `preview-proxy` action so either path
+ * authorizes against ingress identically.
+ */
+export interface PreviewToken {
+    token: string
+    expiresIn: number
+    ingressSlug: string
+}
+
+export async function getPreviewToken(teamId: number, slug: string, revisionId: string): Promise<PreviewToken> {
+    const res = await getJson<AgentApplicationPreviewTokenResponseApi>(
+        posthogUrl(
+            teamId,
+            `/agent_applications/${encodeURIComponent(slug)}/preview-token/?revision_id=${encodeURIComponent(revisionId)}`
+        )
+    )
+    return {
+        token: res.token,
+        expiresIn: res.expires_in,
+        ingressSlug: res.ingress_slug,
     }
 }
 

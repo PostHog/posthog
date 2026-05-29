@@ -23,7 +23,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AgentApplicationRef, ChatSession, SessionPrincipal } from '@posthog/agent-chat'
 
-import { cancelSession, listen, sendMessage, startRun, type SessionEvent } from '@/lib/agentIngressClient'
+import {
+    cancelSession,
+    listen,
+    type PreviewOpts,
+    sendMessage,
+    startRun,
+    type SessionEvent,
+} from '@/lib/agentIngressClient'
+import { getPreviewToken } from '@/lib/apiClient'
 import { applyEvent } from '@/lib/runnerReducer'
 
 export interface UseRealRunnerOpts {
@@ -34,6 +42,13 @@ export interface UseRealRunnerOpts {
     /** Principal shown in the chat header. v0.1 — derive from the
      *  authenticated user; for now caller supplies. */
     principal: SessionPrincipal
+    /**
+     * When set, all runner calls route to the named non-live revision
+     * via the ingress's `<slug>-<revHex>` prefix, carrying a JWT
+     * minted by Django. The hook fetches and refreshes the token
+     * internally — callers only pass the (teamId, revisionId) tuple.
+     */
+    preview?: { teamId: number; revisionId: string }
 }
 
 export interface RealRunnerControls {
@@ -60,12 +75,16 @@ function emptySession(agentRef: AgentApplicationRef, principal: SessionPrincipal
     }
 }
 
-export function useRealRunner({ agentSlug, agentRef, principal }: UseRealRunnerOpts): RealRunnerControls {
+export function useRealRunner({ agentSlug, agentRef, principal, preview }: UseRealRunnerOpts): RealRunnerControls {
     const [session, setSession] = useState<ChatSession>(() => emptySession(agentRef, principal))
     const [playing, setPlaying] = useState(false)
     const [error, setError] = useState<Error | null>(null)
     const sessionIdRef = useRef<string | null>(null)
     const closeListenRef = useRef<(() => void) | null>(null)
+    // Cached preview JWT + when it goes stale. Tokens TTL ~60s; we
+    // refresh proactively a few seconds before expiry so an in-flight
+    // turn doesn't trip a mid-stream 401.
+    const previewTokenRef = useRef<{ opts: PreviewOpts; expiresAt: number } | null>(null)
 
     // Tear down the listen stream on unmount.
     useEffect(() => {
@@ -73,6 +92,28 @@ export function useRealRunner({ agentSlug, agentRef, principal }: UseRealRunnerO
             closeListenRef.current?.()
         }
     }, [])
+
+    // Reset the cached token if the targeted revision changes.
+    const previewKey = preview ? `${preview.teamId}:${preview.revisionId}` : ''
+    useEffect(() => {
+        previewTokenRef.current = null
+    }, [previewKey])
+
+    const ensurePreview = useCallback(async (): Promise<PreviewOpts | undefined> => {
+        if (!preview) {
+            return undefined
+        }
+        const cached = previewTokenRef.current
+        // 5s safety margin so a refresh fired mid-turn doesn't race the
+        // server-side clock and land an "already expired" token.
+        if (cached && cached.expiresAt - 5000 > Date.now()) {
+            return cached.opts
+        }
+        const fresh = await getPreviewToken(preview.teamId, agentSlug, preview.revisionId)
+        const opts: PreviewOpts = { ingressSlug: fresh.ingressSlug, token: fresh.token }
+        previewTokenRef.current = { opts, expiresAt: Date.now() + fresh.expiresIn * 1000 }
+        return opts
+    }, [preview, agentSlug])
 
     const onEvent = useCallback((event: SessionEvent) => {
         setSession((prev) => applyEvent(prev, event))
@@ -82,19 +123,25 @@ export function useRealRunner({ agentSlug, agentRef, principal }: UseRealRunnerO
     }, [])
 
     const openListen = useCallback(
-        (sessionId: string) => {
+        async (sessionId: string) => {
+            const previewOpts = await ensurePreview()
             closeListenRef.current?.()
-            closeListenRef.current = listen(agentSlug, sessionId, {
-                onEvent,
-                onError: () => {
-                    // SSE error usually means the server closed the stream;
-                    // we let `completed` / `failed` events drive state. Surface
-                    // only when there's been no completion event yet.
-                    setPlaying(false)
+            closeListenRef.current = listen(
+                agentSlug,
+                sessionId,
+                {
+                    onEvent,
+                    onError: () => {
+                        // SSE error usually means the server closed the stream;
+                        // we let `completed` / `failed` events drive state. Surface
+                        // only when there's been no completion event yet.
+                        setPlaying(false)
+                    },
                 },
-            })
+                { preview: previewOpts }
+            )
         },
-        [agentSlug, onEvent]
+        [agentSlug, ensurePreview, onEvent]
     )
 
     const send = useCallback(
@@ -116,20 +163,21 @@ export function useRealRunner({ agentSlug, agentRef, principal }: UseRealRunnerO
             }))
             setPlaying(true)
             try {
+                const previewOpts = await ensurePreview()
                 if (sessionIdRef.current) {
-                    await sendMessage(agentSlug, sessionIdRef.current, trimmed)
+                    await sendMessage(agentSlug, sessionIdRef.current, trimmed, { preview: previewOpts })
                 } else {
-                    const res = await startRun(agentSlug, trimmed)
+                    const res = await startRun(agentSlug, trimmed, { preview: previewOpts })
                     sessionIdRef.current = res.session_id
                     setSession((prev) => ({ ...prev, id: res.session_id, started_at: new Date().toISOString() }))
-                    openListen(res.session_id)
+                    await openListen(res.session_id)
                 }
             } catch (err) {
                 setPlaying(false)
                 setError(err instanceof Error ? err : new Error(String(err)))
             }
         },
-        [agentSlug, openListen]
+        [agentSlug, ensurePreview, openListen]
     )
 
     const reset = useCallback(async (): Promise<void> => {
@@ -142,12 +190,13 @@ export function useRealRunner({ agentSlug, agentRef, principal }: UseRealRunnerO
         setError(null)
         if (id) {
             try {
-                await cancelSession(agentSlug, id)
+                const previewOpts = await ensurePreview()
+                await cancelSession(agentSlug, id, { preview: previewOpts })
             } catch {
                 // Best-effort — server may already be done.
             }
         }
-    }, [agentSlug, agentRef, principal])
+    }, [agentSlug, agentRef, principal, ensurePreview])
 
     return { session, send, reset, playing, error }
 }

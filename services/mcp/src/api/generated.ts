@@ -3888,6 +3888,15 @@ export namespace Schemas {
       results: AgentApprovalRequest[];
     }
 
+    export interface AgentApplicationPreviewTokenResponse {
+      /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
+      token: string;
+      /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
+      expires_in: number;
+      /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix. */
+      ingress_slug: string;
+    }
+
     export interface LogEntry {
       log_source_id: string;
       instance_id: string;
@@ -44386,13 +44395,38 @@ export namespace Schemas {
     };
 
     export type AgentApplicationsPreviewProxyGetParams = {
+    format?: AgentApplicationsPreviewProxyGetFormat;
     /**
      * Target draft revision. Must belong to this application and not be live.
      */
     revision_id: string;
     };
 
+    export type AgentApplicationsPreviewProxyGetFormat = typeof AgentApplicationsPreviewProxyGetFormat[keyof typeof AgentApplicationsPreviewProxyGetFormat];
+
+
+    export const AgentApplicationsPreviewProxyGetFormat = {
+      Json: 'json',
+      Sse: 'sse',
+    } as const;
+
     export type AgentApplicationsPreviewProxyParams = {
+    format?: AgentApplicationsPreviewProxyFormat;
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsPreviewProxyFormat = typeof AgentApplicationsPreviewProxyFormat[keyof typeof AgentApplicationsPreviewProxyFormat];
+
+
+    export const AgentApplicationsPreviewProxyFormat = {
+      Json: 'json',
+      Sse: 'sse',
+    } as const;
+
+    export type AgentApplicationsPreviewTokenParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */
