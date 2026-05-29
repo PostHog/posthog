@@ -5,6 +5,11 @@ from contextlib import asynccontextmanager
 import pytest
 from unittest.mock import patch
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.printer.utils import prepare_and_print_ast
+
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.models import BatchSummarizationInputs, SampledItem
 from posthog.temporal.ai_observability.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.ai_observability.trace_summarization.workflow import BatchTraceSummarizationWorkflow
@@ -217,10 +222,38 @@ class TestSampleItemsInWindowActivity:
 
             # argMaxIf with no matching rows returns the zero UUID (not NULL), so
             # HAVING must explicitly compare against it — IS NOT NULL doesn't catch it.
-            zero_uuid_guard = CallCollector("toUUIDOrZero")
+            # The comparison goes through toString because toUUIDOrZero / toUUID
+            # of the zero-UUID literal are not in the HogQL function allowlist.
             assert query.having is not None
-            zero_uuid_guard.visit(query.having)
-            assert zero_uuid_guard.found, "HAVING must guard against zero-UUID phantom generations"
+            to_string_guard = CallCollector("toString")
+            to_string_guard.visit(query.having)
+            assert to_string_guard.found, "HAVING must guard against zero-UUID phantom generations"
+
+            class ConstantFinder(TraversingVisitor):
+                def __init__(self, value: str) -> None:
+                    self.value = value
+                    self.found = False
+
+                def visit_constant(self, node: ast.Constant) -> None:
+                    if node.value == self.value:
+                        self.found = True
+
+            zero_uuid_literal = ConstantFinder("00000000-0000-0000-0000-000000000000")
+            zero_uuid_literal.visit(query.having)
+            assert zero_uuid_literal.found, "HAVING must compare against the literal zero UUID"
+
+            # Validate the query against the real HogQL printer — every function call
+            # must be in the allowlist. Without this, a regression like toUUIDOrZero
+            # (rejected at runtime as `QueryError: Unsupported function call`) ships.
+            # Wrapped in database_sync_to_async because the printer loads the team
+            # via the Django ORM, which is blocked from this async test context.
+            placeholders = mock_execute.call_args.kwargs["placeholders"]
+            materialized = replace_placeholders(query, placeholders)
+            await database_sync_to_async(prepare_and_print_ast, thread_sensitive=False)(
+                materialized,
+                HogQLContext(team_id=mock_team.id, enable_select_queries=True),
+                "clickhouse",
+            )
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
