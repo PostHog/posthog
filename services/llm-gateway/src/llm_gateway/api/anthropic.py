@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
-    CLOUDFLARE_CONFIG,
+    CLOUDFLARE_ANTHROPIC_CONFIG,
     _sanitize_request_data,
     handle_llm_request,
 )
@@ -115,7 +115,7 @@ async def _send_cloudflare_messages(
         user=user,
         model=original_model,
         is_streaming=is_streaming,
-        provider_config=CLOUDFLARE_CONFIG,
+        provider_config=CLOUDFLARE_ANTHROPIC_CONFIG,
         llm_call=llm_call,
         product=product,
     )

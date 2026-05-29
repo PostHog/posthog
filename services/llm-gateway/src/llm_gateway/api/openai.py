@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
-    CLOUDFLARE_CONFIG,
+    CLOUDFLARE_OPENAI_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
@@ -51,7 +51,7 @@ async def _handle_chat_completions(
             user=user,
             model=body.model,
             is_streaming=body.stream or False,
-            provider_config=CLOUDFLARE_CONFIG,
+            provider_config=CLOUDFLARE_OPENAI_CONFIG,
             llm_call=make_cloudflare_completion_call(api_base, api_key),
             product=product,
         )

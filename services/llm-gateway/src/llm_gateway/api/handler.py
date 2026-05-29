@@ -45,7 +45,9 @@ BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages"
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
-CLOUDFLARE_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_messages")
+# Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
+CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_anthropic_messages")
+CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_chat_completions")
 
 # Block model prefixes that would route to a provider this gateway doesn't intend
 # to call through the generic path. Two reasons:
