@@ -220,8 +220,6 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
 
 
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
-    
-
     user = user_info.get("user", {})
     profile = user.get("profile", {})
     try:
