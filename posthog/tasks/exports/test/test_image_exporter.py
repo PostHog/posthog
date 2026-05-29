@@ -8,10 +8,9 @@ from boto3 import resource
 from botocore.client import Config
 from parameterized import parameterized
 
-from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import ExportedAsset, Insight, InsightVariable
+from posthog.models import ExportedAsset
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -24,6 +23,9 @@ from posthog.tasks.exports import image_exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 def make_insight_result(cache_key: str) -> InsightResult:

@@ -10,15 +10,17 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import Insight, PersonalAPIKey, Team, User
-from posthog.models.insight_variable import InsightVariable
+from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class PlaywrightSetupVariableType(StrEnum):
@@ -172,7 +174,8 @@ def create_organization_with_team(
             "skip_user_product_list": True,
         }
 
-        command.handle(**options)
+        with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+            command.handle(**options)
 
         user = User.objects.get(email=user_email)
         organization = user.organization
@@ -184,11 +187,11 @@ def create_organization_with_team(
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
-    # Add advanced permissions feature for password-protected sharing
+    # Add access control feature for password-protected sharing
     organization.available_product_features = [
         {
-            "key": AvailableFeature.ADVANCED_PERMISSIONS,
-            "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            "key": AvailableFeature.ACCESS_CONTROL,
+            "name": AvailableFeature.ACCESS_CONTROL,
         }
     ]
     organization.save()
@@ -207,6 +210,10 @@ def create_organization_with_team(
         },
     )
     api_key._value = api_key_value  # type: ignore
+
+    # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
+    user.credentials_reviewed_at = timezone.now()
+    user.save(update_fields=["credentials_reviewed_at"])
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
@@ -394,10 +401,11 @@ def _create_experiments(
 def _count_events_in_clickhouse(team_id: int) -> int:
     from posthog.clickhouse.client import sync_execute
 
-    result = sync_execute(
-        "SELECT count() FROM events WHERE team_id = %(team_id)s",
-        {"team_id": team_id},
-    )
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        result = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": team_id},
+        )
     return int(result[0][0])
 
 
@@ -484,7 +492,8 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     # Populate event/property definitions so the taxonomic filter works
     from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 
-    infer_taxonomy_for_team(team.pk)
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        infer_taxonomy_for_team(team.pk)
 
 
 @dataclass(frozen=True)

@@ -122,8 +122,10 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             filter_storage_key=inputs.filter_storage_key,
             cohort_ids=inputs.cohort_ids,
-            start_time=day_start.isoformat(),
-            end_time=day_end.isoformat(),
+            # ClickHouse's DateTime64 parser rejects ISO 8601 timezone suffixes (e.g. "+00:00"),
+            # so format the bounds in its native "YYYY-MM-DD HH:MM:SS" shape before sending to the query.
+            start_time=day_start.strftime("%Y-%m-%d %H:%M:%S"),
+            end_time=day_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
         child_handle = await temporalio.workflow.start_child_workflow(

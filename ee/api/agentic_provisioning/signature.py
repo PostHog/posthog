@@ -28,7 +28,7 @@ def verify_api_version(request: Request) -> Response | None:
 
     Returns None if valid, or an error Response if not.
     """
-    api_version = request.META.get("HTTP_API_VERSION", "")
+    api_version = request.headers.get("api-version", "")
     if api_version not in SUPPORTED_VERSIONS:
         endpoint = request.path
         _log_and_capture_event("invalid_api_version", 400, endpoint, api_version=api_version)
@@ -44,7 +44,7 @@ def verify_api_version(request: Request) -> Response | None:
     return None
 
 
-def verify_stripe_signature(request: Request) -> Response | None:
+def verify_provisioning_signature(request: Request) -> Response | None:
     """Verify the Stripe-Signature HMAC.
 
     Returns None if verification passes, or an error Response if it fails.
@@ -57,7 +57,7 @@ def verify_stripe_signature(request: Request) -> Response | None:
         _log_and_capture_event("server_error", 500, endpoint)
         return Response({"error": {"code": "server_error", "message": "Signing secret not configured"}}, status=500)
 
-    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE", "")
+    sig_header = request.headers.get("stripe-signature", "")
     parsed = _parse_signature_header(sig_header)
     if parsed is None:
         _log_and_capture_event("invalid_signature", 401, endpoint, reason="missing_or_malformed_header")

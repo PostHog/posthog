@@ -54,6 +54,8 @@ export interface AnomalyPoint {
     seriesIndex: number
 }
 
+export type InvestigationInconclusiveAction = 'notify' | 'suppress'
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
@@ -64,6 +66,9 @@ export interface AlertTypeBase {
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
     detector_config?: DetectorConfig | null
+    investigation_agent_enabled?: boolean
+    investigation_gates_notifications?: boolean
+    investigation_inconclusive_action?: InvestigationInconclusiveAction
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -73,10 +78,13 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     detector_config?: DetectorConfig | null
 }
 
+export type InvestigationStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+export type InvestigationVerdict = 'true_positive' | 'false_positive' | 'inconclusive'
+
 export interface AlertCheck {
     id: string
     created_at: string
-    calculated_value: number
+    calculated_value: number | null
     state: AlertState
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null
@@ -84,6 +92,12 @@ export interface AlertCheck {
     triggered_dates?: string[] | null
     interval?: string | null
     triggered_metadata?: Record<string, unknown> | null
+    investigation_status?: InvestigationStatus | null
+    investigation_verdict?: InvestigationVerdict | null
+    investigation_summary?: string | null
+    investigation_notebook_short_id?: string | null
+    notification_sent_at?: string | null
+    notification_suppressed_by_agent?: boolean
 }
 
 export interface AlertType extends AlertTypeBase {

@@ -23,6 +23,10 @@
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
+- image: property-vals-rs
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
 - image: cymbal
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
@@ -32,6 +36,18 @@
   project: 8dq0xkk0ck
 
 - image: feature-flags
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
+- image: flags-cache-warmer
+  bin: warm-flags-cache
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+  features: warm-flags-cache
+  # Adds redis-cli + awscli for operator use (see bin/rust-jumphost).
+  target: runtime-jumphost
+
+- image: flags-consumer
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
@@ -62,6 +78,10 @@
 - image: personhog-router
   dockerfile: ./rust/Dockerfile
   project: wqvvpmzgbk
+
+- image: personhog-writer
+  dockerfile: ./rust/Dockerfile
+  project: hj9nd3cg9w
 
 - image: kafka-assigner
   dockerfile: ./rust/Dockerfile

@@ -181,7 +181,7 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
 }
 
 /** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */
-export function isValidBreakdownParameter(
+export function hasBreakdownFilterParameter(
     breakdown: BreakdownKeyType | undefined,
     breakdowns: Breakdown[] | undefined
 ): boolean {
@@ -189,6 +189,19 @@ export function isValidBreakdownParameter(
         (Array.isArray(breakdowns) && breakdowns.length > 0) ||
         ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) ||
         Array.isArray(breakdown)
+    )
+}
+
+/**
+ * Whether a series's `breakdown_value` represents an actual user-picked breakdown.
+ * The funnel backend uses the literal "Baseline" (or `['Baseline', ...]` for
+ * multi-breakdowns) to mark the overall, non-broken-down series.
+ */
+export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): boolean {
+    return (
+        breakdownValue !== undefined &&
+        breakdownValue !== 'Baseline' &&
+        !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
     )
 }
 

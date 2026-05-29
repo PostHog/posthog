@@ -27,6 +27,10 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
+const productAliases: Record<string, string> = {
+    llm_analytics: 'ai_observability',
+}
+
 // ------------------------------------------------------------------
 // Types
 // ------------------------------------------------------------------
@@ -98,6 +102,12 @@ function operationIdToToolName(operationId: string): string {
 function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+    const matchingTags = new Set([
+        product,
+        ...Object.entries(productAliases)
+            .filter(([, target]) => target === product)
+            .map(([source]) => source),
+    ])
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
@@ -105,7 +115,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
                 continue
             }
             const tags = op['x-explicit-tags'] ?? []
-            if (tags.includes(product)) {
+            if (tags.some((tag) => matchingTags.has(tag.replace(/-/g, '_')))) {
                 ops.push({
                     operationId: op.operationId,
                     method: method.toUpperCase(),
@@ -127,10 +137,17 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
 function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
-    const needle = `/${product.replace(/-/g, '_').toLowerCase()}/`
+    const productsToMatch = [
+        product,
+        ...Object.entries(productAliases)
+            .filter(([, target]) => target === product)
+            .map(([source]) => source),
+    ]
+    const needles = productsToMatch.map((productName) => `/${productName.replace(/-/g, '_').toLowerCase()}/`)
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
-        if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
+        const normalizedPath = urlPath.toLowerCase().replace(/-/g, '_')
+        if (!needles.some((needle) => normalizedPath.includes(needle))) {
             continue
         }
 
@@ -240,11 +257,13 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)))
+
     const yaml: Record<string, unknown> = {
         category: tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: tag.replace(/-/g, '_'),
         url_prefix: `/${tag.replace(/_/g, '-')}`,
-        tools,
+        tools: sortedTools,
     }
 
     return YAML_HEADER + stringifyYaml(yaml, { indent: 4, lineWidth: 120 })
@@ -283,7 +302,8 @@ function mergeWithExisting(
     let matched = 0
     const unmatchedTools: string[] = []
 
-    // Preserve existing tool order and hand-authored operation values
+    // Preserve hand-authored config (enabled, scopes, descriptions, etc.) per tool.
+    // Tool order itself is normalized alphabetically below — see `sortedTools`.
     for (const [name, config] of Object.entries(existingTools)) {
         const base = config.operation.replace(/_\d+$/, '')
         const op = openApiByBase.get(base)
@@ -324,12 +344,14 @@ function mergeWithExisting(
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(mergedTools).sort(([a], [b]) => a.localeCompare(b)))
+
     const merged: Record<string, unknown> = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
         ui_apps: existing.ui_apps ?? {},
-        tools: mergedTools,
+        tools: sortedTools,
     }
 
     // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
@@ -440,11 +462,8 @@ function syncAll(spec: OpenApiSpec): void {
             validIds,
             subset
         )
-        // Only write when there are semantic changes (avoids formatting-only rewrites)
-        if (added > 0 || removed > 0 || updated > 0) {
-            fs.writeFileSync(filePath, content)
-            writtenFiles.push(filePath)
-        }
+        fs.writeFileSync(filePath, content)
+        writtenFiles.push(filePath)
         const total = matched + unmatchedTools.length
         const parts = [
             subset ? (total === 0 ? '0 tool(s)' : `${matched}/${total} tool(s) matched`) : `${ops.length} operation(s)`,

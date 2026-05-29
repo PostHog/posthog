@@ -164,6 +164,8 @@ class TestExecuteWithAiEventsFallback:
         timings = Mock()
         modifiers = Mock()
         limit_context = Mock()
+        settings = Mock()
+        workload = Mock()
 
         execute_with_ai_events_fallback(
             query=self._make_query(),
@@ -173,9 +175,35 @@ class TestExecuteWithAiEventsFallback:
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
+            settings=settings,
+            workload=workload,
         )
 
         kwargs = mock_execute.call_args.kwargs
         assert kwargs["timings"] is timings
         assert kwargs["modifiers"] is modifiers
         assert kwargs["limit_context"] is limit_context
+        assert kwargs["settings"] is settings
+        assert kwargs["workload"] is workload
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
+    def test_omits_unset_optional_kwargs(self, _mock_flag, mock_execute):
+        # Unset kwargs must NOT appear in the forwarded call so they don't override
+        # execute_hogql_query's defaults (workload=DEFAULT, etc).
+        mock_execute.return_value = self._make_result([["found"]])
+
+        team = Mock(id=1, organization_id="org")
+        execute_with_ai_events_fallback(
+            query=self._make_query(),
+            placeholders={},
+            team=team,
+            query_type="TestQuery",
+        )
+
+        kwargs = mock_execute.call_args.kwargs
+        assert "timings" not in kwargs
+        assert "modifiers" not in kwargs
+        assert "limit_context" not in kwargs
+        assert "settings" not in kwargs
+        assert "workload" not in kwargs

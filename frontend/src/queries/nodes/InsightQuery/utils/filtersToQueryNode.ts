@@ -542,6 +542,8 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         aggregationAxisPrefix: filters.aggregation_axis_prefix,
         aggregationAxisPostfix: filters.aggregation_axis_postfix,
         decimalPlaces: filters.decimal_places,
+        xAxisLabel: filters.x_axis_label,
+        yAxisLabel: filters.y_axis_label,
         formula: filters.formula,
         display: filters.display,
         showValuesOnSeries: filters.show_values_on_series,

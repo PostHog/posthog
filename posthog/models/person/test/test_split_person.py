@@ -227,6 +227,94 @@ class TestSplitPerson(BaseTest):
         assert len(person_calls) == 1
         assert person_calls[0].kwargs["version"] == 5 + 101
 
+    def test_partial_split_moves_only_specified_distinct_ids(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(
+            ["keep1", "move1", "keep2", "move2", "keep3"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "mega@example.com", "name": "Mega"},
+        )
+
+        person.split_person(main_distinct_id=None, distinct_ids_to_split=["move1", "move2"])
+
+        # Original person keeps its properties intact — this is the key partial-split guarantee.
+        person.refresh_from_db()
+        assert person.properties == {"email": "mega@example.com", "name": "Mega"}
+
+        # Kept distinct_ids remain on the original person.
+        for did in ["keep1", "keep2", "keep3"]:
+            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
+            assert pdi.person_id == person.id
+
+        # Moved distinct_ids each land on their own new person.
+        pdi_move1 = PersonDistinctId.objects.get(team=self.team, distinct_id="move1")
+        pdi_move2 = PersonDistinctId.objects.get(team=self.team, distinct_id="move2")
+        assert pdi_move1.person_id != person.id
+        assert pdi_move2.person_id != person.id
+        assert pdi_move1.person_id != pdi_move2.person_id
+
+        assert mock_create_pdi.call_count == 2
+        assert mock_create_person.call_count == 2
+
+    def test_partial_split_rejects_unknown_distinct_id(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(["id1", "id2"], mock_create_pdi, mock_create_person)
+
+        with self.assertRaises(ValueError):
+            person.split_person(main_distinct_id=None, distinct_ids_to_split=["id1", "not_on_this_person"])
+
+        # Nothing should have moved.
+        for did in ["id1", "id2"]:
+            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
+            assert pdi.person_id == person.id
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    def test_partial_split_ignores_main_distinct_id_and_max_splits(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(
+            ["a", "b", "c", "d"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "kept@example.com"},
+        )
+
+        # main_distinct_id and max_splits should both be ignored when the explicit list is given.
+        person.split_person(main_distinct_id="a", max_splits=1, distinct_ids_to_split=["b", "c"])
+
+        person.refresh_from_db()
+        assert person.properties == {"email": "kept@example.com"}
+
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="a").person_id == person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="d").person_id == person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="b").person_id != person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="c").person_id != person.id
+
+    def test_partial_split_empty_list_is_noop(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(
+            ["id1", "id2"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "noop@example.com"},
+        )
+
+        person.split_person(main_distinct_id=None, distinct_ids_to_split=[])
+
+        person.refresh_from_db()
+        assert person.properties == {"email": "noop@example.com"}
+        for did in ["id1", "id2"]:
+            assert PersonDistinctId.objects.get(team=self.team, distinct_id=did).person_id == person.id
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    def test_partial_split_dedupes_duplicates(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(["id1", "id2"], mock_create_pdi, mock_create_person)
+
+        person.split_person(main_distinct_id=None, distinct_ids_to_split=["id2", "id2"])
+
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="id1").person_id == person.id
+        assert PersonDistinctId.objects.get(team=self.team, distinct_id="id2").person_id != person.id
+        assert mock_create_pdi.call_count == 1
+        assert mock_create_person.call_count == 1
+
     def test_split_many_distinct_ids(self, mock_create_pdi, mock_create_person):
         distinct_ids = ["main"] + [f"id_{i}" for i in range(100)]
         person = self._create_person_with_distinct_ids(distinct_ids, mock_create_pdi, mock_create_person)

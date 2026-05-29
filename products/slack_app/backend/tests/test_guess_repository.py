@@ -12,17 +12,15 @@ from posthog.models.organization import Organization
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.user_repo_preference import UserRepoPreference
 
 from products.slack_app.backend.api import (
     RulesCommand,
     _extract_explicit_repo,
     _get_full_repo_names,
     _invalidate_repo_list_cache,
-    _match_repo_rule,
     _parse_rules_command,
     _repo_list_cache_key,
-    select_repository,
+    classify_task_needs_repo,
 )
 
 
@@ -58,7 +56,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "posthog", 1),
             _repo_dict("posthog", "posthog-js", 2),
             _repo_dict("posthog", "plugin-server", 3),
@@ -80,7 +78,7 @@ class TestGetFullRepoNames:
         page2 = [_repo_dict("org", f"repo-{i}", i) for i in range(100, 120)]
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = page1 + page2
+        mock_github.list_all_cached_repositories.return_value = page1 + page2
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -104,10 +102,10 @@ class TestGetFullRepoNames:
         )
 
         gh_a = MagicMock()
-        gh_a.list_all_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
+        gh_a.list_all_cached_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
 
         gh_b = MagicMock()
-        gh_b.list_all_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
+        gh_b.list_all_cached_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -124,7 +122,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
         mock_github_class.return_value = mock_github
 
         with caplog.at_level(logging.WARNING):
@@ -142,7 +140,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "zebra", 1),
             _repo_dict("posthog", "alpha", 2),
             _repo_dict("posthog", "middle", 3),
@@ -178,7 +176,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_miss_populates_cache(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -189,7 +187,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_hit_avoids_github_api(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -213,10 +211,10 @@ class TestGetFullRepoNamesCache:
         self._create_github_integration(team=team_b, name="orgB")
 
         gh_a = MagicMock()
-        gh_a.list_all_repositories.return_value = [_repo_dict("orgA", "repo-a")]
+        gh_a.list_all_cached_repositories.return_value = [_repo_dict("orgA", "repo-a")]
 
         gh_b = MagicMock()
-        gh_b.list_all_repositories.return_value = [_repo_dict("orgB", "repo-b")]
+        gh_b.list_all_cached_repositories.return_value = [_repo_dict("orgB", "repo-b")]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -229,7 +227,7 @@ class TestGetFullRepoNamesCache:
     def test_invalidation_forces_refetch(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -237,7 +235,7 @@ class TestGetFullRepoNamesCache:
 
         assert cache.get(_repo_list_cache_key(self.team.id)) is None
 
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "repo-a"),
             _repo_dict("posthog", "repo-b", 2),
         ]
@@ -254,7 +252,7 @@ class TestGetFullRepoNamesCache:
     def test_empty_result_with_github_integrations_not_cached(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = []
+        mock_github.list_all_cached_repositories.return_value = []
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -265,7 +263,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_save(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -284,7 +282,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_delete(self, mock_github_class):
         gh_record = self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -297,7 +295,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_ignores_non_github_integration(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -341,7 +339,7 @@ class TestPostRepoPickerPrewarm:
             sensitive_config={"access_token": "ghp-test"},
         )
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _post_repo_picker_message(
@@ -379,283 +377,6 @@ class TestExtractExplicitRepo:
     def test_extract_explicit_repo(self, _name, text, expected):
         repos = ["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"]
         assert _extract_explicit_repo(text, repos) == expected
-
-
-class TestSelectRepository:
-    @pytest.fixture(autouse=True)
-    def setup(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-
-        self.slack_integration = Integration.objects.create(
-            team=self.team,
-            kind="slack-posthog-code",
-            integration_id="T12345",
-            sensitive_config={"access_token": "xoxb-test"},
-        )
-
-        self.thread_messages = [{"user": "Dev", "text": "please update readme"}]
-
-    def test_single_connected_repo_auto(self):
-        decision = select_repository(
-            event_text="please update readme",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog"],
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog"
-        assert decision.reason == "single_repo"
-        assert decision.llm_found_match is False
-
-    def test_explicit_repo_auto(self):
-        decision = select_repository(
-            event_text="fix posthog/posthog-js",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog-js"
-        assert decision.reason == "explicit_mention"
-        assert decision.llm_found_match is False
-
-    def test_explicit_repo_takes_precedence_over_rules(self):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="anything about JS",
-            repository="posthog/posthog",
-            priority=0,
-        )
-
-        decision = select_repository(
-            event_text="fix posthog/posthog-js",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js"],
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog-js"
-        assert decision.reason == "explicit_mention"
-
-    @patch("products.slack_app.backend.api._match_repo_rule", return_value="posthog/posthog-js")
-    def test_rule_match_auto(self, _mock_match):
-        decision = select_repository(
-            event_text="fix the JS SDK bug",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog-js"
-        assert decision.reason == "rule_match"
-        assert decision.llm_found_match is True
-
-    @patch("products.slack_app.backend.api._match_repo_rule", return_value=None)
-    def test_no_rule_match_picker(self, _mock_match):
-        decision = select_repository(
-            event_text="fix other/repo",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
-        )
-
-        assert decision.mode == "picker"
-        assert decision.repository is None
-        assert decision.reason == "no_rule_match"
-        assert decision.llm_found_match is False
-
-    def test_no_repos_picker(self):
-        decision = select_repository(
-            event_text="add yolo to readme",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=[],
-        )
-
-        assert decision.mode == "picker"
-        assert decision.repository is None
-        assert decision.reason == "no_repos"
-        assert decision.llm_found_match is False
-
-    def test_user_default_preference(self):
-        user = User.objects.create(email="pref@example.com", distinct_id="pref-user")
-        UserRepoPreference.set_default(
-            team_id=self.team.id,
-            user_id=user.id,
-            scope_type="slack_channel",
-            scope_id="C001",
-            repository="posthog/posthog-js",
-        )
-
-        decision = select_repository(
-            event_text="fix the bug",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"],
-            user_id=user.id,
-            channel="C001",
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog-js"
-        assert decision.reason == "user_default"
-        assert decision.llm_found_match is False
-
-    def test_user_default_ignored_when_repo_not_connected(self):
-        user = User.objects.create(email="pref2@example.com", distinct_id="pref-user-2")
-        UserRepoPreference.set_default(
-            team_id=self.team.id,
-            user_id=user.id,
-            scope_type="slack_channel",
-            scope_id="C001",
-            repository="posthog/disconnected-repo",
-        )
-
-        decision = select_repository(
-            event_text="fix the bug",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js"],
-            user_id=user.id,
-            channel="C001",
-        )
-
-        assert decision.reason != "user_default"
-
-    def test_explicit_mention_takes_precedence_over_user_default(self):
-        user = User.objects.create(email="pref3@example.com", distinct_id="pref-user-3")
-        UserRepoPreference.set_default(
-            team_id=self.team.id,
-            user_id=user.id,
-            scope_type="slack_channel",
-            scope_id="C001",
-            repository="posthog/posthog",
-        )
-
-        decision = select_repository(
-            event_text="fix posthog/posthog-js",
-            thread_messages=self.thread_messages,
-            integration=self.slack_integration,
-            all_repos=["posthog/posthog", "posthog/posthog-js"],
-            user_id=user.id,
-            channel="C001",
-        )
-
-        assert decision.mode == "auto"
-        assert decision.repository == "posthog/posthog-js"
-        assert decision.reason == "explicit_mention"
-
-
-class TestMatchRepoRule:
-    @pytest.fixture(autouse=True)
-    def setup(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-
-    def test_no_rules_returns_none(self):
-        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/repo"])
-        assert result is None
-
-    def test_no_eligible_rules_returns_none(self):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="JS issues",
-            repository="org/disconnected-repo",
-            priority=0,
-        )
-        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/repo"])
-        assert result is None
-
-    @patch("products.slack_app.backend.api.get_llm_client")
-    def test_llm_returns_valid_index(self, mock_get_client):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="JS SDK issues",
-            repository="org/js-sdk",
-            priority=0,
-        )
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"rule_index": 0}'
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
-
-        result = _match_repo_rule(
-            "fix the JS SDK", [{"user": "Dev", "text": "fix the JS SDK"}], self.team.id, ["org/js-sdk", "org/other"]
-        )
-        assert result == "org/js-sdk"
-
-    @patch("products.slack_app.backend.api.get_llm_client")
-    def test_llm_returns_null_index(self, mock_get_client):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="JS SDK issues",
-            repository="org/js-sdk",
-            priority=0,
-        )
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"rule_index": null}'
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
-
-        result = _match_repo_rule(
-            "unrelated request", [{"user": "Dev", "text": "unrelated"}], self.team.id, ["org/js-sdk"]
-        )
-        assert result is None
-
-    @patch("products.slack_app.backend.api.get_llm_client")
-    def test_llm_returns_invalid_index(self, mock_get_client):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="JS SDK issues",
-            repository="org/js-sdk",
-            priority=0,
-        )
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"rule_index": 99}'
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
-
-        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
-        assert result is None
-
-    @patch("products.slack_app.backend.api.get_llm_client")
-    def test_llm_failure_returns_none(self, mock_get_client):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="JS SDK issues",
-            repository="org/js-sdk",
-            priority=0,
-        )
-
-        mock_get_client.return_value.chat.completions.create.side_effect = RuntimeError("LLM down")
-
-        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
-        assert result is None
-
-    @patch("products.slack_app.backend.api.get_llm_client")
-    def test_llm_invalid_json_returns_none(self, mock_get_client):
-        RepoRoutingRule.objects.create(
-            team=self.team,
-            rule_text="JS SDK issues",
-            repository="org/js-sdk",
-            priority=0,
-        )
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "not json"
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
-
-        result = _match_repo_rule("fix bug", [{"user": "Dev", "text": "fix bug"}], self.team.id, ["org/js-sdk"])
-        assert result is None
 
 
 class TestParseRulesCommand:
@@ -705,19 +426,25 @@ class TestParseRulesCommand:
             ("help_case_insensitive", "Help", RulesCommand(action="help")),
             ("bot_mention_help", "<@U123BOT> help", RulesCommand(action="help")),
             (
-                "default_repo_set",
-                "default repo set org/repo",
-                RulesCommand(action="default_set", repository="org/repo"),
+                "deprecated_default_repo_set",
+                "default repo set posthog/posthog",
+                RulesCommand(action="deprecated_default_repo"),
             ),
             (
-                "default_repo_set_bot",
-                "<@U123BOT> default repo set my-org/my.repo",
-                RulesCommand(action="default_set", repository="my-org/my.repo"),
+                "deprecated_default_repo_show",
+                "default repo show",
+                RulesCommand(action="deprecated_default_repo"),
             ),
-            ("default_repo_show", "default repo show", RulesCommand(action="default_show")),
-            ("default_repo_show_bot", "<@U123BOT> default repo show", RulesCommand(action="default_show")),
-            ("default_repo_clear", "default repo clear", RulesCommand(action="default_clear")),
-            ("default_repo_clear_bot", "<@U123BOT> default repo clear", RulesCommand(action="default_clear")),
+            (
+                "deprecated_default_repo_clear",
+                "default repo clear",
+                RulesCommand(action="deprecated_default_repo"),
+            ),
+            (
+                "deprecated_default_repo_with_bot_mention",
+                "<@U123BOT> default repo set posthog/posthog",
+                RulesCommand(action="deprecated_default_repo"),
+            ),
         ]
     )
     def test_parses_command(self, _name, text, expected):
@@ -765,7 +492,7 @@ class TestHandleRulesCommandActivity:
             slack_team_id="T12345",
         )
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_list_empty_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -784,7 +511,27 @@ class TestHandleRulesCommandActivity:
         msg = mock_slack.client.chat_postMessage.call_args
         assert "No routing rules" in msg.kwargs["text"]
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_help_uses_posthog_commands(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.posthog_code_slack_mention import handle_posthog_code_rules_command_activity
+
+        result = handle_posthog_code_rules_command_activity(
+            self._make_inputs("<@U123> help"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "@PostHog <task description>" in msg.kwargs["text"]
+        assert "@PostHog Code" not in msg.kwargs["text"]
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -814,7 +561,7 @@ class TestHandleRulesCommandActivity:
     @patch(
         "products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog", "posthog/posthog-js"]
     )
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_add_with_repo_creates_rule(self, mock_slack_cls, _mock_repos):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -851,7 +598,7 @@ class TestHandleRulesCommandActivity:
         assert result.pending_rule_text == "JS SDK bugs"
 
     @patch("products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog"])
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_add_rejects_disconnected_repo(self, mock_slack_cls, _mock_repos):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -871,7 +618,7 @@ class TestHandleRulesCommandActivity:
         msg = mock_slack.client.chat_postMessage.call_args
         assert "not connected" in msg.kwargs["text"]
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_remove_deletes_rule(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -894,7 +641,7 @@ class TestHandleRulesCommandActivity:
         remaining = RepoRoutingRule.objects.get(team=self.team)
         assert remaining.rule_text == "Second rule"
 
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_remove_invalid_number(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -951,3 +698,33 @@ class TestRepoRoutingRuleModel:
         team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
         assert len(team_a_rules) == 1
         assert team_a_rules[0].rule_text == "Team A rule"
+
+
+class TestClassifyTaskNeedsRepo:
+    @parameterized.expand(
+        [
+            (
+                "product_debug_automation",
+                "debug why the automation that sends PostHog AI Feedback always gives a thumbs down",
+                False,
+            ),
+            (
+                "product_debug_destination",
+                "investigate the slack destination configuration for this automation",
+                False,
+            ),
+            (
+                "product_debug_report_not_repo",
+                "debug why this dashboard report always shows a thumbs down",
+                False,
+            ),
+            (
+                "explicit_repo_request",
+                "open a PR in posthog/posthog to fix this serializer",
+                True,
+            ),
+        ]
+    )
+    def test_heuristic_classification(self, _name, text, expected):
+        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+        assert result is expected

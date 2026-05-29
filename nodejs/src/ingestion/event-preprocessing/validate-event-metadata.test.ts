@@ -1,3 +1,4 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
 import { drop, ok } from '../pipelines/results'
 import { createValidateEventMetadataStep } from './validate-event-metadata'
@@ -7,12 +8,10 @@ describe('createValidateEventMetadataStep', () => {
     let step: ReturnType<typeof createValidateEventMetadataStep>
 
     beforeEach(() => {
-        mockHeaders = {
+        mockHeaders = createTestEventHeaders({
             token: 'test-token-123',
             distinct_id: 'test-user-456',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        }
+        })
 
         step = createValidateEventMetadataStep()
         jest.clearAllMocks()

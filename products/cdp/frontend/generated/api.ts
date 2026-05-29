@@ -21,8 +21,10 @@ import type {
     HogFunctionsMetricsTotalsRetrieveParams,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionTemplateListApi,
+    PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
     PatchedHogFunctionRearrangeApi,
+    PluginConfigsLogsListParams,
     PublicHogFunctionTemplatesListParams,
 } from './api.schemas'
 
@@ -118,7 +120,7 @@ export const getHogFunctionsCreateUrl = (projectId: string) => {
 
 export const hogFunctionsCreate = async (
     projectId: string,
-    hogFunctionApi: NonReadonly<HogFunctionApi>,
+    hogFunctionApi?: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<HogFunctionApi> => {
     return apiMutator<HogFunctionApi>(getHogFunctionsCreateUrl(projectId), {
@@ -151,7 +153,7 @@ export const getHogFunctionsUpdateUrl = (projectId: string, id: string) => {
 export const hogFunctionsUpdate = async (
     projectId: string,
     id: string,
-    hogFunctionApi: NonReadonly<HogFunctionApi>,
+    hogFunctionApi?: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<HogFunctionApi> => {
     return apiMutator<HogFunctionApi>(getHogFunctionsUpdateUrl(projectId, id), {
@@ -169,7 +171,7 @@ export const getHogFunctionsPartialUpdateUrl = (projectId: string, id: string) =
 export const hogFunctionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFunctionApi: NonReadonly<PatchedHogFunctionApi>,
+    patchedHogFunctionApi?: NonReadonly<PatchedHogFunctionApi>,
     options?: RequestInit
 ): Promise<HogFunctionApi> => {
     return apiMutator<HogFunctionApi>(getHogFunctionsPartialUpdateUrl(projectId, id), {
@@ -180,13 +182,13 @@ export const hogFunctionsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getHogFunctionsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const hogFunctionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getHogFunctionsDestroyUrl(projectId, id), {
         ...options,
@@ -201,7 +203,7 @@ export const getHogFunctionsEnableBackfillsCreateUrl = (projectId: string, id: s
 export const hogFunctionsEnableBackfillsCreate = async (
     projectId: string,
     id: string,
-    hogFunctionApi: NonReadonly<HogFunctionApi>,
+    hogFunctionApi?: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getHogFunctionsEnableBackfillsCreateUrl(projectId, id), {
@@ -348,16 +350,16 @@ export const hogFunctionsIconsRetrieve = async (projectId: string, options?: Req
     })
 }
 
-/**
- * Update the execution order of multiple HogFunctions.
- */
 export const getHogFunctionsRearrangePartialUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_functions/rearrange/`
 }
 
+/**
+ * Update the execution order of multiple HogFunctions.
+ */
 export const hogFunctionsRearrangePartialUpdate = async (
     projectId: string,
-    patchedHogFunctionRearrangeApi: PatchedHogFunctionRearrangeApi,
+    patchedHogFunctionRearrangeApi?: PatchedHogFunctionRearrangeApi,
     options?: RequestInit
 ): Promise<HogFunctionApi[]> => {
     return apiMutator<HogFunctionApi[]>(getHogFunctionsRearrangePartialUpdateUrl(projectId), {
@@ -365,6 +367,38 @@ export const hogFunctionsRearrangePartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedHogFunctionRearrangeApi),
+    })
+}
+
+export const getPluginConfigsLogsListUrl = (
+    projectId: string,
+    pluginConfigId: number,
+    params?: PluginConfigsLogsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+}
+
+export const pluginConfigsLogsList = async (
+    projectId: string,
+    pluginConfigId: number,
+    params?: PluginConfigsLogsListParams,
+    options?: RequestInit
+): Promise<PaginatedPluginLogEntryListApi> => {
+    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -1,6 +1,6 @@
 ---
 name: improving-drf-endpoints
-description: Use when editing, reviewing, or auditing DRF viewsets and serializers in PostHog. Triggers on files in posthog/api/, products/*/backend/api/, products/*/backend/presentation/, or any file importing rest_framework serializers or viewsets. Covers OpenAPI spec quality, field typing, schema annotations, and DRF best practices that flow through the type pipeline to generated TypeScript types and MCP tools.
+description: Use when editing, reviewing, or auditing DRF viewsets and serializers in PostHog. Triggers on files in posthog/api/, products/*/backend/api/, products/*/backend/presentation/, or any file importing rest_framework. Covers field typing, schema annotations, enum collision fixes, and OpenAPI spec quality — everything that flows downstream into generated TypeScript types and MCP tools.
 ---
 
 # Improving DRF Endpoints
@@ -51,24 +51,47 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Read vs write serializers are separate** when input shape differs from output
-7. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
+6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
+7. **Read vs write serializers are separate** when input shape differs from output
+8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 
 See [serializer-fields.md](references/serializer-fields.md) for patterns and examples.
 
 ### Viewset and action annotations
 
-8. **Every custom `@action` has `@extend_schema` or `@validated_request`** — without it, drf-spectacular discovers zero parameters
-9. **Plain `ViewSet` methods have schema annotations** — `ModelViewSet` with `serializer_class` is auto-discovered; plain `ViewSet` is not
-10. **`@extend_schema` is on the actual method** (`get`, `post`, `create`, `list`), not on a helper or the class itself
-11. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
-12. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
-13. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
-14. **ViewSets outside `products/` need `@extend_schema(tags=["<product>"])`** — ViewSets in `products/<name>/backend/` are auto-tagged via module path, but ViewSets in `posthog/api/` or `ee/` are not. Without the tag, the MCP scaffold and frontend type generator can't route the endpoint to the right product
+9. **Every custom `@action` has `@extend_schema` or `@validated_request`** — without it, drf-spectacular discovers zero parameters
+10. **Plain `ViewSet` methods have schema annotations** — `ModelViewSet` with `serializer_class` is auto-discovered; plain `ViewSet` is not
+11. **`@extend_schema` is on the actual method** (`get`, `post`, `create`, `list`), not on a helper or the class itself
+12. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
+13. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
+14. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
+15. **ViewSets outside `products/` need `@extend_schema(tags=["<product>"])`** — ViewSets in `products/<name>/backend/` are auto-tagged via module path, but ViewSets in `posthog/api/` or `ee/` are not. Without the tag, the MCP scaffold and frontend type generator can't route the endpoint to the right product
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 
 See [viewset-annotations.md](references/viewset-annotations.md) for patterns and examples.
+
+### URL routing — where to register new team-nested endpoints
+
+PostHog briefly split projects and environments as separate concepts then rolled
+the split back. **`/api/projects/:team_id/...` is the canonical path** for any
+team-nested endpoint. `/api/environments/:team_id/...` is a backward-compat alias
+preserved only for clients that integrated against it during the split.
+
+For a **new** team-nested endpoint, register directly under `projects_router` in
+`posthog/api/__init__.py`:
+
+```python
+projects_router.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])
+```
+
+Do **not** register new endpoints under `environments_router`. Do **not** use
+`register_grandfathered_environment_nested_viewset` — it exists only for
+endpoints that were already exposed on both routes before the rollback.
+
+If existing clients need `/api/environments/...` too, the OpenAPI postprocess
+hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks
+the env-side path as `deprecated: true` whenever both routes exist.
 
 ### Facade products (DataclassSerializer)
 
@@ -128,3 +151,4 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 - **Pipeline docs:** `docs/published/handbook/engineering/type-system.md`
 - **Mixins:** `posthog/api/mixins.py` (`@validated_request` source)
 - **drf-spectacular config:** `posthog/settings/web.py` (`SPECTACULAR_SETTINGS`)
+- **Enum collision diagnostic:** `python manage.py find_enum_collisions` — finds unresolved collisions and suggests overrides

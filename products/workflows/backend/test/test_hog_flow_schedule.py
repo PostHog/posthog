@@ -9,8 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.hog_flow.hog_flow import HogFlow
-
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
@@ -249,9 +248,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
     def _post(self):
         return self.client.post(
-            self.INTERNAL_URL,
-            content_type="application/json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret",
+            self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
     def test_due_schedule_is_processed_and_next_run_at_advanced(self, mock_dispatch):
@@ -393,7 +390,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("posthog.api.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 
@@ -419,9 +416,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     def _post(self):
         return self.client.post(
-            self.INTERNAL_URL,
-            content_type="application/json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret",
+            self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
     def test_due_schedule_trigger_dispatches_scheduled_invocation(self, mock_invocation):

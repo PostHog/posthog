@@ -147,7 +147,7 @@ When composing primitives inside Base UI components, use the `render` prop:
 
 ```tsx
 // Good — Base UI manages behavior, our component provides styling
-<ComboboxPrimitive.Chip render={<Chip variant="outline" />}>
+<ComboboxPrimitive.Chip render={<Chip />}>
     {children}
 </ComboboxPrimitive.Chip>
 

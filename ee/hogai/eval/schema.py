@@ -10,7 +10,9 @@ from pydantic_avro import AvroBase
 
 from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
-from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
+from posthog.models import GroupTypeMapping, PropertyDefinition, Team
+
+from products.warehouse_sources.backend.models import DataWarehouseTable
 
 T = TypeVar("T", bound=Model)
 
@@ -92,12 +94,14 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
 
     @classmethod
     def serialize_for_team(cls, *, team_id: int):
-        for mapping in GroupTypeMapping.objects.filter(team_id=team_id).iterator(500):
+        from posthog.models.group_type_mapping import get_group_types_for_team
+
+        for m in get_group_types_for_team(team_id):
             yield GroupTypeMappingSnapshot(
-                group_type=mapping.group_type,
-                group_type_index=mapping.group_type_index,
-                name_singular=mapping.name_singular,
-                name_plural=mapping.name_plural,
+                group_type=m["group_type"],
+                group_type_index=m["group_type_index"],
+                name_singular=m["name_singular"],
+                name_plural=m["name_plural"],
             )
 
     @classmethod

@@ -1,9 +1,10 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -93,6 +94,24 @@ export const userLogic = kea<userLogicType>([
             enabled,
         }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        credentialReviewDismissed: true,
+        updateRealtimeNotificationForTeam: (type: string, teamId: number, enabled: boolean) => ({
+            type,
+            teamId,
+            enabled,
+        }),
+        updateRealtimeNotificationForProject: (teamId: number, types: string[], enabled: boolean) => ({
+            teamId,
+            types,
+            enabled,
+        }),
+        updateAllRealtimeNotifications: (teamIds: number[], types: string[], enabled: boolean) => ({
+            teamIds,
+            types,
+            enabled,
+        }),
+        updatePipelineNotification: (pipelineId: string, enabled: boolean) => ({ pipelineId, enabled }),
+        updatePipelineNotificationForAll: (pipelineIds: string[], enabled: boolean) => ({ pipelineIds, enabled }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -227,6 +246,15 @@ export const userLogic = kea<userLogicType>([
                 updateUserFailure: () => null,
             },
         ],
+        // Set when the user clicks Continue on /account/credential-review. Suppresses
+        // the post-loadUser redirect so an in-flight stale loadUser response can't
+        // bounce the user back to the review screen after they've already dismissed it.
+        credentialReviewDismissedInSession: [
+            false,
+            {
+                credentialReviewDismissed: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         logout: ({ preserveLocation }) => {
@@ -235,14 +263,29 @@ export const userLogic = kea<userLogicType>([
             }
             cache.loggingOut = true
             posthog.reset()
+
+            const form = document.createElement('form')
+            form.method = 'POST'
+            form.action = '/logout'
+            form.style.display = 'none'
+
+            const csrfInput = document.createElement('input')
+            csrfInput.type = 'hidden'
+            csrfInput.name = 'csrfmiddlewaretoken'
+            csrfInput.value = getCookie('posthog_csrftoken') || ''
+            form.appendChild(csrfInput)
+
             if (preserveLocation) {
-                // Forward the current path so that after re-login the user lands back where they were
                 const { pathname, search, hash } = window.location
-                const path = pathname + search + hash
-                window.location.href = `/logout?next=${encodeURIComponent(path)}`
-            } else {
-                window.location.href = '/logout'
+                const nextInput = document.createElement('input')
+                nextInput.type = 'hidden'
+                nextInput.name = 'next'
+                nextInput.value = pathname + search + hash
+                form.appendChild(nextInput)
             }
+
+            document.body.appendChild(form)
+            form.submit()
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
@@ -285,6 +328,20 @@ export const userLogic = kea<userLogicType>([
                             posthog.group('customer', user.organization.customer_id)
                         }
                     }
+                }
+
+                // First-login interstitial: route users with unreviewed pre-existing API keys
+                // to the credential review screen before they enter the app. Gated server-side
+                // by UserSerializer.get_requires_credential_review.
+                //
+                // credentialReviewDismissedInSession suppresses a bounce-back if a loadUser
+                // call that was in-flight at dismiss time resolves later with stale state.
+                if (
+                    user.requires_credential_review &&
+                    !values.credentialReviewDismissedInSession &&
+                    !router.values.location.pathname.startsWith('/account/credential-review')
+                ) {
+                    router.actions.push(urls.credentialReview())
                 }
             }
         },
@@ -431,6 +488,52 @@ export const userLogic = kea<userLogicType>([
                 },
             })
         },
+        updateRealtimeNotificationForTeam: ({ type, teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const typeMap = { ...current[type], [String(teamId)]: !enabled }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: { ...current, [type]: typeMap },
+                } as NotificationSettings,
+            })
+        },
+        updateRealtimeNotificationForProject: ({ teamId, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                next[type] = { ...next[type], [String(teamId)]: !enabled }
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
+            })
+        },
+        updateAllRealtimeNotifications: ({ teamIds, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                const typeMap = { ...next[type] }
+                for (const teamId of teamIds) {
+                    typeMap[String(teamId)] = !enabled
+                }
+                next[type] = typeMap
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
+            })
+        },
         updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {
             await breakpoint(500)
 
@@ -445,6 +548,40 @@ export const userLogic = kea<userLogicType>([
                         data_pipeline_error_threshold: threshold / 100,
                     },
                 })
+        },
+        updatePipelineNotification: ({ pipelineId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: {
+                        ...values.user.notification_settings.pipeline_notifications_disabled,
+                        [pipelineId]: !enabled,
+                    },
+                },
+            })
+        },
+        updatePipelineNotificationForAll: ({ pipelineIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const pipelineNotificationsDisabled = {
+                ...values.user.notification_settings.pipeline_notifications_disabled,
+            }
+            pipelineIds.forEach((id) => {
+                pipelineNotificationsDisabled[id] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: pipelineNotificationsDisabled,
+                },
+            })
         },
     })),
     selectors({

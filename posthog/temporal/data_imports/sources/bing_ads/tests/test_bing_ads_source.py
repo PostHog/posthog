@@ -4,6 +4,8 @@ from unittest import mock
 from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
 
 from posthog.temporal.data_imports.sources.bing_ads.source import BingAdsSource
+from posthog.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import BingAdsSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
@@ -31,7 +33,7 @@ class TestBingAdsSource:
 
         assert config.name.value == "BingAds"
         assert config.label == "Bing Ads"
-        assert config.betaSource is True
+        assert config.releaseStatus == "beta"
         assert config.iconPath == "/static/services/bing-ads.svg"
         assert len(config.fields) == 2
 
@@ -142,7 +144,8 @@ class TestBingAdsSource:
         inputs.incremental_field_type = None
         inputs.db_incremental_field_last_value = None
 
-        result = self.source.source_for_pipeline(self.valid_config, inputs)
+        resumable_manager = mock.MagicMock(spec=ResumableSourceManager)
+        result = self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
         assert result == mock_source_response
         mock_bing_ads_source.assert_called_once_with(
@@ -150,6 +153,7 @@ class TestBingAdsSource:
             resource_name="campaigns",
             access_token="test_access_token",
             refresh_token="test_refresh_token",
+            resumable_source_manager=resumable_manager,
             should_use_incremental_field=False,
             incremental_field=None,
             incremental_field_type=None,
@@ -177,7 +181,8 @@ class TestBingAdsSource:
         inputs.incremental_field_type = IncrementalFieldType.Date
         inputs.db_incremental_field_last_value = "2024-01-01"
 
-        result = self.source.source_for_pipeline(self.valid_config, inputs)
+        resumable_manager = mock.MagicMock(spec=ResumableSourceManager)
+        result = self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
         assert result == mock_source_response
         mock_bing_ads_source.assert_called_once_with(
@@ -185,6 +190,7 @@ class TestBingAdsSource:
             resource_name="campaign_performance_report",
             access_token="test_access_token",
             refresh_token="test_refresh_token",
+            resumable_source_manager=resumable_manager,
             should_use_incremental_field=True,
             incremental_field="TimePeriod",
             incremental_field_type=IncrementalFieldType.Date,
@@ -204,8 +210,9 @@ class TestBingAdsSource:
         inputs.job_id = "test-job-id"
         inputs.schema_name = "campaigns"
 
+        resumable_manager = mock.MagicMock(spec=ResumableSourceManager)
         with pytest.raises(ValueError, match="Bing Ads access token not found for job test-job-id"):
-            self.source.source_for_pipeline(self.valid_config, inputs)
+            self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_refresh_token(self, mock_get_oauth):
@@ -220,5 +227,80 @@ class TestBingAdsSource:
         inputs.job_id = "test-job-id"
         inputs.schema_name = "campaigns"
 
+        resumable_manager = mock.MagicMock(spec=ResumableSourceManager)
         with pytest.raises(ValueError, match="Bing Ads refresh token not found for job test-job-id"):
-            self.source.source_for_pipeline(self.valid_config, inputs)
+            self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
+
+    @pytest.mark.parametrize(
+        "pattern,raised_message",
+        [
+            # Auth-specific substrings — wrapped by BingAdsClient.get_customer_id as
+            # `ValueError("Failed to fetch customer ID: <ExcType>: <msg>")`, so the substring
+            # must appear inside that combined message.
+            (
+                "OAuthTokenRequestException",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+            ),
+            (
+                "invalid_grant",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+            ),
+            (
+                "AuthenticationTokenExpired",
+                "Failed to fetch customer ID: WebFault: ... AuthenticationTokenExpired ...",
+            ),
+            (
+                "InvalidCredentials",
+                "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
+            ),
+            # Deterministic credential/config errors raised in source_for_pipeline.
+            ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
+            ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
+            ("Bing Ads developer token not configured", "Bing Ads developer token not configured"),
+        ],
+    )
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert pattern in non_retryable_errors
+        assert pattern in raised_message
+
+    @pytest.mark.parametrize(
+        "transient_message",
+        [
+            # Plain transport-level failures — must NOT match any non-retryable pattern,
+            # otherwise the schema would be disabled after the first few transient failures.
+            "Failed to fetch customer ID: ConnectionError: HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded",
+            "Failed to fetch customer ID: TimeoutError: The read operation timed out",
+            "Failed to fetch customer ID: WebFault: Server raised fault: 'Internal Error'",
+            "Failed to fetch customer ID: HTTPError: 503 Server Error: Service Unavailable",
+        ],
+    )
+    def test_get_non_retryable_errors_does_not_match_transient_failures(self, transient_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
+    def test_get_resumable_source_manager(self):
+        """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = "test-job-id"
+        inputs.logger = mock.MagicMock()
+
+        manager = self.source.get_resumable_source_manager(inputs)
+
+        assert isinstance(manager, ResumableSourceManager)
+
+        store: dict[str, bytes] = {}
+        fake_redis = mock.MagicMock()
+        fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
+        fake_redis.get.side_effect = lambda key: store.get(key)
+
+        with mock.patch("posthog.temporal.data_imports.sources.common.resumable.get_client", return_value=fake_redis):
+            original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
+            manager.save_state(original)
+            loaded = manager.load_state()
+
+        assert isinstance(loaded, BingAdsResumeConfig)
+        assert loaded == original

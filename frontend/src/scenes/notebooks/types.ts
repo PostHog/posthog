@@ -27,12 +27,20 @@ export type NotebookListItemType = {
     _create_in_folder?: string
 }
 
+export type NotebookParentResource = {
+    type: 'account'
+    id: string
+}
+
 export type NotebookType = NotebookListItemType &
     WithAccessControl & {
         content: JSONContent | null
         version: number
         // used to power text-based search
         text_content?: string | null
+        // null when the notebook is standalone; set when it belongs to a resource (e.g. an
+        // account note) so the scene can route breadcrumbs back to that resource's list
+        parent_resource?: NotebookParentResource | null
     }
 
 export enum NotebookNodeType {
@@ -155,6 +163,7 @@ export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
 
 export interface NotebookEditor extends RichContentEditorType {
     findCommentPosition: (markId: string) => number | null
+    getAllCommentTexts: () => Record<string, string>
     removeComment: (pos: number) => void
     getText: () => string
 }

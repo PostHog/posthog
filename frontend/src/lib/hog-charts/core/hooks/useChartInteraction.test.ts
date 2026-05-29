@@ -1,17 +1,9 @@
 import { renderHook, type RenderHookResult } from '@testing-library/react'
 import { act } from 'react'
 
-import type { ChartDimensions, ChartScales } from '../types'
+import { dimensions } from '../../testing'
+import type { ChartScales } from '../types'
 import { useChartInteraction } from './useChartInteraction'
-
-const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: 48,
-    plotTop: 16,
-    plotWidth: 736,
-    plotHeight: 352,
-}
 
 const scales: ChartScales = {
     x: (label: string) => ({ Mon: 100, Tue: 200, Wed: 300 })[label],
@@ -93,7 +85,10 @@ describe('useChartInteraction — tooltip pinning', () => {
         }
     })
 
-    function renderInteraction(pinnable = true): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
+    function renderInteraction(
+        pinnable = true,
+        onPointClick?: (data: unknown) => void
+    ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
                 scales,
@@ -104,6 +99,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 wrapperRef: refs.wrapperRef,
                 showTooltip: true,
                 pinnable,
+                onPointClick: onPointClick as never,
                 resolveValue: (s, i) => s.data[i],
             })
         )
@@ -263,5 +259,129 @@ describe('useChartInteraction — tooltip pinning', () => {
 
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
         expect(result.current.tooltipCtx?.onUnpin).toBeInstanceOf(Function)
+    })
+
+    it('does not fire onPointClick when pinning engages (multi-series + pinnable)', () => {
+        // Pinning is the consumer's first-click action; drilling-in is reserved for the
+        // follow-up tooltip-row click. Firing onPointClick on the pin would open the
+        // drill-in modal immediately and skip the row-selection step.
+        const onPointClick = jest.fn()
+        const { result } = renderInteraction(true, onPointClick)
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+        act(() => {
+            result.current.handlers.onClick()
+        })
+
+        expect(onPointClick).not.toHaveBeenCalled()
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+    })
+
+    it('rebuilds the pinned tooltip when series data changes underneath the pin', () => {
+        const { rerender, result } = renderHook(
+            ({ s }: { s: typeof series }) =>
+                useChartInteraction({
+                    scales,
+                    dimensions,
+                    labels,
+                    series: s,
+                    canvasRef: refs.canvasRef,
+                    wrapperRef: refs.wrapperRef,
+                    showTooltip: true,
+                    pinnable: true,
+                    resolveValue: (sr, i) => sr.data[i],
+                }),
+            { initialProps: { s: series } }
+        )
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+        act(() => {
+            result.current.handlers.onClick()
+        })
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        const initialIndex = result.current.tooltipCtx!.dataIndex
+        const initialValue = result.current.tooltipCtx!.seriesData[0].value
+
+        // Replace series with new data at the same indices.
+        const updatedSeries = [
+            { key: 'a', label: 'A', data: [999, 999, 999], color: '#f00' },
+            { key: 'b', label: 'B', data: [777, 777, 777], color: '#0f0' },
+        ]
+        rerender({ s: updatedSeries })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        expect(result.current.tooltipCtx?.dataIndex).toBe(initialIndex)
+        expect(result.current.tooltipCtx?.seriesData[0].value).not.toBe(initialValue)
+        expect(result.current.tooltipCtx?.seriesData[0].value).toBe(updatedSeries[0].data[initialIndex])
+    })
+
+    it('keeps the same tooltipCtx reference when a rerender produces value-equal series', () => {
+        const { rerender, result } = renderHook(
+            ({ s }: { s: typeof series }) =>
+                useChartInteraction({
+                    scales,
+                    dimensions,
+                    labels,
+                    series: s,
+                    canvasRef: refs.canvasRef,
+                    wrapperRef: refs.wrapperRef,
+                    showTooltip: true,
+                    pinnable: true,
+                    resolveValue: (sr, i) => sr.data[i],
+                }),
+            { initialProps: { s: series } }
+        )
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+        act(() => {
+            result.current.handlers.onClick()
+        })
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        const initialCtx = result.current.tooltipCtx
+
+        // Rerender with new series array containing new object identities but identical
+        // values. The equivalence-bail in the rebuild effect should keep the prev ctx.
+        const sameValuesNewIdentity = series.map((s) => ({ ...s }))
+        rerender({ s: sameValuesNewIdentity })
+
+        expect(result.current.tooltipCtx).toBe(initialCtx)
+    })
+
+    it('clears the pinned tooltip when labels shrink so the pinned dataIndex no longer exists', () => {
+        const { rerender, result } = renderHook(
+            ({ ls }: { ls: string[] }) =>
+                useChartInteraction({
+                    scales,
+                    dimensions,
+                    labels: ls,
+                    series,
+                    canvasRef: refs.canvasRef,
+                    wrapperRef: refs.wrapperRef,
+                    showTooltip: true,
+                    pinnable: true,
+                    resolveValue: (sr, i) => sr.data[i],
+                }),
+            { initialProps: { ls: labels } }
+        )
+
+        // Hover the last index then pin.
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 300, 100)
+        })
+        act(() => {
+            result.current.handlers.onClick()
+        })
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+
+        // Shrink labels so the pinned index is out of bounds.
+        rerender({ ls: ['Mon'] })
+
+        expect(result.current.tooltipCtx).toBeNull()
     })
 })

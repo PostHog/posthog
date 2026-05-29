@@ -31,6 +31,90 @@ function parseCodeowners(codeownersPath) {
     return rules
 }
 
+// Minimal parser for the `owners:` list in products/<name>/product.yaml.
+// We don't depend on a YAML library because this script runs from a bare CI
+// checkout; the schema is simple and validated elsewhere by hogli.
+function parseOwnersFromProductYaml(content) {
+    const owners = []
+    let inOwners = false
+
+    for (const rawLine of content.split('\n')) {
+        const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
+
+        // Skip blank lines and full-line comments — neither should terminate the
+        // owners block. Inline comments are already stripped above; the regex
+        // requires preceding whitespace, so we handle column-0 comments here.
+        if (!line.trim() || /^\s*#/.test(rawLine)) {
+            continue
+        }
+
+        if (/^owners\s*:\s*$/.test(line)) {
+            inOwners = true
+            continue
+        }
+
+        if (!inOwners) {
+            continue
+        }
+
+        const listMatch = line.match(/^\s+-\s+(.+?)$/)
+        if (listMatch) {
+            owners.push(listMatch[1].replace(/^["']|["']$/g, '').trim())
+            continue
+        }
+
+        // A new top-level key terminates the owners block.
+        if (/^\S/.test(rawLine)) {
+            inOwners = false
+        }
+    }
+
+    return owners
+}
+
+function loadProductYamlRules(productsDir = 'products') {
+    const rules = []
+
+    if (!fs.existsSync(productsDir)) {
+        return rules
+    }
+
+    const entries = fs.readdirSync(productsDir, { withFileTypes: true })
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue
+        }
+
+        const yamlPath = `${productsDir}/${entry.name}/product.yaml`
+        if (!fs.existsSync(yamlPath)) {
+            continue
+        }
+
+        const content = fs.readFileSync(yamlPath, 'utf8')
+        const slugs = parseOwnersFromProductYaml(content)
+
+        const owners = []
+        for (const slug of slugs) {
+            // Guard against slugs that already include an `@` prefix — otherwise
+            // we'd build `@PostHog/@PostHog/team-foo`, which GitHub silently
+            // refuses to resolve and reviewer assignment is dropped.
+            if (!slug || slug === 'team-CHANGEME' || slug.startsWith('@')) {
+                continue
+            }
+            owners.push(`@PostHog/${slug}`)
+        }
+
+        if (owners.length === 0) {
+            continue
+        }
+
+        rules.push({ pattern: `${productsDir}/${entry.name}/**`, owners })
+    }
+
+    return rules
+}
+
 function globToRegex(pattern) {
     let regex = pattern
         .replace(/[.+^${}()|[\]\\]/g, '\\$&')
@@ -116,7 +200,10 @@ function parseOwners(owners) {
 
 async function getReviewersForChangedFiles() {
     const codeownersPath = '.github/CODEOWNERS-soft'
-    const rules = parseCodeowners(codeownersPath)
+    // products/<name>/product.yaml is the source of truth for product team
+    // ownership; we layer those rules on top of CODEOWNERS-soft so the file
+    // only needs to carry sub-folder overrides and secondary reviewers.
+    const rules = [...parseCodeowners(codeownersPath), ...loadProductYamlRules()]
     const changedFiles = await getChangedFiles()
 
     console.info(`Found ${changedFiles.length} changed files:`)
@@ -185,18 +272,56 @@ async function assignReviewers(teams, users) {
 
     console.info('Assigning reviewers with payload:', JSON.stringify(payload, null, 2))
 
-    const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`,
-        {
+    const post = (body) =>
+        fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`, {
             method: 'POST',
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(body),
+        })
+
+    const response = await post(payload)
+
+    // GitHub returns 422 for the whole batch if *any* requested team isn't a
+    // collaborator on the repo (teams get renamed, deleted, or never set up —
+    // CODEOWNERS-soft and product.yaml drift). Salvage by retrying users +
+    // each team independently so valid entries still land, and log the bad
+    // slugs so they're visible in the action log as cleanup nudges.
+    if (response.status === 422 && teams.length > 0) {
+        const errorText = await response.text()
+        console.warn(`⚠️  422 on bulk request, retrying individually:\n${errorText}`)
+
+        if (users.length > 0) {
+            const r = await post({ reviewers: users })
+            if (!r.ok) {
+                throw new Error(`GitHub API error assigning users: ${r.status} ${r.statusText}\n${await r.text()}`)
+            }
         }
-    )
+
+        const dropped = []
+        for (const team of teams) {
+            const r = await post({ team_reviewers: [team] })
+            if (r.status === 422) {
+                dropped.push(team)
+            } else if (!r.ok) {
+                throw new Error(
+                    `GitHub API error assigning team '${team}': ${r.status} ${r.statusText}\n${await r.text()}`
+                )
+            }
+        }
+
+        if (dropped.length > 0) {
+            console.warn(
+                `⚠️  Dropped ${dropped.length} stale team(s): ${dropped.join(', ')}. ` +
+                    `Fix product.yaml / CODEOWNERS-soft so these get assigned next time.`
+            )
+        }
+        console.info('✅ Reviewers assigned (with fallback)')
+        return
+    }
 
     if (!response.ok) {
         const errorText = await response.text()

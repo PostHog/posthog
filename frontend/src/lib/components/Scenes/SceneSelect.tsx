@@ -28,8 +28,7 @@ export function SceneSelect({
     const [localValue, setLocalValue] = useState(value || undefined)
     const [hasChanged, setHasChanged] = useState(false)
 
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
-        e.preventDefault()
+    const handleSave = (): void => {
         localValue && onSave(localValue)
         setHasChanged(false)
     }
@@ -39,7 +38,7 @@ export function SceneSelect({
     }, [localValue, value])
 
     return (
-        <form onSubmit={handleSubmit} name={`page-${name}-form`} className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
             <ScenePanelLabel htmlFor={`page-${name}-select`} title={name}>
                 <SelectPrimitive
                     disabled={!canEdit || buttonProps?.disabled}
@@ -72,6 +71,7 @@ export function SceneSelect({
             {hasChanged && (
                 <SceneSaveCancelButtons
                     name={name}
+                    onSave={handleSave}
                     onCancel={() => {
                         setLocalValue(value)
                     }}
@@ -79,6 +79,6 @@ export function SceneSelect({
                     dataAttrKey={dataAttrKey}
                 />
             )}
-        </form>
+        </div>
     )
 }

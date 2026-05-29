@@ -161,10 +161,8 @@ impl SymbolResolver for LocalSymbolResolver {
         class: String,
     ) -> Result<String, ResolveError> {
         let map: Arc<FetchedMapping> = self.catalog.pg.lookup(team_id, symbolset_ref).await?;
-        let mapper = map.get_mapper();
-        let result = mapper
-            .remap_class(class.as_str())
-            .map(|s| s.to_string())
+        let result = map
+            .remap_class(class.as_str())?
             .ok_or(ProguardError::MissingClass)?;
         Ok(result)
     }
@@ -196,6 +194,7 @@ mod test {
 
     use std::sync::Arc;
 
+    use bytes::Bytes;
     use common_types::ClickHouseEvent;
     use httpmock::MockServer;
     use mockall::predicate;
@@ -358,7 +357,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Some(get_sourcemapcache_bytes())))
+            .returning(|_, _| Ok(Some(Bytes::from(get_sourcemapcache_bytes()))))
             .times(gets);
 
         client

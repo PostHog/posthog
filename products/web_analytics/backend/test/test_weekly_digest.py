@@ -7,9 +7,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Action, Team
+from posthog.models import Team
 from posthog.models.utils import uuid7
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.weekly_digest import (
     _format_duration,
     auto_select_project_for_user,
@@ -223,7 +224,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
 
             result = get_top_sources(self.team)
 
-        sources = [r["source"] for r in result]
+        sources = [r["name"] for r in result]
         assert sources == ["google.com"]
         assert all(r["visitors"] > 0 for r in result)
         assert "change" in result[0]
@@ -244,7 +245,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
 
             result = get_top_sources(self.team)
 
-        assert all(r["source"] != "" for r in result)
+        assert all(r["name"] != "" for r in result)
 
     def test_returns_empty_for_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):

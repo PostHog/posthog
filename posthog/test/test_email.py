@@ -1,4 +1,8 @@
+import datetime
+import dataclasses
 from decimal import Decimal
+from typing import Any
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -203,10 +207,11 @@ class TestEmail(BaseTest):
         self.assertEqual(sanitized["name"], "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;")
         self.assertEqual(sanitized["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
 
-        # Check that nested dictionaries are sanitized
+        # Check that nested dictionaries are sanitized — `javascript:` is defanged so
+        # mail clients don't auto-link / treat it as a clickable scheme.
         self.assertEqual(
             sanitized["nested"]["html_content"],
-            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;",
+            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
         )
 
         # Check that numbers and booleans are preserved
@@ -222,6 +227,114 @@ class TestEmail(BaseTest):
 
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+
+    def test_sanitize_email_properties_preserves_trusted_url_keys(self) -> None:
+        # Clean PostHog-built URLs survive sanitization unchanged: html.escape is a
+        # no-op on URL-shape characters (`:` `/` `.`), and trusted URL keys skip the
+        # defang step so the link stays clickable.
+        section: dict[str, str] = {"team_url": "https://app.posthog.com/project/3", "team_name": "Acme.com"}
+        properties: dict[str, Any] = {
+            "href": "http://localhost:8010/replay/test#panel=discussion",
+            "url": "https://app.posthog.com/project/1/insights",
+            "site_url": "https://app.posthog.com",
+            "link": "/reset/uuid/token",
+            "next_url": "https://app.posthog.com/dashboard",
+            "dashboard_url": "https://app.posthog.com/dashboard/2",
+            "error_tracking_url": "https://app.posthog.com/error_tracking",
+            "verify_link": "/verify/abc",
+            "section": section,
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        for key in [
+            "href",
+            "url",
+            "site_url",
+            "link",
+            "next_url",
+            "dashboard_url",
+            "error_tracking_url",
+            "verify_link",
+        ]:
+            self.assertEqual(sanitized[key], properties[key], f"trusted URL key {key} should pass through")
+        self.assertEqual(sanitized["section"]["team_url"], section["team_url"])
+        # ...but a user-controlled name nested under a non-URL key still gets defanged.
+        self.assertEqual(sanitized["section"]["team_name"], "Acme.​com")
+
+    def test_sanitize_email_properties_html_escapes_trusted_url_keys(self) -> None:
+        # When a user-controlled fragment leaks into a trusted URL key (e.g. the
+        # comment `slug` appended to settings.SITE_URL in build_comment_item_url),
+        # attribute-injection characters are still escaped — the link works, but
+        # the attacker can't break out of `<a href="...">`. URL-shape chars
+        # (`:` `/` `.`) survive because we don't defang trusted keys.
+        properties = {
+            "href": 'https://app.posthog.com/x"><script>alert(1)</script>',
+            "verify_link": "https://app.posthog.com/x?a=1&b=2",
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(
+            sanitized["href"],
+            "https://app.posthog.com/x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+        # `&` becomes `&amp;` — correct HTML attribute encoding for query strings.
+        self.assertEqual(sanitized["verify_link"], "https://app.posthog.com/x?a=1&amp;b=2")
+
+    def test_sanitize_email_properties_defangs_urls_embedded_in_user_content(self) -> None:
+        # Realistic phishing-by-display-name: attacker sets first_name to a URL.
+        # Mail clients should not auto-link this.
+        properties = {
+            "commenter": {"first_name": "Visit https://evil.com NOW"},
+            "team": {"name": "evil.com"},
+            "organization_name": "ｈｔｔｐ：／／phish.io",  # fullwidth bypass attempt
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(sanitized["commenter"]["first_name"], "Visit https:​//evil.​com NOW")
+        self.assertEqual(sanitized["team"]["name"], "evil.​com")
+        self.assertEqual(sanitized["organization_name"], "http:​//phish.​io")
+
+    def test_sanitize_email_properties_handles_dataclasses(self) -> None:
+        # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
+        # silently killing tasks like send_error_tracking_issue_assigned via autoretry.
+        # Mirror the real ErrorTrackingIssueAssignmentNotification shape — in particular
+        # include a datetime field, since dataclasses.asdict() does not recurse into
+        # datetime and the naive fix missed that.
+        @dataclasses.dataclass(frozen=True)
+        class Inner:
+            id: UUID
+            name: str | None
+            description: str | None
+
+        @dataclasses.dataclass(frozen=True)
+        class Outer:
+            id: UUID
+            created_at: datetime.datetime
+            issue: Inner
+
+        outer = Outer(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            created_at=datetime.datetime(2024, 1, 1, 12, 0, 0),
+            issue=Inner(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                name='<script>alert("xss")</script>',
+                description=None,
+            ),
+        )
+
+        sanitized = sanitize_email_properties({"assignment": outer})
+
+        self.assertEqual(sanitized["assignment"]["id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(sanitized["assignment"]["created_at"], "2024-01-01T12:00:00")
+        self.assertEqual(sanitized["assignment"]["issue"]["id"], "00000000-0000-0000-0000-000000000002")
+        self.assertEqual(
+            sanitized["assignment"]["issue"]["name"],
+            "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
+        )
+        self.assertIsNone(sanitized["assignment"]["issue"]["description"])
 
     def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
         # Test that sanitize_email_properties raises TypeError for unsupported types
@@ -280,3 +393,52 @@ class TestEmail(BaseTest):
 
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
+
+    def test_all_http_templates_are_registered_in_customer_io_map(self) -> None:
+        # Every EmailMessage(use_http=True, template_name="X", ...) call in
+        # production code under posthog/ needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
+        # The Customer.io HTTP sender raises "Unknown template name" if it
+        # isn't, and the Celery task wrapper swallows the exception via
+        # capture_exception. Without this test, a new transactional email
+        # added with a forgotten map entry sends zero emails and surfaces
+        # nothing user-visible.
+        import ast
+        from pathlib import Path
+
+        import posthog as posthog_pkg
+
+        posthog_root = Path(posthog_pkg.__file__).parent
+        sources = sorted(
+            p
+            for p in posthog_root.rglob("*.py")
+            if "/test/" not in str(p) and "/tests/" not in str(p) and not p.name.startswith("test_")
+        )
+
+        missing: dict[str, str] = {}  # template_name -> first source path that uses it
+        for source_path in sources:
+            try:
+                tree = ast.parse(source_path.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
+                    continue
+                kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+                use_http = kwargs.get("use_http")
+                if not (isinstance(use_http, ast.Constant) and use_http.value is True):
+                    continue
+                template_name = kwargs.get("template_name")
+                if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
+                    if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
+                        missing.setdefault(template_name.value, str(source_path.relative_to(posthog_root.parent)))
+
+        self.assertEqual(
+            missing,
+            {},
+            "These template_name values use use_http=True in production code but are missing "
+            "from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
+            "the Customer.io transactional message ID, otherwise the sender will raise "
+            "'Unknown template name' at runtime and capture_exception will swallow it.",
+        )

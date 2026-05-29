@@ -14,16 +14,17 @@ from posthog.schema import SourceMap
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +85,7 @@ class UtmAuditResponseSerializer(serializers.Serializer):
 
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     @validated_request(

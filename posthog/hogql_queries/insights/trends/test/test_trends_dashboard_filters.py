@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
+    BreakdownType,
     CompareFilter,
     DashboardFilter,
     DataWarehouseNode,
@@ -26,8 +27,21 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
 
 class TestTrendsDashboardFilters(BaseTest):
+    def _create_data_warehouse_table(self, columns: dict[str, dict[str, str]]) -> None:
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="warehouse_orders",
+            columns=columns,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+
     def _create_query_runner(
         self,
         date_from: str,
@@ -149,7 +163,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == [EventPropertyFilter(key="key", value="value", operator="exact")]
-        assert query_runner.query.breakdownFilter is None
+        assert query_runner.query.breakdownFilter is None  # type: ignore[unreachable]
         assert query_runner.query.trendsFilter is None
 
     def test_properties_list_extends_filters_list(self):
@@ -174,7 +188,7 @@ class TestTrendsDashboardFilters(BaseTest):
 
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
-        assert query_runner.query.properties == PropertyGroupFilter(
+        assert query_runner.query.properties == PropertyGroupFilter(  # type: ignore[comparison-overlap]
             type=FilterLogicalOperator.AND_,
             values=[
                 PropertyGroupFilterValue(
@@ -191,7 +205,7 @@ class TestTrendsDashboardFilters(BaseTest):
                 ),
             ],
         )
-        assert query_runner.query.breakdownFilter is None
+        assert query_runner.query.breakdownFilter is None  # type: ignore[unreachable]
         assert query_runner.query.trendsFilter is None
 
     def test_properties_list_extends_filters_group(self):
@@ -502,4 +516,67 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.properties is None
 
         # validations pass
+        query_runner.validate()
+
+    def test_dashboard_breakdown_filter_is_ignored_for_incompatible_data_warehouse_series(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                DataWarehouseNode(
+                    id="warehouse_orders",
+                    table_name="warehouse_orders",
+                    name="Orders",
+                    timestamp_field="created_at",
+                    id_field="order_id",
+                    distinct_id_field="customer_id",
+                )
+            ],
+            breakdown=BreakdownFilter(breakdown="status", breakdown_type=BreakdownType.DATA_WAREHOUSE),
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(breakdown_filter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT))
+        )
+
+        assert query_runner.query.breakdownFilter == BreakdownFilter(
+            breakdown="status", breakdown_type=BreakdownType.DATA_WAREHOUSE
+        )
+
+    def test_dashboard_breakdown_filter_updates_data_warehouse_series_when_valid(self):
+        self._create_data_warehouse_table(
+            {
+                "order_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "customer_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created_at": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "status": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            }
+        )
+
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                DataWarehouseNode(
+                    id="warehouse_orders",
+                    table_name="warehouse_orders",
+                    name="Orders",
+                    timestamp_field="created_at",
+                    id_field="order_id",
+                    distinct_id_field="customer_id",
+                )
+            ],
+        )
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(breakdown="status", breakdown_type=BreakdownType.DATA_WAREHOUSE)
+            )
+        )
+
+        assert query_runner.query.breakdownFilter == BreakdownFilter(
+            breakdown="status", breakdown_type=BreakdownType.DATA_WAREHOUSE
+        )
         query_runner.validate()

@@ -8,9 +8,12 @@
         "channel_detail": {
             "description": "Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
             "enum": [
+                "github_issue",
                 "slack_bot_mention",
                 "slack_channel_message",
                 "slack_emoji_reaction",
+                "teams_bot_mention",
+                "teams_channel_message",
                 "widget_api",
                 "widget_embedded"
             ],
@@ -18,7 +21,7 @@
         },
         "channel_source": {
             "description": "Filter by the channel the ticket originated from.",
-            "enum": ["email", "slack", "widget"],
+            "enum": ["email", "github", "slack", "teams", "widget"],
             "type": "string"
         },
         "date_from": {
@@ -43,16 +46,6 @@
         },
         "order_by": {
             "description": "Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
-            "enum": [
-                "-created_at",
-                "-sla_due_at",
-                "-ticket_number",
-                "-updated_at",
-                "created_at",
-                "sla_due_at",
-                "ticket_number",
-                "updated_at"
-            ],
             "type": "string"
         },
         "priority": {

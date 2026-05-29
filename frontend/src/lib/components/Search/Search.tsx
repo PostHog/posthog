@@ -27,7 +27,6 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -71,6 +70,8 @@ const PLACEHOLDER_CYCLE_INTERVAL = 3000
 const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
+
+const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
 
 // ============================================================================
 // Hooks
@@ -142,7 +143,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         query: 'SQL query',
         product_analytics: 'Product analytics',
         web_analytics: 'Web analytics',
-        llm_analytics: 'LLM analytics',
+        llm_analytics: 'AI observability',
         revenue_analytics: 'Revenue analytics',
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
@@ -251,19 +252,31 @@ function useDebouncedGroupedItems(
     const [stable, setStable] = useState(groupedItems)
     const prevSearchRef = useRef(searchValue)
     const searchJustChangedRef = useRef(false)
+    const prevEnabledRef = useRef(enabled)
+    // `stable` only stays in sync with `groupedItems` while `enabled` is true.
+    // If we're disabled, or were disabled at any point (including initial
+    // mount before async feature-flag hydration), `stable` lags. Track that
+    // so the next enabled render bypasses `stable` and returns `groupedItems`
+    // directly until the effect re-syncs — avoids a flash of stale results.
+    const stableIsStaleRef = useRef(!enabled)
 
     if (searchValue !== prevSearchRef.current) {
         prevSearchRef.current = searchValue
         searchJustChangedRef.current = true
     }
 
+    if (enabled !== prevEnabledRef.current) {
+        prevEnabledRef.current = enabled
+        stableIsStaleRef.current = true
+    }
+
     useEffect(() => {
         if (!enabled) {
-            setStable(groupedItems)
             return
         }
-        if (searchJustChangedRef.current) {
+        if (searchJustChangedRef.current || stableIsStaleRef.current) {
             searchJustChangedRef.current = false
+            stableIsStaleRef.current = false
             setStable(groupedItems)
             return
         }
@@ -271,7 +284,7 @@ function useDebouncedGroupedItems(
         return () => clearTimeout(timer)
     }, [groupedItems, enabled, searchValue])
 
-    if (!enabled || searchJustChangedRef.current) {
+    if (!enabled || searchJustChangedRef.current || stableIsStaleRef.current) {
         return groupedItems
     }
 
@@ -380,7 +393,7 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
-    suggestedItems = [],
+    suggestedItems = EMPTY_SUGGESTED_ITEMS,
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
@@ -653,7 +666,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 e.stopPropagation()
                 const item = highlightedItemRef.current
                 if (item?.href) {
-                    newInternalTab(item.href)
+                    window.open(item.href, '_blank', 'noopener,noreferrer')
                 }
             }
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {

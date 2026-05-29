@@ -523,12 +523,12 @@ describe('CdpLegacyEventsConsumer', () => {
     })
 
     describe('shutdown behavior', () => {
-        it('should flush app metrics when stopping', async () => {
-            const flushSpy = jest.spyOn(consumer['appMetrics'], 'flush')
+        it('should flush invocation results when stopping', async () => {
+            const flushSpy = jest.spyOn(consumer['invocationResultsService'], 'flush')
 
             await consumer.stop()
 
-            expect(flushSpy).toHaveBeenCalledTimes(1)
+            expect(flushSpy).toHaveBeenCalled()
         })
     })
 })

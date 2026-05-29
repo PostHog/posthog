@@ -1,3 +1,4 @@
+import shlex
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -35,12 +36,10 @@ def _get_infrastructure_domains() -> list[str]:
         if hostname and hostname not in domains:
             domains.append(hostname)
 
-    if getattr(settings, "DEBUG", False):
-        for hostname in ["localhost", "host.docker.internal"]:
-            if hostname not in domains:
-                domains.append(hostname)
-
     return domains
+
+
+LOCAL_DEV_DOMAINS = ["localhost", "host.docker.internal"]
 
 
 def generate_env_wrapper() -> str:
@@ -159,17 +158,36 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "decision": "allow",
             },
             {
-                "name": "allow-domains",
-                "domains": merged_domains,
-                "ports": allowed_ports,
-                "decision": "allow",
-            },
-            {
-                "name": "default-deny-network",
-                "domains": ["*"],
+                "name": "deny-cloud-metadata",
+                "cidrs": ["169.254.169.254/32", "fd00:ec2::254/128"],
                 "decision": "deny",
             },
         ]
+
+        if getattr(settings, "DEBUG", False):
+            network_rules.append(
+                {
+                    "name": "allow-local-dev-hosts",
+                    "domains": LOCAL_DEV_DOMAINS,
+                    "decision": "allow",
+                }
+            )
+
+        network_rules.extend(
+            [
+                {
+                    "name": "allow-domains",
+                    "domains": merged_domains,
+                    "ports": allowed_ports,
+                    "decision": "allow",
+                },
+                {
+                    "name": "default-deny-network",
+                    "domains": ["*"],
+                    "decision": "deny",
+                },
+            ]
+        )
     else:
         network_rules = [
             {
@@ -246,13 +264,13 @@ def build_audit_query_command(since_ns: int = 0, limit: int = 50) -> str:
         where_parts.append(f"ts_unix_ns > {since_ns}")
     where_parts.append("(type LIKE 'net%' OR (effective_decision IS NOT NULL AND domain IS NOT NULL))")
     where_clause = " AND ".join(where_parts)
-    return (
-        f"sqlite3 -json {AGENTSH_AUDIT_DB} "
-        f'"SELECT ts_unix_ns, type, domain, remote, effective_decision, policy_rule '
+    query = (
+        "SELECT ts_unix_ns, type, domain, remote, effective_decision, policy_rule "
         f"FROM events "
         f"WHERE {where_clause} "
-        f"ORDER BY ts_unix_ns DESC LIMIT {limit};" + ' 2>/dev/null || echo "[]"'
+        f"ORDER BY ts_unix_ns DESC LIMIT {limit};"
     )
+    return f"sqlite3 -json {shlex.quote(AGENTSH_AUDIT_DB)} {shlex.quote(query)} 2>/dev/null || echo '[]'"
 
 
 def build_exec_prefix() -> str:

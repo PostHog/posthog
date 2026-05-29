@@ -28,7 +28,10 @@ import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -58,6 +61,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
@@ -68,6 +72,14 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarPopover,
+    SceneMenuBarSeparator,
+    SceneMenuBarSubMenu,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -109,6 +121,7 @@ import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -147,6 +160,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         updateFlag,
         saveFeatureFlag,
         saveDescriptionInline,
+        saveTagsInline,
     } = useActions(featureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
@@ -263,7 +277,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         },
     ] as LemonTab<FeatureFlagsTab>[]
 
-    if (featureFlag.key && id) {
+    if (id) {
         tabs.push({
             label: 'Usage',
             key: FeatureFlagsTab.USAGE,
@@ -309,14 +323,26 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         label: (
             <div className="flex flex-row">
                 <div>Experiments</div>
-                <LemonTag className="ml-2 float-right uppercase" type="primary">
-                    New
-                </LemonTag>
             </div>
         ),
         key: FeatureFlagsTab.EXPERIMENTS,
         content: <ExperimentsTab featureFlag={featureFlag} />,
     })
+
+    if (id) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>Testing</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        New
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.TESTING,
+            content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+        })
+    }
 
     return (
         <>
@@ -850,6 +876,110 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     access users.
                                 </LemonBanner>
                             )}
+                            {featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR] && (
+                                <SceneMenuBar>
+                                    <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                                        <SceneMenuBarSubMenu label="Create">
+                                            {featureFlag.id && (
+                                                <SceneMenuBarAddToNotebook
+                                                    dataAttrKey={RESOURCE_TYPE}
+                                                    notebookSelectButtonProps={{
+                                                        resource: {
+                                                            type: NotebookNodeType.FeatureFlag,
+                                                            attrs: { id: featureFlag.id },
+                                                        },
+                                                    }}
+                                                />
+                                            )}
+                                            {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                                                <SceneMenuBarItem
+                                                    onClick={() => createStaticCohort()}
+                                                    data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
+                                                >
+                                                    <IconPlusSmall />
+                                                    Cohort
+                                                </SceneMenuBarItem>
+                                            )}
+                                            <SceneMenuBarItem
+                                                opensFloatingUi
+                                                onClick={() => handleGetFeedback()}
+                                                data-attr={`${RESOURCE_TYPE}-menubar-create-survey`}
+                                            >
+                                                <IconPlusSmall />
+                                                Survey
+                                            </SceneMenuBarItem>
+                                        </SceneMenuBarSubMenu>
+                                        <SceneMenuBarSeparator />
+                                        <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                                        <SceneMenuBarSeparator />
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.FeatureFlag}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            {({ disabledReason }) => (
+                                                <SceneMenuBarItem
+                                                    variant="destructive"
+                                                    disabled={!!disabledReason}
+                                                    data-attr={
+                                                        featureFlag.deleted
+                                                            ? `${RESOURCE_TYPE}-menubar-restore`
+                                                            : `${RESOURCE_TYPE}-menubar-delete`
+                                                    }
+                                                    onClick={() => {
+                                                        if (featureFlag.deleted) {
+                                                            restoreFeatureFlag(featureFlag)
+                                                        } else {
+                                                            LemonDialog.open({
+                                                                title: 'Delete feature flag?',
+                                                                description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                                                primaryButton: {
+                                                                    children: 'Delete',
+                                                                    status: 'danger',
+                                                                    onClick: () => deleteFeatureFlag(featureFlag),
+                                                                    size: 'small',
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                    type: 'tertiary',
+                                                                    size: 'small',
+                                                                },
+                                                            })
+                                                        }
+                                                    }}
+                                                >
+                                                    {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
+                                                    {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                                </SceneMenuBarItem>
+                                            )}
+                                        </AccessControlAction>
+                                    </SceneMenuBarMenu>
+                                    <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                                        <SceneMenuBarItem
+                                            onClick={() => {
+                                                router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
+                                            }}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
+                                        >
+                                            <IconCopy />
+                                            Duplicate
+                                        </SceneMenuBarItem>
+                                    </SceneMenuBarMenu>
+                                    <SceneMenuBarPopover
+                                        label="Metadata"
+                                        dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
+                                    >
+                                        <SceneTagsCombobox
+                                            onSave={(updatedTags) => saveTagsInline(updatedTags)}
+                                            canEdit
+                                            tags={featureFlag.tags}
+                                            tagsAvailable={tags.filter(
+                                                (tag: string) => !featureFlag.tags?.includes(tag)
+                                            )}
+                                            dataAttrKey={RESOURCE_TYPE}
+                                        />
+                                    </SceneMenuBarPopover>
+                                </SceneMenuBar>
+                            )}
                             <SceneTitleSection
                                 name={featureFlag.key}
                                 description={featureFlag.name}
@@ -914,29 +1044,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const {
-        key: featureFlagKey,
-        usage_dashboard: dashboardId,
-        has_enriched_analytics: hasEnrichedAnalytics,
-    } = featureFlag
-    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
-    const { featureFlagLoading } = useValues(featureFlagLogic)
-    let dashboard: DashboardType<QueryBasedInsightModel> | null = null
-    if (dashboardId) {
-        // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
-        // eslint-disable-next-line react-hooks/rules-of-hooks
-        const dashboardLogicValues = useValues(
-            dashboardLogic({
-                id: dashboardId,
-                placement: DashboardPlacement.FeatureFlag,
-            })
-        )
-        dashboard = dashboardLogicValues.dashboard
+function ConnectedUsageDashboard({
+    featureFlag,
+    dashboardId,
+    hasEnrichedAnalytics,
+}: {
+    featureFlag: FeatureFlagType
+    dashboardId: number
+    hasEnrichedAnalytics: boolean | undefined
+}): JSX.Element | null {
+    const { dashboard } = useValues(dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })) as {
+        dashboard: DashboardType<QueryBasedInsightModel> | null
     }
-
-    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichUsageDashboard } = useActions(featureFlagLogic)
 
     useEffect(() => {
         if (
@@ -947,6 +1069,38 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             enrichUsageDashboard()
         }
     }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
+
+    if (!dashboard) {
+        return <LemonSkeleton className="h-60" />
+    }
+
+    return (
+        <>
+            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                    Get richer insights automatically by{' '}
+                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
+                        enabling enriched analytics for flags{' '}
+                    </Link>
+                </LemonBanner>
+            )}
+            <Dashboard
+                id={dashboardId.toString()}
+                placement={DashboardPlacement.FeatureFlag}
+                backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlag.key }}
+            />
+        </>
+    )
+}
+
+function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const {
+        key: featureFlagKey,
+        usage_dashboard: dashboardId,
+        has_enriched_analytics: hasEnrichedAnalytics,
+    } = featureFlag
+    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { featureFlagLoading } = useValues(featureFlagLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -967,25 +1121,12 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
 
     return (
         <div data-attr="feature-flag-usage-container">
-            {dashboard ? (
-                <>
-                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
-                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
-                            Get richer insights automatically by{' '}
-                            <Link
-                                to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics"
-                                target="_blank"
-                            >
-                                enabling enriched analytics for flags{' '}
-                            </Link>
-                        </LemonBanner>
-                    )}
-                    <Dashboard
-                        id={dashboardId!.toString()}
-                        placement={DashboardPlacement.FeatureFlag}
-                        backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlagKey }}
-                    />
-                </>
+            {dashboardId ? (
+                <ConnectedUsageDashboard
+                    featureFlag={featureFlag}
+                    dashboardId={dashboardId}
+                    hasEnrichedAnalytics={hasEnrichedAnalytics}
+                />
             ) : (
                 <div>
                     <b>Dashboard</b>

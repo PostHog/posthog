@@ -29,7 +29,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
-from posthog.hogql.resolver_utils import extract_base_table_types
+from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
@@ -480,6 +480,35 @@ class TestResolver(BaseTest):
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
+    def test_unknown_table_suggests_close_matches(self):
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT 1 FROM event"),  # typo: 'event' singular
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unknown table `event`", message)
+        self.assertIn("Did you mean:", message)
+        self.assertIn("events", message)
+
+    def test_unresolved_field_suggests_close_matches(self):
+        # user_id isn't on events, but distinct_id and person_id are close enough to suggest
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT user_id FROM events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unable to resolve field: user_id", message)
+        self.assertIn("Did you mean:", message)
+        # At least one of the obvious suggestions should show up
+        self.assertTrue(
+            "distinct_id" in message or "person_id" in message,
+            f"expected a plausible suggestion in: {message}",
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
@@ -563,6 +592,40 @@ class TestResolver(BaseTest):
         table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(select_set_type)]
 
         self.assertEqual(table_names, ["events", "persons"])
+
+    @parameterized.expand(
+        [
+            (
+                "table_names",
+                {
+                    "events": ast.TableType(table=EventsTable()),
+                    "persons": ast.TableType(table=PersonsTable()),
+                },
+                "events.properties, persons.properties",
+            ),
+            (
+                "table_aliases",
+                {
+                    "e": ast.TableAliasType(alias="e", table_type=ast.TableType(table=EventsTable())),
+                    "p": ast.TableAliasType(alias="p", table_type=ast.TableType(table=PersonsTable())),
+                },
+                "e.properties, p.properties",
+            ),
+        ]
+    )
+    def test_lookup_field_by_name_lists_ambiguous_field_sources(
+        self, _label: str, tables: dict[str, ast.TableOrSelectType], expected_sources: str
+    ):
+        scope = ast.SelectQueryType(tables=tables)
+
+        with self.assertRaises(ResolutionError) as context:
+            lookup_field_by_name(scope, "properties", self.context)
+
+        self.assertEqual(
+            str(context.exception),
+            f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
+            "Use a qualified field name.",
+        )
 
     def test_select_set_order_by_prints(self):
         printed = self._print_hogql("select 1 union all select 2 order by 1")
@@ -1769,9 +1832,14 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
 
     def test_limit_with_ties_postgres_error(self):
+        # WITH TIES is rejected by the Postgres printer's ``_assert_with_ties_supported`` hook
+        # rather than by the resolver, so we need to run the full print pipeline to observe it.
         with self.assertRaisesMessage(QueryError, "WITH TIES is not supported in postgres dialect"):
-            expr = self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES")
-            resolve_types(expr, self.context, dialect="postgres")
+            prepare_and_print_ast(
+                self._select("SELECT 1 FROM events ORDER BY 1 LIMIT 1 WITH TIES"),
+                self.context,
+                "postgres",
+            )
 
     def test_positional_refs_postgres(self):
         expr = self._select("SELECT #1, #2 FROM events")

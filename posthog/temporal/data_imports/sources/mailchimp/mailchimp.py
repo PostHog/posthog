@@ -1,15 +1,36 @@
+import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
-import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
+from requests.exceptions import RequestException
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+
+
+@dataclasses.dataclass
+class MailchimpResumeConfig:
+    """Resume state for Mailchimp endpoints.
+
+    - ``contacts`` fans out over audience lists and paginates members within
+      each; its checkpoint is ``(list_id, offset)``.
+    - ``lists``/``campaigns``/``reports`` go through the shared ``rest_api_resource``
+      path using ``MailchimpPaginator`` (offset/count); their checkpoint is just
+      ``offset`` and ``list_id`` is ``None``.
+
+    On resume we re-request the saved page; duplicates are deduped by the
+    primary key.
+    """
+
+    offset: int
+    list_id: Optional[str] = None
 
 
 def extract_data_center(api_key: str) -> str:
@@ -44,6 +65,14 @@ class MailchimpPaginator(BasePaginator):
         self._offset = 0
         self._total_items: int | None = None
 
+    def init_request(self, request: Request) -> None:
+        # Always set offset/count so that (a) a seeded resume offset is honoured
+        # on the first request, and (b) fresh runs start from offset=0 explicitly.
+        if request.params is None:
+            request.params = {}
+        request.params["offset"] = self._offset
+        request.params["count"] = self._page_size
+
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
@@ -61,6 +90,17 @@ class MailchimpPaginator(BasePaginator):
 
         request.params["offset"] = self._offset
         request.params["count"] = self._page_size
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # rest_client only calls this when has_next_page is True, so ``_offset``
+        # already points at the page we still need to fetch.
+        return {"offset": self._offset}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self._offset = int(offset)
+            self._has_next_page = True
 
 
 def get_resource(
@@ -92,7 +132,6 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": "id",
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -122,7 +161,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = make_tracked_session().get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             return True, None
@@ -141,7 +180,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             pass
 
         return False, response.text
-    except requests.exceptions.RequestException as e:
+    except RequestException as e:
         return False, str(e)
 
 
@@ -151,15 +190,18 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     offset = 0
     page_size = 1000
 
-    headers = {
-        "Authorization": f"apikey {api_key}",
-        "Accept": "application/json",
-    }
+    # One session for the whole pagination loop so urllib3's connection
+    # pool keeps the TLS connection warm across pages.
+    session = make_tracked_session(
+        headers={
+            "Authorization": f"apikey {api_key}",
+            "Accept": "application/json",
+        }
+    )
 
     while True:
-        response = requests.get(
+        response = session.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists",
-            headers=headers,
             params={"count": page_size, "offset": offset},
             timeout=120,
         )
@@ -181,16 +223,21 @@ def _fetch_contacts_for_list(
     api_key: str,
     dc: str,
     list_id: str,
-    since_last_changed: str | None = None,
+    since_last_changed: str | None,
+    resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
+    start_offset: int = 0,
 ) -> Iterator[dict[str, Any]]:
     """Fetch all contacts for a specific list with pagination."""
-    offset = 0
+    offset = start_offset
     page_size = 1000
 
-    headers = {
-        "Authorization": f"apikey {api_key}",
-        "Accept": "application/json",
-    }
+    # One session for the whole pagination loop — see `_fetch_all_lists`.
+    session = make_tracked_session(
+        headers={
+            "Authorization": f"apikey {api_key}",
+            "Accept": "application/json",
+        }
+    )
 
     while True:
         params: dict[str, str | int] = {
@@ -200,9 +247,8 @@ def _fetch_contacts_for_list(
         if since_last_changed:
             params["since_last_changed"] = since_last_changed
 
-        response = requests.get(
+        response = session.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
-            headers=headers,
             params=params,
             timeout=120,
         )
@@ -211,6 +257,13 @@ def _fetch_contacts_for_list(
         data = response.json()
         contacts = data.get("members", [])
 
+        if not contacts:
+            break
+
+        # Save the checkpoint for the page we just fetched *before* yielding.
+        # On resume we re-fetch this page — duplicates are deduped by (list_id, id).
+        resumable_source_manager.save_state(MailchimpResumeConfig(list_id=list_id, offset=offset))
+
         for contact in contacts:
             contact["list_id"] = list_id
             yield contact
@@ -218,12 +271,13 @@ def _fetch_contacts_for_list(
         total_items = data.get("total_items", 0)
         offset += page_size
 
-        if offset >= total_items or not contacts:
+        if offset >= total_items:
             break
 
 
 def _get_contacts_iterator(
     api_key: str,
+    resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[dict[str, Any]]:
@@ -236,9 +290,32 @@ def _get_contacts_iterator(
 
     lists = _fetch_all_lists(api_key, dc)
 
+    # Only honour the saved checkpoint if its list_id still exists; otherwise fall back to a fresh run.
+    resume_config: MailchimpResumeConfig | None = None
+    if resumable_source_manager.can_resume():
+        loaded = resumable_source_manager.load_state()
+        if loaded is not None and any(lst["id"] == loaded.list_id for lst in lists):
+            resume_config = loaded
+
     for lst in lists:
         list_id = lst["id"]
-        yield from _fetch_contacts_for_list(api_key, dc, list_id, since_last_changed)
+
+        if resume_config is not None:
+            if list_id != resume_config.list_id:
+                continue
+            start_offset = resume_config.offset
+            resume_config = None
+        else:
+            start_offset = 0
+
+        yield from _fetch_contacts_for_list(
+            api_key,
+            dc,
+            list_id,
+            since_last_changed,
+            resumable_source_manager,
+            start_offset=start_offset,
+        )
 
 
 def mailchimp_source(
@@ -246,6 +323,7 @@ def mailchimp_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
@@ -259,6 +337,7 @@ def mailchimp_source(
             name=endpoint,
             items=lambda: _get_contacts_iterator(
                 api_key,
+                resumable_source_manager,
                 should_use_incremental_field,
                 db_incremental_field_last_value,
             ),
@@ -287,7 +366,6 @@ def mailchimp_source(
             "paginator": MailchimpPaginator(page_size=endpoint_config.page_size),
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
                 "params": {
@@ -305,9 +383,28 @@ def mailchimp_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    assert len(resources) == 1
-    resource = resources[0]
+    # ``lists``/``campaigns``/``reports`` all paginate by offset/count and can
+    # resume by seeding the paginator with the last un-fetched offset.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None and resume_config.offset > 0:
+            initial_paginator_state = {"offset": resume_config.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Only persist when there's a next page to resume to — matches the
+        # klaviyo/reddit_ads convention; Redis TTL handles cleanup on completion.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(MailchimpResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,

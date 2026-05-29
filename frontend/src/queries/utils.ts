@@ -5,6 +5,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    AccountsQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -867,15 +868,28 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQue
 hogql.identifier = hogQLIdentifier
 hogql.raw = hogQLRaw
 
-/**
- * Wether we have a valid `breakdownFilter` or not.
- */
-export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
-    return !!(
-        breakdownFilter &&
-        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
-            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
-    )
+type SingleBreakdownFilter = BreakdownFilter & {
+    breakdown: NonNullable<BreakdownFilter['breakdown']>
+}
+
+type MultiBreakdownFilter = BreakdownFilter & {
+    breakdowns: NonNullable<BreakdownFilter['breakdowns']>
+}
+
+type PopulatedBreakdownFilter = SingleBreakdownFilter | MultiBreakdownFilter
+
+export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is SingleBreakdownFilter {
+    return breakdownFilter?.breakdown != null
+}
+
+export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is MultiBreakdownFilter {
+    return (breakdownFilter?.breakdowns?.length ?? 0) > 0
+}
+
+export function hasBreakdownFilter(
+    breakdownFilter?: BreakdownFilter | null
+): breakdownFilter is PopulatedBreakdownFilter {
+    return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {
@@ -889,6 +903,10 @@ export function isValidQueryForExperiment(query: Node): boolean {
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
     return node?.kind === NodeKind.GroupsQuery
+}
+
+export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
+    return node?.kind === NodeKind.AccountsQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

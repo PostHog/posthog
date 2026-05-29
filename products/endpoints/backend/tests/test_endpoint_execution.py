@@ -7,14 +7,13 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval, EventsNode, TrendsQuery
+from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.models.insight_variable import InsightVariable
-
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
@@ -73,7 +72,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Enable materialization via API
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -1209,7 +1208,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Enabling materialization should succeed for multiple equality variables
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1238,7 +1237,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1795,7 +1794,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[1][0])
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
-        from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
         for event_name in [f"event_{i}" for i in range(30)]:
             _create_event(
@@ -1821,7 +1820,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
-            mock.patch("products.endpoints.backend.api.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.endpoints.backend.materialization.ENDPOINT_BREAKDOWN_LIMIT", 5),
             mock.patch("products.endpoints.backend.api.capture_exception") as mock_capture,
         ):
             response = self.client.post(
@@ -2152,7 +2151,42 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         viewset = EndpointViewSet()
         viewset.team_id = self.team.id
-        viewset._disable_materialization(endpoint)
+        viewset._disable_materialization(endpoint, mock.MagicMock())
 
         after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
         self.assertEqual(after - before, 0.0)
+
+    def test_inline_endpoint_failure_emits_signal(self):
+        """When inline execution raises, we emit a Signal for self-driving diagnostics."""
+        endpoint = self._make_simple_hogql_endpoint("failure_emits_signal")
+        boom = RuntimeError("synthetic failure")
+
+        with (
+            mock.patch("products.endpoints.backend.api.process_query_model", side_effect=boom),
+            mock.patch("products.endpoints.backend.api._emit_endpoint_failure_signal") as mock_emit,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        mock_emit.assert_called_once()
+        args, kwargs = mock_emit.call_args
+        self.assertEqual(args[0].id, self.team.id)
+        self.assertEqual(args[1].name, endpoint.name)
+        self.assertIs(args[2], boom)
+        self.assertFalse(kwargs["materialized"])
+
+    def test_emit_failure_signal_swallows_errors(self):
+        """Signal emission must never mask the original exception."""
+        from products.endpoints.backend.api import _emit_endpoint_failure_signal
+
+        endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
+
+        with mock.patch(
+            "products.signals.backend.api.emit_signal",
+            side_effect=RuntimeError("signal layer exploded"),
+        ):
+            _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)

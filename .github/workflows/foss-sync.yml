@@ -43,7 +43,7 @@ jobs:
                   destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'refs/tags/*'
             - name: Checkout posthog-foss
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: 'posthog/posthog-foss'
                   ref: master
@@ -57,10 +57,18 @@ jobs:
                   cd .github/workflows
                   ls | grep -v foss-release-image-publish.yml | xargs rm
 
+            - name: Remove enterprise code and dependabot config
+              run: rm -rf ee/ .github/dependabot.yml
+
+            # Commit via the GitHub API so the commit is signed by GitHub's key
+            # (required once posthog-foss enforces signed commits). ghcommit-action
+            # detects modified and deleted tracked files and applies them through
+            # createCommitOnBranch.
             - name: Commit "Sync and remove all non-FOSS parts"
-              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  message: 'Sync and remove all non-FOSS parts'
-                  remove: '["-r ee/ .github/dependabot.yml"]'
-                  default_author: github_actions
-                  github_token: ${{ steps.app-token.outputs.token }}
+                  commit_message: 'Sync and remove all non-FOSS parts'
+                  repo: posthog/posthog-foss
+                  branch: master
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

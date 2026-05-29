@@ -70,19 +70,19 @@ describe('Endpoints', { concurrent: false }, () => {
             createdEndpointNames.push(name)
         })
 
-        it('should create an endpoint with description and cache_age_seconds', async () => {
+        it('should create an endpoint with description and data_freshness_seconds', async () => {
             const name = endpointName('opts')
             const result = await createTool.handler(context, {
                 name,
                 query: HOGQL_PAGEVIEW_QUERY,
                 description: 'Integration test endpoint',
-                cache_age_seconds: 300,
+                data_freshness_seconds: 3600,
             })
             const endpoint = parseToolResponse(result)
 
             expect(endpoint.name).toBe(name)
             expect(endpoint.description).toBe('Integration test endpoint')
-            expect(endpoint.cache_age_seconds).toBe(300)
+            expect(endpoint.data_freshness_seconds).toBe(3600)
 
             createdEndpointNames.push(name)
         })
@@ -159,7 +159,7 @@ describe('Endpoints', { concurrent: false }, () => {
         const updateTool = GENERATED_TOOLS['endpoint-update']!()
         const createTool = GENERATED_TOOLS['endpoint-create']!()
 
-        it('should update description and cache_age_seconds', async () => {
+        it('should update description and data_freshness_seconds', async () => {
             const name = endpointName('update')
             await createTool.handler(context, {
                 name,
@@ -170,13 +170,13 @@ describe('Endpoints', { concurrent: false }, () => {
             const result = await updateTool.handler(context, {
                 name,
                 description: 'Updated description',
-                cache_age_seconds: 600,
+                data_freshness_seconds: 21600,
             })
             const updated = parseToolResponse(result)
 
             expect(updated.name).toBe(name)
             expect(updated.description).toBe('Updated description')
-            expect(updated.cache_age_seconds).toBe(600)
+            expect(updated.data_freshness_seconds).toBe(21600)
         })
 
         it('should deactivate an endpoint', async () => {

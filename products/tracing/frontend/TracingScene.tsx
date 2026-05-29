@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -10,14 +13,21 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { TraceCompareFlame } from './TraceCompareFlame'
+import { TraceCompareTable } from './TraceCompareTable'
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
+import { tracingDataLogic } from './tracingDataLogic'
 import { TracingFilterBar } from './TracingFilterBar'
-import { tracingSceneLogic } from './tracingSceneLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { tracingSceneLogic, TracingSceneLogicProps } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
+import { TracingTabIdProvider, useTracingTabId } from './TracingTabContext'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
-export const scene: SceneExport = {
+const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
+
+export const scene: SceneExport<TracingSceneLogicProps> = {
     component: TracingScene,
     logic: tracingSceneLogic,
     productKey: ProductKey.TRACING,
@@ -80,7 +90,22 @@ const columns: LemonTableColumns<Span> = [
     },
 ]
 
-export default function TracingScene(): JSX.Element {
+export default function TracingScene(props: TracingSceneLogicProps = {}): JSX.Element {
+    const sceneLogic = tracingSceneLogic(props)
+    // Keep filters + data logic alive across tab switches by attaching them to the scene
+    // root. The root itself is kept mounted by `tabAwareScene()` even when the tab is inactive.
+    useAttachedLogic(tracingFiltersLogic({ tabId: props.tabId }), sceneLogic)
+    useAttachedLogic(tracingDataLogic({ tabId: props.tabId }), sceneLogic)
+
+    return (
+        <TracingTabIdProvider value={props.tabId}>
+            <TracingSceneContents />
+        </TracingTabIdProvider>
+    )
+}
+
+function TracingSceneContents(): JSX.Element {
+    const tabId = useTracingTabId()
     const {
         rootSpans,
         spansLoading,
@@ -91,8 +116,35 @@ export default function TracingScene(): JSX.Element {
         totalSpansMatchingFilters,
         modalSpans,
         isLoadingFullTrace,
-    } = useValues(tracingSceneLogic)
-    const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
+        aggregation,
+        aggregationLoading,
+        filters,
+        currentWindowMs,
+        previousWindowMs,
+        spanTree,
+        spanTreeLoading,
+        compareFlameSpanName,
+    } = useValues(tracingSceneLogic({ tabId }))
+    const { openTraceModal, closeTraceModal, setDateRange, setOverlayWindows, openCompareFlame, closeCompareFlame } =
+        useActions(tracingSceneLogic({ tabId }))
+    const compareMode = filters.compareMode
+
+    // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
+    // drags never shift the canvas underfoot. The sparkline only refetches when dateRange
+    // changes (via the DateFilter), never via overlay interaction.
+    const sparklineFirstMs = sparklineData.dates.length > 0 ? new Date(sparklineData.dates[0]).valueOf() : null
+    const sparklineLastMs =
+        sparklineData.dates.length > 0 ? new Date(sparklineData.dates[sparklineData.dates.length - 1]).valueOf() : null
+    const compareConfig =
+        compareMode && sparklineFirstMs !== null && sparklineLastMs !== null
+            ? {
+                  fullStartMs: sparklineFirstMs,
+                  fullEndMs: sparklineLastMs,
+                  currentWindow: currentWindowMs,
+                  previousWindow: previousWindowMs,
+                  onChange: setOverlayWindows,
+              }
+            : undefined
 
     return (
         <SceneContent>
@@ -103,11 +155,23 @@ export default function TracingScene(): JSX.Element {
                     type: 'tracing',
                 }}
             />
+            <LemonBanner
+                type="warning"
+                dismissKey="tracing-alpha-notice"
+                action={{
+                    icon: <IconFeedback />,
+                    children: 'Share feedback',
+                    onClick: () => posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID),
+                }}
+            >
+                Tracing is in alpha. Expect bugs, missing features, and breaking changes.
+            </LemonBanner>
             <TracingSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
                 displayTimezone="UTC"
+                compare={compareConfig}
             />
             <SceneDivider />
             <TracingFilterBar />
@@ -116,17 +180,32 @@ export default function TracingScene(): JSX.Element {
                     {totalSpansMatchingFilters.toLocaleString()} spans matching filters
                 </div>
             )}
-            <LemonTable
-                columns={columns}
-                dataSource={rootSpans}
-                loading={spansLoading}
-                rowKey="uuid"
-                emptyState="No spans found"
-                onRow={(span) => ({
-                    onClick: () => openTraceModal(span.trace_id),
-                    className: 'cursor-pointer',
-                })}
-            />
+            {compareMode ? (
+                <TraceCompareTable
+                    current={aggregation.current}
+                    previous={aggregation.previous}
+                    loading={aggregationLoading}
+                    onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                />
+            ) : (
+                <LemonTable
+                    columns={columns}
+                    dataSource={rootSpans}
+                    loading={spansLoading}
+                    rowKey="uuid"
+                    emptyState="No spans found"
+                    onRow={(span) => ({
+                        onClick: () => {
+                            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                            // element; react-modal then scrolls it back into view when restoring focus
+                            // on close. Blur so the restore target is <body>, which doesn't scroll.
+                            ;(document.activeElement as HTMLElement | null)?.blur?.()
+                            openTraceModal(span.trace_id)
+                        },
+                        className: 'cursor-pointer',
+                    })}
+                />
+            )}
             <LemonModal
                 title={`Trace ${selectedTraceId}`}
                 isOpen={isTraceModalOpen}
@@ -137,6 +216,19 @@ export default function TracingScene(): JSX.Element {
                     {isLoadingFullTrace && <SpinnerOverlay />}
                     <TraceFlameChart spans={modalSpans} />
                 </div>
+            </LemonModal>
+            <LemonModal
+                title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
+                isOpen={compareFlameSpanName !== null}
+                onClose={closeCompareFlame}
+                width="90vw"
+            >
+                <TraceCompareFlame
+                    current={spanTree.current}
+                    previous={spanTree.previous}
+                    loading={spanTreeLoading}
+                    initialSpanName={compareFlameSpanName}
+                />
             </LemonModal>
         </SceneContent>
     )

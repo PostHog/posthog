@@ -1,15 +1,20 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
+# Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
+import posthog.temporal.ai  # noqa: F401
+from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
-from posthog.settings import EE_AVAILABLE
+from posthog.batch_exports.api import file_download
+from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
 import products.links.backend.api as link
@@ -17,15 +22,51 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
+import products.deployments.backend.api as deployments
+import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
+import products.web_analytics.backend.api as web_analytics_api
 import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
+import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
+import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
+import products.legal_documents.backend.presentation.views as legal_documents
+from products.ai_observability.backend.api import (
+    AIObservabilityClusteringRunViewSet,
+    AIObservabilityOfflineEvaluationsViewSet,
+    AIObservabilitySentimentViewSet,
+    AIObservabilitySummarizationViewSet,
+    AIObservabilityTextReprViewSet,
+    AIObservabilityTranslateViewSet,
+    ClusteringConfigViewSet,
+    ClusteringJobViewSet,
+    DatasetItemViewSet,
+    DatasetViewSet,
+    EvaluationConfigViewSet,
+    EvaluationReportViewSet,
+    EvaluationRunViewSet,
+    EvaluationViewSet,
+    LLMEvaluationSummaryViewSet,
+    LLMModelsViewSet,
+    LLMProviderKeyValidationViewSet,
+    LLMProviderKeyViewSet,
+    LLMProxyViewSet,
+    PersonalSpendViewSet,
+    ReviewQueueItemViewSet,
+    ReviewQueueViewSet,
+    ScoreDefinitionViewSet,
+    TaggerViewSet,
+    TraceReviewViewSet,
+)
+from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -49,8 +90,10 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -58,31 +101,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingSymbolSetViewSet,
     GitProviderFileLinksViewSet,
 )
-from products.llm_analytics.backend.api import (
-    ClusteringConfigViewSet,
-    ClusteringJobViewSet,
-    DatasetItemViewSet,
-    DatasetViewSet,
-    EvaluationConfigViewSet,
-    EvaluationReportViewSet,
-    EvaluationRunViewSet,
-    EvaluationViewSet,
-    LLMAnalyticsClusteringRunViewSet,
-    LLMAnalyticsSentimentViewSet,
-    LLMAnalyticsSummarizationViewSet,
-    LLMAnalyticsTextReprViewSet,
-    LLMAnalyticsTranslateViewSet,
-    LLMEvaluationSummaryViewSet,
-    LLMModelsViewSet,
-    LLMProviderKeyValidationViewSet,
-    LLMProviderKeyViewSet,
-    LLMProxyViewSet,
-    ReviewQueueItemViewSet,
-    ReviewQueueViewSet,
-    ScoreDefinitionViewSet,
-    TraceReviewViewSet,
-)
-from products.llm_analytics.backend.api.skills import LLMSkillViewSet
+from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -90,29 +109,48 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.replay_vision.backend.api import (
+    ReplayObservationViewSet,
+    ReplayScannerViewSet,
+    SessionReplayObservationViewSet,
+    VisionQuotaViewSet,
+)
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import UserInterviewViewSet
+from products.user_interviews.backend.presentation.views import (
+    IntervieweeContextViewSet,
+    UserInterviewTopicViewSet,
+    UserInterviewViewSet,
+)
 from products.visual_review.backend.presentation.views import (
+    RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
     RunViewSet as VisualReviewRunViewSet,
+    SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
+from products.web_analytics.backend.api.heatmaps_api import (
+    HeatmapScreenshotViewSet,
+    HeatmapViewSet,
+    LegacyHeatmapViewSet,
+    SavedHeatmapViewSet,
+)
+from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
+from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
-    alert,
     annotation,
-    app_metrics,
     async_migration,
     authentication,
+    cimd_verification_token,
     cli_auth,
     comments,
     dead_letter_queue,
@@ -120,14 +158,9 @@ from . import (
     event_definition,
     event_schema,
     exports,
-    feature_flag,
-    flag_value,
     health_issue,
     hog,
-    hog_function,
-    hog_function_template,
     ingestion_warnings,
-    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -135,19 +168,16 @@ from . import (
     object_media_preview,
     organization,
     organization_domain,
-    organization_feature_flag,
     organization_integration,
     organization_invite,
     organization_member,
     personal_api_key,
-    plugin,
-    plugin_log_entry,
     project_secret_api_key,
     proxy_record,
     query,
     quick_filters,
     resource_transfer,
-    scheduled_change,
+    role_external_reference,
     schema_property_group,
     search,
     sharing,
@@ -158,6 +188,7 @@ from . import (
     user_home_settings,
     web_vitals,
     webauthn,
+    welcome,
 )
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
@@ -167,7 +198,6 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
-from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -188,6 +218,12 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
+# Personal LLM spend data lives only in PostHog Cloud US's internal team — register
+# the endpoint there plus dev/test envs so it stays reachable in development. EU
+# adds a redirect (declared in posthog/urls.py) so callers get a discoverable
+# pointer instead of a silent 404.
+if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
+    router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -199,19 +235,33 @@ def register_grandfathered_environment_nested_viewset(
     prefix: str, viewset: type[viewsets.GenericViewSet], basename: str, parents_query_lookups: list[str]
 ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
     """
-    Register the environment-specific viewset under both /environments/:team_id/ (correct endpoint)
-    and /projects/:team_id/ (legacy, but supported for backward compatibility endpoint).
-    DO NOT USE ON ANY NEW ENDPOINT YOU'RE ADDING!
+    Register a team-nested viewset under both /api/projects/:team_id/ (canonical)
+    and /api/environments/:team_id/ (backward-compat alias).
+
+    Background: PostHog briefly split projects and environments as separate
+    concepts then rolled the split back. /api/projects/ is the canonical path;
+    /api/environments/ is preserved only for clients that integrated against it
+    during the split (SDKs, customer integrations) and is auto-marked
+    `deprecated: true` in the generated OpenAPI schema by the postprocess hook
+    in posthog.api.documentation whenever a matching /api/projects/ route exists.
+
+    DO NOT USE FOR NEW ENDPOINTS. New team-nested endpoints should register
+    directly under projects_router. This helper exists to preserve the dual-route
+    surface for endpoints that were already exposed both ways before the rollback.
+
+    Returns (environment_nested, project_nested) — note that despite the names,
+    the project_nested route is the canonical one; the environment_nested route
+    is the deprecated alias.
     """
     if parents_query_lookups[0] != "team_id":
-        raise ValueError("Only endpoints with team_id as the first parent query lookup can be environment-nested")
+        raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
     if not basename.startswith("environment_"):
-        raise ValueError("Only endpoints with a basename starting with `environment_` can be environment-nested")
+        raise ValueError("Only endpoints with a basename starting with `environment_` can use this helper")
     environment_nested = environments_router.register(prefix, viewset, basename, parents_query_lookups)
-    legacy_project_nested = projects_router.register(
+    project_nested = projects_router.register(
         prefix, viewset, basename.replace("environment_", "project_"), parents_query_lookups
     )
-    return environment_nested, legacy_project_nested
+    return environment_nested, project_nested
 
 
 environment_plugins_configs_router, legacy_project_plugins_configs_router = (
@@ -257,6 +307,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
+projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,
@@ -287,6 +338,27 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+projects_router.register(
+    r"wizard/sessions",
+    wizard_sessions.WizardSessionViewSet,
+    "project_wizard_sessions",
+    ["project_id"],
+)
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
+)
 
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
@@ -304,6 +376,14 @@ router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Seats (proxied to billing service)
 router.register(r"seats", seats.SeatViewSet, "seats")
+
+# Quota limits (project-scoped — backs the LLM gateway's QuotaResolver)
+projects_router.register(
+    r"quota_limits",
+    QuotaLimitsViewSet,
+    "project_quota_limits",
+    ["team_id"],
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -379,6 +459,20 @@ environments_router.register(
     ["team_id"],
 )
 
+environment_accounts_router = environments_router.register(
+    r"accounts",
+    customer_analytics.AccountViewSet,
+    "environment_accounts",
+    ["team_id"],
+)
+
+environment_accounts_router.register(
+    r"notebooks",
+    customer_analytics.AccountNotebookViewSet,
+    "environment_account_notebooks",
+    ["team_id", "account_id"],
+)
+
 projects_router.register(
     r"data_management",
     DataManagementViewSet,
@@ -425,33 +519,26 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
-    r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
-)
-environment_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "environment_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
-)
-legacy_project_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "project_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
-)
-
 environment_batch_exports_router, legacy_project_batch_exports_router = (
     register_grandfathered_environment_nested_viewset(
         r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"file_download_batch_exports",
+    file_download.FileDownloadBatchExportOnDemandViewSet,
+    "environment_file_download_batch_exports",
+    ["team_id"],
+)
+
 environment_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "environment_batch_export_runs", ["team_id", "batch_export_id"]
 )
 legacy_project_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
 )
+
 environment_batch_exports_router.register(
     r"backfills",
     batch_exports.BatchExportBackfillViewSet,
@@ -673,6 +760,18 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"cimd_verification_tokens",
+    cimd_verification_token.CIMDVerificationTokenViewSet,
+    "organization_cimd_verification_tokens",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"legal_documents",
+    legal_documents.LegalDocumentViewSet,
+    "organization_legal_documents",
+    ["organization_id"],
+)
+organizations_router.register(
     r"proxy_records",
     proxy_record.ProxyRecordViewset,
     "proxy_records",
@@ -690,9 +789,28 @@ organizations_router.register(
     "organization_resource_transfers",
     ["organization_id"],
 )
+organizations_router.register(
+    r"role_external_references",
+    role_external_reference.RoleExternalReferenceViewSet,
+    "organization_role_external_references",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"welcome",
+    welcome.WelcomeViewSet,
+    "organization_welcome",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.OrganizationAdvancedActivityLogsViewSet,
+    "organization_advanced_activity_logs",
+    ["organization_id"],
+)
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
@@ -702,7 +820,19 @@ router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistration
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users", user.UserViewSet, "users")
+users_router = router.register(r"users", user.UserViewSet, "users")
+users_router.register(
+    r"integrations",
+    user_integration.UserIntegrationViewSet,
+    "user_integration",
+    ["uuid"],
+)
+users_router.register(
+    r"push_tokens",
+    user_push_token.UserPushTokenViewSet,
+    "user_push_token",
+    ["uuid"],
+)
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
@@ -715,14 +845,17 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+router.register(r"query_performance_proxy", QueryPerformanceProxyViewSet, "query_performance_proxy")
 
-from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
-from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
+
+from products.actions.backend.api.action import ActionViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight import InsightViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -774,9 +907,10 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
-    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
@@ -883,11 +1017,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -968,6 +1109,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/query",
+    ErrorTrackingQueryViewSet,
+    "environment_error_tracking_query",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/external_references",
     ErrorTrackingExternalReferenceViewSet,
     "environment_error_tracking_external_references",
@@ -985,6 +1133,13 @@ environments_router.register(
     r"error_tracking/spike_detection_config",
     ErrorTrackingSpikeDetectionConfigViewSet,
     "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/settings",
+    ErrorTrackingSettingsViewSet,
+    "environment_error_tracking_settings",
     ["team_id"],
 )
 
@@ -1018,6 +1173,12 @@ signal_reports_router.register(
     r"tasks",
     signals.SignalReportTaskViewSet,
     "environment_signal_report_tasks",
+    ["team_id", "report_id"],
+)
+signal_reports_router.register(
+    r"artefacts",
+    signals.SignalReportArtefactViewSet,
+    "environment_signal_report_artefacts",
     ["team_id", "report_id"],
 )
 projects_router.register(
@@ -1084,6 +1245,13 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
+    r"business_knowledge/sources",
+    business_knowledge.KnowledgeSourceViewSet,
+    "environment_business_knowledge_sources",
+    ["team_id"],
+)
+
+projects_router.register(
     r"conversations/tickets",
     conversations.TicketViewSet,
     "environment_conversations_tickets",
@@ -1124,7 +1292,7 @@ register_grandfathered_environment_nested_viewset(
 
 register_grandfathered_environment_nested_viewset(
     r"insight_variables",
-    insight_variable.InsightVariableViewSet,
+    InsightVariableViewSet,
     "environment_insight_variables",
     ["team_id"],
 )
@@ -1159,6 +1327,12 @@ environments_router.register(
     r"web_analytics_filter_presets",
     WebAnalyticsFilterPresetViewSet,
     "environment_web_analytics_filter_preset",
+    ["team_id"],
+)
+environments_router.register(
+    r"web_analytics",
+    web_analytics_api.WebAnalyticsViewSet,
+    "environment_web_analytics",
     ["team_id"],
 )
 
@@ -1199,7 +1373,15 @@ register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "en
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
 )
+register_grandfathered_environment_nested_viewset(
+    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
+)
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
+
+# Metrics endpoints
+register_grandfathered_environment_nested_viewset(
+    r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",
@@ -1219,11 +1401,36 @@ environments_router.register(
     ["team_id"],
 )
 
-projects_router.register(
+user_interview_topics_router = environments_router.register(
+    r"user_interview_topics",
+    UserInterviewTopicViewSet,
+    "environment_user_interview_topics",
+    ["team_id"],
+)
+user_interview_topics_router.register(
+    r"interviewees",
+    IntervieweeContextViewSet,
+    "environment_user_interview_topic_interviewees",
+    ["team_id", "topic_id"],
+)
+
+visual_review_repos_router = projects_router.register(
     r"visual_review/repos",
     VisualReviewRepoViewSet,
     "project_visual_review_repos",
     ["project_id"],
+)
+visual_review_repos_router.register(
+    r"snapshots",
+    VisualReviewSnapshotViewSet,
+    "project_visual_review_snapshots",
+    ["project_id", "repo_id"],
+)
+visual_review_repos_router.register(
+    r"runs",
+    VisualReviewRepoRunsViewSet,
+    "project_visual_review_repo_runs",
+    ["project_id", "repo_id"],
 )
 projects_router.register(
     r"visual_review/runs",
@@ -1305,6 +1512,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"taggers",
+    TaggerViewSet,
+    "environment_taggers",
+    ["team_id"],
+)
+
+environments_router.register(
     r"evaluation_runs",
     EvaluationRunViewSet,
     "environment_evaluation_runs",
@@ -1313,14 +1527,14 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/text_repr",
-    LLMAnalyticsTextReprViewSet,
+    AIObservabilityTextReprViewSet,
     "environment_llm_analytics_text_repr",
     ["team_id"],
 )
 
 environments_router.register(
     r"llm_analytics/summarization",
-    LLMAnalyticsSummarizationViewSet,
+    AIObservabilitySummarizationViewSet,
     "environment_llm_analytics_summarization",
     ["team_id"],
 )
@@ -1334,7 +1548,7 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/translate",
-    LLMAnalyticsTranslateViewSet,
+    AIObservabilityTranslateViewSet,
     "environment_llm_analytics_translate",
     ["team_id"],
 )
@@ -1369,7 +1583,7 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/clustering_runs",
-    LLMAnalyticsClusteringRunViewSet,
+    AIObservabilityClusteringRunViewSet,
     "environment_llm_analytics_clustering_runs",
     ["team_id"],
 )
@@ -1390,8 +1604,15 @@ environments_router.register(
 
 environments_router.register(
     r"llm_analytics/sentiment",
-    LLMAnalyticsSentimentViewSet,
+    AIObservabilitySentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/offline_evaluations",
+    AIObservabilityOfflineEvaluationsViewSet,
+    "environment_llm_analytics_offline_evaluations",
     ["team_id"],
 )
 
@@ -1427,6 +1648,31 @@ environments_router.register(
     r"llm_analytics/evaluation_reports",
     EvaluationReportViewSet,
     "environment_llm_analytics_evaluation_reports",
+    ["team_id"],
+)
+
+environment_vision_scanners_router = environments_router.register(
+    r"vision/scanners",
+    ReplayScannerViewSet,
+    "environment_vision_scanners",
+    ["team_id"],
+)
+environment_vision_scanners_router.register(
+    r"observations",
+    ReplayObservationViewSet,
+    "environment_vision_scanner_observations",
+    ["team_id", "scanner_id"],
+)
+environments_router.register(
+    r"vision/observations",
+    SessionReplayObservationViewSet,
+    "environment_vision_observations",
+    ["team_id"],
+)
+environments_router.register(
+    r"vision/quota",
+    VisionQuotaViewSet,
+    "environment_vision_quota",
     ["team_id"],
 )
 
