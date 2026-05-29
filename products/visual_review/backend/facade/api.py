@@ -38,7 +38,6 @@ _RESERVED_RUN_METADATA_KEYS = frozenset(
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
-        # Agent verdicts are server-computed only — never accept from client input.
         "agent_review",
     }
 )
