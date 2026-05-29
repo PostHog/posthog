@@ -3447,6 +3447,9 @@ class TestDevboxSyncCommand:
 
     def test_default_run_is_idempotent_when_session_already_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        # The "inspect" hint calls _workspace_arg_suffix -> extract_workspace_label,
+        # which shells out to `coder whoami`; stub it so the test is hermetic.
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_sync.mutagen, "register_daemon", lambda: None)
@@ -3470,6 +3473,9 @@ class TestDevboxSyncCommand:
 
     def test_default_run_creates_one_way_sync(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        # The "inspect" hint calls _workspace_arg_suffix -> extract_workspace_label,
+        # which shells out to `coder whoami`; stub it so the test is hermetic.
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_sync.mutagen, "register_daemon", lambda: None)
