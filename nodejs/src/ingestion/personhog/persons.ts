@@ -4,6 +4,7 @@ import { Client } from '@connectrpc/connect'
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
 import { TeamDistinctIdSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
 import {
+    GetDistinctIdsForPersonsRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
     GetPersonsByUuidsRequestSchema,
 } from '../../generated/personhog/personhog/types/v1/person_pb'
@@ -59,6 +60,36 @@ export class PersonHogPersonOperations {
             }
         }
         return results
+    }
+
+    /**
+     * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id.
+     * Returns a record keyed by the int person_id (as a string, matching InternalPerson.id).
+     * Callers that hold UUIDs should first convert via fetchPersonsByPersonIds to get int IDs.
+     */
+    async getDistinctIdsForPersons(
+        teamId: number,
+        personIntIds: string[],
+        limitPerPerson?: number
+    ): Promise<Record<string, string[]>> {
+        if (personIntIds.length === 0) {
+            return {}
+        }
+
+        const response = await this.client.getDistinctIdsForPersons(
+            create(GetDistinctIdsForPersonsRequestSchema, {
+                teamId: BigInt(teamId),
+                personIds: personIntIds.map((id) => BigInt(id)),
+                limitPerPerson: limitPerPerson != null ? BigInt(limitPerPerson) : undefined,
+                readOptions: eventualReadOptions(),
+            })
+        )
+
+        const result: Record<string, string[]> = {}
+        for (const pd of response.personDistinctIds) {
+            result[String(pd.personId)] = pd.distinctIds.map((d) => d.distinctId)
+        }
+        return result
     }
 
     async fetchPersonsByPersonIds(teamPersons: { teamId: number; personId: string }[]): Promise<InternalPerson[]> {
