@@ -1128,6 +1128,18 @@ def _run_emit(args: argparse.Namespace) -> None:
 
     writer = FileWriter(args.output_dir)
     written: list[Path] = []
+    # Retire manifest collected as we emit. Each replaced name maps to its owning
+    # app; per-app we record both the pre-finalize leaf (where models are CREATED)
+    # and the post-finalize leaf (where deferred FKs / indexes are wired). The
+    # retire pass uses pre-finalize for cross-app references and post-finalize
+    # for same-app references — using post-finalize cross-app would re-introduce
+    # the cycle that finalize_fks itself depends on.
+    retire_manifest: dict[str, Any] = {
+        "cutoff": args.cutoff.isoformat(),
+        "leaves": {},  # app -> post-finalize leaf name
+        "initials": {},  # app -> pre-finalize (initial) squash name
+        "replaced": {},  # "app/name" -> app  (every name claimed by a squash)
+    }
     for app in apps:
         emitter = Emitter(state, squasher, app, cycle_breaker)
         squashes = emitter.build()
@@ -1143,6 +1155,12 @@ def _run_emit(args: argparse.Namespace) -> None:
             sys.stderr.write(
                 f"wrote {path}  ({len(sq.operations)} ops, replaces {len(sq.replaces)}, deps {len(sq.dependencies)})\n"
             )
+        # Manifest entries
+        finalize = next((sq for sq in squashes if sq.name == Emitter.FINALIZE_NAME), None)
+        retire_manifest["initials"][app] = Emitter.INITIAL_NAME
+        retire_manifest["leaves"][app] = Emitter.FINALIZE_NAME if finalize is not None else Emitter.INITIAL_NAME
+        for replaced_app, replaced_name in initial.replaces:
+            retire_manifest["replaced"][f"{replaced_app}/{replaced_name}"] = replaced_app
     # Save cycle-break edge-removal list as a sidecar for `install` to act on.
     if cycle_edges:
         edges_file = args.output_dir / "CYCLE_EDGE_REMOVALS.txt"
@@ -1163,6 +1181,15 @@ def _run_emit(args: argparse.Namespace) -> None:
         adds_file = args.output_dir / "FIRST_YOUNG_DEP_ADDITIONS.txt"
         adds_file.write_text("\n".join(f"{a}/{n}" for (a, n) in first_young_edits) + "\n")
         sys.stderr.write(f"wrote first-young dep-addition list to {adds_file}\n")
+
+    import json as _json
+
+    manifest_path = args.output_dir / "RETIRE_MANIFEST.json"
+    manifest_path.write_text(_json.dumps(retire_manifest, indent=2, sort_keys=True) + "\n")
+    sys.stderr.write(
+        f"wrote retire manifest ({len(retire_manifest['replaced'])} replaced names, "
+        f"{len(retire_manifest['leaves'])} apps) to {manifest_path}\n"
+    )
 
     sys.stderr.write(f"\ntotal: {len(written)} files emitted to {args.output_dir}\n")
 
