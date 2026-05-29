@@ -3368,6 +3368,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual((tile1.layouts["sm"]["x"], tile1.layouts["sm"]["y"], tile1.layouts["sm"]["w"]), (0, 0, 4))
         self.assertEqual((tile2.layouts["sm"]["x"], tile2.layouts["sm"]["y"], tile2.layouts["sm"]["w"]), (4, 0, 8))
         self.assertEqual((tile3.layouts["sm"]["x"], tile3.layouts["sm"]["y"], tile3.layouts["sm"]["w"]), (0, 5, 12))
+        # xs is the single-column mobile stack: tiles stack top-to-bottom in list order,
+        # accumulating each tile's height independently of the sm packing.
+        self.assertEqual(tile1.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 5})
+        self.assertEqual(tile2.layouts["xs"], {"x": 0, "y": 5, "w": 1, "h": 5})
+        self.assertEqual(tile3.layouts["xs"], {"x": 0, "y": 10, "w": 1, "h": 5})
 
     def test_reorder_tiles_preserve_packs_into_lowest_segment_with_uneven_heights(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
@@ -3400,6 +3405,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(tile1.layouts["sm"], {"x": 0, "y": 0, "w": 6, "h": 3})
         self.assertEqual(tile2.layouts["sm"], {"x": 6, "y": 0, "w": 6, "h": 5})
         self.assertEqual(tile3.layouts["sm"], {"x": 0, "y": 3, "w": 6, "h": 2})
+        # xs stacks in list order accumulating each tile's own height (0, 3, then 3+5=8),
+        # independent of the lowest-segment sm packing that placed tile3 at sm y=3.
+        self.assertEqual(tile1.layouts["xs"], {"x": 0, "y": 0, "w": 1, "h": 3})
+        self.assertEqual(tile2.layouts["xs"], {"x": 0, "y": 3, "w": 1, "h": 5})
+        self.assertEqual(tile3.layouts["xs"], {"x": 0, "y": 8, "w": 1, "h": 2})
 
     @parameterized.expand(
         [
