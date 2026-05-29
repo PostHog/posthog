@@ -1,6 +1,6 @@
 # Design — streaming deltas + unified reasoning knob
 
-**Status:** v0a (reasoning knob) shipped; v0b (stream surface) + v1 + v2 not yet built. **Owner:** ben.
+**Status:** v0a (reasoning knob) + v0b (PiClient.stream surface) shipped; v1 (runner consumes stream) + v2 (delta filtering on /listen) not yet built. **Owner:** ben.
 
 Two pi-ai surfaces today, treated as one design here because they touch
 the same code paths in the runner and the same `Model` selection layer.
@@ -284,12 +284,23 @@ needing a real provider.
 - Tests: `run-turn.test.ts` asserts `pi.calls[0].opts?.reasoning ===
 'high'` when `spec.reasoning` is set, and `undefined` when not.
 
-**v0b — `stream()` on PiClient.** Not yet built.
+**v0b — `stream()` on PiClient.** ✅ shipped.
 
-- `stream()` thin wrapper around pi-ai's stream API.
-- `FauxPiClient.stream()` scripted iterable for unit-test coverage.
+- `stream()` added to the `PiClient` interface in
+  [services/agent-runner/src/models/pi-client.ts](../../../services/agent-runner/src/models/pi-client.ts).
+- `PiAiClient.stream()` wraps pi-ai's `streamSimple()`; an internal
+  translator normalises pi-ai's `AssistantMessageEvent` union into our
+  opinionated `StreamDelta` shape (clean field names, extracted `id`/
+  `name` on toolcall events, terminal `end` event carrying the
+  materialised `AssistantMessage`).
+- `FauxPiClient.stream()` is a scripted iterable — resolves the next
+  scripted turn the same way `invoke()` does, then chunks it into
+  text-word deltas + `toolcall_start`/`toolcall_end` pairs. Per-char
+  arg deltas are deliberately skipped (dispatch waits for the full
+  call anyway). `streamCalls[]` records each invocation for test
+  assertion, matching the existing `calls[]` pattern.
 - Backward compatible: existing `invoke()` keeps working; the runner
-  defaults to `invoke()` until v1.
+  defaults to `invoke()` until v1 wires the loop over.
 
 **v1 — runner switches to `stream()`.** Not yet built.
 

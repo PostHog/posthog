@@ -210,8 +210,8 @@ agent directly. No Django proxy.
 ### C.8 [`streaming-and-reasoning.md`](streaming-and-reasoning.md)
 
 `spec.reasoning` knob + `PiClient.stream()`. **v0a (reasoning
-knob: spec field + InvokeOpts plumb-through) ✅ shipped; v0b
-(stream surface on PiClient) + v1 (runner consumes stream, emits
+knob: spec field + InvokeOpts plumb-through) + v0b (`stream()` on
+PiClient + FauxPiClient) ✅ shipped; v1 (runner consumes stream, emits
 delta events) + v2 (delta filtering on /listen) pending.**
 
 **Shared cross-cut introduced by this layer:**

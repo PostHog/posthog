@@ -8,7 +8,7 @@
 
 import type { AssistantMessage, Context, Model, TextContent, ToolCall } from '@earendil-works/pi-ai'
 
-import { InvokeOpts, PiClient } from './pi-client'
+import { InvokeOpts, PiClient, StreamDelta, StreamOpts } from './pi-client'
 
 export type ScriptedTurn =
     | AssistantMessage
@@ -17,6 +17,7 @@ export type ScriptedTurn =
 export class FauxPiClient implements PiClient {
     private idx = 0
     public readonly calls: Array<{ model: Model<string>; context: Context; opts?: InvokeOpts }> = []
+    public readonly streamCalls: Array<{ model: Model<string>; context: Context; opts?: StreamOpts }> = []
 
     constructor(private readonly turns: ScriptedTurn[]) {}
 
@@ -28,6 +29,48 @@ export class FauxPiClient implements PiClient {
         const next = this.turns[this.idx++]
         return typeof next === 'function' ? next(context, opts) : next
     }
+
+    /**
+     * Test-side `stream()`. Resolves the scripted turn the same way `invoke()`
+     * does, then chunks it into deltas: text content becomes a string of
+     * `text_delta` events (one per word — fine-grained enough that tests can
+     * assert delta-handling without becoming brittle), tool calls become
+     * `toolcall_start` + `toolcall_end` (we skip per-character arg deltas
+     * since dispatch waits for the full call anyway). Terminates with a
+     * single `end` event carrying the materialized AssistantMessage.
+     *
+     * If the scripted turn throws (e.g. simulating provider errors), the
+     * throw surfaces from the iterator the same way the real impl does.
+     */
+    stream(model: Model<string>, context: Context, opts?: StreamOpts): AsyncIterable<StreamDelta> {
+        this.streamCalls.push({ model, context, opts })
+        if (this.idx >= this.turns.length) {
+            throw new Error(`FauxPiClient ran out of scripted turns at idx=${this.idx}`)
+        }
+        const next = this.turns[this.idx++]
+        return scriptedStream(next, context, opts)
+    }
+}
+
+async function* scriptedStream(turn: ScriptedTurn, context: Context, opts?: InvokeOpts): AsyncIterable<StreamDelta> {
+    const resolved: AssistantMessage = typeof turn === 'function' ? await turn(context, opts) : turn
+    for (const block of resolved.content) {
+        if (block.type === 'text') {
+            // Split on whitespace, drop pure-whitespace tokens — keeps the
+            // delta sequence aligned with what tests assert on without
+            // turning consumers into whitespace-handling tests.
+            const words = block.text.split(/\s+/).filter((w) => w.length > 0)
+            for (const w of words) {
+                yield { type: 'text_delta', text: w }
+            }
+        } else if (block.type === 'thinking') {
+            yield { type: 'thinking_delta', thinking: block.thinking }
+        } else if (block.type === 'toolCall') {
+            yield { type: 'toolcall_start', id: block.id, name: block.name }
+            yield { type: 'toolcall_end', id: block.id, name: block.name, arguments: block.arguments }
+        }
+    }
+    yield { type: 'end', assistantMessage: resolved }
 }
 
 /* ---------- builders for scripting AssistantMessage responses ---------- */
