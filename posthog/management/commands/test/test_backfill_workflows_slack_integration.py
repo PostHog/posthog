@@ -6,7 +6,8 @@ from django.core.management import call_command
 from posthog.management.commands import backfill_workflows_slack_integration as backfill
 from posthog.management.commands.backfill_workflows_slack_integration import _rewrite_slack_workspace_in_actions
 from posthog.models import Team
-from posthog.models.hog_flow.hog_flow import HogFlow
+
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 def _slack_action(action_id: str, slack_workspace_value: int | None) -> dict:
@@ -81,7 +82,7 @@ class TestBackfillWorkflowsSlackIntegrationCommand(BaseTest):
         super().setUp()
         self.other_team = Team.objects.create(organization=self.organization, name="Other team")
 
-        with patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
+        with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
             self.target_flow = HogFlow.objects.create(
                 team=self.team,
                 name="Target flow",
@@ -129,7 +130,7 @@ class TestBackfillWorkflowsSlackIntegrationCommand(BaseTest):
     def test_rewrites_only_target_team(self):
         with (
             patch.object(backfill, "TEAM_ID", self.team.id),
-            patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers"),
+            patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers"),
         ):
             call_command("backfill_workflows_slack_integration")
 

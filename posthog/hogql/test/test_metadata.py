@@ -14,6 +14,7 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 
 from posthog.models import Cohort, PropertyDefinition
@@ -242,7 +243,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(metadata.isValid)
-        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
+        self.assertEqual([error.message for error in metadata.errors], [INVALID_CONNECTION_ID_ERROR])
 
     def test_metadata_with_direct_connection_does_not_allow_posthog_tables(self):
         source = ExternalDataSource.objects.create(
@@ -424,7 +425,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(metadata.isValid)
-        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
+        self.assertEqual([error.message for error in metadata.errors], [INVALID_CONNECTION_ID_ERROR])
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
