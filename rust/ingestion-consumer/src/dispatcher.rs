@@ -45,14 +45,17 @@ impl PinTable {
     /// Drop all pins targeting dead workers. Returns the count of evictions.
     fn drop_dead_pins(&mut self, registry: &WorkerRegistry) -> usize {
         let before = self.pins.len();
-        self.pins
-            .retain(|_, pin| !registry.is_dead(pin.worker_idx));
+        self.pins.retain(|_, pin| !registry.is_dead(pin.worker_idx));
         before - self.pins.len()
     }
 
     /// Pick the healthy/degraded worker with the lowest in-flight load.
     /// Returns None when no healthy workers exist.
-    fn least_loaded_healthy(&self, registry: &WorkerRegistry, provisional: &[usize]) -> Option<usize> {
+    fn least_loaded_healthy(
+        &self,
+        registry: &WorkerRegistry,
+        provisional: &[usize],
+    ) -> Option<usize> {
         (0..self.in_flight.len())
             .filter(|&idx| {
                 matches!(
@@ -120,9 +123,14 @@ impl Dispatcher {
 
         for msg in messages {
             let key = routing_key(&msg);
-            if key == ":" {
+            let key = if key == ":" {
                 missing_headers += 1;
-            }
+                // Both headers absent: use partition+offset as a synthetic unique key so
+                // these messages spread across workers instead of all pinning to one.
+                format!(":{}:{}", msg.partition, msg.offset)
+            } else {
+                key
+            };
             key_groups.entry(key).or_default().push(msg);
         }
 
@@ -131,8 +139,7 @@ impl Dispatcher {
                 .increment(missing_headers);
         }
 
-        histogram!("ingestion_consumer_distinct_ids_per_batch")
-            .record(key_groups.len() as f64);
+        histogram!("ingestion_consumer_distinct_ids_per_batch").record(key_groups.len() as f64);
 
         // Worker index → (messages, routing_keys). Collects all messages that
         // will form one sub-batch per worker.
@@ -182,7 +189,13 @@ impl Dispatcher {
                 continue;
             };
 
-            table.pins.insert(key.clone(), Pin { worker_idx, ref_count: 1 });
+            table.pins.insert(
+                key.clone(),
+                Pin {
+                    worker_idx,
+                    ref_count: 1,
+                },
+            );
 
             let entry = worker_msgs.entry(worker_idx).or_default();
             if entry.0.is_empty() {
@@ -233,6 +246,13 @@ impl Dispatcher {
         let mut evictions = 0usize;
         for key in routing_keys {
             if let Some(pin) = table.pins.get_mut(key) {
+                // Skip stale resolves: after a worker dies, `drop_dead_pins` evicts the
+                // old pin and `assign` may create a new one for a different worker using
+                // the same key. A DLQ resolve from the original dead sub-batch would
+                // otherwise corrupt the new pin's ref_count.
+                if pin.worker_idx != worker_idx {
+                    continue;
+                }
                 pin.ref_count = pin.ref_count.saturating_sub(1);
                 if pin.ref_count == 0 {
                     table.pins.remove(key);
@@ -301,7 +321,9 @@ mod tests {
     /// Registry with N healthy workers and no cooldown. `dead_declaration` is
     /// very short so tests can drive a worker to dead quickly.
     fn healthy_registry(n: usize) -> Arc<WorkerRegistry> {
-        let urls: Vec<String> = (0..n).map(|i| format!("http://worker:{}", 9001 + i)).collect();
+        let urls: Vec<String> = (0..n)
+            .map(|i| format!("http://worker:{}", 9001 + i))
+            .collect();
         let config = WorkerRegistryConfig {
             probe_interval: Duration::from_millis(50),
             dead_declaration: Duration::from_millis(30),
