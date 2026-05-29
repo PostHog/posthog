@@ -2248,9 +2248,29 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.turbo-discover.outputs.schema_cache_key }}
+
+            - name: Prime test_posthog from cached schema
+              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              if: ${{ github.event_name == 'pull_request' }}
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
+                  # Scope async migration tests directly and reuse the primed test database.
+                  pytest posthog/async_migrations/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

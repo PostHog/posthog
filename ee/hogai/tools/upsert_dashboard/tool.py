@@ -5,7 +5,7 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
+from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
@@ -224,7 +224,10 @@ class UpsertDashboardTool(MaxTool):
                 content = result.content
                 # Coerce query to the QuerySchema union
                 coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
-                if isinstance(coerced_query, HogQLQuery):
+                if isinstance(coerced_query, DataVisualizationNode):
+                    # SQL-backed insight: already a top-level query node, keep its display/chart settings as-is.
+                    converted = coerced_query.model_dump(exclude_none=True)
+                elif isinstance(coerced_query, HogQLQuery):
                     converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
                 else:
                     converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)

@@ -3714,7 +3714,7 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLQuery {
-      /** Optional direct external data source id for running against a specific source */
+      /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
       connectionId?: string | null;
       explain?: boolean | null;
       filters?: HogQLFilters | null;
@@ -12310,6 +12310,8 @@ export namespace Schemas {
       name: string;
       row_count?: number | null;
       schema?: DatabaseSchemaSchema | null;
+      /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
+      search_aliases?: string[] | null;
       source?: DatabaseSchemaSource | null;
       type?: 'data_warehouse';
       url_pattern: string;
@@ -19914,7 +19916,7 @@ export namespace Schemas {
     export type HogQLMetadataVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLMetadata {
-      /** Optional direct external data source id for running against a specific source */
+      /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
       connectionId?: string | null;
       /** Enable more verbose output, usually run from the /debug page */
       debug?: boolean | null;
@@ -19940,7 +19942,7 @@ export namespace Schemas {
     }
 
     export interface HogQLAutocomplete {
-      /** Optional direct external data source id for running against a specific source */
+      /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
       connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
@@ -20767,6 +20769,20 @@ export namespace Schemas {
       /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
       summary: string;
     }
+
+    /**
+     * * `preserve` - preserve
+    * `two_column` - two_column
+    * `full_width` - full_width
+     */
+    export type LayoutEnum = typeof LayoutEnum[keyof typeof LayoutEnum];
+
+
+    export const LayoutEnum = {
+      Preserve: 'preserve',
+      TwoColumn: 'two_column',
+      FullWidth: 'full_width',
+    } as const;
 
     export interface LegalDocumentCreator {
       first_name: string;
@@ -35744,6 +35760,12 @@ export namespace Schemas {
          * @minItems 1
          */
       tile_order: number[];
+      /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+
+      * `preserve` - preserve
+      * `two_column` - two_column
+      * `full_width` - full_width */
+      layout?: LayoutEnum;
     }
 
     export interface ScanEvidence {
