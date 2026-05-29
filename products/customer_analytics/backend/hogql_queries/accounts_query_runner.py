@@ -170,16 +170,14 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             modifiers=self.modifiers,
         )
 
-        results = self.paginator.results
-        if NAME_COLUMN in self.columns:
-            name_index = self.columns.index(NAME_COLUMN)
-            results = [
-                [
-                    {"name": cell[0], "external_id": cell[1], "id": cell[2]} if index == name_index else cell
-                    for index, cell in enumerate(row)
-                ]
-                for row in results
+        name_index = self.columns.index(NAME_COLUMN)
+        results = [
+            [
+                {"name": cell[0], "external_id": cell[1], "id": cell[2]} if index == name_index else cell
+                for index, cell in enumerate(row)
             ]
+            for row in self.paginator.results
+        ]
 
         return AccountsQueryResponse(
             kind="AccountsQuery",

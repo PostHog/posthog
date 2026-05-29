@@ -329,12 +329,14 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         ids = [str(create_account(team_id=self.team.id, name=f"Account {i:02d}").id) for i in range(5)]
         expected_reverse = list(reversed(ids))
 
-        self.assertEqual(self._ids(limit=2, offset=0), expected_reverse[:2])
-        _, page_one_response = self._run_query(limit=2, offset=0)
+        page_one_runner, page_one_response = self._run_query(limit=2, offset=0)
+        name_idx = page_one_runner.columns.index("name")
+        self.assertEqual([row[name_idx]["id"] for row in page_one_response.results], expected_reverse[:2])
         self.assertTrue(page_one_response.hasMore)
 
-        self.assertEqual(self._ids(limit=2, offset=4), expected_reverse[4:])
-        _, page_three_response = self._run_query(limit=2, offset=4)
+        page_three_runner, page_three_response = self._run_query(limit=2, offset=4)
+        name_idx = page_three_runner.columns.index("name")
+        self.assertEqual([row[name_idx]["id"] for row in page_three_response.results], expected_reverse[4:])
         self.assertFalse(page_three_response.hasMore)
 
     def test_empty_result_set(self):
