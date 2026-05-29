@@ -51,6 +51,15 @@ pub struct Config {
 
     #[envconfig(default = "60")]
     pub filter_catalog_refresh_jitter_secs: u64,
+
+    // ── Partition routing (PR 1.5) ────────────────────────────────────────
+    /// Bounded buffer, in sub-batches, for each per-partition worker channel. This is the
+    /// backpressure knob (§2.3): once a worker is this far behind the router, routing to *that*
+    /// partition blocks instead of growing memory unbounded, while other partitions keep flowing.
+    /// The buffer is per active partition, so peak in-flight scales with the assigned partition
+    /// count. Consumed by PR 1.7 when it constructs the [`crate::partitions::PartitionRouter`].
+    #[envconfig(default = "1024")]
+    pub partition_channel_buffer: usize,
 }
 
 impl Config {
@@ -101,6 +110,7 @@ mod tests {
             pg_statement_timeout_ms: 5000,
             filter_catalog_refresh_secs: 300,
             filter_catalog_refresh_jitter_secs: 60,
+            partition_channel_buffer: 1024,
         }
     }
 

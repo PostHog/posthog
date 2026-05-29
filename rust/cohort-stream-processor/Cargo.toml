@@ -13,6 +13,9 @@ axum = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
+# Same version `rust/kafka-deduplicator` uses; lets the partition router and offset tracker
+# hold their per-partition maps behind sharded locks (no global mutex on the hot path).
+dashmap = { workspace = true }
 envconfig = { workspace = true }
 hogvm = { path = "../common/hogvm" }
 lifecycle = { path = "../common/lifecycle" }

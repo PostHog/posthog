@@ -38,6 +38,19 @@ pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
 /// (consumer.ts:200). Labelled by `field` (counter).
 pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
 
+// ── Partition routing (PR 1.5) ─────────────────────────────────────────────────
+/// Partitions with a live worker channel registered on the router (gauge). Re-set on every
+/// `add_partition` / `remove_partition`, so it tracks the worker-affinity fan-out width.
+pub const PARTITIONS_ACTIVE: &str = "partitions_active";
+/// Messages dropped while routing because the target partition had no live worker — almost
+/// always a partition revoked mid-rebalance, or a worker that dropped its receiver. Labelled by
+/// `reason` (counter). A sustained non-zero rate outside rebalances means routing is losing work.
+pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
+/// Sub-batches queued in a partition worker's channel, measured send-side as
+/// `buffer − available_capacity`. Labelled by `partition` (gauge). The router's view of
+/// per-partition backpressure; rising depth means a worker is falling behind the consumer.
+pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics
