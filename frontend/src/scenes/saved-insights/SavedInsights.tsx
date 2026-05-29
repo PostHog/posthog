@@ -590,6 +590,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.AccountsQuery]: {
+        name: 'Accounts',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.EndpointsUsageOverviewQuery]: {
         name: 'Endpoints usage overview',
         icon: IconPieChart,

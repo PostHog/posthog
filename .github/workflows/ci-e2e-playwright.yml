@@ -1,7 +1,7 @@
 #
 # This workflow runs CI E2E tests with Playwright.
 #
-# It relies on the container image built by 'container-images-ci.yml'.
+# It relies on the posthog-node image built by 'ci-nodejs-container.yml'.
 #
 name: E2E CI Playwright
 on:
@@ -83,11 +83,20 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
             # cost of fetching blobs.
+            #
+            # sparse-checkout works around an actions/checkout@v6.0.2 flake: with
+            # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
+            # and the per-blob credential lookup intermittently fails with "could not
+            # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
+            # until the job was retried). Materializing only the one file this job
+            # reads collapses the lazy fetch to a single blob.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -263,10 +272,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0

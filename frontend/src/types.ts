@@ -1585,8 +1585,15 @@ export interface PersonActorType extends CommonActorType {
     type: 'person'
     id: string
     name?: string
-    distinct_ids: string[]
-    is_identified: boolean
+    // distinct_ids and is_identified are required for resolved persons but absent on
+    // stubs returned when the ClickHouse actor_id couldn't be hydrated from Postgres
+    // (see is_unresolved). Callers must guard for the stub case.
+    distinct_ids?: string[]
+    is_identified?: boolean
+    // Set when the person's actor_id from ClickHouse couldn't be hydrated from Postgres
+    // (typically because the person was merged into another or deleted). When true,
+    // distinct_ids/is_identified/properties/created_at may all be missing.
+    is_unresolved?: boolean
 }
 
 export interface GroupActorType extends CommonActorType {
@@ -4087,7 +4094,7 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {
@@ -4560,6 +4567,7 @@ export enum ExperimentConclusion {
 }
 
 export interface ExperimentHoldoutType {
+    /** @asType integer */
     id: number | null
     name: string
     description: string | null
@@ -4608,6 +4616,7 @@ export interface Experiment {
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
+        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4628,6 +4637,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        baseline_variant_key?: string
         bayesian?: {
             ci_level?: number
         }
@@ -5369,6 +5379,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'metrics'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
@@ -5816,6 +5827,7 @@ export interface ExternalDataSource {
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
+    supports_column_selection?: boolean
 }
 
 export interface WebhookExternalStatus {
@@ -6482,7 +6494,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
-    | ProductKey.LLM_ANALYTICS
+    | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS,
     OnboardingProduct

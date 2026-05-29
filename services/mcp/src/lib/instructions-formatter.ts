@@ -8,6 +8,7 @@ import {
     type QueryToolInfo,
     type ToolInfo,
 } from '@/lib/instructions'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
@@ -34,7 +35,7 @@ export interface InstructionsContext {
     queryTools?: QueryToolInfo[] | undefined
     /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
      *  prompt sections whose corresponding tool is flag-gated. */
-    featureFlags?: Record<string, boolean> | undefined
+    featureFlags?: EvaluatedFlags | undefined
 }
 
 /**
@@ -111,7 +112,7 @@ export class InstructionsFormatter {
     /** The agent-feedback section is only useful when the `agent-feedback` tool
      *  is reachable, which is governed by the `mcp-feedback-tool` flag evaluated
      *  in `resolveToolFeatureFlags`. */
-    private agentFeedbackEnabled(featureFlags: Record<string, boolean> | undefined): boolean {
+    private agentFeedbackEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
         return featureFlags?.['mcp-feedback-tool'] === true
     }
 

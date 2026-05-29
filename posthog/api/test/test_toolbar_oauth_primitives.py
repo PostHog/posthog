@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
@@ -303,23 +304,28 @@ class TestTokenEndpointStatusRemapping(APIBaseTest):
         assert cm.exception.status_code == expected_status
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
-class TestToolbarOAuthCallbackExchange(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
+class ToolbarOAuthAuthorizeMixin:
+    # Mixin assumes the concrete TestCase subclass provides a Django test `client`.
+    client: Any
 
     def _authorize_and_get_state(self, redirect_url: str = "https://example.com/page") -> str:
         response = self.client.get(
             "/toolbar_oauth/authorize/",
             {"redirect": redirect_url, "code_challenge": "test_challenge_value"},
         )
-        assert response.status_code == 302
+        assert response.status_code == 302, response.content
 
         auth_url = response["Location"]
         qs = parse_qs(urlparse(auth_url).query)
         return qs["state"][0]
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
+class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
 
     def test_callback_redirects_with_code_in_redirect_flow(self):
         state = self._authorize_and_get_state()
@@ -507,12 +513,16 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert "__posthog_toolbar=code:auth_code_123" in location
 
     def test_callback_preserves_spa_hash_route(self):
+        # SPA hash routes (fragment starts with `/`) must use `?` as the
+        # separator so hash routers split route from auth params instead of
+        # treating the whole substring as one path and 404ing.
         state = self._authorize_and_get_state(redirect_url="https://example.com/#/dashboard/settings")
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
 
         assert response.status_code == 302
         location = response["Location"]
-        assert "/dashboard/settings&__posthog_toolbar=code:abc" in location
+        assert "/dashboard/settings?__posthog_toolbar=code:abc" in location
+        assert "/dashboard/settings&__posthog_toolbar" not in location
 
     def test_callback_preserves_fragment_params_after_stripping_toolbar(self):
         state = self._authorize_and_get_state(
@@ -602,3 +612,17 @@ class TestNormalizeAndValidateAppUrl(APIBaseTest):
         with self.assertRaises(ToolbarOAuthError) as cm:
             normalize_and_validate_app_url(self.team, "example.com/page")
         assert cm.exception.code == "invalid_app_url"
+
+    @parameterized.expand(
+        [
+            # urlparse sees hostname='example.com' (the allowed domain), but a browser
+            # following the redirect treats `\` as a path separator and routes to
+            # attacker.example, leaking the toolbar OAuth code.
+            ("raw_backslash", "https://attacker.example\\@example.com/page"),
+            ("percent_encoded_backslash", "https://attacker.example%5C@example.com/page"),
+        ]
+    )
+    def test_rejects_backslash_authority_bypass(self, _name, app_url):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            normalize_and_validate_app_url(self.team, app_url)
+        assert cm.exception.code == "forbidden_app_url"
