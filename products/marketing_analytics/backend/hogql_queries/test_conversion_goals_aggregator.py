@@ -20,9 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-)
+from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
@@ -67,7 +65,7 @@ def _normalize_job_uuids(hogql: str) -> str:
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
+        sync_execute(TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
         # Force deterministic job_ids so the precompute snapshots are stable in CI.
         self._job_uuid_patcher = patch.object(

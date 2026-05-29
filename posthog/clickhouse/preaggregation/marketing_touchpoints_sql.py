@@ -6,15 +6,23 @@
 
 from django.conf import settings
 
-from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    CONVERSION_GOAL_ATTRIBUTED_TRACKED_FIELD_NAMES,
-)
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 
 TABLE_BASE_NAME = "marketing_touchpoints_preaggregated"
 
-# Shared with the attributed table so both stay in lockstep with TRACKED_FIELDS.
-MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES: list[str] = CONVERSION_GOAL_ATTRIBUTED_TRACKED_FIELD_NAMES
+# Keep in lockstep with TRACKED_FIELDS in conversion_goal_processor.py.
+# test_conversion_goal_processor_refactor.py enforces this.
+MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES: list[str] = [
+    "campaign",
+    "source",
+    "medium",
+    "content",
+    "term",
+    "referring_domain",
+    "gclid",
+    "fbclid",
+    "gad_source",
+]
 
 
 def DISTRIBUTED_MARKETING_TOUCHPOINTS_TABLE():
