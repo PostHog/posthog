@@ -10,6 +10,7 @@ use futures::future::ready;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -18,7 +19,9 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::transport::HttpTransport;
+use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
 
@@ -99,13 +102,32 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    // Spawn the consumer task
+    let worker_urls = config.worker_urls();
+
+    // Build the worker health registry and start background probe tasks.
+    let registry_config = WorkerRegistryConfig {
+        probe_interval: Duration::from_millis(config.worker_probe_interval_ms),
+        dead_declaration: Duration::from_millis(config.worker_dead_declaration_ms),
+        passive_window: Duration::from_millis(config.worker_passive_window_ms),
+        passive_error_threshold: config.worker_passive_error_threshold,
+        passive_min_samples: config.worker_passive_min_samples,
+        degraded_hold: Duration::from_millis(config.worker_degraded_hold_ms),
+        min_state_duration: Duration::from_millis(config.worker_min_state_duration_ms),
+        probe_failure_threshold: config.worker_probe_failure_threshold,
+    };
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
+
+    // Probe tasks run until the consumer shuts down.
+    let probe_token = CancellationToken::new();
+    Arc::clone(&registry).start_probing(probe_token.clone());
+
+    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+
     let api_secret = if config.internal_api_secret.is_empty() {
         None
     } else {
         Some(config.internal_api_secret.clone())
     };
-    let worker_urls = config.worker_urls();
     let transport = Arc::new(HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
@@ -114,11 +136,14 @@ async fn async_main(config: Config) -> Result<()> {
         config.ingestion_worker_concurrent_batches,
     ));
 
-    let consumer = IngestionConsumer::new(&config, transport, consumer_handle)
-        .context("Failed to create Kafka consumer")?;
+    let consumer =
+        IngestionConsumer::new(&config, dispatcher, registry, transport, consumer_handle)
+            .context("Failed to create Kafka consumer")?;
 
     tokio::spawn(async move {
         consumer.process().await;
+        // Cancel probe tasks once the consumer loop exits.
+        probe_token.cancel();
     });
 
     // Build and serve the health/metrics HTTP server
