@@ -804,22 +804,32 @@ describe('logsViewerLogic', () => {
             expect(logic.values.visibleRowRange).toEqual({ startIndex: 1, stopIndex: 2 })
         })
 
-        it('derives a date range ordered from earliest to latest', () => {
-            // The viewer renders rows 1..2; logs[1] is at 01:00, logs[2] at 02:00.
-            logic.actions.setVisibleRowRange(1, 2)
-            expect(logic.values.visibleRowDateRange).toEqual({
-                date_from: '2024-01-01T01:00:00.000Z',
-                date_to: '2024-01-01T02:00:00.000Z',
-            })
-        })
-
-        it('orders the date range earliest-first even when logs are sorted descending', () => {
-            // Simulate "latest first" — startIndex points at a later timestamp than stopIndex.
-            logic.actions.setLogs([...rawLogsWithTimestamps].reverse())
-            logic.actions.setVisibleRowRange(0, 1)
-            const range = logic.values.visibleRowDateRange
-            expect(range).not.toBeNull()
-            expect(new Date(range!.date_from).getTime()).toBeLessThan(new Date(range!.date_to).getTime())
+        it.each([
+            {
+                name: 'ascending logs',
+                reverseLogs: false,
+                range: [1, 2] as const,
+                expected: { date_from: '2024-01-01T01:00:00.000Z', date_to: '2024-01-01T02:00:00.000Z' },
+            },
+            {
+                // "Latest first" — startIndex points at a later timestamp than stopIndex.
+                name: 'descending logs',
+                reverseLogs: true,
+                range: [0, 1] as const,
+                expected: { date_from: '2024-01-01T02:00:00.000Z', date_to: '2024-01-01T03:00:00.000Z' },
+            },
+            {
+                name: 'single-row range',
+                reverseLogs: false,
+                range: [2, 2] as const,
+                expected: { date_from: '2024-01-01T02:00:00.000Z', date_to: '2024-01-01T02:00:00.000Z' },
+            },
+        ])('derives a date range ordered earliest-first ($name)', ({ reverseLogs, range, expected }) => {
+            if (reverseLogs) {
+                logic.actions.setLogs([...rawLogsWithTimestamps].reverse())
+            }
+            logic.actions.setVisibleRowRange(range[0], range[1])
+            expect(logic.values.visibleRowDateRange).toEqual(expected)
         })
 
         it('clamps indices that fall outside the loaded logs', () => {

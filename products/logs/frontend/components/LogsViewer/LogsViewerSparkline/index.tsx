@@ -10,9 +10,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
-
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
+
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
 export interface LogsSparklineData {
     data: {

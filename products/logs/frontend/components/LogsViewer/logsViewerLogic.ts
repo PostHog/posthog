@@ -376,10 +376,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         // of `orderBy`.
         visibleRowDateRange: [
             (state) => [state.visibleRowRange, state.logs],
-            (
-                visibleRowRange: VisibleRowRange | null,
-                logs: ParsedLogMessage[]
-            ): VisibleLogsTimeRange | null => {
+            (visibleRowRange: VisibleRowRange | null, logs: ParsedLogMessage[]): VisibleLogsTimeRange | null => {
                 if (!visibleRowRange || logs.length === 0) {
                     return null
                 }

@@ -9,7 +9,7 @@ import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { humanFriendlyNumber } from 'lib/utils'
+import { hexToRGBA, humanFriendlyNumber } from 'lib/utils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
@@ -290,14 +290,22 @@ export function Sparkline({
                                     Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
                                 )
                                 if (lo <= hi) {
+                                    // Match the cursor-row highlight hue (`--primary-highlight`):
+                                    // orange in light mode, amber in dark. Read the concrete
+                                    // per-theme token since the semantic var is a nested `var()`
+                                    // that doesn't resolve off-DOM (e.g. on the chart canvas).
+                                    const isDark = document.body.getAttribute('theme') === 'dark'
+                                    const primary = getColorVar(isDark ? 'primary-3000-dark' : 'primary-3000-light')
                                     annotations.highlightedRange = {
                                         type: 'box',
                                         xMin: labels[lo],
-                                        xMax: labels[hi],
+                                        // Extend to the next bucket's start so the last bar is fully enclosed.
+                                        xMax: labels[hi + 1] ?? labels[hi],
                                         // Drawn under the bars so the data stays legible.
                                         drawTime: 'beforeDatasetsDraw',
-                                        backgroundColor: 'rgba(0, 0, 0, 0.06)',
-                                        borderColor: 'rgba(0, 0, 0, 0.2)',
+                                        // 10% fill mirrors the cursor row; a stronger border marks the window edges.
+                                        backgroundColor: hexToRGBA(primary, 0.1),
+                                        borderColor: hexToRGBA(primary, 0.8),
                                         borderWidth: 1,
                                     }
                                 }
