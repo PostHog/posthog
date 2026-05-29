@@ -25,7 +25,7 @@ It will explore the UI with Playwright MCP tools, plan the tests, implement them
 
 ## Writing tests
 
-## What belongs in this suite
+### What belongs in this suite
 
 This suite is expensive as it runs the full stack and a real browser, and every spec costs PR runtime, runner credits, and a slice of the team's flake budget. Use these principles to decide whether a test is worth that cost.
 

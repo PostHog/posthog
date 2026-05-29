@@ -26,6 +26,7 @@ const typeTestCases: { type: InsightType; expectedTabText: string }[] = [
     { type: InsightType.PATHS, expectedTabText: 'User Paths' },
     { type: InsightType.STICKINESS, expectedTabText: 'Stickiness' },
     { type: InsightType.LIFECYCLE, expectedTabText: 'Lifecycle' },
+    { type: InsightType.SQL, expectedTabText: 'HogQL' },
 ]
 
 typeTestCases.forEach(({ type, expectedTabText }) => {
