@@ -27,11 +27,13 @@ import {
     BundleStore,
     ConversationMessage,
     createLogger,
+    GatewayClient,
     generationSpanId,
     IntegrationCredentials,
     isDeltaEventKind,
     LogLevel,
     LogSink,
+    MemoryStore,
     NoopAnalyticsSink,
     NoopLogSink,
     NoopSessionEventBus,
@@ -47,6 +49,7 @@ import { PiClient } from '../models/pi-client'
 import { parseApprovalDecidedMarker } from './approval-marker'
 import { buildToolList } from './build-tool-list'
 import { dispatchApproved, dispatchOne } from './dispatch-one'
+import { classifyGatewayError } from './gateway-error'
 import type { IsAskerInApproverScope } from './per-asker-auth'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 
@@ -92,6 +95,28 @@ export interface RunSessionDeps {
      */
     useGatewayCost?: boolean
     /**
+     * Static-per-session HTTP headers stamped on every outbound pi-ai call.
+     * The runner uses this on the llm-gateway path to carry
+     * `X-PostHog-Distinct-Id` + `X-PostHog-Trace-Id`. The dispatcher
+     * additionally merges per-turn `Idempotency-Key` and `X-Request-Id`
+     * of the form `agent:<session>:<turn>` so gateway-side dedupe
+     * collapses in-turn retries onto one debit AND the same id can be
+     * used to read settled cost via `GET /v1/usage/{request_id}`.
+     * See docs/agent-platform/plans/llm-gateway-integration.md §3.
+     */
+    gatewayHeaders?: Record<string, string>
+    /**
+     * Gateway read client + the team's `phc_` bearer. When set, after
+     * every pi-ai turn the runner fetches `GET /v1/usage/<turn-request-id>`
+     * and merges `cost_usd` into `usage_total.cost_total`. Without it,
+     * on the gateway path cost stays zero on the session row (the gateway
+     * still emits its own `$ai_generation` event elsewhere with cost).
+     */
+    gatewayUsage?: {
+        client: GatewayClient
+        phc: string
+    }
+    /**
      * Approval-gated tool store. When set, the dispatcher intercepts tool
      * calls flagged `requires_approval` and the turn loop processes
      * approval-decided wake markers in `pending_inputs`. See
@@ -111,6 +136,12 @@ export interface RunSessionDeps {
      * directly if so. Omit to preserve the always-queue behaviour.
      */
     isAskerInApproverScope?: IsAskerInApproverScope
+    /**
+     * S3-backed memory store. When set, native `@posthog/memory-*` tools
+     * read/write through it; when absent they surface
+     * `memory_store_unavailable` to the model. Wired from runner config.
+     */
+    memoryStore?: MemoryStore
 }
 
 export type RunOutcome =
@@ -118,8 +149,13 @@ export type RunOutcome =
     | { state: 'completed'; turns: number }
     /** Hard close via `meta-end-session`. Session is TERMINAL (unless `allow_restart`). */
     | { state: 'closed'; summary?: string; turns: number }
-    /** Worker was asked to suspend (rolling deploy etc.) — re-queue and let a sibling resume. */
-    | { state: 'suspended'; reason: 'shutdown'; turns: number }
+    /**
+     * Session needs to suspend — re-queue and let a sibling resume.
+     *   - `shutdown`: worker was asked to stop (rolling deploy etc.).
+     *   - `gateway_throttled`: llm-gateway returned 429; back off and retry.
+     *   - `gateway_upstream`: llm-gateway returned 5xx; transient upstream issue.
+     */
+    | { state: 'suspended'; reason: 'shutdown' | 'gateway_throttled' | 'gateway_upstream'; turns: number }
     /** Hard failure. Session is TERMINAL regardless of `allow_restart`. */
     | { state: 'failed'; reason: string; turns: number }
 
@@ -244,6 +280,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     toolNameMap,
                     turn: turns + 1,
                     approvals: deps.approvals,
+                    memoryStore: deps.memoryStore,
                 })
             }
             if (remaining.length > 0) {
@@ -264,6 +301,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let result: AssistantMessage | undefined
         const piStart = Date.now()
         const generationSpan = generationSpanId(session.id, turns)
+        // Per-turn request id we share with the gateway: stamping it as
+        // both Idempotency-Key (dedupe on retry) and X-Request-Id (the
+        // gateway's internal request_id) means we know the lookup key up
+        // front and can fetch /v1/usage/<this id> after the turn without
+        // parsing response headers pi-ai doesn't surface. Declared above
+        // the try so the post-turn usage fetch downstream can read it.
+        const turnRequestId = `agent:${session.id}:${turns}`
         try {
             // Stream the turn. Deltas fan out to the SSE bus for live UIs;
             // the terminal `end` event carries the materialised
@@ -277,6 +321,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // (no thinking). pi-ai silently ignores it for non-reasoning
                 // models, so we can forward unconditionally.
                 reasoning: rev.spec.reasoning,
+                headers: deps.gatewayHeaders
+                    ? {
+                          ...deps.gatewayHeaders,
+                          'Idempotency-Key': turnRequestId,
+                          'X-Request-Id': turnRequestId,
+                      }
+                    : undefined,
             })
             for await (const delta of stream) {
                 switch (delta.type) {
@@ -342,6 +393,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 },
             ])
             runLog.error({ turn: turns, err: e.message }, 'pi.stream.failed')
+            // Gateway 429 / 5xx → suspend; 402 → distinct failed reason.
+            const gw = deps.gatewayHeaders ? classifyGatewayError(e.message) : null
+            if (gw?.kind === 'throttled' || gw?.kind === 'upstream') {
+                return { state: 'suspended', reason: `gateway_${gw.kind}`, turns }
+            }
+            if (gw?.kind === 'insufficient_credits') {
+                await emit('failed', { reason: 'gateway_insufficient_credits', turns })
+                return { state: 'failed', reason: 'gateway_insufficient_credits', turns }
+            }
             return { state: 'failed', reason: e.message ?? 'pi-ai_error', turns }
         }
         runLog.debug(
@@ -374,6 +434,34 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         session.usage_total = accumulateUsage(session.usage_total, assistantRecord, {
             useGatewayCost: deps.useGatewayCost,
         })
+        // Gateway path: fetch the settled cost for this turn and merge it
+        // into usage_total. accumulateUsage above kept tokens (trusted
+        // from the provider response) but zeroed cost (pi-ai's
+        // client-side numbers are wrong on the gateway path). The
+        // gateway's Settle wrote the real cost; we read it back keyed on
+        // the per-turn request id we stamped on outbound. Wraps every
+        // error so a gateway hiccup doesn't fail the session — the
+        // worst case is a turn with token counts but no cost.
+        if (deps.gatewayUsage) {
+            try {
+                const usage = await deps.gatewayUsage.client.getUsage(turnRequestId, {
+                    phc: deps.gatewayUsage.phc,
+                })
+                if (usage) {
+                    const cost = Number(usage.cost_usd)
+                    if (Number.isFinite(cost)) {
+                        session.usage_total = {
+                            ...session.usage_total,
+                            cost_total: session.usage_total.cost_total + cost,
+                        }
+                    } else {
+                        runLog.warn({ turn: turns, cost_usd: usage.cost_usd }, 'gateway.usage.cost_nan')
+                    }
+                }
+            } catch (err) {
+                runLog.warn({ turn: turns, err: (err as Error).message }, 'gateway.usage.fetch_threw')
+            }
+        }
         // Emit `$ai_generation` per call. cost_usd is suppressed on the
         // gateway path (pi-ai's numbers there are client-side estimates).
         await analytics.write([
@@ -414,8 +502,31 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
 
         if (result.stopReason === 'error') {
-            await emit('failed', { reason: result.errorMessage ?? 'model_error', turns })
-            return { state: 'failed', reason: result.errorMessage ?? 'model_error', turns }
+            const reason = result.errorMessage ?? 'model_error'
+            // Stamp the source on every model-error so operators can tell
+            // gateway 4xxs (e.g. unknown model id, wallet empty) from
+            // upstream-provider failures from runner bugs at a glance —
+            // without these the only signal is `400 status code (no body)`.
+            const errorContext = {
+                source: deps.gatewayHeaders ? 'llm_gateway' : 'provider',
+                model: result.model ?? deps.model.id,
+                provider: result.provider ?? deps.model.provider,
+                api: result.api,
+                request_id: turnRequestId,
+            }
+            const gw = deps.gatewayHeaders ? classifyGatewayError(reason) : null
+            if (gw?.kind === 'throttled' || gw?.kind === 'upstream') {
+                runLog.warn({ turn: turns, status: gw.status, reason, ...errorContext }, 'gateway.transient')
+                return { state: 'suspended', reason: `gateway_${gw.kind}`, turns }
+            }
+            if (gw?.kind === 'insufficient_credits') {
+                runLog.error({ turn: turns, status: gw.status, ...errorContext }, 'gateway.insufficient_credits')
+                await emit('failed', { reason: 'gateway_insufficient_credits', turns, ...errorContext })
+                return { state: 'failed', reason: 'gateway_insufficient_credits', turns }
+            }
+            runLog.error({ turn: turns, reason, ...errorContext }, 'model.error')
+            await emit('failed', { reason, turns, ...errorContext })
+            return { state: 'failed', reason, turns }
         }
         if (result.stopReason === 'aborted') {
             return { state: 'suspended', reason: 'shutdown', turns }
@@ -461,6 +572,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 approvals: deps.approvals,
                 buildApprovalUrl: deps.buildApprovalUrl,
                 isAskerInApproverScope: deps.isAskerInApproverScope,
+                memoryStore: deps.memoryStore,
             })
             if (signal.kind === 'end_turn') {
                 endTurn = { prompt: signal.prompt }
