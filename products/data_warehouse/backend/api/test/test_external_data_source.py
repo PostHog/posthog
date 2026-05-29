@@ -580,6 +580,149 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"message": "Prefix already exists"})
 
+    def _make_external_data_source(
+        self, source_type: str = "Postgres", prefix: t.Optional[str] = None, deleted: bool = False
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix=prefix,
+            deleted=deleted,
+            job_inputs={},
+        )
+
+    @parameterized.expand(
+        [
+            # (description, existing_sources, requested_prefix, expected_status, expected_message)
+            ("empty team allows no prefix", [], "", 200, None),
+            ("empty team allows any prefix", [], "foo_", 200, None),
+            (
+                "only prefixed sources allow new no-prefix source",
+                [("foo_", False), ("bar_", False)],
+                "",
+                200,
+                None,
+            ),
+            (
+                "only prefixed sources allow new distinct prefix",
+                [("foo_", False)],
+                "baz_",
+                200,
+                None,
+            ),
+            (
+                "duplicate prefix is rejected",
+                [("foo_", False)],
+                "foo_",
+                400,
+                "Prefix already exists",
+            ),
+            (
+                "no-prefix source (null) blocks another no-prefix",
+                [(None, False)],
+                "",
+                400,
+                "Source type already exists. Prefix is required",
+            ),
+            (
+                "no-prefix source (empty string) blocks another no-prefix",
+                [("", False)],
+                "",
+                400,
+                "Source type already exists. Prefix is required",
+            ),
+            (
+                "no-prefix source still allows a prefixed source",
+                [(None, False)],
+                "foo_",
+                200,
+                None,
+            ),
+            (
+                # Regression: GitHub issue #60559
+                "soft-deleted no-prefix source does not block recreation",
+                [(None, True), ("foo_", False), ("bar_", False)],
+                "",
+                200,
+                None,
+            ),
+            (
+                "soft-deleted prefix does not block reuse",
+                [("foo_", True)],
+                "foo_",
+                200,
+                None,
+            ),
+        ]
+    )
+    def test_source_prefix_validation(
+        self,
+        _description: str,
+        existing_sources: list[tuple[t.Optional[str], bool]],
+        requested_prefix: str,
+        expected_status: int,
+        expected_message: t.Optional[str],
+    ) -> None:
+        for prefix, deleted in existing_sources:
+            self._make_external_data_source(source_type="Postgres", prefix=prefix, deleted=deleted)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={"source_type": "Postgres", "prefix": requested_prefix},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_message is not None:
+            self.assertEqual(response.json(), {"message": expected_message})
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_can_recreate_no_prefix_source_after_deletion(self, _mock_validate):
+        # Regression for GitHub #60559: deleting the only no-prefix source of a
+        # type must allow recreating one with the same (empty) prefix, even when
+        # other prefixed sources of the same type still exist.
+        self._make_external_data_source(source_type="Stripe", prefix="foo_")
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.json())
+        source_id = create_response.json()["id"]
+
+        delete_response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source_id}")
+        self.assertEqual(delete_response.status_code, 204)
+
+        recreate_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(recreate_response.status_code, 201, recreate_response.json())
+
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -1242,11 +1385,15 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
+        "products.data_warehouse.backend.api.external_data_source.bulk_delete_external_data_schedules",
+        return_value=[("schema-id", Exception("Schema schedule delete failed"))],
+    )
+    @patch(
         "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
         side_effect=Exception("External delete failed"),
     )
     def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
-        self, _mock_delete_schedule, mock_capture_exception
+        self, _mock_delete_schedule, _mock_bulk_delete, mock_capture_exception
     ):
         source = self._create_external_data_source()
         table = DataWarehouseTable.objects.create(

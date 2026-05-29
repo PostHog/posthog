@@ -14,7 +14,7 @@ const MIN_LEFT_MARGIN = 20
 const MIN_RIGHT_MARGIN_DUAL_AXIS = 48
 const Y_LABEL_RIGHT_PADDING = 12
 const X_LABEL_EDGE_PADDING = 4
-const X_AXIS_TITLE_MARGIN = 22
+export const X_AXIS_TITLE_MARGIN = 22
 const Y_AXIS_TITLE_MARGIN = 24
 
 interface UseChartMarginsOptions {

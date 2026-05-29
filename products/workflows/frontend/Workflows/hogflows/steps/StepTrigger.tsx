@@ -544,7 +544,7 @@ function BatchScheduleSection(): JSX.Element {
     return (
         <>
             <LemonDivider />
-            <LemonLabel>Schedule</LemonLabel>
+            <LemonLabel showOptional>Schedule</LemonLabel>
             <RecurringSchedulePicker />
         </>
     )

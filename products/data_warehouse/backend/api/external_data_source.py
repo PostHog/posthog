@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.db import transaction
@@ -48,6 +48,7 @@ from posthog.temporal.data_imports.sources.common.base import AnySource, Externa
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -59,13 +60,14 @@ from products.data_warehouse.backend.api.external_data_schema import (
     SimpleExternalDataSchemaSerializer,
 )
 from products.data_warehouse.backend.data_load.service import (
+    bulk_create_external_data_job_schedules,
+    bulk_delete_external_data_schedules,
     cancel_external_data_workflow,
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     sync_discover_schemas_schedule,
-    sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
@@ -606,8 +608,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
-        # Explicit cast: Mock attribute access returns a Mock that orjson can't serialize.
-        return bool(getattr(source, "supports_column_selection", False))
+        # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
+        return bool(source.supports_column_selection)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1028,14 +1030,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if not is_valid:
                 raise ValidationError(error_message)
 
-            if self.prefix_required(source_type):
-                if not prefix:
+            if not prefix:
+                if self.prefix_required(source_type):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": "Source type already exists. Prefix is required"},
                     )
-                if self.prefix_exists(source_type, prefix):
-                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
             self.team_id
@@ -1251,34 +1253,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
-                get_postgres_source_table_location(
-                    schema_name=schema_name,
-                    source_schema=source_schema,
-                    default_schema=default_source_schema,
+
+            metadata_source_catalog: str | None
+            metadata_source_schema: str | None
+            metadata_source_table_name: str | None
+            if source_type_model == ExternalDataSourceType.POSTGRES:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_postgres_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                    )
                 )
-            )
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_postgres_source_location(
-                schema_name=schema_name,
-                schema_metadata={
-                    "source_catalog": source_schema.source_catalog if source_schema else None,
-                    "source_schema": source_schema.source_schema if source_schema else None,
-                    "source_table_name": source_schema.source_table_name if source_schema else None,
-                },
-                default_schema=default_source_schema,
-            )
-            # Postgres writes here so direct-mode `DataWarehouseTable` and the column picker have
-            # data immediately. Non-Postgres sources populate via `reconcile_schema_metadata` on
-            # the next `refresh_schemas` run.
+            else:
+                metadata_source_catalog = source_schema.source_catalog if source_schema else None
+                metadata_source_schema = source_schema.source_schema if source_schema else None
+                metadata_source_table_name = source_schema.source_table_name if source_schema else None
+
             schema_metadata = (
                 sql_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
+                    source_catalog=metadata_source_catalog,
+                    source_schema=metadata_source_schema,
+                    source_table_name=metadata_source_table_name,
                 )
-                if source_type_model == ExternalDataSourceType.POSTGRES
+                if source.supports_column_selection
                 else {}
             )
 
@@ -1329,15 +1329,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 enabled_columns=enabled_columns,
             )
 
-            # For CDC schemas with PostHog-managed mode, add table to publication
+            # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`
+            # guarantees non-None schema/table in that branch above. `cast` narrows for mypy
+            # without a runtime check.
             if is_cdc_schema and should_sync and cdc_enabled:
                 cdc_config = PostgresCDCConfig.from_source(new_source_model)
                 if cdc_config.management_mode == "posthog" and cdc_config.publication_name:
                     self._add_table_to_cdc_publication(
                         new_source_model,
                         cdc_config.publication_name,
-                        resolved_source_schema,
-                        resolved_source_table_name,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -1354,20 +1356,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
                     ),
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
+                    source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
                 )
                 schema_model.save(update_fields=["table"])
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
 
+        # Create all sync schedules over a single shared Temporal connection. Creating them
+        # one call at a time reconnects to Temporal on every iteration, which does not scale
+        # to sources with thousands of schemas (e.g. a Slack workspace with thousands of
+        # channels).
         try:
-            for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
+            schedule_errors = bulk_create_external_data_job_schedules(
+                [(active_schema, active_schema.should_sync) for active_schema in active_schemas]
+            )
+            for schema_id, schedule_error in schedule_errors:
+                # The source model was already created, so a partial schedule failure
+                # shouldn't fail the request — log each failure and carry on.
+                logger.exception(
+                    "Could not trigger external data job",
+                    exc_info=schedule_error,
+                    schema_id=schema_id,
+                )
         except Exception as e:
-            # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
         # Per-source schema discovery schedule. Runs every 6h so newly added
@@ -1514,12 +1528,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
     def prefix_required(self, source_type: str) -> bool:
-        source_type_exists = (
+        # A prefix is only needed when a no-prefix source of the same type already
+        # exists. Two no-prefix sources would write to the same table names; sources
+        # with distinct prefixes (including one no-prefix + N prefixed) have separate
+        # table namespaces and cannot collide.
+        no_prefix_source_exists = (
             ExternalDataSource.objects.exclude(deleted=True)
             .filter(team_id=self.team.pk, source_type=source_type)
+            .filter(Q(prefix__isnull=True) | Q(prefix=""))
             .exists()
         )
-        return source_type_exists
+        return no_prefix_source_exists
 
     def prefix_exists(self, source_type: str, prefix: str) -> bool:
         prefix_exists = (
@@ -1545,7 +1564,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for schema in schemas:
                 if schema.table:
                     schema.table.soft_delete()
-                schema.soft_delete()
+
+            # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
+            # runs a SELECT + UPDATE + activity-log write each, which does not scale to
+            # sources with thousands of schemas (e.g. a Slack workspace with thousands of
+            # channels).
+            deleted_at = datetime.now(UTC)
+            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
+                deleted=True, deleted_at=deleted_at
+            )
+            # Mirror the bulk update onto the in-memory objects so the post-atomic
+            # `schema.delete_table()` save() below doesn't overwrite deleted=True with the
+            # stale in-memory value.
+            for schema in schemas:
+                schema.deleted = True
+                schema.deleted_at = deleted_at
 
             # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
             # DataWarehouseTable records linked to the source but not to schema.table.
@@ -1581,12 +1614,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        for schema in schemas:
-            try:
-                delete_external_data_schedule(str(schema.id))
-            except Exception as e:
-                capture_exception(e)
+        # Delete all schema sync schedules over a single shared Temporal connection — see
+        # the matching comment in `create`. Guarded so a Temporal-connect failure here
+        # doesn't skip the source/discovery schedule and S3 cleanup below.
+        try:
+            schedule_delete_errors = bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
+            for schema_id, schedule_delete_error in schedule_delete_errors:
+                capture_exception(schedule_delete_error, {"schema_id": schema_id})
+        except Exception as e:
+            capture_exception(e)
 
+        for schema in schemas:
             try:
                 schema.delete_table()
             except Exception as e:
@@ -1738,7 +1776,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Direct call (not via hook): tests that mock `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
@@ -1747,6 +1784,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif isinstance(source, SQLSource) and source.supports_column_selection:
+                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
@@ -1960,14 +1999,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             return Response(status=status.HTTP_200_OK)
 
-        if self.prefix_required(source_type):
-            if not prefix:
+        if not prefix:
+            if self.prefix_required(source_type):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Source type already exists. Prefix is required"},
                 )
-            elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+        elif self.prefix_exists(source_type, prefix):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
 
@@ -2035,12 +2074,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
         sources = SourceRegistry.get_all_sources()
-        configs = {name: source.get_source_config for name, source in sources.items()}
+        results = {}
+        for source_type, source in sources.items():
+            config = source.get_source_config.model_dump()
+            config["supportsColumnSelection"] = bool(source.supports_column_selection)
+            results[str(source_type)] = config
 
-        return Response(
-            status=status.HTTP_200_OK,
-            data={str(key): value.model_dump() for key, value in configs.items()},
-        )
+        return Response(status=status.HTTP_200_OK, data=results)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(methods=["GET"], detail=False)
