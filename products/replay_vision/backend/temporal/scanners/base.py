@@ -47,7 +47,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Per-scanner-type Jinja2 template under `prompts/`. Subclasses set this.
     prompt_template: ClassVar[str] = ""
-    # Names of free-text fields on the LLM response that may contain `(event_id <hash>)` citations.
+    # Names of free-text fields on the LLM response that may contain `(event_uuid <uuid>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None

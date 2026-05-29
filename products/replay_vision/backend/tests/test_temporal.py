@@ -58,7 +58,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.scanners.base import ChipSegment, TextSegment
+from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, SummarizerScanner
@@ -1809,65 +1809,95 @@ def _summarizer_scanner() -> SummarizerScanner:
 
 
 class TestExtractSegments:
-    def test_inline_citation_splits_into_text_chip_text(self) -> None:
-        text = f"Foo (event_uuid {_UUID_A}) bar"
-        plain, segments = _extract_segments(text, {_UUID_A: 1234})
-        assert plain == "Foo bar"
-        assert segments == [
-            TextSegment(value="Foo"),
-            ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
-            TextSegment(value=" bar"),
-        ]
-
-    def test_multiple_citations_produce_alternating_segments(self) -> None:
-        text = f"A (event_uuid {_UUID_A}) then B (event_uuid {_UUID_B}) then C."
-        plain, segments = _extract_segments(text, {_UUID_A: 100, _UUID_B: 200})
-        assert plain == "A then B then C."
-        assert segments == [
-            TextSegment(value="A"),
-            ChipSegment(uuid=_UUID_A, timestamp_ms=100),
-            TextSegment(value=" then B"),
-            ChipSegment(uuid=_UUID_B, timestamp_ms=200),
-            TextSegment(value=" then C."),
-        ]
-
-    def test_hallucinated_uuid_is_dropped_from_segments(self) -> None:
-        text = f"X (event_uuid {_UUID_A}) Y (event_uuid {_UUID_HALLUCINATED}) Z."
-        plain, segments = _extract_segments(text, {_UUID_A: 50})
-        assert plain == "X Y Z."
-        chips = [s for s in segments if isinstance(s, ChipSegment)]
-        assert [c.uuid for c in chips] == [_UUID_A]
-
-    def test_citation_at_text_start_omits_leading_empty_text_segment(self) -> None:
-        text = f"(event_uuid {_UUID_A}) was the cause."
-        plain, segments = _extract_segments(text, {_UUID_A: 0})
-        assert plain == " was the cause."
-        assert segments == [
-            ChipSegment(uuid=_UUID_A, timestamp_ms=0),
-            TextSegment(value=" was the cause."),
-        ]
-
-    def test_citation_at_text_end_omits_trailing_empty_text_segment(self) -> None:
-        text = f"It ended (event_uuid {_UUID_A})"
-        plain, segments = _extract_segments(text, {_UUID_A: 999})
-        assert plain == "It ended"
-        assert segments == [
-            TextSegment(value="It ended"),
-            ChipSegment(uuid=_UUID_A, timestamp_ms=999),
-        ]
-
-    def test_no_citations_returns_text_unchanged_and_single_segment(self) -> None:
-        text = "Nothing to strip."
-        plain, segments = _extract_segments(text, {_UUID_A: 0})
-        assert plain == text
-        assert segments == [TextSegment(value="Nothing to strip.")]
-
-    def test_uuid_case_is_normalized_in_chip(self) -> None:
-        text = f"Saw (event_uuid {_UUID_A.upper()})."
-        plain, segments = _extract_segments(text, {_UUID_A: 42})
-        assert plain == "Saw."
-        chips = [s for s in segments if isinstance(s, ChipSegment)]
-        assert chips[0].uuid == _UUID_A
+    @pytest.mark.parametrize(
+        "text,event_timestamps,expected_plain,expected_segments",
+        [
+            pytest.param(
+                f"Foo (event_uuid {_UUID_A}) bar",
+                {_UUID_A: 1234},
+                "Foo bar",
+                [
+                    TextSegment(value="Foo"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
+                    TextSegment(value=" bar"),
+                ],
+                id="inline",
+            ),
+            pytest.param(
+                f"A (event_uuid {_UUID_A}) then B (event_uuid {_UUID_B}) then C.",
+                {_UUID_A: 100, _UUID_B: 200},
+                "A then B then C.",
+                [
+                    TextSegment(value="A"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=100),
+                    TextSegment(value=" then B"),
+                    ChipSegment(uuid=_UUID_B, timestamp_ms=200),
+                    TextSegment(value=" then C."),
+                ],
+                id="multiple",
+            ),
+            pytest.param(
+                f"X (event_uuid {_UUID_A}) Y (event_uuid {_UUID_HALLUCINATED}) Z.",
+                {_UUID_A: 50},
+                "X Y Z.",
+                [
+                    TextSegment(value="X"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=50),
+                    TextSegment(value=" Y"),
+                    TextSegment(value=" Z."),
+                ],
+                id="hallucinated_uuid_dropped",
+            ),
+            pytest.param(
+                f"(event_uuid {_UUID_A}) was the cause.",
+                {_UUID_A: 0},
+                " was the cause.",
+                [
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=0),
+                    TextSegment(value=" was the cause."),
+                ],
+                id="citation_at_start",
+            ),
+            pytest.param(
+                f"It ended (event_uuid {_UUID_A})",
+                {_UUID_A: 999},
+                "It ended",
+                [
+                    TextSegment(value="It ended"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=999),
+                ],
+                id="citation_at_end",
+            ),
+            pytest.param(
+                "Nothing to strip.",
+                {_UUID_A: 0},
+                "Nothing to strip.",
+                [TextSegment(value="Nothing to strip.")],
+                id="no_citations",
+            ),
+            pytest.param(
+                f"Saw (event_uuid {_UUID_A.upper()}).",
+                {_UUID_A: 42},
+                "Saw.",
+                [
+                    TextSegment(value="Saw"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=42),
+                    TextSegment(value="."),
+                ],
+                id="uppercase_uuid_normalized",
+            ),
+        ],
+    )
+    def test_extract_segments(
+        self,
+        text: str,
+        event_timestamps: dict[str, int],
+        expected_plain: str,
+        expected_segments: list[Segment],
+    ) -> None:
+        plain, segments = _extract_segments(text, event_timestamps)
+        assert plain == expected_plain
+        assert segments == expected_segments
 
 
 class TestResolveCitations:

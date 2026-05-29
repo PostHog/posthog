@@ -100,9 +100,6 @@ def _resolve_citations(
 
 def _extract_segments(text: str, event_timestamps: dict[str, int]) -> tuple[str, list[Segment]]:
     """Walk `(event_uuid <uuid>)` markers in `text`; drop hallucinated uuids; return (plain text, render-ready text/chip segments)."""
-    # The vast majority of fields have no citations; skip the regex pass entirely on those.
-    if "(event_uuid " not in text:
-        return text, [TextSegment(value=text)] if text else []
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
