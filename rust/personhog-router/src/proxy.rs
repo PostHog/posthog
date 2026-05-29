@@ -151,8 +151,10 @@ impl RawProxyInner {
         let caller_tag = current_caller_tag();
         let start = Instant::now();
 
-        let (mut response, backend) = match method_name {
-            "UpdatePersonProperties" => (self.handle_update_person_properties(req).await, "leader"),
+        let (mut response, backend, channel_call_ms) = match method_name {
+            "UpdatePersonProperties" => {
+                (self.handle_update_person_properties(req).await, "leader", None)
+            }
             "GetPerson" => {
                 let is_strong = req
                     .headers()
@@ -161,12 +163,16 @@ impl RawProxyInner {
                     == Some("strong");
 
                 if is_strong {
-                    (self.handle_get_person_strong(req).await, "leader")
+                    (self.handle_get_person_strong(req).await, "leader", None)
                 } else {
-                    (self.raw_proxy_to_replica(req, method_name).await, "replica")
+                    let (resp, call_ms) = self.raw_proxy_to_replica(req, method_name).await;
+                    (resp, "replica", call_ms)
                 }
             }
-            _ => (self.raw_proxy_to_replica(req, method_name).await, "replica"),
+            _ => {
+                let (resp, call_ms) = self.raw_proxy_to_replica(req, method_name).await;
+                (resp, "replica", call_ms)
+            }
         };
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -189,16 +195,14 @@ impl RawProxyInner {
         .record(duration_ms);
 
         let processing_ms = response
-            .headers()
-            .get(PROCESSING_TIME_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<f64>().ok());
+            .headers_mut()
+            .remove(PROCESSING_TIME_HEADER)
+            .and_then(|v| v.to_str().ok().and_then(|s| s.parse::<f64>().ok()));
 
         let gzip_overhead_ms = response
-            .headers()
-            .get(GZIP_OVERHEAD_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<f64>().ok());
+            .headers_mut()
+            .remove(GZIP_OVERHEAD_HEADER)
+            .and_then(|v| v.to_str().ok().and_then(|s| s.parse::<f64>().ok()));
 
         if let Some(processing_ms) = processing_ms {
             histogram!(
@@ -209,20 +213,16 @@ impl RawProxyInner {
             )
             .record((duration_ms - processing_ms).max(0.0));
 
-            let replica_total_ms = processing_ms + gzip_overhead_ms.unwrap_or(0.0);
-            histogram!(
-                "personhog_router_network_overhead_ms",
-                "method" => method.clone(),
-                "backend" => backend,
-                "client" => client.clone(),
-            )
-            .record((duration_ms - replica_total_ms).max(0.0));
-
-            response.headers_mut().remove(PROCESSING_TIME_HEADER);
-        }
-
-        if gzip_overhead_ms.is_some() {
-            response.headers_mut().remove(GZIP_OVERHEAD_HEADER);
+            if let Some(call_ms) = channel_call_ms {
+                let replica_total_ms = processing_ms + gzip_overhead_ms.unwrap_or(0.0);
+                histogram!(
+                    "personhog_router_network_overhead_ms",
+                    "method" => method.clone(),
+                    "backend" => backend,
+                    "client" => client.clone(),
+                )
+                .record((call_ms - replica_total_ms).max(0.0));
+            }
         }
 
         if is_grpc_error_response(&response) {
@@ -251,13 +251,13 @@ impl RawProxyInner {
         &self,
         req: http::Request<BoxBody>,
         method: &str,
-    ) -> http::Response<BoxBody> {
+    ) -> (http::Response<BoxBody>, Option<f64>) {
         let (parts, body) = req.into_parts();
 
         let collect_start = Instant::now();
         let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
             Ok(b) => b,
-            Err(resp) => return resp,
+            Err(resp) => return (resp, None),
         };
         let client = current_client_name();
         histogram!(
@@ -280,7 +280,7 @@ impl RawProxyInner {
         body_bytes: &Bytes,
         new_path: &str,
         method: &str,
-    ) -> http::Response<BoxBody> {
+    ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
 
         for attempt in 0..=self.retry_config.max_retries {
@@ -302,9 +302,12 @@ impl RawProxyInner {
 
                     let is_last = attempt >= self.retry_config.max_retries;
                     if is_last {
-                        return grpc_error_response(
-                            Code::Unavailable,
-                            &format!("replica channel not ready: {e}"),
+                        return (
+                            grpc_error_response(
+                                Code::Unavailable,
+                                &format!("replica channel not ready: {e}"),
+                            ),
+                            None,
                         );
                     }
 
@@ -345,14 +348,15 @@ impl RawProxyInner {
             let call_start = Instant::now();
             match ready_channel.call(req).await {
                 Ok(response) => {
+                    let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
                     histogram!(
                         "personhog_router_channel_call_ms",
                         "method" => method.to_string(),
                         "client" => client.to_string(),
                         "outcome" => "ok",
                     )
-                    .record(call_start.elapsed().as_secs_f64() * 1000.0);
-                    return response;
+                    .record(channel_call_ms);
+                    return (response, Some(channel_call_ms));
                 }
                 Err(e) => {
                     histogram!(
@@ -365,9 +369,12 @@ impl RawProxyInner {
 
                     let is_last = attempt >= self.retry_config.max_retries;
                     if is_last {
-                        return grpc_error_response(
-                            Code::Unavailable,
-                            &format!("replica backend error: {e}"),
+                        return (
+                            grpc_error_response(
+                                Code::Unavailable,
+                                &format!("replica backend error: {e}"),
+                            ),
+                            None,
                         );
                     }
 

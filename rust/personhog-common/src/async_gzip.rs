@@ -974,54 +974,28 @@ mod tests {
         assert_eq!(trailers.get("grpc-status").unwrap(), "0");
     }
 
+    #[rstest::rstest]
+    #[case::compressed(b"payload that will be compressed by the gzip layer".as_slice(), default_test_config(), Some("gzip"), true)]
+    #[case::passthrough_collected(b"tiny".as_slice(), AsyncGzipConfig { min_payload_size: 1000, ..default_test_config() }, Some("gzip"), true)]
+    #[case::not_accepted(b"no gzip requested".as_slice(), default_test_config(), None, false)]
     #[tokio::test]
-    async fn gzip_overhead_header_set_on_compressed_response() {
-        let payload = b"payload that will be compressed by the gzip layer";
+    async fn gzip_overhead_header_presence(
+        #[case] payload: &[u8],
+        #[case] config: AsyncGzipConfig,
+        #[case] accept_encoding: Option<&str>,
+        #[case] expect_present: bool,
+    ) {
         let service = MockGrpcService::new(payload);
-        let (parts, _data, _trailers) =
-            call_layer(service, default_test_config(), Some("gzip")).await;
+        let (parts, _data, _trailers) = call_layer(service, config, accept_encoding).await;
 
-        let overhead = parts
-            .headers
-            .get(GZIP_OVERHEAD_HEADER)
-            .expect("x-gzip-overhead-ms header should be present")
-            .to_str()
-            .unwrap()
-            .parse::<f64>()
-            .unwrap();
-        assert!(overhead >= 0.0, "overhead should be non-negative");
-    }
-
-    #[tokio::test]
-    async fn gzip_overhead_header_set_on_passthrough_when_collected() {
-        let payload = b"tiny";
-        let service = MockGrpcService::new(payload);
-        let config = AsyncGzipConfig {
-            min_payload_size: 1000,
-            ..default_test_config()
-        };
-        let (parts, _data, _trailers) = call_layer(service, config, Some("gzip")).await;
-
-        let overhead = parts
-            .headers
-            .get(GZIP_OVERHEAD_HEADER)
-            .expect("x-gzip-overhead-ms header should be present on collected passthrough")
-            .to_str()
-            .unwrap()
-            .parse::<f64>()
-            .unwrap();
-        assert!(overhead >= 0.0);
-    }
-
-    #[tokio::test]
-    async fn gzip_overhead_header_absent_when_not_accepted() {
-        let payload = b"no gzip requested";
-        let service = MockGrpcService::new(payload);
-        let (parts, _data, _trailers) = call_layer(service, default_test_config(), None).await;
-
-        assert!(
-            parts.headers.get(GZIP_OVERHEAD_HEADER).is_none(),
-            "header should be absent when gzip was never requested"
-        );
+        match parts.headers.get(GZIP_OVERHEAD_HEADER) {
+            Some(val) if expect_present => {
+                let overhead: f64 = val.to_str().unwrap().parse().unwrap();
+                assert!(overhead >= 0.0, "overhead should be non-negative");
+            }
+            None if !expect_present => {}
+            Some(_) => panic!("header should be absent"),
+            None => panic!("header should be present"),
+        }
     }
 }
