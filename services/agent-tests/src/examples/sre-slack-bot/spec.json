@@ -1,0 +1,52 @@
+{
+    "model": "anthropic/claude-sonnet-4-6",
+    "triggers": [
+        {
+            "type": "webhook",
+            "config": {
+                "path": "/webhook"
+            }
+        },
+        {
+            "type": "slack",
+            "config": {
+                "mention_only": true,
+                "trusted_workspaces": ["T0XXXXXXX"]
+            }
+        },
+        {
+            "type": "chat",
+            "config": {
+                "require_auth": true
+            }
+        }
+    ],
+    "tools": [
+        { "kind": "native", "id": "@posthog/query" },
+        { "kind": "native", "id": "@posthog/web-fetch" },
+        { "kind": "native", "id": "@posthog/slack-post-message" },
+        { "kind": "native", "id": "@posthog/slack-read-channel" },
+        { "kind": "native", "id": "@posthog/slack-read-thread" },
+        { "kind": "native", "id": "@posthog/slack-react" }
+    ],
+    "skills": [
+        {
+            "id": "triage-playbook",
+            "path": "skills/triage-playbook.md",
+            "description": "Structured triage flow — phases for context gathering, hypothesis, and reporting. Load when starting an investigation."
+        },
+        {
+            "id": "slack-thread-protocol",
+            "path": "skills/slack-thread-protocol.md",
+            "description": "Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
+        }
+    ],
+    "integrations": ["slack"],
+    "limits": {
+        "max_turns": 30,
+        "max_tool_calls": 100,
+        "max_wall_seconds": 600
+    },
+    "auth": { "mode": "public" },
+    "reasoning": "high"
+}

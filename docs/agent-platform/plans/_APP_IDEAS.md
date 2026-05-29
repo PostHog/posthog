@@ -66,6 +66,11 @@ plans once we commit):
 
 ## SRE Slack bot — alert investigator
 
+**Status:** infant version built — see
+[`services/agent-tests/src/examples/sre-slack-bot/`](../../../services/agent-tests/src/examples/sre-slack-bot/).
+Regression test at
+[`example-sre-bot.test.ts`](../../../services/agent-tests/src/cases/example-sre-bot.test.ts).
+
 **Description.** Slack-resident agent that PostHog engineers can
 either `@mention` or that auto-triggers when an alerting system
 posts to a designated `#alerts-*` channel. On invocation it pulls
