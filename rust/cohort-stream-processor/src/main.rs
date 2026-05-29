@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use common_database::get_pool_with_config;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use tokio::net::TcpListener;
 use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
@@ -12,8 +13,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_stream_processor::config::Config;
+use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispatcher};
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::observability;
+use cohort_stream_processor::partitions::{OffsetTracker, PartitionRouter};
+use cohort_stream_processor::store::CohortStore;
 
 common_alloc::used!();
 
@@ -36,10 +40,11 @@ async fn async_main(config: Config) -> Result<()> {
     log_startup(&config);
 
     // The lifecycle manager owns signal trapping, graceful-shutdown coordination, and the
-    // readiness/liveness probes. PR 1.3 registers the observability server and the filter
-    // catalog refresh task; the consumers, partition workers, sweep, and checkpoint tasks
-    // (TDD §2.3) are registered here as Phase 1–3 PRs build them out. The generous shutdown
-    // timeout leaves room for the final RocksDB checkpoint flush a stateful worker needs.
+    // readiness/liveness probes. PR 1.3 registered the observability server and the filter
+    // catalog refresh task; PR 1.7 adds the `cohort_stream_events` consumer. The remaining
+    // partition-sweep and checkpoint tasks (TDD §2.3) are registered here as later PRs build
+    // them out. The generous shutdown timeout leaves room for the final RocksDB checkpoint
+    // flush a stateful worker needs.
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
         .build();
@@ -52,6 +57,16 @@ async fn async_main(config: Config) -> Result<()> {
     let catalog_handle_lifecycle = manager.register(
         "filter-catalog",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    // The consumer owns the liveness deadline: a wedged consume loop or a sustained broker outage
+    // (no successful poll within deadline × stall_threshold) trips coordinated shutdown. Its
+    // graceful window covers draining the per-partition worker channels and the final commit.
+    let consumer_handle = manager.register(
+        "consumer",
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(30))
+            .with_liveness_deadline(Duration::from_secs(60))
+            .with_stall_threshold(3),
     );
 
     let readiness = manager.readiness_handler();
@@ -82,6 +97,21 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     }
 
+    // State store + partition routing infrastructure. The `StreamConsumer` subscribes here but does
+    // not fetch until `process()` polls it (after the monitor starts), so building it before the
+    // monitor keeps the "fallible infra fails fast, dropped handles are no-ops" discipline above.
+    let store = CohortStore::open(&config.store_config()).context("opening RocksDB state store")?;
+    let router = PartitionRouter::new(config.partition_channel_buffer);
+    let offset_tracker = OffsetTracker::new();
+
+    let stream_consumer: StreamConsumer = config
+        .consumer_client_config()
+        .create()
+        .context("creating cohort_stream_events consumer")?;
+    stream_consumer
+        .subscribe(&[config.cohort_stream_events_topic.as_str()])
+        .context("subscribing to cohort_stream_events")?;
+
     let guard = manager.monitor_background();
 
     // Filter catalog refresh loop.
@@ -99,6 +129,20 @@ async fn async_main(config: Config) -> Result<()> {
         )
         .await;
     });
+
+    // Consume → route → Stage 1 → commit loop. The dispatcher shares the same atomically-swapped
+    // catalog snapshot the refresh loop maintains (a cheap `Arc` clone).
+    let dispatcher = EventDispatcher::new(router, offset_tracker, store, catalog.clone());
+    let events_consumer = CohortStreamEventsConsumer::new(
+        stream_consumer,
+        config.cohort_stream_events_topic.clone(),
+        dispatcher,
+        consumer_handle,
+        config.recv_batch_size,
+        config.recv_batch_timeout(),
+        config.offset_commit_interval(),
+    );
+    tokio::spawn(events_consumer.process());
 
     // Observability server (runs until graceful shutdown begins).
     let app = observability::health::router(SERVICE_NAME, readiness, liveness, recorder_handle);
@@ -125,6 +169,13 @@ fn log_startup(config: &Config) {
     info!(
         service = SERVICE_NAME,
         bind_address = %config.bind_address(),
+        kafka_hosts = %config.kafka_hosts,
+        input_topic = %config.cohort_stream_events_topic,
+        consumer_group = %config.kafka_consumer_group,
+        offset_reset = %config.kafka_consumer_offset_reset,
+        recv_batch_size = config.recv_batch_size,
+        partition_channel_buffer = config.partition_channel_buffer,
+        store_path = %config.store_path,
         filter_catalog_refresh_secs = config.filter_catalog_refresh_secs,
         filter_catalog_refresh_jitter_secs = config.filter_catalog_refresh_jitter_secs,
         "starting cohort-stream-processor",

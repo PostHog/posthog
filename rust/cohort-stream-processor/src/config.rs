@@ -6,10 +6,14 @@
 //! settings, cascade caps, and kill-switch list are added by their respective Phase 1–3 PRs
 //! (TDD §6) as each subsystem is wired in.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use common_database::PoolConfig;
 use envconfig::Envconfig;
+use rdkafka::ClientConfig;
+
+use crate::store::StoreConfig;
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -60,6 +64,53 @@ pub struct Config {
     /// count. Consumed by PR 1.7 when it constructs the [`crate::partitions::PartitionRouter`].
     #[envconfig(default = "1024")]
     pub partition_channel_buffer: usize,
+
+    // ── Kafka (shared) ─────────────────────────────────────────────────────
+    /// Bootstrap servers, mirroring the shuffler's naming/defaults.
+    #[envconfig(default = "localhost:9092")]
+    pub kafka_hosts: String,
+
+    #[envconfig(default = "false")]
+    pub kafka_tls: bool,
+
+    #[envconfig(default = "")]
+    pub kafka_client_id: String,
+
+    #[envconfig(default = "")]
+    pub kafka_client_rack: String,
+
+    // ── Consumer (input: cohort_stream_events) ─────────────────────────────
+    /// The hot-path input topic. Named specifically (not `input_topic`) so later PRs can add
+    /// sibling topics (`cohort_cascade_events`, `cohort_stream_seed_events`, …) without ambiguity.
+    #[envconfig(default = "cohort_stream_events")]
+    pub cohort_stream_events_topic: String,
+
+    #[envconfig(default = "cohort-stream-processor")]
+    pub kafka_consumer_group: String,
+
+    /// A new consumer group on a high-volume live topic starts at the tail rather than replaying
+    /// the topic's retention; the parity harness (PR 1.9/1.10) defines its window forward from
+    /// processor start. Matches the shuffler.
+    #[envconfig(default = "latest")]
+    pub kafka_consumer_offset_reset: String,
+
+    // ── Batching + commit cadence ──────────────────────────────────────────
+    /// Max events pulled per consume → route cycle.
+    #[envconfig(default = "1000")]
+    pub recv_batch_size: usize,
+
+    /// Max wait before a partial batch is routed (also the idle-topic heartbeat cadence).
+    #[envconfig(default = "500")]
+    pub recv_batch_timeout_ms: u64,
+
+    /// How often processed offsets are committed back to Kafka.
+    #[envconfig(default = "5000")]
+    pub offset_commit_interval_ms: u64,
+
+    // ── State store (RocksDB) ──────────────────────────────────────────────
+    /// On-disk path for the per-process RocksDB state store.
+    #[envconfig(default = "cohort-store")]
+    pub store_path: String,
 }
 
 impl Config {
@@ -92,6 +143,57 @@ impl Config {
             pool_name: Some(POOL_NAME.to_string()),
         }
     }
+
+    pub fn recv_batch_timeout(&self) -> Duration {
+        Duration::from_millis(self.recv_batch_timeout_ms)
+    }
+
+    pub fn offset_commit_interval(&self) -> Duration {
+        Duration::from_millis(self.offset_commit_interval_ms)
+    }
+
+    /// RocksDB settings for the state store. Only the path is configurable today; the cache /
+    /// write-buffer / open-files knobs use [`StoreConfig::default`] pending the §5.1 sizing work.
+    pub fn store_config(&self) -> StoreConfig {
+        StoreConfig {
+            path: PathBuf::from(&self.store_path),
+            ..StoreConfig::default()
+        }
+    }
+
+    /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
+    ///
+    /// Auto-commit and auto-offset-store are **off**: the consume loop marks each partition's
+    /// offset only once its sub-batch is routed, and the commit tick turns the
+    /// [`OffsetTracker`](crate::partitions::OffsetTracker) snapshot into the committed
+    /// `TopicPartitionList`. The session/heartbeat/poll defaults are lifted from
+    /// `kafka-deduplicator`'s `for_batch_consumer`.
+    pub fn consumer_client_config(&self) -> ClientConfig {
+        let mut config = ClientConfig::new();
+        config
+            .set("bootstrap.servers", &self.kafka_hosts)
+            .set("group.id", &self.kafka_consumer_group)
+            .set("enable.auto.commit", "false")
+            .set("enable.auto.offset.store", "false")
+            .set("auto.offset.reset", &self.kafka_consumer_offset_reset)
+            .set("socket.timeout.ms", "10000")
+            .set("session.timeout.ms", "60000")
+            .set("heartbeat.interval.ms", "5000")
+            .set("max.poll.interval.ms", "300000");
+
+        if !self.kafka_client_id.is_empty() {
+            config.set("client.id", &self.kafka_client_id);
+        }
+        if !self.kafka_client_rack.is_empty() {
+            config.set("client.rack", &self.kafka_client_rack);
+        }
+        if self.kafka_tls {
+            config
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        }
+        config
+    }
 }
 
 #[cfg(test)]
@@ -111,6 +213,17 @@ mod tests {
             filter_catalog_refresh_secs: 300,
             filter_catalog_refresh_jitter_secs: 60,
             partition_channel_buffer: 1024,
+            kafka_hosts: "localhost:9092".to_string(),
+            kafka_tls: false,
+            kafka_client_id: String::new(),
+            kafka_client_rack: String::new(),
+            cohort_stream_events_topic: "cohort_stream_events".to_string(),
+            kafka_consumer_group: "cohort-stream-processor".to_string(),
+            kafka_consumer_offset_reset: "latest".to_string(),
+            recv_batch_size: 1000,
+            recv_batch_timeout_ms: 500,
+            offset_commit_interval_ms: 5000,
+            store_path: "cohort-store".to_string(),
         }
     }
 
@@ -138,5 +251,41 @@ mod tests {
     fn pool_config_uses_the_named_pool() {
         let config = test_config();
         assert_eq!(config.pool_config().pool_name.as_deref(), Some(POOL_NAME));
+    }
+
+    #[test]
+    fn consumer_config_disables_auto_commit_and_offset_store() {
+        let config = test_config();
+        let client = config.consumer_client_config();
+        assert_eq!(client.get("enable.auto.commit"), Some("false"));
+        assert_eq!(client.get("enable.auto.offset.store"), Some("false"));
+        assert_eq!(client.get("group.id"), Some("cohort-stream-processor"));
+        assert_eq!(client.get("auto.offset.reset"), Some("latest"));
+        assert_eq!(client.get("bootstrap.servers"), Some("localhost:9092"));
+    }
+
+    #[test]
+    fn consumer_config_sets_tls_keys_only_when_enabled() {
+        let mut config = test_config();
+        assert_eq!(
+            config.consumer_client_config().get("security.protocol"),
+            None
+        );
+
+        config.kafka_tls = true;
+        assert_eq!(
+            config.consumer_client_config().get("security.protocol"),
+            Some("ssl"),
+        );
+    }
+
+    #[test]
+    fn store_config_threads_through_the_configured_path() {
+        let mut config = test_config();
+        config.store_path = "/var/lib/cohort/state".to_string();
+        assert_eq!(
+            config.store_config().path,
+            std::path::PathBuf::from("/var/lib/cohort/state"),
+        );
     }
 }

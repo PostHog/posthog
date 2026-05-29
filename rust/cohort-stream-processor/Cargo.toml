@@ -25,6 +25,12 @@ lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
+# Raw `StreamConsumer` for `cohort_stream_events` (PR 1.7). The consume loop and manual offset
+# commit are driven directly (mirroring `rust/kafka-deduplicator`) rather than through
+# `common-kafka`'s `SingleTopicConsumer`, because the processor's per-partition `OffsetTracker`
+# commits a `TopicPartitionList` the wrapper cannot express. Same workspace version (0.37) as the
+# sibling crates, so `librdkafka` links once.
+rdkafka = { workspace = true }
 # Pinned to match `rust/kafka-deduplicator` so the workspace links a single
 # `librocksdb-sys` version (two would conflict at link time).
 rocksdb = "0.24.0"

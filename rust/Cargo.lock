@@ -2083,6 +2083,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "rand 0.8.5",
+ "rdkafka",
  "rocksdb",
  "serde",
  "serde_json",

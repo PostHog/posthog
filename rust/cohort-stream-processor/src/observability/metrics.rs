@@ -86,6 +86,29 @@ pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
 
+// ── `cohort_stream_events` consumer (PR 1.7) ──────────────────────────────────
+/// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
+pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
+/// Messages whose payload was missing or failed to deserialize into a `CohortStreamEvent`; the
+/// message is skipped and its offset still advances (the shuffler never emits these) (counter).
+pub const COHORT_STREAM_DESERIALIZE_ERRORS: &str = "cohort_stream_deserialize_errors_total";
+/// Kafka transport errors returned by `recv()` while consuming. A sustained non-zero rate
+/// suppresses the liveness heartbeat, so the stall detector eventually restarts the pod (counter).
+pub const COHORT_STREAM_KAFKA_RECV_ERRORS: &str = "cohort_stream_kafka_recv_errors_total";
+/// Offset commits accepted by Kafka (counter).
+pub const COHORT_STREAM_OFFSET_COMMITS: &str = "cohort_stream_offset_commits_total";
+/// Offset commit attempts Kafka rejected; logged and retried on the next tick (counter).
+pub const COHORT_STREAM_OFFSET_COMMIT_ERRORS: &str = "cohort_stream_offset_commit_errors_total";
+/// Stage 1 workers lazily spawned on first delivery of a partition (counter). In single-replica
+/// M1 this rises to the assigned partition count once and then stays flat.
+pub const COHORT_STREAM_WORKERS_SPAWNED: &str = "cohort_stream_workers_spawned_total";
+/// Per-partition routing failures surfaced by the router (no live worker / closed channel); the
+/// partition's offset is held back so Kafka replays it (counter).
+pub const COHORT_STREAM_ROUTE_ERRORS: &str = "cohort_stream_route_errors_total";
+/// Events accumulated per consume → route cycle (histogram). The fill ratio against
+/// `recv_batch_size` shows whether the loop is batch- or timeout-bound.
+pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_size";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics
