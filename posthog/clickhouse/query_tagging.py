@@ -44,6 +44,7 @@ class Product(StrEnum):
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
+    METRICS = "metrics"
     MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
@@ -125,6 +126,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
+    "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -592,6 +594,7 @@ EVENT_TAG_MATCHERS: frozenset[str] = frozenset().union(*(matchers for matchers, 
 _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
     (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"metrics", "metric_attributes"}), {"product": Product.METRICS}),
     (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
 )
 

@@ -87,6 +87,7 @@ depends_on = [
     "products.marketing_analytics",
     "products.mcp_store",
     "products.messaging",
+    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
@@ -372,9 +373,17 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = [
-]
+depends_on = ["posthog"]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.api.*",
+]
+from = [
+    "products.metrics",
+]
 
 [[modules]]
 path = "products.notebooks"

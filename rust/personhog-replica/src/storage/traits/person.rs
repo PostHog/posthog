@@ -18,12 +18,14 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         person_ids: &[i64],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>>;
 
     async fn get_persons_by_uuids(
         &self,
         team_id: i64,
         uuids: &[Uuid],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>>;
 
     // Lookups by distinct ID
@@ -38,11 +40,13 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         distinct_ids: &[String],
+        include_properties: bool,
     ) -> StorageResult<Vec<(String, Option<Person>)>>;
 
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
+        include_properties: bool,
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>>;
 
     // Deletes
