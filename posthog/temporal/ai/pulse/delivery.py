@@ -21,10 +21,10 @@ from posthog.models.pulse import (
     PULSE_ACTIVITY_SCOPE,
     PULSE_ACTIVITY_VERB,
     PULSE_DIGEST_READY_EVENT,
-    PulseChannel,
     PulseDigestStatus,
     PulseFindingFeedback,
 )
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import EnrichedFinding
 
@@ -81,40 +81,39 @@ def _emit_activity_log_entries(
 def _persist_findings_sync(
     digest_id: str, team_id: int, findings: list[EnrichedFinding]
 ) -> list[tuple[str, EnrichedFinding]]:
-    digest = PulseDigest.objects.get(id=digest_id, team_id=team_id)
+    """Persist findings once. Returns (finding_id, finding) pairs. Idempotent:
+    short-circuits if the digest is already DELIVERED or already has findings."""
+    with team_scope(team_id, canonical=True):
+        digest = PulseDigest.objects.get(id=digest_id, team_id=team_id)
 
-    rows = [
-        PulseFinding(
-            digest=digest,
-            metric_descriptor=f.descriptor.model_dump(),
-            metric_label=f.descriptor.label[:255],
-            current_value=f.current_value,
-            baseline_value=f.baseline_value,
-            change_pct=f.change_pct,
-            z_score=f.z_score,
-            attribution_breakdown=f.attribution_breakdown,
-            narrative=f.narrative,
-            feedback=PulseFindingFeedback.PENDING,
-            rank=idx,
-        )
-        for idx, f in enumerate(findings)
-    ]
-    created = PulseFinding.objects.bulk_create(rows)
+        existing = list(PulseFinding.objects.filter(digest_id=digest_id).order_by("rank"))
+        if digest.status == PulseDigestStatus.DELIVERED or existing:
+            return [(str(row.id), f) for row, f in zip(existing, findings)]
 
-    # Always mark in-app as delivered (the bell entry is written below), then add the team's
-    # other configured channels — actual Slack/email routing happens through HogFunction destinations.
-    subscription = PulseSubscription.objects.filter(team_id=team_id).first()
-    delivered_to = {PulseChannel.IN_APP.value: True}
-    if subscription:
-        for channel in subscription.enabled_channels:
-            if channel != PulseChannel.IN_APP.value:
-                delivered_to[channel] = True
+        rows = [
+            PulseFinding(
+                team_id=team_id,  # denormalized from the digest so the row is fail-closed
+                digest=digest,
+                metric_descriptor=f.descriptor.model_dump(),
+                metric_label=f.descriptor.label[:255],
+                current_value=f.current_value,
+                baseline_value=f.baseline_value,
+                change_pct=f.change_pct,
+                impact=f.impact,
+                robust_z=f.robust_z,
+                attribution_breakdown=f.attribution_breakdown,
+                narrative=f.narrative,
+                feedback=PulseFindingFeedback.PENDING,
+                rank=idx,
+            )
+            for idx, f in enumerate(findings)
+        ]
+        created = PulseFinding.objects.bulk_create(rows)
 
-    digest.status = PulseDigestStatus.DELIVERED
-    digest.delivered_to = delivered_to
-    digest.save(update_fields=["status", "delivered_to"])
+        digest.status = PulseDigestStatus.DELIVERED
+        digest.save(update_fields=["status"])
 
-    return [(str(row.id), finding) for row, finding in zip(created, findings)]
+        return [(str(row.id), f) for row, f in zip(created, findings)]
 
 
 def _emit_internal_event(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> None:
@@ -150,26 +149,21 @@ def _emit_internal_event(team_id: int, digest_id: str, findings: list[EnrichedFi
 
 
 def _update_subscription_timestamps_sync(team_id: int) -> None:
-    try:
+    with team_scope(team_id, canonical=True):
         subscription = PulseSubscription.objects.filter(team_id=team_id).first()
         if subscription:
             subscription.last_scan_at = datetime.now(UTC)
             subscription.save(update_fields=["last_scan_at"])
-    except Exception:
-        logger.exception("pulse_subscription_timestamp_update_failed", team_id=team_id)
 
 
 @database_sync_to_async
-def _deliver_sync(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> list[str]:
+def _persist_sync(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> list[str]:
     with transaction.atomic():
         findings_with_ids = _persist_findings_sync(digest_id, team_id, findings)
-        _emit_activity_log_entries(team_id, digest_id, findings_with_ids)
         _update_subscription_timestamps_sync(team_id)
     return [finding_id for finding_id, _ in findings_with_ids]
 
 
-async def deliver_digest(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> list[str]:
-    finding_ids = await _deliver_sync(team_id, digest_id, findings)
-    # Kafka I/O — kept outside the DB transaction.
-    await database_sync_to_async(_emit_internal_event)(team_id, digest_id, findings)
-    return finding_ids
+async def persist_findings(team_id: int, digest_id: str, findings: list[EnrichedFinding]) -> list[str]:
+    """Persist findings and mark the digest DELIVERED. Notification fan-out is a separate step (workstream E)."""
+    return await _persist_sync(team_id, digest_id, findings)

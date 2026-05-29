@@ -1,14 +1,18 @@
 """PulseScanWorkflow — orchestrates proactive insight scans for one team."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import structlog
 from pydantic import BaseModel
 from temporalio import activity, common, workflow
 
+from posthog.models import PulseDigest
+from posthog.models.pulse import PulseDigestStatus, PulseSubscription
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.pulse.delivery import deliver_digest
+from posthog.temporal.ai.pulse import metrics
+from posthog.temporal.ai.pulse.delivery import persist_findings
 from posthog.temporal.ai.pulse.detection import detect_changes
 from posthog.temporal.ai.pulse.narrative import enrich_findings
 from posthog.temporal.ai.pulse.selection import select_candidates
@@ -28,11 +32,45 @@ logger = structlog.get_logger(__name__)
 
 class PulseScanInputs(BaseModel):
     team_id: int
-    digest_id: str | None = None
+    period_key: str
+    period_start: str
+    period_end: str
     max_candidates: int = 50
-    z_threshold: float = 2.0
+    robust_z_threshold: float = 3.5
     min_change_pct: float = 0.25
+    baseline_weeks: int = 4
     max_findings: int = 5
+    user_id: int | None = None
+
+
+class ScanConfig(BaseModel):
+    """Detection config resolved from the team's PulseSubscription (with sensitivity presets applied)."""
+
+    min_change_pct: float
+    robust_z_threshold: float
+    baseline_weeks: int
+    max_findings: int
+
+
+@activity.defn
+async def load_scan_config_activity(team_id: int, defaults: ScanConfig) -> ScanConfig:
+    """Resolve the team's detection config from its PulseSubscription, falling back to defaults."""
+
+    @database_sync_to_async
+    def _load() -> ScanConfig:
+        with team_scope(team_id, canonical=True):
+            subscription = PulseSubscription.objects.filter(team_id=team_id).first()
+        if subscription is None:
+            return defaults
+        min_change_pct, robust_z_threshold = subscription.resolve_sensitivity()
+        return ScanConfig(
+            min_change_pct=min_change_pct,
+            robust_z_threshold=robust_z_threshold,
+            baseline_weeks=subscription.baseline_weeks,
+            max_findings=subscription.max_findings,
+        )
+
+    return await _load()
 
 
 @activity.defn
@@ -45,8 +83,8 @@ async def detect_changes_activity(inputs: DetectChangesInputs) -> list[Finding]:
     return await detect_changes(
         team_id=inputs.team_id,
         candidates=inputs.candidates,
-        z_threshold=inputs.z_threshold,
         min_change_pct=inputs.min_change_pct,
+        robust_z_threshold=inputs.robust_z_threshold,
     )
 
 
@@ -54,14 +92,15 @@ async def detect_changes_activity(inputs: DetectChangesInputs) -> list[Finding]:
 async def enrich_findings_activity(inputs: EnrichFindingsInputs) -> list[EnrichedFinding]:
     return await enrich_findings(
         team_id=inputs.team_id,
+        user_id=inputs.user_id,
         findings=inputs.findings,
         max_findings=inputs.max_findings,
     )
 
 
 @activity.defn
-async def deliver_digest_activity(inputs: DeliverDigestInputs) -> list[str]:
-    return await deliver_digest(
+async def persist_findings_activity(inputs: DeliverDigestInputs) -> list[str]:
+    return await persist_findings(
         team_id=inputs.team_id,
         digest_id=inputs.digest_id,
         findings=inputs.findings,
@@ -69,44 +108,61 @@ async def deliver_digest_activity(inputs: DeliverDigestInputs) -> list[str]:
 
 
 @activity.defn
-async def create_or_get_digest_activity(team_id: int, digest_id: str | None) -> str:
-    """Create a new PulseDigest row for this scan, or reuse the provided one."""
-    from posthog.models import PulseDigest
-    from posthog.models.pulse import PulseDigestStatus
+async def create_or_get_digest_activity(team_id: int, period_key: str, period_start: str, period_end: str) -> str:
+    """Find-or-create one PulseDigest per (team, period). Idempotent across re-runs and retries.
+
+    `period_key` is the deterministic idempotency key (ISO week / date). The digest has no
+    period_key column, so identity is matched on the persisted (period_start, period_end) bounds —
+    deterministically derived from the same period, so they coincide with the key.
+    """
+    start = datetime.fromisoformat(period_start)
+    end = datetime.fromisoformat(period_end)
 
     @database_sync_to_async
     def _create() -> str:
-        if digest_id:
-            existing = PulseDigest.objects.filter(id=digest_id, team_id=team_id).first()
+        with team_scope(team_id, canonical=True):
+            existing = (
+                PulseDigest.objects.filter(team_id=team_id, period_start=start, period_end=end)
+                .order_by("created_at")
+                .first()
+            )
             if existing:
                 return str(existing.id)
-        now = datetime.now(UTC)
-        digest = PulseDigest.objects.create(
-            team_id=team_id,
-            period_start=now - timedelta(days=7),
-            period_end=now,
-            status=PulseDigestStatus.GENERATING,
-        )
-        return str(digest.id)
+            digest = PulseDigest.objects.create(
+                team_id=team_id,
+                period_start=start,
+                period_end=end,
+                status=PulseDigestStatus.GENERATING,
+            )
+            return str(digest.id)
 
     return await _create()
 
 
 @activity.defn
-async def set_digest_status_activity(digest_id: str, status: str, error: str | None = None) -> None:
-    from posthog.models import PulseDigest
-
+async def set_workflow_run_id_activity(team_id: int, digest_id: str, run_id: str) -> None:
     @database_sync_to_async
     def _set() -> None:
-        digest = PulseDigest.objects.filter(id=digest_id).first()
-        if not digest:
-            return
-        digest.status = status
-        update_fields = ["status"]
-        if error is not None:
-            digest.error = {"message": error[:1000]}
-            update_fields.append("error")
-        digest.save(update_fields=update_fields)
+        with team_scope(team_id, canonical=True):
+            PulseDigest.objects.filter(id=digest_id, team_id=team_id).update(workflow_run_id=run_id)
+
+    await _set()
+
+
+@activity.defn
+async def set_digest_status_activity(team_id: int, digest_id: str, status: str, error: str | None = None) -> None:
+    @database_sync_to_async
+    def _set() -> None:
+        with team_scope(team_id, canonical=True):
+            digest = PulseDigest.objects.filter(id=digest_id, team_id=team_id).first()
+            if not digest:
+                return
+            digest.status = status
+            update_fields = ["status"]
+            if error is not None:
+                digest.error = {"message": error[:1000]}
+                update_fields.append("error")
+            digest.save(update_fields=update_fields)
 
     await _set()
 
@@ -120,8 +176,6 @@ class PulseScanWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PulseScanInputs) -> dict:
-        from posthog.models.pulse import PulseDigestStatus
-
         retry_policy = common.RetryPolicy(
             initial_interval=timedelta(seconds=10),
             maximum_attempts=2,
@@ -129,7 +183,29 @@ class PulseScanWorkflow(PostHogWorkflow):
 
         digest_id = await workflow.execute_activity(
             create_or_get_digest_activity,
-            args=[inputs.team_id, inputs.digest_id],
+            args=[inputs.team_id, inputs.period_key, inputs.period_start, inputs.period_end],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
+
+        await workflow.execute_activity(
+            set_workflow_run_id_activity,
+            args=[inputs.team_id, digest_id, workflow.info().run_id],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
+
+        config = await workflow.execute_activity(
+            load_scan_config_activity,
+            args=[
+                inputs.team_id,
+                ScanConfig(
+                    min_change_pct=inputs.min_change_pct,
+                    robust_z_threshold=inputs.robust_z_threshold,
+                    baseline_weeks=inputs.baseline_weeks,
+                    max_findings=inputs.max_findings,
+                ),
+            ],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=retry_policy,
         )
@@ -150,8 +226,8 @@ class PulseScanWorkflow(PostHogWorkflow):
                 DetectChangesInputs(
                     team_id=inputs.team_id,
                     candidates=candidates,
-                    z_threshold=inputs.z_threshold,
-                    min_change_pct=inputs.min_change_pct,
+                    robust_z_threshold=config.robust_z_threshold,
+                    min_change_pct=config.min_change_pct,
                 ),
                 start_to_close_timeout=timedelta(minutes=15),
                 heartbeat_timeout=timedelta(minutes=2),
@@ -161,18 +237,21 @@ class PulseScanWorkflow(PostHogWorkflow):
             if not findings:
                 await workflow.execute_activity(
                     set_digest_status_activity,
-                    args=[digest_id, PulseDigestStatus.DELIVERED.value],
+                    args=[inputs.team_id, digest_id, PulseDigestStatus.DELIVERED.value],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=retry_policy,
                 )
+                metrics.increment_scan_outcome("delivered")
+                metrics.record_finding_count(0)
                 return {"digest_id": digest_id, "finding_count": 0}
 
             enriched = await workflow.execute_activity(
                 enrich_findings_activity,
                 EnrichFindingsInputs(
                     team_id=inputs.team_id,
+                    user_id=inputs.user_id,
                     findings=findings,
-                    max_findings=inputs.max_findings,
+                    max_findings=config.max_findings,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
                 heartbeat_timeout=timedelta(minutes=2),
@@ -180,7 +259,7 @@ class PulseScanWorkflow(PostHogWorkflow):
             )
 
             await workflow.execute_activity(
-                deliver_digest_activity,
+                persist_findings_activity,
                 DeliverDigestInputs(
                     team_id=inputs.team_id,
                     digest_id=digest_id,
@@ -190,12 +269,15 @@ class PulseScanWorkflow(PostHogWorkflow):
                 retry_policy=retry_policy,
             )
 
+            metrics.increment_scan_outcome("delivered")
+            metrics.record_finding_count(len(enriched))
             return {"digest_id": digest_id, "finding_count": len(enriched)}
         except Exception as exc:
             await workflow.execute_activity(
                 set_digest_status_activity,
-                args=[digest_id, PulseDigestStatus.FAILED.value, str(exc)],
+                args=[inputs.team_id, digest_id, PulseDigestStatus.FAILED.value, str(exc)],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
+            metrics.increment_scan_outcome("failed")
             raise
