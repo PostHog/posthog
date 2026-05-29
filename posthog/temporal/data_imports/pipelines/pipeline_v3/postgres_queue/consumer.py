@@ -216,9 +216,9 @@ class BatchConsumer:
         # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
         bound_keys = (
             "team_id",
-            "schema_id",
-            "source_id",
-            "job_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
             "run_uuid",
             "batch_id",
             "resource_name",
@@ -230,9 +230,9 @@ class BatchConsumer:
         )
         structlog.contextvars.bind_contextvars(
             team_id=batch.team_id,
-            schema_id=batch.schema_id,
-            source_id=batch.source_id,
-            job_id=batch.job_id,
+            external_data_schema_id=batch.schema_id,
+            external_data_source_id=batch.source_id,
+            external_data_job_id=batch.job_id,
             run_uuid=batch.run_uuid,
             batch_id=batch.id,
             resource_name=batch.resource_name,
@@ -389,9 +389,9 @@ class BatchConsumer:
 
         recovery_bound_keys = (
             "team_id",
-            "schema_id",
-            "source_id",
-            "job_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
             "run_uuid",
             "batch_id",
             "resource_name",
@@ -403,9 +403,9 @@ class BatchConsumer:
             # (pre-increment in _process_single), so no +1 needed here.
             structlog.contextvars.bind_contextvars(
                 team_id=batch.team_id,
-                schema_id=batch.schema_id,
-                source_id=batch.source_id,
-                job_id=batch.job_id,
+                external_data_schema_id=batch.schema_id,
+                external_data_source_id=batch.source_id,
+                external_data_job_id=batch.job_id,
                 run_uuid=batch.run_uuid,
                 batch_id=batch.id,
                 resource_name=batch.resource_name,
