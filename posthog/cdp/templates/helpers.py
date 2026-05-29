@@ -6,13 +6,12 @@ from typing import Any, Optional, cast
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-import STPyV8
-
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.validation import compile_hog
-from posthog.models import HogFunction
 from posthog.models.utils import uuid7
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
@@ -160,7 +159,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
         # Mock the plugin server status endpoint to avoid connection errors
         # Patch where it's used (in hog_function.py) not where it's defined
-        self.mock_get_status = patch("posthog.models.hog_functions.hog_function.get_hog_function_status").start()
+        self.mock_get_status = patch(
+            "products.cdp.backend.models.hog_functions.hog_function.get_hog_function_status"
+        ).start()
         self.mock_get_status.return_value = MagicMock(status_code=200, json=lambda: {"state": "idle", "tokens": 0})
         self.addCleanup(self.mock_get_status.stop)
 
@@ -242,6 +243,8 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
             processEvent(globals, posthog);;
             """
+
+        import STPyV8
 
         with STPyV8.JSContext() as ctxt:
             ctxt.eval(js)

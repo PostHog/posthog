@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -10,12 +10,21 @@ from django.utils import timezone
 
 from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
+from posthog.schema import SubscriptionFreeTierLimit
+
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
+
+# Single source of truth shared with the frontend create gate via generated schema (SubscriptionFreeTierLimit.COUNT).
+SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int = SubscriptionFreeTierLimit.model_fields["root"].default
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
@@ -199,6 +208,23 @@ class Subscription(models.Model):
         if "frequency" not in merged or "start_date" not in merged:
             return None  # DRF field validation should reject before we get here.
         return cls._compute_next_delivery_date(**merged)
+
+    @classmethod
+    def check_subscription_limit(cls, team_id: int, organization: "Organization") -> str | None:
+        """Return an error message if the team has reached its subscription limit, else None."""
+        feature = organization.get_available_feature(AvailableFeature.SUBSCRIPTIONS)
+        # Soft-deleted subscriptions free their slot.
+        existing_count = cls.objects.filter(team_id=team_id, deleted=False).count()
+
+        if feature:
+            allowed = feature.get("limit")
+            # A None limit means unlimited (paid plans without a numeric cap).
+            if allowed is not None and existing_count >= allowed:
+                return f"Your team has reached the limit of {allowed} subscriptions on your plan."
+        elif existing_count >= SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER:
+            return f"Your plan is limited to {SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER} subscriptions."
+
+        return None
 
     @property
     def url(self):

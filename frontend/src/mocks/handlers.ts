@@ -15,7 +15,7 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
+import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
 
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
@@ -25,7 +25,7 @@ import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
-import * as incidentIoStatusPageAllOK from './fixtures/_incident_io_status_page_all_ok.json'
+import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = {
@@ -217,7 +217,7 @@ export const defaultMocks: Mocks = {
 
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
-        [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageAllOK,
+        [`${STATUS_PAGE_BASE}/api/v1/summary`]: statusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,

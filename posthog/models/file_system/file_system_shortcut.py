@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models.expressions import F
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.models.team import Team
@@ -25,6 +26,7 @@ class FileSystemShortcut(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["team", "user"]),
+            models.Index(F("team_id"), F("user_id"), F("order"), Lower("path"), name="posthog_fss_t_u_ordpathlc"),
             models.Index(F("team_id"), F("path"), name="posthog_fs_s_team_path"),
             models.Index(F("team_id"), F("type"), F("ref"), name="posthog_fs_s_team_typeref"),
         ]

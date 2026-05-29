@@ -301,6 +301,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryIpAddressesDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
@@ -329,6 +330,12 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
     hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
+    ip_addresses: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryIpAddressesDefault)
+        .describe(
+            'Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.'
+        ),
     is_system: zod.boolean().nullish().describe('When set, filters rows authored by the system (no user).'),
     item_ids: zod
         .array(zod.string())

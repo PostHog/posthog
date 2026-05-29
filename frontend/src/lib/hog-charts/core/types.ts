@@ -100,6 +100,9 @@ export interface PointClickData<Meta = unknown> {
     label: string
     /** Values from all visible series at this x-axis index, for cross-series comparisons. */
     crossSeriesData: { series: Series<Meta>; value: number }[]
+    /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
+     *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
+    cursor: { x: number; y: number } | null
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -218,8 +221,16 @@ export interface BarChartConfig extends ChartConfig {
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while
      *  gridlines still span the full width — useful for few-category funnel-style charts. */
     maxBandRange?: number
+    /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half
+     *  this value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+    bandPadding?: number
     /** Drop shadow under each bar so it reads as layered over a `barTrack`. */
     barShadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush
+     *  into an unreadable strip, the chart expands its container height so each row has at
+     *  least this much vertical space (label height + breathing room). Defaults to `24`.
+     *  Pass `0` to opt out. */
+    minBandSize?: number
 }
 
 export interface LineChartConfig extends ChartConfig {

@@ -4,18 +4,32 @@ import type { BarScaleSet, StackedBand } from '../../../core/scales'
 import type { Series } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 
+export type BarLayout = 'stacked' | 'grouped' | 'percent'
+
+export function isStackedLayout(layout: BarLayout): boolean {
+    return layout !== 'grouped'
+}
+
 /** Grouped-layout hit-test that ignores the value axis so a cursor above (or below) a bar still
  *  selects the bar whose band-slot it lines up with. Matches chart.js's `mode: 'point', axis: 'x'`
  *  behaviour — without this, hovering above a short bar in a grouped pair would fail every
- *  per-bar check, fall back to "highlight all", and visually flag both group-mates at once. */
+ *  per-bar check, fall back to "highlight all", and visually flag both group-mates at once.
+ *  Half-open on the trailing edge — matches d3 band-scale slots `[start, start + size)`. */
 export function barContainsPointOnBandAxis(
     bar: BarRect,
     point: { x: number; y: number },
     isHorizontal: boolean
 ): boolean {
     return isHorizontal
-        ? point.y >= bar.y && point.y <= bar.y + bar.height
-        : point.x >= bar.x && point.x <= bar.x + bar.width
+        ? point.y >= bar.y && point.y < bar.y + bar.height
+        : point.x >= bar.x && point.x < bar.x + bar.width
+}
+
+/** Full-rect (both axes) hit-test. Stacked segments share a band slot; the value axis is
+ *  what distinguishes them. Half-open on the trailing edge — matches d3 band-scale slots
+ *  `[start, start + size)`. */
+export function barContainsPoint(bar: BarRect, point: { x: number; y: number }): boolean {
+    return point.x >= bar.x && point.x < bar.x + bar.width && point.y >= bar.y && point.y < bar.y + bar.height
 }
 
 /** True when the cursor is in the bar's band slot but outside its filled value extent —
@@ -32,22 +46,29 @@ export function cursorOutsideBarFillExtent(
         : point.y < bar.y || point.y > bar.y + bar.height
 }
 
-export interface SeriesKeysAtCursorArgs {
+export interface BarsAtCursorArgs {
     series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>[]
     label: string
     dataIndex: number
-    cursor: { x: number; y: number }
     scales: BarScaleSet
-    layout: 'stacked' | 'grouped' | 'percent'
+    layout: BarLayout
     isHorizontal: boolean
     stackedData?: Map<string, StackedBand>
     topStackedKeyByAxis: Map<string, string>
 }
 
-/** Shared by drawHover and the tooltip wrapper so they can't drift. */
-export function seriesKeysAtCursor(args: SeriesKeysAtCursorArgs): Set<string> {
-    const { series, label, dataIndex, cursor, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
-    const hits = new Set<string>()
+export interface BarAtCursor<S> {
+    series: S
+    bar: BarRect
+}
+
+/** Yields the renderable `{ series, bar }` for every visible series at `(label, dataIndex)`.
+ *  Single source of truth shared by drawHover, tooltip narrowing, and click routing —
+ *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. */
+export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
+    args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
+): Generator<BarAtCursor<S>> {
+    const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -56,7 +77,7 @@ export function seriesKeysAtCursor(args: SeriesKeysAtCursorArgs): Set<string> {
         const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
         const isTopOfStack = topStackedKeyByAxis.get(axisId) === s.key
         const bar = computeBarAtIndex({
-            series: s as Series,
+            series: s as unknown as Series,
             label,
             dataIndex,
             scales,
@@ -65,9 +86,73 @@ export function seriesKeysAtCursor(args: SeriesKeysAtCursorArgs): Set<string> {
             stackedBand,
             isTopOfStack,
         })
-        if (bar && barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
-            hits.add(s.key)
+        if (bar) {
+            yield { series: s, bar }
         }
     }
-    return hits
+}
+
+export interface ResolveBarsAtCursorResult {
+    /** Series keys whose bar slot contains the cursor on the band axis (every stacked segment). */
+    hits: Set<string>
+    /** Series key whose full rect contains the cursor, or `null`. Used to single out a
+     *  stacked segment for tooltip ordering and click routing. */
+    strictHit: string | null
+}
+
+/** Single pass that does both band-axis containment (used by stacked tooltips to list every
+ *  segment sharing the slot) and full-rect containment (the one segment under the cursor). */
+export function resolveBarsAtCursor(
+    args: BarsAtCursorArgs & { cursor: { x: number; y: number } }
+): ResolveBarsAtCursorResult {
+    const { cursor, isHorizontal } = args
+    const hits = new Set<string>()
+    let strictHit: string | null = null
+    for (const { series: s, bar } of iterBarsAtCursor(args)) {
+        if (barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
+            hits.add(s.key)
+        }
+        if (strictHit == null && barContainsPoint(bar, cursor)) {
+            strictHit = s.key
+        }
+    }
+    return { hits, strictHit }
+}
+
+/** Visible stacked segment under the cursor — last-drawn bar whose rect contains it.
+ *  Also returns the next-smaller extent (the far edge of the bar that overdraws this
+ *  segment's near side); callers clip the highlight rect there so hover preserves z-order. */
+export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
+    args: Omit<BarsAtCursorArgs, 'series' | 'label' | 'dataIndex'> & {
+        series: readonly S[]
+        labels: readonly string[]
+        hoveredLabel: string
+        cursor: { x: number; y: number }
+    }
+): { series: S; bar: BarRect; dataIndex: number; nextSmallerExtent: number } | null {
+    const { labels, hoveredLabel, cursor, isHorizontal } = args
+    let visible: { series: S; bar: BarRect; dataIndex: number; extent: number } | null = null
+    const allExtents: number[] = []
+    for (let dataIndex = 0; dataIndex < labels.length; dataIndex++) {
+        if (labels[dataIndex] !== hoveredLabel) {
+            continue
+        }
+        for (const { series: s, bar } of iterBarsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
+            const extent = isHorizontal ? bar.width : bar.height
+            if (extent <= 0) {
+                continue
+            }
+            allExtents.push(extent)
+            if (!barContainsPoint(bar, cursor)) {
+                continue
+            }
+            // Overwrite so the last-drawn (smallest, painted on top) candidate wins.
+            visible = { series: s, bar, dataIndex, extent }
+        }
+    }
+    if (!visible) {
+        return null
+    }
+    const nextSmallerExtent = allExtents.reduce((max, ext) => (ext < visible!.extent && ext > max ? ext : max), 0)
+    return { series: visible.series, bar: visible.bar, dataIndex: visible.dataIndex, nextSmallerExtent }
 }
