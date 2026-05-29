@@ -6,6 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("error_tracking", "0003_schema_addons"),
         ("error_tracking", "0008_spike_detection_config"),
     ]
 

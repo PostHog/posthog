@@ -1,1 +1,1 @@
-0001_squashed_initial
+0003_schema_addons

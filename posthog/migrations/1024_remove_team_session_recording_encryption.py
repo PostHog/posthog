@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0002_finalize_fks"),
+        ("posthog", "0003_schema_addons"),
         ("posthog", "1023_dashboardtile_show_description"),
     ]
 

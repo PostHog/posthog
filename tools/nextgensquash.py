@@ -18,6 +18,7 @@ description of the tree that would result.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import argparse
 import subprocess
@@ -483,6 +484,7 @@ class SquashFile:
     operations: list[Any]
     dependencies: list[tuple[str, str]]
     replaces: list[tuple[str, str]]
+    atomic: bool = True
 
 
 @dataclass(frozen=True)
@@ -704,6 +706,21 @@ class Emitter:
     STUB_NAME = "0000_squashed_stub"
     INITIAL_NAME = "0001_squashed_initial"
     FINALIZE_NAME = "0002_finalize_fks"
+    SCHEMA_ADDONS_NAME = "0003_schema_addons"
+
+    # RunSQL ops in claimed migrations sometimes create indexes that aren't
+    # declared in `Meta.indexes` (partial WHERE clauses, GIN with custom
+    # opclasses, UNIQUE CONCURRENTLY). Our `CreateModel(options=...)` only
+    # carries Meta.indexes, so these get dropped on the floor. Phase A forwards
+    # the surviving RunSQL CREATE INDEX ops into a follow-up squash migration.
+    _CREATE_INDEX_RE = re.compile(
+        r'CREATE\s+(?:UNIQUE\s+)?INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?\s+"?([a-zA-Z0-9_]+)"?\s+ON\s+(?:public\.)?"?([a-zA-Z0-9_]+)"?',
+        re.IGNORECASE,
+    )
+    _DROP_INDEX_RE = re.compile(
+        r'DROP\s+INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+EXISTS)?\s+"?([a-zA-Z0-9_]+)"?',
+        re.IGNORECASE,
+    )
 
     # Standalone (no FK in/out) models that must be created in the stub so they
     # exist before any other migration runs. Mostly to dodge races against work
@@ -795,8 +812,6 @@ class Emitter:
         .expressions. Match style for the Q repr is `'<field>'` or
         `'<field>__lookup'`.
         """
-        import re
-
         fields = getattr(thing, "fields", None)
         if fields:
             for f in fields:
@@ -949,6 +964,145 @@ class Emitter:
                             out.append(op)
         return out
 
+    @staticmethod
+    def _runsql_text(op: Any) -> str:
+        sql = op.sql
+        if isinstance(sql, str):
+            return sql
+        if isinstance(sql, (list, tuple)):
+            parts: list[str] = []
+            for s in sql:
+                if isinstance(s, str):
+                    parts.append(s)
+                elif isinstance(s, (list, tuple)) and s and isinstance(s[0], str):
+                    parts.append(s[0])
+                else:
+                    parts.append(str(s))
+            return " ".join(parts)
+        return str(sql)
+
+    def _final_state_index_names(self) -> set[str]:
+        """Names already produced by final-state CreateModel — index/constraint
+        objects in Meta. UniqueConstraints become unique indexes too, so a RunSQL
+        re-creating one would fail with `relation already exists`.
+        """
+        out: set[str] = set()
+        for ms in self._models_in_app():
+            for collection in ("indexes", "constraints"):
+                for thing in ms.options.get(collection) or []:
+                    name = getattr(thing, "name", None)
+                    if isinstance(name, str):
+                        out.add(name)
+        return out
+
+    @staticmethod
+    def _managed_table_names() -> set[str]:
+        """DB table names for every model in INSTALLED_APPS that Django manages.
+        Tables for `managed=False` models (posthog_person, posthog_group, etc.
+        owned by personhog) are excluded — CREATE INDEX ops targeting them must
+        be dropped from the squash output.
+        """
+        from django.apps import apps as dj_apps
+
+        names: set[str] = set()
+        for model in dj_apps.get_models():
+            if not model._meta.managed:
+                continue
+            names.add(model._meta.db_table.lower())
+        return names
+
+    @staticmethod
+    def _ensure_idempotent_create_index(sql: str) -> str:
+        """Rewrite `CREATE INDEX ... ` to `CREATE INDEX IF NOT EXISTS ...` so
+        forwarded RunSQL is safe when Django's own CreateModel already produced
+        the same index (e.g. auto-named FK indexes, UniqueConstraints).
+        """
+
+        def fix(match: re.Match) -> str:
+            head, ws, name_lead = match.group(1), match.group(2), match.group(3)
+            if re.search(r"\bIF\s+NOT\s+EXISTS\b", head, re.IGNORECASE):
+                return match.group(0)
+            return f"{head} IF NOT EXISTS{ws}{name_lead}"
+
+        return re.sub(
+            r"(CREATE\s+(?:UNIQUE\s+)?INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+NOT\s+EXISTS)?)(\s+)(\"?[a-zA-Z_])",
+            fix,
+            sql,
+            flags=re.IGNORECASE,
+        )
+
+    def _collect_index_runsql_ops(self) -> list[Any]:
+        """Return RunSQL ops from claimed migrations that CREATE indexes the
+        final-state Meta doesn't already produce. Apply Create/Drop pair
+        cancellation. Extension creates are excluded (handled by the stub).
+        Forwarded SQL is rewritten to `CREATE INDEX IF NOT EXISTS` so it
+        co-exists with Django's automatic FK indexes.
+        """
+        meta_index_names = self._final_state_index_names()
+        managed_tables = self._managed_table_names()
+        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+        claimed_keys = {r.key for r in [migr.ref for migr in self.squasher.old.values() if migr.ref.app == self.app]}
+
+        kept: list[Any | None] = []
+        create_position: dict[str, int] = {}
+
+        def walk(ops: list[Any]) -> None:
+            for op in ops:
+                kind = op.__class__.__name__
+                if kind == "RunSQL":
+                    sql_text = self._runsql_text(op)
+                    if "CREATE EXTENSION" in sql_text.upper():
+                        continue  # handled by stub
+                    drop_match = self._DROP_INDEX_RE.search(sql_text)
+                    if drop_match:
+                        idx_name = drop_match.group(1)
+                        prior = create_position.pop(idx_name, None)
+                        if prior is not None:
+                            kept[prior] = None  # cancel the earlier add
+                        continue
+                    create_match = self._CREATE_INDEX_RE.search(sql_text)
+                    if not create_match:
+                        continue
+                    idx_name, table_name = create_match.group(1), create_match.group(2).lower()
+                    if idx_name in meta_index_names:
+                        continue  # CreateModel(options=...) already covers it
+                    if table_name not in managed_tables:
+                        continue  # target table isn't created by our squash (managed=False)
+                    # Wrap CREATE INDEX with IF NOT EXISTS so it's safe to run
+                    # after a CreateModel that may have auto-created an FK index
+                    # with the same name.
+                    sql_safe = self._ensure_idempotent_create_index(sql_text)
+                    safe_op = dj_migrations.RunSQL(
+                        sql=sql_safe,
+                        reverse_sql=op.reverse_sql,
+                        hints=op.hints,
+                    )
+                    kept.append(safe_op)
+                    create_position[idx_name] = len(kept) - 1
+                elif kind == "SeparateDatabaseAndState":
+                    walk(list(op.database_operations))
+
+        for (app, name), m in sorted(loader.graph.nodes.items()):
+            if app != self.app or (app, name) not in claimed_keys:
+                continue
+            walk(list(m.operations))
+
+        return [op for op in kept if op is not None]
+
+    def _schema_addons_deps(self, prior_squash: str) -> list[tuple[str, str]]:
+        """Deps for 0003_schema_addons: this app's prior squash (initial or
+        finalize) plus every other claimed app's initial — old RunSQL CREATE
+        INDEX often targets tables now owned by a different app (model moves),
+        so we depend on all of them to guarantee the table exists when the
+        index is created.
+        """
+        deps: set[tuple[str, str]] = {(self.app, prior_squash)}
+        for app in {m.ref.app for m in self.squasher.old.values()}:
+            if app == self.app:
+                continue
+            deps.add((app, self.INITIAL_NAME))
+        return sorted(deps)
+
     def first_young_in_app(self) -> str | None:
         names = sorted(m.ref.name for m in self.squasher.young.values() if m.ref.app == self.app)
         return names[0] if names else None
@@ -1016,9 +1170,24 @@ class Emitter:
             replaces=self._replaces(),
         )
 
+        # RunSQL-created indexes from claimed migrations (Phase A). Emitted as
+        # a separate trailing 0003_schema_addons file — it can exist with or
+        # without a 0002_finalize_fks.
+        index_runsql_ops = self._collect_index_runsql_ops()
+
         deferred_fks = self.cycle_breaker.deferred_for_app(self.app)
         if not deferred_fks and not deferred_indexes and not deferred_constraints:
-            return [stub, initial]
+            if not index_runsql_ops:
+                return [stub, initial]
+            addons = SquashFile(
+                app=self.app,
+                name=self.SCHEMA_ADDONS_NAME,
+                operations=index_runsql_ops,
+                dependencies=self._schema_addons_deps(prior_squash=self.INITIAL_NAME),
+                replaces=[],
+                atomic=False,  # CREATE INDEX CONCURRENTLY can't run inside a transaction
+            )
+            return [stub, initial, addons]
 
         # Build a model_name -> ModelState map to look up each field's Field instance.
         models_by_name = {ms.name.lower(): ms for ms in self._models_in_app()}
@@ -1060,7 +1229,17 @@ class Emitter:
             dependencies=finalize_deps,
             replaces=[],
         )
-        return [stub, initial, finalize]
+        if not index_runsql_ops:
+            return [stub, initial, finalize]
+        addons = SquashFile(
+            app=self.app,
+            name=self.SCHEMA_ADDONS_NAME,
+            operations=index_runsql_ops,
+            dependencies=self._schema_addons_deps(prior_squash=self.FINALIZE_NAME),
+            replaces=[],
+            atomic=False,
+        )
+        return [stub, initial, finalize, addons]
 
 
 class FileWriter:
@@ -1083,7 +1262,11 @@ class FileWriter:
         writer = MigrationWriter(GeneratedMigration(sq.name, sq.app))
         path = self.output_dir / sq.app / "migrations" / f"{sq.name}.py"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(writer.as_string())
+        text = writer.as_string()
+        if not sq.atomic:
+            # MigrationWriter doesn't emit `atomic` even when False — inject it.
+            text = text.replace("    initial = True\n", "    initial = True\n    atomic = False\n", 1)
+        path.write_text(text)
         return path
 
 
@@ -1157,8 +1340,14 @@ def _run_emit(args: argparse.Namespace) -> None:
             )
         # Manifest entries
         finalize = next((sq for sq in squashes if sq.name == Emitter.FINALIZE_NAME), None)
+        addons = next((sq for sq in squashes if sq.name == Emitter.SCHEMA_ADDONS_NAME), None)
         retire_manifest["initials"][app] = Emitter.INITIAL_NAME
-        retire_manifest["leaves"][app] = Emitter.FINALIZE_NAME if finalize is not None else Emitter.INITIAL_NAME
+        if addons is not None:
+            retire_manifest["leaves"][app] = Emitter.SCHEMA_ADDONS_NAME
+        elif finalize is not None:
+            retire_manifest["leaves"][app] = Emitter.FINALIZE_NAME
+        else:
+            retire_manifest["leaves"][app] = Emitter.INITIAL_NAME
         for replaced_app, replaced_name in initial.replaces:
             retire_manifest["replaced"][f"{replaced_app}/{replaced_name}"] = replaced_app
     # Save cycle-break edge-removal list as a sidecar for `install` to act on.
@@ -1167,13 +1356,16 @@ def _run_emit(args: argparse.Namespace) -> None:
         edges_file.write_text("\n".join(f"{fa}/{fn} -> {ta}/{tn}" for (fa, fn, ta, tn) in cycle_edges) + "\n")
         sys.stderr.write(f"\nwrote cycle-break edge-removal list to {edges_file}\n")
 
-    # Save the (app, first_young, finalize_fks_name) entries that need a dep
-    # added so finalize_fks runs before any young migration in the same app.
+    # Save (app, first_young) entries that need a dep added so the latest
+    # squash in the app (finalize_fks and/or schema_addons) runs before any
+    # young migration in the same app. The install step looks up the actual
+    # leaf via the manifest, so we don't store the squash name here.
     first_young_edits: list[tuple[str, str]] = []
     for app in apps:
+        leaf = retire_manifest["leaves"].get(app)
+        if leaf in (None, Emitter.INITIAL_NAME):
+            continue  # plain initial chains in via replaces redirect already
         emitter = Emitter(state, squasher, app, cycle_breaker)
-        if not emitter.cycle_breaker.deferred_for_app(app):
-            continue
         first_young = emitter.first_young_in_app()
         if first_young:
             first_young_edits.append((app, first_young))
@@ -1229,6 +1421,15 @@ def _run_install(args: argparse.Namespace) -> None:
                 a, n = s.split("/", 1)
                 first_young_adds.append((a, n))
 
+    # Read retire manifest to know each app's leaf squash (could be finalize_fks
+    # or schema_addons or just initial).
+    manifest_path = output_dir / "RETIRE_MANIFEST.json"
+    app_leaves: dict[str, str] = {}
+    if manifest_path.exists():
+        import json as _json
+
+        app_leaves = _json.loads(manifest_path.read_text()).get("leaves", {}) or {}
+
     apps_processed: list[tuple[str, Path, list[Path]]] = []
     for app_dir in output_dir.iterdir() if output_dir.is_dir() else []:
         if not (app_dir / "migrations").is_dir():
@@ -1252,14 +1453,16 @@ def _run_install(args: argparse.Namespace) -> None:
         for edited in _strip_cycle_edges_from_migrations(app_edges, target_dir):
             if edited not in deleted:
                 deleted.append(edited)
-        # Add `(app, 0002_finalize_fks)` dep to first-young so the chain runs
-        # finalize before any young migration that uses deferred FKs.
-        for a, young_name in first_young_adds:
-            if a != app:
-                continue
-            edited = _add_dependency_to_migration(target_dir / f"{young_name}.py", (app, Emitter.FINALIZE_NAME))
-            if edited is not None and edited not in deleted:
-                deleted.append(edited)
+        # Add dep on the app's leaf squash to first-young so finalize_fks /
+        # schema_addons run before any young migration that needs them.
+        leaf_name = app_leaves.get(app)
+        if leaf_name and leaf_name != Emitter.INITIAL_NAME:
+            for a, young_name in first_young_adds:
+                if a != app:
+                    continue
+                edited = _add_dependency_to_migration(target_dir / f"{young_name}.py", (app, leaf_name))
+                if edited is not None and edited not in deleted:
+                    deleted.append(edited)
 
     leaves = _compute_all_app_graph_leaves([app for app, _, _ in apps_processed])
     for app, target_dir, squash_paths in apps_processed:
@@ -1376,8 +1579,6 @@ def _rewrite_deps_in_file(
 
 def _empty_replaces_in_squash(path: Path) -> bool:
     """Replace the `replaces = [...]` literal with `replaces = []` in a squash file."""
-    import re
-
     src = path.read_text()
     new = re.sub(r"replaces\s*=\s*\[[^\]]*\]", "replaces = []", src, count=1, flags=re.S)
     if new == src:
