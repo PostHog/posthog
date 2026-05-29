@@ -75,6 +75,12 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
 
             field_type = field.__class__.__name__
             if field_type in ["AutoField", "BigAutoField"]:
+                # Squashed migrations re-emit CreateModel for models that
+                # already exist with their historical integer PK. The policy
+                # is about *new* models, not pre-existing ones being squashed
+                # forward — skip if the model is already in the registry.
+                if self._model_exists_in_apps(op.name):
+                    return []
                 return [
                     f"Model '{op.name}' uses integer ID ({field_type}). "
                     "PostHog requires UUID primary keys. "
@@ -82,6 +88,17 @@ class UUIDPrimaryKeyPolicy(MigrationPolicy):
                 ]
 
         return []
+
+    @staticmethod
+    def _model_exists_in_apps(model_name: str) -> bool:
+        """True iff a managed model with this name is already registered."""
+        from django.apps import apps
+
+        name_lower = model_name.lower()
+        for model in apps.get_models():
+            if model._meta.model_name == name_lower and model._meta.managed:
+                return True
+        return False
 
     def check_migration(self, migration) -> list[str]:
         """Only enforce on PostHog-owned apps."""
