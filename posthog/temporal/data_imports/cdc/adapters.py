@@ -76,6 +76,31 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfigT_co: ...
 
+    def setup_resources(
+        self,
+        source: ExternalDataSource,
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], str | None]:
+        """Provision engine-side CDC resources for the source.
+
+        Reads management mode, identifiers (slot/publication, binlog channel, …),
+        and any engine-specific knobs from ``payload``. Returns either
+        ``(resource_dict, None)`` where ``resource_dict`` contains the CDC
+        identifiers + metadata to merge into ``source.job_inputs`` (already keyed
+        with ``cdc_*`` prefixes), or ``({}, error_message)`` describing what
+        failed. On failure the adapter best-effort rolls back partial state.
+        """
+        ...
+
+    def cleanup_resources(self, source: ExternalDataSource) -> None:
+        """Drop engine-side CDC resources owned by PostHog for the source.
+
+        Best-effort: logs and continues on errors. Must NOT touch resources owned
+        by the customer (e.g. self-managed publications). No-op when the source
+        has no CDC config or no PostHog-owned resources to drop.
+        """
+        ...
+
 
 def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
     """Return the CDC adapter for the given source's type.

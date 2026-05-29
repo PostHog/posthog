@@ -2217,16 +2217,16 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._add_table_to_cdc_publication"
     )
-    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
-    @patch("posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
         self,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
-        mock_setup_cdc_slot,
+        mock_setup_cdc_resources,
         mock_add_table_to_cdc_publication,
         _mock_is_cdc_enabled_for_team,
     ):
@@ -2261,7 +2261,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_cdc_pg_connection.return_value.__exit__.return_value = None
         mock_get_primary_key_columns.return_value = {"events": ["id"]}
 
-        def setup_cdc_slot(_source_impl, _source_config, source_model, _payload):
+        def setup_cdc_slot(_adapter, source_model, _payload):
             source_model.job_inputs = {
                 **(source_model.job_inputs or {}),
                 "cdc_enabled": True,
@@ -2272,7 +2272,7 @@ class TestExternalDataSource(APIBaseTest):
             source_model.save(update_fields=["job_inputs", "updated_at"])
             return None
 
-        mock_setup_cdc_slot.side_effect = setup_cdc_slot
+        mock_setup_cdc_resources.side_effect = setup_cdc_slot
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -2309,16 +2309,16 @@ class TestExternalDataSource(APIBaseTest):
     @patch(
         "products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._add_table_to_cdc_publication"
     )
-    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
-    @patch("posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_postgres_cdc_rejects_table_without_primary_key(
         self,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
-        mock_setup_cdc_slot,
+        mock_setup_cdc_resources,
         mock_add_table_to_cdc_publication,
         _mock_is_cdc_enabled_for_team,
     ):
@@ -2385,20 +2385,20 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
         # CDC slot setup must not run when validation rejects — otherwise we'd leave a
         # replication slot + publication on the source for a config we're about to refuse.
-        mock_setup_cdc_slot.assert_not_called()
+        mock_setup_cdc_resources.assert_not_called()
         mock_add_table_to_cdc_publication.assert_not_called()
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_rejects_cdc_schemas_when_source_cdc_disabled(
         self,
         mock_get_source,
-        mock_setup_cdc_slot,
+        mock_setup_cdc_resources,
         _mock_is_cdc_enabled_for_team,
     ):
         # If the user never toggled CDC on at the source-setup step, `payload.cdc_enabled` is
-        # False and `_setup_cdc_slot` never runs — so no replication slot/publication exists
+        # False and `_setup_cdc_resources` never runs — so no replication slot/publication exists
         # on the source. Accepting per-schema `sync_type=cdc` in that state would persist
         # broken configs (no slot, empty PKs, snapshot→streaming flip leaving everything
         # Failed). Backend must reject up front.
@@ -2453,7 +2453,7 @@ class TestExternalDataSource(APIBaseTest):
         assert "cdc must be enabled" in response.json()["message"].lower()
         assert "borrower" in response.json()["message"]
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
-        mock_setup_cdc_slot.assert_not_called()
+        mock_setup_cdc_resources.assert_not_called()
 
     @parameterized.expand(
         [
@@ -6658,3 +6658,719 @@ class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
             format="json",
         )
         assert response.status_code == 400
+
+
+def _make_postgres_source(
+    team_id: int,
+    user,
+    *,
+    cdc_enabled: bool = False,
+    management_mode: str = "posthog",
+    slot_name: str = "posthog_slot",
+    pub_name: str = "posthog_pub",
+    extra_job_inputs: dict | None = None,
+) -> ExternalDataSource:
+    job_inputs: dict[str, t.Any] = {
+        "host": "localhost",
+        "port": 5432,
+        "database": "app",
+        "user": "user",
+        "password": "pass",
+        "schema": "public",
+    }
+    if cdc_enabled:
+        job_inputs.update(
+            {
+                "cdc_enabled": True,
+                "cdc_management_mode": management_mode,
+                "cdc_slot_name": slot_name,
+                "cdc_publication_name": pub_name,
+                "cdc_auto_drop_slot": True,
+                "cdc_lag_warning_threshold_mb": 1024,
+                "cdc_lag_critical_threshold_mb": 10240,
+                "cdc_consistent_point": "0/12345",
+            }
+        )
+    if extra_job_inputs:
+        job_inputs.update(extra_job_inputs)
+    return ExternalDataSource.objects.create(
+        team_id=team_id,
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        source_type="Postgres",
+        created_by=user,
+        prefix="pg_",
+        job_inputs=job_inputs,
+    )
+
+
+class TestEnableCDC(APIBaseTest):
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    def test_enable_cdc_rejects_source_type_without_cdc_support(self, _flag) -> None:
+        # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=False)
+    def test_enable_cdc_rejects_when_team_flag_off(self, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 403
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    def test_enable_cdc_rejects_when_already_enabled(self, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 409
+
+    @parameterized.expand(
+        [
+            ("blank", ""),
+            ("invalid", "garbage_mode"),
+            ("none", None),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    def test_enable_cdc_rejects_invalid_management_mode(self, _name: str, mode_value, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": mode_value},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "cdc_management_mode" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=["wal_level must be 'logical'", "Missing REPLICATION privilege"],
+    )
+    def test_enable_cdc_returns_400_when_prereqs_fail(self, _check, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        body = response.json()
+        assert body["message"] == "CDC prerequisites not met."
+        assert body["errors"] == ["wal_level must be 'logical'", "Missing REPLICATION privilege"]
+        source.refresh_from_db()
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_enable_cdc_returns_400_on_prereq_check_exception(self, _check, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    def test_enable_cdc_posthog_managed_success(
+        self,
+        mock_ensure_cleanup,
+        mock_sync_extraction,
+        mock_setup_cdc_resources,
+        _check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        def setup_cdc_slot(_adapter, source_model, payload):
+            job_inputs = dict(source_model.job_inputs or {})
+            job_inputs.update(
+                {
+                    "cdc_enabled": True,
+                    "cdc_management_mode": payload.get("cdc_management_mode", "posthog"),
+                    "cdc_slot_name": payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}",
+                    "cdc_publication_name": (
+                        payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
+                    ),
+                    "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
+                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
+                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+                    "cdc_consistent_point": "0/ABCDEF",
+                }
+            )
+            source_model.job_inputs = job_inputs
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_resources.side_effect = setup_cdc_slot
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "posthog",
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 4096,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {"success": True}
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert ji["cdc_enabled"] == "True"
+        assert ji["cdc_management_mode"] == "posthog"
+        assert ji["cdc_auto_drop_slot"] == "False"
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 512
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 4096
+        assert ji["cdc_consistent_point"] == "0/ABCDEF"
+
+        mock_sync_extraction.assert_called_once()
+        mock_ensure_cleanup.assert_called_once()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    def test_enable_cdc_self_managed_passes_publication_name(
+        self,
+        _mock_ensure_cleanup,
+        _mock_sync_extraction,
+        mock_setup_cdc_resources,
+        mock_check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        def setup_cdc_slot(_adapter, source_model, payload):
+            job_inputs = dict(source_model.job_inputs or {})
+            job_inputs.update(
+                {
+                    "cdc_enabled": True,
+                    "cdc_management_mode": "self_managed",
+                    "cdc_slot_name": f"posthog_{source_model.id.hex[:12]}",
+                    "cdc_publication_name": payload.get("cdc_publication_name") or "posthog_pub",
+                    "cdc_consistent_point": "0/DEADBEEF",
+                }
+            )
+            source_model.job_inputs = job_inputs
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_resources.side_effect = setup_cdc_slot
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "self_managed",
+                "cdc_publication_name": "customer_pub",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        # Prereq check forwarded the publication name we received.
+        assert mock_check.call_args.kwargs["publication_name"] == "customer_pub"
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        assert ji["cdc_management_mode"] == "self_managed"
+        assert ji["cdc_publication_name"] == "customer_pub"
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    def test_enable_cdc_returns_400_when_slot_setup_fails(self, mock_setup_cdc_resources, _check, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        mock_setup_cdc_resources.return_value = "Failed to create replication slot: connection lost"
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "connection lost" in response.json()["message"]
+
+        # Source must NOT be deleted (this is not the create path).
+        source.refresh_from_db()
+        assert source.deleted is False
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
+    def test_enable_cdc_posthog_rolls_back_partial_slot_on_failure(
+        self,
+        mock_cdc_pg_connection,
+        mock_create_slot_and_publication,
+        mock_drop_slot_and_publication,
+        _check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        # Fake a no-op connection context — actual slot calls are themselves mocked.
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+
+        mock_create_slot_and_publication.side_effect = RuntimeError("max_replication_slots reached")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "leaky_slot",
+                "cdc_publication_name": "leaky_pub",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "max_replication_slots reached" in response.json()["message"]
+
+        # Best-effort cleanup must run with the exact slot + publication we tried to create.
+        mock_drop_slot_and_publication.assert_called_once()
+        call = mock_drop_slot_and_publication.call_args
+        assert call.args[1] == "leaky_slot"
+        assert call.args[2] == "leaky_pub"
+
+        # Source's job_inputs must NOT have been persisted with cdc_enabled — we never reached save().
+        source.refresh_from_db()
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+        assert source.deleted is False
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
+    def test_enable_cdc_self_managed_rolls_back_slot_only_on_failure(
+        self,
+        mock_cdc_pg_connection,
+        _mock_publication_exists,
+        mock_create_slot,
+        mock_drop_slot,
+        mock_drop_slot_and_publication,
+        _check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+
+        mock_create_slot.side_effect = RuntimeError("replication permission denied")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "self_managed",
+                "cdc_slot_name": "self_slot",
+                "cdc_publication_name": "customer_owned_pub",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "replication permission denied" in response.json()["message"]
+
+        # In self-managed mode the publication is customer-owned — only drop the slot.
+        mock_drop_slot.assert_called_once()
+        assert mock_drop_slot.call_args.args[1] == "self_slot"
+        mock_drop_slot_and_publication.assert_not_called()
+
+        source.refresh_from_db()
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+        assert source.deleted is False
+
+
+class TestDisableCDC(APIBaseTest):
+    def test_disable_cdc_rejects_source_type_without_cdc_support(self) -> None:
+        # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_disable_cdc_noops_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert body.get("already_disabled") is True
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        non_cdc_schema = ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        # Every cdc_* key must be gone — leaving a stale consistent_point behind
+        # would corrupt LSN tracking on re-enable.
+        assert not any(k.startswith("cdc_") for k in ji.keys())
+        # Non-CDC connection fields are preserved.
+        assert ji["host"] == "localhost"
+        assert ji["user"] == "user"
+
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type is None
+        assert cdc_schema.should_sync is False
+
+        # Non-CDC schema must NOT be touched.
+        non_cdc_schema.refresh_from_db()
+        assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert non_cdc_schema.should_sync is True
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_soft_deletes_companion_cdc_tables(self, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        cdc_companion = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="pg_orders_cdc",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders_cdc",
+        )
+        main_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="pg_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        cdc_companion.refresh_from_db()
+        assert cdc_companion.deleted is True
+
+        # Non-_cdc-suffixed table must NOT be soft-deleted by disable_cdc —
+        # the user might still pick a new sync strategy and reuse it.
+        main_table.refresh_from_db()
+        assert main_table.deleted is False
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
+    def test_disable_cdc_cancels_running_workflow(self, mock_cancel, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        running_job = ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            team_id=self.team.pk,
+            workflow_id="cdc-extraction-running-workflow",
+            status="Running",
+            rows_synced=0,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+        mock_cancel.assert_called_once_with(running_job.workflow_id)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
+    def test_disable_cdc_does_not_cancel_non_running_workflow(self, mock_cancel, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            team_id=self.team.pk,
+            workflow_id="cdc-extraction-completed-workflow",
+            status="Completed",
+            rows_synced=10,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+        mock_cancel.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        side_effect=RuntimeError("slot drop network blip"),
+    )
+    def test_disable_cdc_succeeds_even_if_external_cleanup_fails(self, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        # The user's intent to disable CDC must be honored even if the customer's DB
+        # is briefly unreachable for the slot drop — we still clear local state.
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        assert "cdc_enabled" not in ji
+
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type is None
+        assert cdc_schema.should_sync is False
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_calls_source_cleanup_helper(self, mock_cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        # Helper called with the source model (drops schedule + slot + publication).
+        mock_cleanup.assert_called_once()
+        called_with = mock_cleanup.call_args.args[0]
+        assert called_with.pk == source.pk
+
+
+class TestUpdateCDCSettings(APIBaseTest):
+    def test_update_cdc_settings_rejects_source_type_without_cdc_support(self) -> None:
+        # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": 100},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_update_cdc_settings_rejects_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": 100},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not enabled" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("non_numeric", "fast"),
+            ("negative", -10),
+            ("zero", 0),
+        ]
+    )
+    def test_update_cdc_settings_rejects_invalid_thresholds(self, _name: str, value) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": value},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_update_cdc_settings_rejects_warn_not_less_than_crit(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={
+                "cdc_lag_warning_threshold_mb": 5000,
+                "cdc_lag_critical_threshold_mb": 5000,
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "less than" in response.json()["message"]
+
+    def test_update_cdc_settings_validates_warn_vs_existing_crit(self) -> None:
+        # If only `warning` is sent, we must still compare against the persisted critical value.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": 99999},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "less than" in response.json()["message"]
+
+    def test_update_cdc_settings_partial_update_preserves_other_fields(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        original_slot = source.job_inputs["cdc_slot_name"]
+        original_pub = source.job_inputs["cdc_publication_name"]
+        original_mode = source.job_inputs["cdc_management_mode"]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_auto_drop_slot": False},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert ji["cdc_auto_drop_slot"] == "False"
+        # Untouched fields preserved.
+        assert ji["cdc_slot_name"] == original_slot
+        assert ji["cdc_publication_name"] == original_pub
+        assert ji["cdc_management_mode"] == original_mode
+        # Thresholds preserved at defaults.
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 1024
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 10240
+
+    def test_update_cdc_settings_empty_payload_is_unchanged(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["success"] is True
+        assert body.get("unchanged") is True
+
+    def test_update_cdc_settings_updates_all_tunable_fields(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 256,
+                "cdc_lag_critical_threshold_mb": 2048,
+            },
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert ji["cdc_auto_drop_slot"] == "False"
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 256
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 2048
+
+    def test_update_cdc_settings_coerces_bool_truthiness(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_auto_drop_slot": True},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert source.job_inputs["cdc_auto_drop_slot"] == "True"
