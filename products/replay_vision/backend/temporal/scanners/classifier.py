@@ -40,7 +40,6 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
 
 class ClassifierScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.CLASSIFIER] = ScannerType.CLASSIFIER
-    prompt: str
     prompt_template: ClassVar[str] = "classifier.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = ClassifierOutput
