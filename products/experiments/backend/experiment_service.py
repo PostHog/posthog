@@ -692,12 +692,6 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        create_variant_keys = [
-            variant["key"]
-            for variant in (parameters or {}).get("feature_flag_variants", [])
-            if isinstance(variant, dict)
-        ]
-        self.validate_stats_config(stats_config, create_variant_keys)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -710,6 +704,13 @@ class ExperimentService:
             create_in_folder=create_in_folder,
             serializer_context=serializer_context,
         )
+
+        # Validate the baseline against the variants the flag actually ends up with.
+        # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
+        # raw parameters payload may omit. This runs inside the @transaction.atomic
+        # create, so a raise rolls back the just-created flag.
+        used_variant_keys = [variant["key"] for variant in used_variants if isinstance(variant, dict)]
+        self.validate_stats_config(stats_config, used_variant_keys)
 
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
@@ -1909,8 +1910,12 @@ class ExperimentService:
                 existing_flag_serializer.save()
 
         # --- validate updated fields ------------------------------------------
-        if "stats_config" in update_data:
-            update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        # Revalidate the baseline whenever either side of the constraint changes:
+        # the stats_config itself, or the variant set it references. A variants-only
+        # PATCH (e.g. updateDistribution) that renames/removes the current baseline
+        # must not leave a dangling baseline_variant_key behind.
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if "stats_config" in update_data or update_variants is not None:
             if update_variants is None:
                 update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
                     experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
@@ -1918,7 +1923,8 @@ class ExperimentService:
                     else []
                 )
             update_variant_keys = [variant["key"] for variant in (update_variants or []) if isinstance(variant, dict)]
-            self.validate_stats_config(update_data["stats_config"], update_variant_keys)
+            effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+            self.validate_stats_config(effective_stats_config, update_variant_keys)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
