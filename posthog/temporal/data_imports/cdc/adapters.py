@@ -101,6 +101,16 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         """
         ...
 
+    def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
+        """Live engine-side CDC health for the source, read from the source DB.
+
+        Opens a short management connection and returns at minimum
+        ``{"slot_exists": bool, "publication_exists": bool, "lag_bytes": int | None}``.
+        Engines may add extra fields. Raises on connection failure — the caller
+        surfaces that as a 400 / unreachable state.
+        """
+        ...
+
 
 def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
     """Return the CDC adapter for the given source's type.

@@ -223,6 +223,20 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
 # Config metadata keys that are always safe to include in nested dicts
 _CONFIG_META_KEYS = {"selection", "enabled"}
 
+# CDC config lives in job_inputs but isn't part of any source's user-facing form field
+# tree, so it would otherwise be stripped from API reads as "unknown". None of these are
+# secrets — they're operational config the Configuration page needs to render CDC state.
+_CDC_EXPOSED_JOB_INPUT_KEYS = {
+    "cdc_enabled",
+    "cdc_management_mode",
+    "cdc_slot_name",
+    "cdc_publication_name",
+    "cdc_auto_drop_slot",
+    "cdc_lag_warning_threshold_mb",
+    "cdc_lag_critical_threshold_mb",
+    "cdc_consistent_point",
+}
+
 
 def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set[str]) -> dict:
     """Return a copy of data with sensitive and unknown keys removed.
@@ -565,6 +579,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             source_type_model = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
             nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+            # CDC fields aren't form fields but are non-secret operational config the UI needs.
+            nonsensitive = nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
         except (ValueError, KeyError):
             representation["job_inputs"] = {}
             return representation
@@ -949,7 +965,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "disable_cdc",
         "update_cdc_settings",
     ]
-    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections"]
+    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections", "cdc_status"]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
@@ -2160,6 +2176,48 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance.save(update_fields=["job_inputs", "updated_at"])
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @action(methods=["GET"], detail=True)
+    def cdc_status(self, request: Request, *arg: Any, **kwargs: Any):
+        """Live CDC health for an existing source: slot/publication existence and WAL lag.
+
+        Reads from the source DB via the engine adapter. Returns ``{"enabled": false}``
+        when CDC is off, or the stored config plus live ``slot_exists`` /
+        ``publication_exists`` / ``lag_bytes`` when on. 400s if the source DB is
+        unreachable so the UI can show a degraded/unreachable state.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(status=status.HTTP_200_OK, data={"enabled": False})
+
+        try:
+            live_status = adapter.get_status(instance)
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to read CDC status: {e}"},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "enabled": True,
+                "management_mode": cdc_config.management_mode,
+                "slot_name": cdc_config.slot_name,
+                "publication_name": cdc_config.publication_name,
+                "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
+                "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
+                **live_status,
+            },
+        )
 
     @action(methods=["POST"], detail=False)
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):

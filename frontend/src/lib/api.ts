@@ -5575,6 +5575,19 @@ const api = {
         async disable_cdc(sourceId: ExternalDataSource['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('disable_cdc').create()
         },
+        async cdc_status(sourceId: ExternalDataSource['id']): Promise<{
+            enabled: boolean
+            management_mode?: 'posthog' | 'self_managed'
+            slot_name?: string
+            publication_name?: string
+            lag_warning_threshold_mb?: number
+            lag_critical_threshold_mb?: number
+            slot_exists?: boolean
+            publication_exists?: boolean
+            lag_bytes?: number | null
+        }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
+        },
         async update_cdc_settings(
             sourceId: ExternalDataSource['id'],
             payload: {

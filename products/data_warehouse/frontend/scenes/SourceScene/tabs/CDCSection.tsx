@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import {
@@ -8,6 +8,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
 } from '@posthog/lemon-ui'
@@ -21,6 +22,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
@@ -29,8 +31,27 @@ import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
 
+type CdcStatus = {
+    enabled: boolean
+    slot_exists?: boolean
+    publication_exists?: boolean
+    lag_bytes?: number | null
+}
+
 const DEFAULT_WARN_THRESHOLD_MB = 1024
 const DEFAULT_CRIT_THRESHOLD_MB = 10240
+
+// job_inputs is an EncryptedJSONField — scalar values round-trip as strings, so a stored
+// Python `True`/`False` arrives as "True"/"False". Coerce defensively.
+function coerceBool(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') {
+        return value
+    }
+    if (typeof value === 'string') {
+        return value.toLowerCase() === 'true'
+    }
+    return fallback
+}
 
 function getCdcConfig(source: ExternalDataSource): {
     enabled: boolean
@@ -43,11 +64,11 @@ function getCdcConfig(source: ExternalDataSource): {
 } {
     const ji = (source.job_inputs ?? {}) as Record<string, any>
     return {
-        enabled: !!ji.cdc_enabled,
+        enabled: coerceBool(ji.cdc_enabled, false),
         management_mode: (ji.cdc_management_mode === 'self_managed' ? 'self_managed' : 'posthog') as ManagementMode,
         slot_name: ji.cdc_slot_name ?? '',
         publication_name: ji.cdc_publication_name ?? '',
-        auto_drop_slot: ji.cdc_auto_drop_slot ?? true,
+        auto_drop_slot: coerceBool(ji.cdc_auto_drop_slot, true),
         lag_warning_threshold_mb: Number(ji.cdc_lag_warning_threshold_mb ?? DEFAULT_WARN_THRESHOLD_MB),
         lag_critical_threshold_mb: Number(ji.cdc_lag_critical_threshold_mb ?? DEFAULT_CRIT_THRESHOLD_MB),
     }
@@ -162,6 +183,27 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
     const [warnMb, setWarnMb] = useState(cdc.lag_warning_threshold_mb)
     const [critMb, setCritMb] = useState(cdc.lag_critical_threshold_mb)
     const [busy, setBusy] = useState(false)
+    const [status, setStatus] = useState<CdcStatus | null>(null)
+    const [statusLoading, setStatusLoading] = useState(true)
+    const [statusError, setStatusError] = useState<string | null>(null)
+
+    const loadStatus = async (): Promise<void> => {
+        setStatusLoading(true)
+        setStatusError(null)
+        try {
+            setStatus(await api.externalDataSources.cdc_status(source.id))
+        } catch (e: any) {
+            setStatusError(e?.message ?? 'Could not read CDC status from your database.')
+        } finally {
+            setStatusLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        void loadStatus()
+        // Re-fetch only when the source identity changes, not on every poll-driven re-render.
+        // oxlint-disable-next-line exhaustive-deps
+    }, [source.id])
 
     const dirty =
         autoDrop !== cdc.auto_drop_slot ||
@@ -238,6 +280,13 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
         })
     }
 
+    // Lag relative to the critical threshold (bytes), for coloring the WAL-lag readout.
+    const lagBytes = status?.lag_bytes ?? null
+    const critBytes = critMb * 1024 * 1024
+    const warnBytes = warnMb * 1024 * 1024
+    const lagTagType =
+        lagBytes == null ? 'muted' : lagBytes >= critBytes ? 'danger' : lagBytes >= warnBytes ? 'warning' : 'success'
+
     return (
         <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -253,6 +302,57 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                     <div className="text-secondary text-xs">Publication</div>
                     <code className="text-xs">{cdc.publication_name}</code>
                 </div>
+            </div>
+
+            <LemonDivider />
+
+            <div>
+                <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold mb-0">Replication status</h4>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => void loadStatus()}
+                        loading={statusLoading}
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
+                {statusLoading && !status ? (
+                    <LemonSkeleton className="h-12" />
+                ) : statusError ? (
+                    <LemonBanner type="warning">
+                        Couldn't read live status from your database: {statusError}
+                    </LemonBanner>
+                ) : status ? (
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                            <div className="text-secondary text-xs">Replication slot</div>
+                            <LemonTag type={status.slot_exists ? 'success' : 'danger'}>
+                                {status.slot_exists ? 'Active' : 'Missing'}
+                            </LemonTag>
+                        </div>
+                        <div>
+                            <div className="text-secondary text-xs">Publication</div>
+                            <LemonTag type={status.publication_exists ? 'success' : 'danger'}>
+                                {status.publication_exists ? 'Active' : 'Missing'}
+                            </LemonTag>
+                        </div>
+                        <div>
+                            <div className="text-secondary text-xs">WAL lag</div>
+                            <LemonTag type={lagTagType}>
+                                {lagBytes == null ? 'Unknown' : humanizeBytes(lagBytes)}
+                            </LemonTag>
+                        </div>
+                    </div>
+                ) : null}
+                {status && (status.slot_exists === false || status.publication_exists === false) && (
+                    <LemonBanner type="error" className="mt-2">
+                        {status.slot_exists === false
+                            ? 'The replication slot is missing on your database — CDC syncs will fail until it is recreated. Disable and re-enable CDC to recreate it.'
+                            : 'The publication is missing on your database — recreate it (self-managed) or disable and re-enable CDC (PostHog-managed).'}
+                    </LemonBanner>
+                )}
             </div>
 
             <LemonDivider />
@@ -301,7 +401,7 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                         loading={busy}
                         disabledReason={!dirty ? 'No changes to save' : validationError ? validationError : undefined}
                     >
-                        Save settings
+                        Update CDC configs
                     </LemonButton>
                 </AccessControlAction>
             </div>

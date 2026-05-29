@@ -856,7 +856,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
 
         # A cached instance setting lookup can shave off one query depending on test order.
-        with self.assertNumQueries(FuzzyInt(24, 25)):
+        with self.assertNumQueries(FuzzyInt(23, 25)):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -7468,3 +7468,93 @@ class TestUpdateCDCSettings(APIBaseTest):
         source.refresh_from_db()
         # `EncryptedJSONField` round-trips scalar values as strings.
         assert source.job_inputs["cdc_auto_drop_slot"] == "True"
+
+
+class TestCDCJobInputsExposure(APIBaseTest):
+    def test_retrieve_exposes_cdc_fields_but_not_password(self) -> None:
+        # cdc_* keys aren't source-config form fields; without the explicit allowlist they'd be
+        # stripped from reads as "unknown" and the Configuration page would never see CDC as on.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        assert response.status_code == 200, response.content
+
+        job_inputs = response.json()["job_inputs"]
+        assert job_inputs["cdc_enabled"] == "True"
+        assert job_inputs["cdc_management_mode"] == "posthog"
+        assert job_inputs["cdc_slot_name"] == "posthog_slot"
+        assert job_inputs["cdc_publication_name"] == "posthog_pub"
+        assert "cdc_lag_warning_threshold_mb" in job_inputs
+        assert "cdc_lag_critical_threshold_mb" in job_inputs
+        # Secret connection field must still be stripped.
+        assert "password" not in job_inputs
+
+    def test_retrieve_omits_cdc_fields_when_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        assert response.status_code == 200, response.content
+        job_inputs = response.json()["job_inputs"]
+        assert not any(k.startswith("cdc_") for k in job_inputs)
+
+
+class TestCDCStatus(APIBaseTest):
+    def test_rejects_source_type_without_cdc_support(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_returns_disabled_when_cdc_off(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json() == {"enabled": False}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_returns_live_status_when_enabled(self, mock_get_status) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["enabled"] is True
+        assert body["management_mode"] == "posthog"
+        assert body["slot_name"] == "posthog_slot"
+        assert body["publication_name"] == "posthog_pub"
+        assert body["slot_exists"] is True
+        assert body["publication_exists"] is True
+        assert body["lag_bytes"] == 2048
+        # Read against the stored source model, not a client payload.
+        assert mock_get_status.call_args.args[0].pk == source.pk
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+    )
+    def test_surfaces_missing_slot(self, _mock_get_status) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["slot_exists"] is False
+        assert body["lag_bytes"] is None
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_returns_400_when_source_unreachable(self, _mock_get_status) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]

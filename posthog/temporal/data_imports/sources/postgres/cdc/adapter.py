@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     drop_slot_and_publication,
     get_slot_lag_bytes,
     publication_exists,
+    slot_exists,
 )
 
 if TYPE_CHECKING:
@@ -169,6 +170,21 @@ class PostgresCDCAdapter:
                 source.id,
                 cdc_config.slot_name,
             )
+
+    def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
+        """Read live slot/publication existence and WAL lag from the source DB."""
+        cdc_config = self.parse_cdc_config(source)
+        with cdc_pg_connection(source, connect_timeout=10) as conn:
+            slot_present = slot_exists(conn, cdc_config.slot_name) if cdc_config.slot_name else False
+            pub_present = (
+                publication_exists(conn, cdc_config.publication_name) if cdc_config.publication_name else False
+            )
+            lag_bytes = get_slot_lag_bytes(conn, cdc_config.slot_name) if cdc_config.slot_name else None
+        return {
+            "slot_exists": slot_present,
+            "publication_exists": pub_present,
+            "lag_bytes": lag_bytes,
+        }
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
         raw = (source.job_inputs or {}).get("schema")
