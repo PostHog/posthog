@@ -36,7 +36,6 @@ tools:
     tasks-list:
         operation: tasks_list
         enabled: true
-        feature_flag: tasks
         scopes:
             - task:read
         annotations:
@@ -51,6 +50,7 @@ tools:
             `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for
             the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's
             organization to have Tasks access enabled.
+        feature_flag: tasks
         response:
             include:
                 - id
@@ -80,7 +80,6 @@ tools:
     tasks-retrieve:
         operation: tasks_retrieve
         enabled: true
-        feature_flag: tasks
         scopes:
             - task:read
         annotations:
@@ -92,6 +91,7 @@ tools:
         description: >
             Get a specific task by ID, including its description, repository, origin product, current stage, and latest
             run summary. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.
+        feature_flag: tasks
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
@@ -125,7 +125,6 @@ tools:
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
-        feature_flag: tasks
         scopes:
             - task:read
         annotations:
@@ -137,6 +136,7 @@ tools:
         description: >
             List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full
             run detail including state, output, and artifacts.
+        feature_flag: tasks
         response:
             include:
                 - id
@@ -165,7 +165,6 @@ tools:
     tasks-runs-retrieve:
         operation: tasks_runs_retrieve
         enabled: true
-        feature_flag: tasks
         scopes:
             - task:read
         annotations:
@@ -177,10 +176,10 @@ tools:
             Get full details for a specific task run including status, stage, environment, branch, artifacts summary,
             state, error message, and timestamps. The `state` object contains `sandbox_environment_id` (the UUID of the
             sandbox environment used).
+        feature_flag: tasks
     tasks-runs-session-logs-retrieve:
         operation: tasks_runs_session_logs_retrieve
         enabled: true
-        feature_flag: tasks
         scopes:
             - task:read
         annotations:
@@ -195,6 +194,7 @@ tools:
         param_overrides:
             limit:
                 default: 100
+        feature_flag: tasks
     tasks-runs-set-output-partial-update:
         operation: tasks_runs_set_output_partial_update
         enabled: false
