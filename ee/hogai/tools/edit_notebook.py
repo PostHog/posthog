@@ -69,9 +69,9 @@ Example:
 - `replace_block`: replace the whole top-level notebook block containing exact anchor text. Use this for placeholders.
 - `insert_after`, `insert_before`, `insert_after_heading`, `insert_between`: insert content around exact text anchors.
 - `append`: add content to the end of the notebook.
-- `replace_text`: replace exact text within text nodes only.
+- `replace_text`: replace exact text within normal text and inside query/code node attributes. For small SQL edits like changing `LIMIT 25` to `LIMIT 200`, prefer `replace_text` with `anchor` set to the query title or section heading; do not rebuild the whole query block.
 
-Use exact anchors copied from notebook context. Do not use create_notebook to edit a saved notebook.
+Use exact anchors copied from notebook context. When the anchor is a heading, `replace_text` searches that heading section until the next same-or-higher-level heading. Do not use create_notebook to edit a saved notebook.
 """.strip()
 
 EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS = """
@@ -115,9 +115,9 @@ Example:
 - `replace_block`: replace the whole top-level notebook block containing exact anchor text. Use this for placeholders.
 - `insert_after`, `insert_before`, `insert_after_heading`, `insert_between`: insert content around exact text anchors.
 - `append`: add content to the end of the notebook.
-- `replace_text`: replace exact text within text nodes only.
+- `replace_text`: replace exact text within normal text and inside query/code node attributes. For small SQL edits like changing `LIMIT 25` to `LIMIT 200`, prefer `replace_text` with `anchor` set to the query title or section heading; do not rebuild the whole query block.
 
-Use exact anchors copied from notebook context. Do not use create_notebook to edit a saved notebook.
+Use exact anchors copied from notebook context. When the anchor is a heading, `replace_text` searches that heading section until the next same-or-higher-level heading. Do not use create_notebook to edit a saved notebook.
 """.strip()
 
 
@@ -201,9 +201,21 @@ class ReplaceBlockEdit(InsertContentArgs):
 
 class ReplaceTextEdit(BaseModel):
     type: Literal["replace_text"] = "replace_text"
-    find: str = Field(description="Exact text to find inside a single text node.")
+    find: str = Field(
+        description="Exact text to find. This can match normal notebook text and SQL inside query, HogQL, or DuckDB nodes."
+    )
     replace: str = Field(description="Replacement text. Use an empty string to delete the matching text.")
     all_occurrences: bool = Field(default=False, description="Replace every exact match instead of only the first.")
+    anchor: str | None = Field(
+        default=None,
+        description=(
+            "Optional exact text anchor for a top-level block or heading. When set, only that block is searched; "
+            "if the anchor is a heading, the following section is searched until the next same-or-higher-level heading."
+        ),
+    )
+    occurrence: int = Field(
+        default=1, ge=1, description="Which matching anchor block to use when anchor appears more than once."
+    )
 
 
 NotebookEdit = Annotated[
@@ -501,11 +513,139 @@ def replacement_text_nodes(match: TextMatch, replacement: str) -> list[ProseMirr
     return [node]
 
 
-def apply_text_replacement(doc: ProseMirrorDoc, find: str, replacement: str) -> ReplaceStep | None:
-    match = find_text_match(doc, find, 0)
-    if not match:
-        return None
+def replace_in_string(value: str, find: str, replacement: str, all_occurrences: bool) -> tuple[str, int]:
+    if find not in value:
+        return value, 0
+    if not all_occurrences:
+        return value.replace(find, replacement, 1), 1
+    return value.replace(find, replacement), value.count(find)
 
+
+def replace_strings_in_value(value: Any, find: str, replacement: str, all_occurrences: bool) -> tuple[Any, int]:
+    if isinstance(value, str):
+        return replace_in_string(value, find, replacement, all_occurrences)
+
+    if isinstance(value, list):
+        count = 0
+        next_value: list[Any] = []
+        for item in value:
+            if not all_occurrences and count > 0:
+                next_value.append(item)
+                continue
+            replacement_value, replacement_count = replace_strings_in_value(item, find, replacement, all_occurrences)
+            count += replacement_count
+            next_value.append(replacement_value)
+        return next_value, count
+
+    if isinstance(value, dict):
+        count = 0
+        next_value: dict[str, Any] = {}
+        for key, item in value.items():
+            if not all_occurrences and count > 0:
+                next_value[key] = item
+                continue
+            replacement_value, replacement_count = replace_strings_in_value(item, find, replacement, all_occurrences)
+            count += replacement_count
+            next_value[key] = replacement_value
+        return next_value, count
+
+    return value, 0
+
+
+def replace_strings_in_node_attrs(
+    node: ProseMirrorNode, find: str, replacement: str, all_occurrences: bool
+) -> tuple[ProseMirrorNode, int]:
+    attrs = node.get("attrs")
+    if not isinstance(attrs, dict):
+        return node, 0
+
+    replacement_attrs, replacement_count = replace_strings_in_value(attrs, find, replacement, all_occurrences)
+    if replacement_count == 0:
+        return node, 0
+
+    return {**node, "attrs": replacement_attrs}, replacement_count
+
+
+def apply_attribute_replacement_in_block(
+    doc: ProseMirrorDoc, index: int, find: str, replacement: str, all_occurrences: bool
+) -> list[ReplaceStep]:
+    try:
+        node = doc["content"][index]
+    except (KeyError, IndexError):
+        return []
+    if not isinstance(node, dict):
+        return []
+
+    replacement_node, replacement_count = replace_strings_in_node_attrs(node, find, replacement, all_occurrences)
+    if replacement_count == 0:
+        return []
+
+    from_pos = top_level_position_before(doc, index)
+    to_pos = top_level_position_after(doc, index)
+    inserted_node = clone_json(replacement_node)
+    doc["content"][index] = inserted_node
+    return [replace_step(from_pos, to_pos, [inserted_node])]
+
+
+def find_attribute_replacement_block_index(
+    doc: ProseMirrorDoc, find: str, start_index: int = 0, end_index: int | None = None
+) -> int | None:
+    content = doc.get("content", [])
+    if not isinstance(content, list):
+        return None
+    stop_index = len(content) if end_index is None else min(end_index, len(content))
+    for index in range(start_index, stop_index):
+        node = content[index]
+        if not isinstance(node, dict) or find not in text_content(node):
+            continue
+        _, replacement_count = replace_strings_in_node_attrs(node, find, find, False)
+        if replacement_count > 0:
+            return index
+    return None
+
+
+def heading_level(node: ProseMirrorNode) -> int | None:
+    attrs = node.get("attrs")
+    level = attrs.get("level") if isinstance(attrs, dict) else None
+    return level if node.get("type") == "heading" and isinstance(level, int) else None
+
+
+def find_section_end_index(doc: ProseMirrorDoc, heading_index: int) -> int:
+    content = doc.get("content", [])
+    if not isinstance(content, list) or heading_index >= len(content):
+        return heading_index + 1
+
+    heading = content[heading_index]
+    if not isinstance(heading, dict):
+        return heading_index + 1
+
+    level = heading_level(heading)
+    if level is None:
+        return heading_index + 1
+
+    for index in range(heading_index + 1, len(content)):
+        node = content[index]
+        if not isinstance(node, dict):
+            continue
+        next_level = heading_level(node)
+        if next_level is not None and next_level <= level:
+            return index
+    return len(content)
+
+
+def block_range_for_anchor(doc: ProseMirrorDoc, anchor_index: int) -> tuple[int, int]:
+    content = doc.get("content", [])
+    if not isinstance(content, list) or anchor_index >= len(content):
+        return anchor_index, anchor_index + 1
+
+    anchor_node = content[anchor_index]
+    if not isinstance(anchor_node, dict) or anchor_node.get("type") != "heading":
+        return anchor_index, anchor_index + 1
+
+    return anchor_index + 1, find_section_end_index(doc, anchor_index)
+
+
+def apply_text_match_replacement(match: TextMatch, find: str, replacement: str) -> ReplaceStep | None:
     text = match.node.get("text")
     if not isinstance(text, str):
         return None
@@ -522,21 +662,108 @@ def apply_text_replacement(doc: ProseMirrorDoc, find: str, replacement: str) -> 
     return replace_step(match.from_pos, match.to_pos, replacement_text_nodes(match, replacement))
 
 
-def apply_replace_text_edit(
-    doc: ProseMirrorDoc, find: str, replacement: str, all_occurrences: bool
+def apply_text_replacement(doc: ProseMirrorDoc, find: str, replacement: str) -> ReplaceStep | None:
+    match = find_text_match(doc, find, 0)
+    if not match:
+        return None
+    return apply_text_match_replacement(match, find, replacement)
+
+
+def apply_text_replacement_in_block(doc: ProseMirrorDoc, index: int, find: str, replacement: str) -> ReplaceStep | None:
+    try:
+        node = doc["content"][index]
+    except (KeyError, IndexError):
+        return None
+    if not isinstance(node, dict):
+        return None
+
+    match = find_text_match(node, find, top_level_position_before(doc, index))
+    if not match:
+        return None
+    return apply_text_match_replacement(match, find, replacement)
+
+
+def assert_replacement_limit(find: str, replacement_count: int) -> None:
+    if replacement_count > MAX_TEXT_REPLACEMENTS:
+        raise MaxToolRetryableError(
+            f'Stopped after {MAX_TEXT_REPLACEMENTS} replacements for "{find}". Narrow the edit target.'
+        )
+
+
+def apply_replacements_in_block_range(
+    doc: ProseMirrorDoc,
+    start_index: int,
+    end_index: int,
+    find: str,
+    replacement: str,
+    all_occurrences: bool,
 ) -> list[ReplaceStep]:
     steps: list[ReplaceStep] = []
+    replacements = 0
+
+    for index in range(start_index, end_index):
+        attribute_steps = apply_attribute_replacement_in_block(doc, index, find, replacement, all_occurrences)
+        if attribute_steps:
+            steps.extend(attribute_steps)
+            replacements += len(attribute_steps)
+            if not all_occurrences:
+                return steps
+            assert_replacement_limit(find, replacements)
+            continue
+
+        while True:
+            step = apply_text_replacement_in_block(doc, index, find, replacement)
+            if not step:
+                break
+            steps.append(step)
+            replacements += 1
+            if not all_occurrences:
+                return steps
+            assert_replacement_limit(find, replacements)
+
+    return steps
+
+
+def apply_replace_text_edit(
+    doc: ProseMirrorDoc,
+    find: str,
+    replacement: str,
+    all_occurrences: bool,
+    anchor: str | None = None,
+    occurrence: int = 1,
+) -> list[ReplaceStep]:
+    if anchor:
+        anchor_index = find_top_level_anchor_index(doc, anchor, occurrence)
+        if anchor_index is None:
+            raise MaxToolRetryableError(f'Could not find text "{anchor}" in the notebook.')
+
+        start_index, end_index = block_range_for_anchor(doc, anchor_index)
+        steps = apply_replacements_in_block_range(doc, start_index, end_index, find, replacement, all_occurrences)
+        if steps:
+            return steps
+
+        raise MaxToolRetryableError(
+            f'Could not find text "{find}" inside notebook block or section anchored by "{anchor}".'
+        )
+
+    steps: list[ReplaceStep] = []
+    replacements = 0
     while True:
-        step = apply_text_replacement(doc, find, replacement)
-        if not step:
-            break
-        steps.append(step)
+        attribute_index = find_attribute_replacement_block_index(doc, find)
+        if attribute_index is not None:
+            attribute_steps = apply_attribute_replacement_in_block(doc, attribute_index, find, replacement, False)
+            steps.extend(attribute_steps)
+            replacements += len(attribute_steps)
+        else:
+            step = apply_text_replacement(doc, find, replacement)
+            if not step:
+                break
+            steps.append(step)
+            replacements += 1
+
         if not all_occurrences:
             break
-        if len(steps) >= MAX_TEXT_REPLACEMENTS:
-            raise MaxToolRetryableError(
-                f'Stopped after {MAX_TEXT_REPLACEMENTS} replacements for "{find}". Narrow the edit target.'
-            )
+        assert_replacement_limit(find, replacements)
 
     if not steps:
         raise MaxToolRetryableError(f'Could not find text "{find}" in the notebook.')
@@ -599,7 +826,7 @@ def apply_notebook_edit(
             )
         ]
     if isinstance(edit, ReplaceTextEdit):
-        return apply_replace_text_edit(doc, edit.find, edit.replace, edit.all_occurrences)
+        return apply_replace_text_edit(doc, edit.find, edit.replace, edit.all_occurrences, edit.anchor, edit.occurrence)
 
     raise MaxToolRetryableError("Unsupported notebook edit type.")
 

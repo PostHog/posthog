@@ -9,7 +9,14 @@ from posthog.schema import HumanMessage, MaxNotebookContext, MaxUIContext
 from products.notebooks.backend.models import Notebook
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.tools.edit_notebook import EditNotebookTool, EditNotebookToolArgs, ReplaceTextEdit, build_edit_plan
+from ee.hogai.tools.edit_notebook import (
+    EDIT_NOTEBOOK_PROMPT,
+    EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS,
+    EditNotebookTool,
+    EditNotebookToolArgs,
+    ReplaceTextEdit,
+    build_edit_plan,
+)
 from ee.hogai.utils.types.base import AssistantState, NodePath
 from ee.models.assistant import AgentArtifact, Conversation
 
@@ -30,6 +37,10 @@ def _hogql_node(code: str, title: str = "Recent events", return_variable: str = 
     }
 
 
+def _query_node(query: dict, title: str = "Query") -> dict:
+    return {"type": "ph-query", "attrs": {"query": query, "title": title}}
+
+
 def test_build_edit_plan_replace_text_updates_document_content():
     plan = build_edit_plan(
         {"type": "doc", "content": [_paragraph("replace this text")]},
@@ -42,6 +53,89 @@ def test_build_edit_plan_replace_text_updates_document_content():
         {"stepType": "replace", "from": 9, "to": 13, "slice": {"content": [{"type": "text", "text": "that"}]}}
     ]
     assert plan.text_content == "replace that text"
+
+
+def test_build_edit_plan_replace_text_updates_query_node_by_title_anchor():
+    old_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT event\nFROM events\nLIMIT 25"},
+        "display": "ActionsTable",
+    }
+    new_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT event\nFROM events\nLIMIT 200"},
+        "display": "ActionsTable",
+    }
+
+    plan = build_edit_plan(
+        {"type": "doc", "content": [_query_node(old_query, "Referring domain by segment")]},
+        [ReplaceTextEdit(anchor="Referring domain by segment", find="LIMIT 25", replace="LIMIT 200")],
+        {},
+    )
+
+    assert plan.content == {"type": "doc", "content": [_query_node(new_query, "Referring domain by segment")]}
+    assert plan.steps == [
+        {
+            "stepType": "replace",
+            "from": 0,
+            "to": 1,
+            "slice": {"content": [_query_node(new_query, "Referring domain by segment")]},
+        }
+    ]
+
+
+def test_build_edit_plan_replace_text_uses_heading_anchor_as_section_range():
+    old_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT event\nFROM events\nLIMIT 25"},
+        "display": "ActionsTable",
+    }
+    new_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT event\nFROM events\nLIMIT 200"},
+        "display": "ActionsTable",
+    }
+    other_query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 25"},
+        "display": "ActionsTable",
+    }
+
+    plan = build_edit_plan(
+        {
+            "type": "doc",
+            "content": [
+                {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Referrer analysis"}]},
+                _paragraph("This section compares referrers."),
+                _query_node(old_query, "Referring domain by segment"),
+                {
+                    "type": "heading",
+                    "attrs": {"level": 2},
+                    "content": [{"type": "text", "text": "Entry path analysis"}],
+                },
+                _query_node(other_query, "Entry path by segment"),
+            ],
+        },
+        [ReplaceTextEdit(anchor="Referrer analysis", find="LIMIT 25", replace="LIMIT 200")],
+        {},
+    )
+
+    assert plan.content["content"] == [
+        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Referrer analysis"}]},
+        _paragraph("This section compares referrers."),
+        _query_node(new_query, "Referring domain by segment"),
+        {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Entry path analysis"}]},
+        _query_node(other_query, "Entry path by segment"),
+    ]
+
+
+def test_replace_text_schema_and_prompt_teach_query_edit_fast_path():
+    schema = ReplaceTextEdit.model_json_schema()
+
+    assert "SQL inside query" in schema["properties"]["find"]["description"]
+    assert "heading" in schema["properties"]["anchor"]["description"]
+    assert "small SQL edits" in EDIT_NOTEBOOK_PROMPT
+    assert "small SQL edits" in EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
 
 
 def test_build_edit_plan_inserts_analysis_cells_from_markdown():
