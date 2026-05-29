@@ -37,47 +37,45 @@ describe('LemonField', () => {
                 <input id="email-input" />
             </LemonField.Pure>
         )
-        expect(screen.getByText('Email').closest('label')).toHaveAttribute('for', 'email-input')
+
+        // getByLabelText only resolves when the label is correctly associated with the input,
+        // so it's both the assertion and the proof of correct wiring.
+        expect(screen.getByLabelText('Email')).toBe(document.getElementById('email-input'))
     })
 
-    it('clicking a kea-forms label focuses the wrapped LemonInput even when the render-prop form does not pass id', () => {
-        // Reproduces the dead-click pattern from the signup form (see SignupReferralSource):
-        // the render-prop child only destructures `value` and `onChange`, so the underlying
-        // <input> had no id and the label's `for` attribute was empty. LemonField must inject
-        // a stable id onto the rendered child and use it for the label's `for`.
-        render(
-            <Form logic={lemonFieldTestLogic} formKey="myForm">
+    it.each([
+        {
+            desc: 'function-as-child render prop (the signup dead-click pattern)',
+            label: 'Where did you hear about us?',
+            field: (
                 <LemonField name="referral_source" label="Where did you hear about us?">
                     {({ value, onChange }) => (
                         <LemonInput value={value ?? ''} onChange={(val: string) => onChange(val)} />
                     )}
                 </LemonField>
-            </Form>
-        )
-
-        const label = screen.getByText('Where did you hear about us?').closest('label')
-        const labelFor = label?.getAttribute('for')
-        expect(labelFor).toBeTruthy()
-
-        const input = document.querySelector('input.LemonInput__input') as HTMLInputElement | null
-        expect(input).not.toBeNull()
-        expect(input?.id).toBe(labelFor)
-    })
-
-    it('keeps the kea-forms id when the child is a React element (no function-as-child)', () => {
-        render(
-            <Form logic={lemonFieldTestLogic} formKey="myForm">
+            ),
+        },
+        {
+            desc: 'React-element child (no render prop)',
+            label: 'Email address',
+            field: (
                 <LemonField name="email" label="Email address">
                     <LemonInput type="email" />
                 </LemonField>
+            ),
+        },
+    ])('clicking the label focuses the wrapped input — $desc', ({ label, field }) => {
+        render(
+            <Form logic={lemonFieldTestLogic} formKey="myForm">
+                {field}
             </Form>
         )
 
-        const label = screen.getByText('Email address').closest('label')
-        const labelFor = label?.getAttribute('for')
-        expect(labelFor).toBeTruthy()
-
-        const input = document.querySelector('input.LemonInput__input') as HTMLInputElement | null
-        expect(input?.id).toBe(labelFor)
+        // getByLabelText only finds the input when label[for] matches input[id].
+        // If LemonField regressed to emitting htmlFor={undefined}, this throws.
+        const input = screen.getByLabelText(label) as HTMLInputElement
+        expect(input).toBeInstanceOf(HTMLInputElement)
+        expect(input.id).toBeTruthy()
+        expect(screen.getByText(label).closest('label')?.getAttribute('for')).toBe(input.id)
     })
 })
