@@ -285,9 +285,13 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
-            # Commands now route through PostHogCodeSlackMentionCommandWorkflow at the
-            # webhook layer, so this workflow never receives command text. Old
-            # in-flight workflows must still replay through the previous branch.
+            # Commands are dispatched by PostHogCodeSlackMentionCommandWorkflow,
+            # which also owns the ``rules add`` repo picker. New mention runs
+            # never reach the rules-handling branch — the patch records that.
+            # Workflows started before the patch was introduced (history with no
+            # patch marker) still need this branch on replay to remain
+            # deterministic, so we keep the original logic gated behind the
+            # patch check.
             if not workflow.patched("posthog-code-mention-skip-rules-command"):
                 rules_result = await _execute_posthog_code_activity(
                     handle_posthog_code_rules_command_activity,

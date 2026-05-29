@@ -1378,15 +1378,8 @@ def route_posthog_code_event_to_relevant_region(
         candidates = enabled
         target = result.integration if result.integration in enabled else None
 
-        parsed_command = _parse_rules_command(event.get("text", ""))
-        if parsed_command is not None:
-            # ``rules add`` without an inline repository needs the interactive
-            # repo picker, which only the mention workflow can drive (it owns the
-            # picker signal). Fall through to the mention path so it can pick up
-            # the parsed command and trigger the picker.
-            needs_picker = parsed_command.action == "add" and not parsed_command.repository
-            if not needs_picker:
-                return _start_command_workflow(event, candidates, slack_team_id, event_id)
+        if _parse_rules_command(event.get("text", "")) is not None:
+            return _start_command_workflow(event, candidates, slack_team_id, event_id)
 
         mention_target = target or (candidates[0] if len(candidates) == 1 else None)
         if mention_target is None:
