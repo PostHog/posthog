@@ -35,9 +35,12 @@ tracer = trace.get_tracer(__name__)
 SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
 # Performance-only `date_from` on the inner query so ClickHouse can skip
-# historical partitions. Sized above Vision's 1-hour active-seconds cap to
-# absorb idle gaps in long sessions.
-_PARTITION_LOOKBACK = dt.timedelta(hours=6)
+# historical partitions. Anchored to the SDK's hard 24-hour session-length cap
+# (posthog-js rotates `session_id` once `now - start_time > 24h`), so any
+# session whose end is past the watermark must have started within 24h before
+# it. The extra 2h is headroom for client clock skew, batching delay, and the
+# AggregatingMergeTree merge lag.
+_PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
 # Sampling is stable per session via `cityHash64(session_id) % precision`.
 SAMPLE_RATE_PRECISION = 10_000
@@ -65,7 +68,7 @@ class ScannerCandidateQuery:
         query: RecordingsQuery,
         last_swept_at: dt.datetime,
         sampling_rate: float,
-        now: dt.datetime | None = None,
+        last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
     ) -> None:
@@ -75,15 +78,18 @@ class ScannerCandidateQuery:
             raise ValueError("last_swept_at must be timezone-aware")
         if candidate_limit <= 0:
             raise ValueError(f"candidate_limit must be positive, got {candidate_limit}")
+        if max_execution_time_seconds <= 0:
+            raise ValueError(f"max_execution_time_seconds must be positive, got {max_execution_time_seconds}")
 
         self._team = team
         self._last_swept_at = last_swept_at
+        # When the previous fire saturated the LIMIT, the schedule passes the
+        # last row's `session_id` so we can resume after it via keyset pagination
+        # without re-emitting anything and without skipping `session_end` ties.
+        self._last_seen_session_id = last_seen_session_id
         self._sampling_rate = max(0.0, min(1.0, sampling_rate))
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
-        self._now = now if now is not None else dt.datetime.now(dt.UTC)
-        if self._now.tzinfo is None:
-            raise ValueError("now must be timezone-aware")
 
         # The inner query handles all filter compilation. We control the time
         # window via date_from (partition prune) — the schedule, not the user,
@@ -95,7 +101,13 @@ class ScannerCandidateQuery:
         inner_query.offset = None
         inner_query.after = None
 
-        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query)
+        # Push sampling into the inner HAVING so un-sampled sessions are dropped
+        # before they're aggregated by the outer SELECT.
+        extra_having: list[ast.Expr] = []
+        if (sampling := self._sampling_predicate()) is not None:
+            extra_having.append(sampling)
+
+        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
@@ -109,27 +121,21 @@ class ScannerCandidateQuery:
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
 
     def get_query(self) -> ast.SelectQuery:
+        # `_inner.get_query()` re-parses its BASE_QUERY on every call, so it's
+        # safe to mutate the returned AST in-place. We clear `order_by` because
+        # we apply our own chronological ordering in the outer SELECT.
         inner = self._inner.get_query()
-        # The inner query orders for the recordings-list use case; we apply our
-        # own chronological ordering in the outer SELECT.
         inner.order_by = None
 
         where_exprs: list[ast.Expr] = [
-            # Past the watermark.
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["sessions", "end_time"]),
-                right=ast.Constant(value=self._last_swept_at),
-            ),
+            self._watermark_predicate(),
             # No activity within the settle window.
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=["sessions", "end_time"]),
-                right=ast.Constant(value=self._now - SETTLE_INTERVAL),
+                right=ast.Constant(value=dt.datetime.now(dt.UTC) - SETTLE_INTERVAL),
             ),
         ]
-        if (sampling := self._sampling_predicate()) is not None:
-            where_exprs.append(sampling)
 
         return ast.SelectQuery(
             select=[
@@ -145,7 +151,23 @@ class ScannerCandidateQuery:
             limit=ast.Constant(value=self._candidate_limit),
         )
 
+    def _watermark_predicate(self) -> ast.Expr:
+        """Past the watermark, or resuming after a saturated batch via keyset pagination."""
+        end_time = ast.Field(chain=["sessions", "end_time"])
+        watermark = ast.Constant(value=self._last_swept_at)
+        strict = ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=end_time, right=watermark)
+        if self._last_seen_session_id is None:
+            return strict
+        # `(end_time, session_id) > (last_swept_at, last_seen_session_id)` is
+        # lexicographic in ClickHouse — exactly the keyset semantic.
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Tuple(exprs=[end_time, ast.Field(chain=["sessions", "session_id"])]),
+            right=ast.Tuple(exprs=[watermark, ast.Constant(value=self._last_seen_session_id)]),
+        )
+
     def _sampling_predicate(self) -> ast.Expr | None:
+        """`cityHash64(session_id) % N < threshold` — stable per-session, applied in the inner HAVING."""
         if self._sampling_rate >= 1.0:
             return None
         threshold = max(0, int(self._sampling_rate * SAMPLE_RATE_PRECISION))
@@ -157,7 +179,7 @@ class ScannerCandidateQuery:
             left=ast.Call(
                 name="modulo",
                 args=[
-                    ast.Call(name="cityHash64", args=[ast.Field(chain=["sessions", "session_id"])]),
+                    ast.Call(name="cityHash64", args=[ast.Field(chain=["s", "session_id"])]),
                     ast.Constant(value=SAMPLE_RATE_PRECISION),
                 ],
             ),

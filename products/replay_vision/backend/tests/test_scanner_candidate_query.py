@@ -36,7 +36,6 @@ def _make_query(**kwargs) -> ScannerCandidateQuery:
         query=kwargs.pop("query", RecordingsQuery()),
         last_swept_at=kwargs.pop("last_swept_at", _NOW - dt.timedelta(hours=1)),
         sampling_rate=kwargs.pop("sampling_rate", 1.0),
-        now=kwargs.pop("now", _NOW),
         **kwargs,
     )
 
@@ -59,16 +58,18 @@ def test_rejects_naive_last_swept_at():
         _make_query(last_swept_at=dt.datetime(2026, 1, 1, 0, 0, 0))
 
 
-def test_rejects_naive_now():
-    with pytest.raises(ValueError, match="timezone-aware"):
-        _make_query(now=dt.datetime(2026, 1, 1, 0, 0, 0))
-
-
 def test_rejects_non_positive_candidate_limit():
     with pytest.raises(ValueError, match="candidate_limit must be positive"):
         _make_query(candidate_limit=0)
     with pytest.raises(ValueError, match="candidate_limit must be positive"):
         _make_query(candidate_limit=-5)
+
+
+def test_rejects_non_positive_max_execution_time_seconds():
+    with pytest.raises(ValueError, match="max_execution_time_seconds must be positive"):
+        _make_query(max_execution_time_seconds=0)
+    with pytest.raises(ValueError, match="max_execution_time_seconds must be positive"):
+        _make_query(max_execution_time_seconds=-1)
 
 
 @pytest.mark.parametrize(
@@ -399,6 +400,27 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert [r.session_id for r in results] == ["external-session"]
 
     @pytest.mark.django_db
+    def test_long_running_session_within_24h_cap_is_returned(self, team) -> None:
+        """Regression: the partition prune is anchored to the SDK's 24h `session_id` cap, not 6h.
+
+        A session that started ~10h before the watermark and ends just after it must
+        be returned — older long-running sessions are still common (e.g. background
+        tabs). If the partition prune were tighter than the SDK cap, these would be
+        silently dropped.
+        """
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        self._produce(
+            team.id,
+            "long-running",
+            _NOW - dt.timedelta(hours=10),
+            last_swept_at + dt.timedelta(minutes=1),
+        )
+
+        results = self._run(team=team, last_swept_at=last_swept_at)
+
+        assert [r.session_id for r in results] == ["long-running"]
+
+    @pytest.mark.django_db
     def test_straddling_session_keeps_full_aggregates(self, team) -> None:
         """Regression: a session with rows on both sides of the watermark must aggregate the full session.
 
@@ -487,6 +509,40 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert [r.session_id for r in results] == ["fresh"]
 
     @pytest.mark.django_db
+    def test_keyset_resume_includes_ties_after_last_seen(self, team) -> None:
+        """When the previous batch saturated the LIMIT and the cutoff row had a tie,
+        the next sweep must pick up the tied sessions ranked after the last-seen id —
+        not silently skip them via strict `>`."""
+        boundary = _NOW - dt.timedelta(hours=1)
+        # Three sessions all ending at the same microsecond. Simulates a saturated
+        # previous batch that ended at session_id="aaa".
+        for sid in ("aaa", "bbb", "ccc"):
+            self._produce(team.id, sid, boundary - dt.timedelta(minutes=10), boundary)
+
+        results = self._run(
+            team=team,
+            last_swept_at=boundary,
+            last_seen_session_id="aaa",
+        )
+
+        assert [r.session_id for r in results] == ["bbb", "ccc"]
+
+    @pytest.mark.django_db
+    def test_keyset_resume_still_includes_strictly_later_sessions(self, team) -> None:
+        """Keyset resume must not exclude sessions whose end is strictly past the watermark."""
+        boundary = _NOW - dt.timedelta(hours=1)
+        # Names ordered so the resumed id comes after the skipped one lexicographically.
+        self._produce(team.id, "aaa-tied-skipped", boundary - dt.timedelta(minutes=10), boundary)
+        self._produce(team.id, "bbb-tied-resumed", boundary - dt.timedelta(minutes=10), boundary)
+        self._produce(
+            team.id, "ccc-strictly-later", boundary - dt.timedelta(minutes=5), boundary + dt.timedelta(seconds=1)
+        )
+
+        results = self._run(team=team, last_swept_at=boundary, last_seen_session_id="aaa-tied-skipped")
+
+        assert sorted(r.session_id for r in results) == ["bbb-tied-resumed", "ccc-strictly-later"]
+
+    @pytest.mark.django_db
     def test_returns_empty_list_when_no_sessions(self, team) -> None:
         results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
         assert results == []
@@ -499,12 +555,13 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         query: RecordingsQuery | None = None,
         sampling_rate: float = 1.0,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
+        last_seen_session_id: str | None = None,
     ):
         return ScannerCandidateQuery(
             team=team,
             query=query if query is not None else RecordingsQuery(),
             last_swept_at=last_swept_at,
             sampling_rate=sampling_rate,
-            now=_NOW,
             candidate_limit=candidate_limit,
+            last_seen_session_id=last_seen_session_id,
         ).run()
