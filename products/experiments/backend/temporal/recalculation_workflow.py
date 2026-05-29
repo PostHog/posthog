@@ -1,0 +1,103 @@
+import asyncio
+from datetime import timedelta
+
+import temporalio.workflow
+from temporalio.common import RetryPolicy
+
+from posthog.temporal.common.base import PostHogWorkflow
+
+with temporalio.workflow.unsafe.imports_passed_through():
+    from products.experiments.backend.temporal.models import (
+        ExperimentMetricsRecalculationWorkflowInputs,
+        RecalculationProgressUpdate,
+    )
+    from products.experiments.backend.temporal.recalculation_activities import (
+        calculate_experiment_metric_for_recalculation,
+        discover_experiment_metrics,
+        update_recalculation_progress,
+    )
+
+MAX_CONCURRENT_METRICS = 10
+
+
+@temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")
+class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
+    """Recalculate all metrics for an experiment on demand.
+
+    Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end), fans
+    out one calc activity per metric with bounded concurrency, then finalizes the job status. Per-metric progress
+    counters and errors are folded into the calc activity itself, so the workflow only writes progress at start
+    and finish.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ExperimentMetricsRecalculationWorkflowInputs:
+        return ExperimentMetricsRecalculationWorkflowInputs(recalculation_id=inputs[0])
+
+    @temporalio.workflow.run
+    async def run(self, inputs: ExperimentMetricsRecalculationWorkflowInputs) -> dict:
+        recalculation_id = inputs.recalculation_id
+
+        metrics = await temporalio.workflow.execute_activity(
+            discover_experiment_metrics,
+            recalculation_id,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        if not metrics:
+            await temporalio.workflow.execute_activity(
+                update_recalculation_progress,
+                RecalculationProgressUpdate(
+                    recalculation_id=recalculation_id,
+                    status="completed",
+                    total_metrics=0,
+                    mark_started=True,
+                    mark_completed=True,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+            return {"total": 0, "succeeded": 0, "failed": 0}
+
+        # Start the run: mark in_progress, persist the metric list, and pin the shared data-window end. The start
+        # activity returns that query_to so every calc activity below uses the exact same window.
+        query_to = await temporalio.workflow.execute_activity(
+            update_recalculation_progress,
+            RecalculationProgressUpdate(
+                recalculation_id=recalculation_id,
+                status="in_progress",
+                total_metrics=len(metrics),
+                metric_uuids=[m.metric_uuid for m in metrics],
+                mark_started=True,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
+
+        async def _run_metric(metric):
+            async with semaphore:
+                return await temporalio.workflow.execute_activity(
+                    calculate_experiment_metric_for_recalculation,
+                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    heartbeat_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(seconds=5),
+                        maximum_interval=timedelta(seconds=30),
+                    ),
+                )
+
+        results = await asyncio.gather(*[_run_metric(m) for m in metrics], return_exceptions=True)
+        succeeded = sum(1 for r in results if not isinstance(r, BaseException) and r.success)
+        failed = len(metrics) - succeeded
+
+        final_status = "failed" if failed == len(metrics) else "completed"
+        await temporalio.workflow.execute_activity(
+            update_recalculation_progress,
+            RecalculationProgressUpdate(recalculation_id=recalculation_id, status=final_status, mark_completed=True),
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
