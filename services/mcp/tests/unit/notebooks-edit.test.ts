@@ -669,8 +669,10 @@ describe('notebooks-edit', () => {
                 {
                     type: 'replace_text',
                     anchor: 'Device & browser',
+                    occurrence: 1,
                     find: 'LIMIT 20',
                     replace: 'LIMIT 100',
+                    all_occurrences: false,
                 },
             ],
         })
@@ -735,8 +737,10 @@ describe('notebooks-edit', () => {
                 {
                     type: 'replace_text',
                     anchor: 'Event retention lift (sorted by lift desc)',
+                    occurrence: 1,
                     find: 'LIMIT 40',
                     replace: 'LIMIT 100',
+                    all_occurrences: false,
                 },
             ],
         })
@@ -785,8 +789,10 @@ describe('notebooks-edit', () => {
                 {
                     type: 'replace_text',
                     anchor: 'Recent events',
+                    occurrence: 1,
                     find: 'LIMIT 40',
                     replace: 'LIMIT 100',
+                    all_occurrences: false,
                 },
             ],
         })
