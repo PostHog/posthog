@@ -340,13 +340,69 @@ def build_inference_anchors_sql(
     return sql, values
 
 
+def strip_sql_comments(sql: str) -> str:
+    """
+    Remove ``--`` line comments and ``/* */`` block comments from HogQL, leaving
+    string/identifier literals intact.
+
+    Agent-authored feature SQL routinely carries comments. Blindly substituting
+    ``{anchors}`` with a multi-line subquery that happens to land inside a ``--``
+    comment injects newlines that escape the comment and corrupt the parse, and a
+    comment can also swallow the rest of a line it was never meant to. Stripping
+    comments before substitution sidesteps both. Single-quoted strings (with the
+    ``''`` escape), double-quoted identifiers, and backtick identifiers are
+    preserved verbatim so a literal ``--`` or ``/*`` inside them is not mistaken
+    for a comment.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(sql)
+    quote: str | None = None  # one of ' " ` when inside a literal
+    while i < n:
+        ch = sql[i]
+        if quote is not None:
+            out.append(ch)
+            if ch == quote:
+                # '' inside a single-quoted string is an escaped quote, not a close.
+                if quote == "'" and i + 1 < n and sql[i + 1] == "'":
+                    out.append("'")
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            i += 2
+            while i < n and sql[i] != "\n":
+                i += 1
+            continue  # leave the newline so adjacent tokens don't fuse
+        if ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (sql[i] == "*" and sql[i + 1] == "/"):
+                i += 1
+            i += 2  # skip the closing */
+            out.append(" ")  # block comment may sit mid-expression; keep a separator
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _substitute_anchors(feature_sql: str, anchors_subquery: str) -> str:
     """
     Substitute the agent's `{anchors}` placeholder with the actual per-user
     cutoff subquery. The contract from Step B's static validator guarantees
     the placeholder is present.
+
+    Comments are stripped first so a placeholder sitting in (or adjacent to) a
+    comment can't break the substituted SQL — see ``strip_sql_comments``.
     """
-    return feature_sql.replace("{anchors}", anchors_subquery)
+    return strip_sql_comments(feature_sql).replace("{anchors}", anchors_subquery)
 
 
 def build_training_features_sql(

@@ -177,3 +177,67 @@ class TestAgentRecordedTraining(APIBaseTest):
         # Pipeline belongs to another team — must not be reachable through this project.
         assert resp.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND)
         assert not AutoresearchTrainingRun.objects.filter(pipeline=other_pipeline).exists()
+
+    def test_complete_records_artifact_prefix_when_bundle_uploaded(self):
+        from products.autoresearch.backend import artifacts
+
+        fake_storage = _InMemoryStorage()
+        with patch.object(artifacts, "object_storage", fake_storage):
+            run_id = self._open_run()
+            self._record(run_id, number=0, status_value="kept", holdout=0.82)
+
+            run = AutoresearchTrainingRun.objects.get(pk=run_id)
+            prefix = artifacts.bundle_prefix(
+                team_id=self.team.pk, pipeline_id=str(self.pipeline.pk), training_run_id=str(run.pk)
+            )
+            artifacts.write_bundle(
+                prefix,
+                artifacts.ArtifactBundle(
+                    train_py="print('train')",
+                    predict_py="print('predict')",
+                    features_sql="SELECT a.person_id AS distinct_id FROM {anchors} a",
+                    recipe_yml="model_class: sklearn.ensemble.GradientBoostingClassifier\nagent:\n  iteration_count: 1\n",
+                ),
+            )
+
+            resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
+            assert resp.status_code == status.HTTP_200_OK
+
+        champion = AutoresearchModel.objects.get(pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION)
+        assert champion.artifact_prefix == prefix
+        assert champion.metrics["artifact_bundle"] is True
+        # recipe.yml metadata is folded into model_recipe for the model card.
+        assert champion.model_recipe["model_class"] == "sklearn.ensemble.GradientBoostingClassifier"
+
+    def test_complete_without_bundle_leaves_artifact_prefix_empty(self):
+        run_id = self._open_run()
+        self._record(run_id, number=0, status_value="kept", holdout=0.7)
+        resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        champion = AutoresearchModel.objects.get(pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION)
+        assert champion.artifact_prefix == ""
+        assert champion.metrics["artifact_bundle"] is False
+
+
+class _InMemoryStorage:
+    """In-memory object_storage stand-in for bundle round-trips in tests."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, bytes] = {}
+
+    def write(self, key, content, extras=None, bucket=None) -> None:
+        self.store[key] = content if isinstance(content, bytes) else content.encode("utf-8")
+
+    def read_bytes(self, key, bucket=None, *, missing_ok: bool = False):
+        if key in self.store:
+            return self.store[key]
+        if missing_ok:
+            return None
+        raise FileNotFoundError(key)
+
+    def delete(self, key, bucket=None) -> None:
+        self.store.pop(key, None)
+
+    def list_objects(self, prefix):
+        keys = [k for k in self.store if k.startswith(prefix)]
+        return keys or None

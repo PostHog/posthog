@@ -607,6 +607,70 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
     )
 
 
+# ── Artifact bundle serializers ─────────────────────────────────────────────
+
+
+class ArtifactUploadSerializer(serializers.Serializer):
+    """Input for uploading one file of a training run's artifact bundle."""
+
+    path = serializers.CharField(
+        max_length=500,
+        help_text=(
+            "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', "
+            "'recipe.yml', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; "
+            "absolute paths and '..' traversal are rejected."
+        ),
+    )
+    content_base64 = serializers.CharField(
+        help_text=(
+            "File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded."
+        ),
+    )
+
+
+class ArtifactPathSerializer(serializers.Serializer):
+    """Input for fetching or deleting one bundle file by path."""
+
+    path = serializers.CharField(
+        max_length=500,
+        help_text="Relative path of the file within the bundle, e.g. 'train.py'.",
+    )
+
+
+class StoredArtifactSerializer(serializers.Serializer):
+    """Result of an upload: where the file landed and its content hash."""
+
+    path = serializers.CharField(help_text="Relative path the file was stored at.")
+    size_bytes = serializers.IntegerField(help_text="Decoded file size in bytes.")
+    sha256 = serializers.CharField(help_text="SHA-256 hex digest of the decoded file content.")
+
+
+class ArtifactContentSerializer(serializers.Serializer):
+    """A single bundle file's content, base64-encoded."""
+
+    path = serializers.CharField(help_text="Relative path of the file within the bundle.")
+    size_bytes = serializers.IntegerField(help_text="File size in bytes.")
+    sha256 = serializers.CharField(help_text="SHA-256 hex digest of the file content.")
+    content_base64 = serializers.CharField(help_text="File contents, base64-encoded.")
+
+
+class ArtifactListSerializer(serializers.Serializer):
+    """The relative paths present in a training run's bundle."""
+
+    paths = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Relative paths of every file stored under this training run's bundle prefix.",
+    )
+    count = serializers.IntegerField(help_text="Number of files in the bundle.")
+
+
+class ArtifactDeleteResultSerializer(serializers.Serializer):
+    """Whether a delete removed an existing file."""
+
+    path = serializers.CharField(help_text="Relative path targeted for deletion.")
+    deleted = serializers.BooleanField(help_text="True if a file existed and was removed; False if nothing was there.")
+
+
 # ── Suggestion serializers ─────────────────────────────────────────────────
 
 

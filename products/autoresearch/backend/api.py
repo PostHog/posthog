@@ -1,5 +1,7 @@
 import json
+import base64
 import hashlib
+import binascii
 from typing import Any
 
 from django.utils import timezone as django_timezone
@@ -8,7 +10,7 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,6 +19,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.autoresearch.backend import artifacts as artifact_store
 from products.autoresearch.backend.access import has_autoresearch_access
 from products.autoresearch.backend.inference import run_inference_for_pipeline
 from products.autoresearch.backend.models import (
@@ -30,6 +33,11 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.online_validation import run_online_validation_for_pipeline
 from products.autoresearch.backend.promotion import complete_training_run
 from products.autoresearch.backend.serializers import (
+    ArtifactContentSerializer,
+    ArtifactDeleteResultSerializer,
+    ArtifactListSerializer,
+    ArtifactPathSerializer,
+    ArtifactUploadSerializer,
     AutoresearchIterationSerializer,
     AutoresearchModelSerializer,
     AutoresearchPipelineCreateSerializer,
@@ -44,6 +52,7 @@ from products.autoresearch.backend.serializers import (
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
     StartTrainingRequestSerializer,
+    StoredArtifactSerializer,
     TemplateInfoSerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
@@ -453,8 +462,14 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     """
 
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["create", "record_iteration", "complete"]
+    scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact"]
+    scope_object_write_actions = [
+        "create",
+        "record_iteration",
+        "complete",
+        "upload_artifact",
+        "delete_artifact",
+    ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = AutoresearchTrainingRun.objects.all()
@@ -583,6 +598,117 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         )
         training_run.refresh_from_db()
         return Response(AutoresearchTrainingRunSerializer(training_run).data)
+
+    def _bundle_prefix(self, training_run: AutoresearchTrainingRun) -> str:
+        return artifact_store.bundle_prefix(
+            team_id=self.team_id,
+            pipeline_id=str(training_run.pipeline_id),
+            training_run_id=str(training_run.id),
+        )
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ArtifactListSerializer,
+                description="The relative paths of every file in this run's artifact bundle.",
+            ),
+        },
+        summary="List artifact bundle files",
+        description=(
+            "List the files an agent has uploaded for this training run's artifact bundle "
+            "(train.py, predict.py, features.sql, recipe.yml, and any eda/ notebooks)."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="artifacts")
+    def list_artifacts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        paths = artifact_store.list_artifacts(self._bundle_prefix(training_run))
+        return Response(ArtifactListSerializer({"paths": paths, "count": len(paths)}).data)
+
+    @validated_request(
+        request_serializer=ArtifactUploadSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=StoredArtifactSerializer,
+                description="The stored file's path, size, and content hash.",
+            ),
+            400: OpenApiResponse(description="Invalid path, content is not base64, or file exceeds the size limit."),
+        },
+        summary="Upload an artifact bundle file",
+        description=(
+            "Upload one file of this training run's artifact bundle. Send the file contents "
+            "base64-encoded in content_base64. Re-uploading the same path overwrites it. "
+            "Use this — not curl/set_output — to author train.py, predict.py, features.sql, and recipe.yml."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/upload")
+    def upload_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        data = request.validated_data  # type: ignore[attr-defined]
+        try:
+            content = base64.b64decode(data["content_base64"], validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValidationError("content_base64 is not valid base64.") from exc
+        try:
+            stored = artifact_store.write_artifact(self._bundle_prefix(training_run), data["path"], content)
+        except artifact_store.InvalidArtifactPath as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(StoredArtifactSerializer(stored).data, status=201)
+
+    @validated_request(
+        request_serializer=ArtifactPathSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ArtifactContentSerializer,
+                description="The file's content, base64-encoded, with its size and hash.",
+            ),
+            404: OpenApiResponse(description="No file at that path in this run's bundle."),
+        },
+        summary="Get an artifact bundle file",
+        description="Fetch one file from this training run's artifact bundle, base64-encoded.",
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/get")
+    def get_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        path = request.validated_data["path"]  # type: ignore[attr-defined]
+        try:
+            content = artifact_store.read_artifact(self._bundle_prefix(training_run), path)
+        except artifact_store.InvalidArtifactPath as exc:
+            raise ValidationError(str(exc)) from exc
+        except artifact_store.BundleNotFound as exc:
+            raise NotFound(str(exc)) from exc
+        return Response(
+            ArtifactContentSerializer(
+                {
+                    "path": artifact_store.normalize_artifact_path(path),
+                    "size_bytes": len(content),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                }
+            ).data
+        )
+
+    @validated_request(
+        request_serializer=ArtifactPathSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ArtifactDeleteResultSerializer,
+                description="Whether a file existed at that path and was removed.",
+            ),
+        },
+        summary="Delete an artifact bundle file",
+        description="Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op.",
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/delete")
+    def delete_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        path = request.validated_data["path"]  # type: ignore[attr-defined]
+        try:
+            deleted = artifact_store.delete_artifact(self._bundle_prefix(training_run), path)
+            normalized = artifact_store.normalize_artifact_path(path)
+        except artifact_store.InvalidArtifactPath as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(ArtifactDeleteResultSerializer({"path": normalized, "deleted": deleted}).data)
 
 
 @extend_schema(tags=["autoresearch"])

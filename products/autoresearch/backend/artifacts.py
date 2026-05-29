@@ -13,6 +13,8 @@ naturally and bundles never collide across tenants.
 
 from __future__ import annotations
 
+import re
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +32,34 @@ PREDICT_PY = "predict.py"
 FEATURES_SQL = "features.sql"
 RECIPE_YML = "recipe.yml"
 BUNDLE_FILES: tuple[str, ...] = (TRAIN_PY, PREDICT_PY, FEATURES_SQL, RECIPE_YML)
+
+# Relative paths an agent may upload: bundle files at the top level plus optional
+# eda/ notebooks. Conservative on purpose — segment names are limited to word
+# chars, dot, and dash so nothing can climb out of the run prefix.
+_SAFE_PATH_SEGMENT = re.compile(r"^[\w.\-]+$")
+# A single file upload caps here so one base64 MCP payload can't blow memory.
+MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
+
+
+class InvalidArtifactPath(ValueError):
+    """Raised when an upload/get path would escape the run prefix or is malformed."""
+
+
+def normalize_artifact_path(path: str) -> str:
+    """
+    Validate and normalize a relative artifact path. Rejects absolute paths,
+    traversal (``..``), and segments with unexpected characters.
+    """
+    candidate = (path or "").strip().lstrip("/")
+    if not candidate:
+        raise InvalidArtifactPath("Artifact path must not be empty.")
+    segments = candidate.split("/")
+    for seg in segments:
+        if seg in ("", ".", "..") or not _SAFE_PATH_SEGMENT.match(seg):
+            raise InvalidArtifactPath(
+                f"Invalid artifact path {path!r}: each segment must match [A-Za-z0-9_.-] and not be '.' or '..'."
+            )
+    return "/".join(segments)
 
 
 @dataclass
@@ -106,3 +136,49 @@ def delete_bundle(prefix: str) -> None:
     for key in list_bundle(prefix):
         object_storage.delete(key)
     logger.info("autoresearch_bundle_deleted", prefix=prefix)
+
+
+# ── Per-file access (the MCP upload/get/list/delete surface) ─────────────────────
+
+
+@dataclass
+class StoredArtifact:
+    path: str
+    size_bytes: int
+    sha256: str
+
+
+def write_artifact(prefix: str, path: str, content: bytes) -> StoredArtifact:
+    """Write one file under ``prefix`` at the validated relative ``path``."""
+    rel = normalize_artifact_path(path)
+    if len(content) > MAX_ARTIFACT_BYTES:
+        raise InvalidArtifactPath(f"Artifact {rel!r} is {len(content)} bytes; the limit is {MAX_ARTIFACT_BYTES} bytes.")
+    object_storage.write(f"{prefix}/{rel}", content)
+    logger.info("autoresearch_artifact_written", prefix=prefix, path=rel, size=len(content))
+    return StoredArtifact(path=rel, size_bytes=len(content), sha256=hashlib.sha256(content).hexdigest())
+
+
+def read_artifact(prefix: str, path: str) -> bytes:
+    """Read one file under ``prefix``. Raises ``BundleNotFound`` if absent."""
+    rel = normalize_artifact_path(path)
+    content = object_storage.read_bytes(f"{prefix}/{rel}", missing_ok=True)
+    if content is None:
+        raise BundleNotFound(f"Artifact {rel!r} not found under {prefix}.")
+    return content
+
+
+def delete_artifact(prefix: str, path: str) -> bool:
+    """Delete one file under ``prefix``. Returns False if it was not present."""
+    rel = normalize_artifact_path(path)
+    if object_storage.read_bytes(f"{prefix}/{rel}", missing_ok=True) is None:
+        return False
+    object_storage.delete(f"{prefix}/{rel}")
+    logger.info("autoresearch_artifact_deleted", prefix=prefix, path=rel)
+    return True
+
+
+def list_artifacts(prefix: str) -> list[str]:
+    """Return the relative paths present under ``prefix`` (sorted, prefix stripped)."""
+    keys = object_storage.list_objects(prefix) or []
+    rels = [key[len(prefix) + 1 :] for key in keys if key.startswith(f"{prefix}/")]
+    return sorted(rels)
