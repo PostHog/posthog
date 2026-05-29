@@ -38,6 +38,6 @@ def build_access_control_guard(
             name="toString",
             args=[ast.Field(chain=[pk], type=ast.FieldType(name=pk, table_type=table_type))],
         ),
-        right=ast.Tuple(exprs=[ast.Constant(value=bid) for bid in sorted(blocked_ids)]),
+        right=ast.Constant(value=sorted(blocked_ids), is_sensitive=True),
         type=ast.BooleanType(),
     )

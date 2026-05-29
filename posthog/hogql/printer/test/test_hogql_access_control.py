@@ -126,6 +126,66 @@ class TestAccessControlGuard(BaseTest):
         guard = build_access_control_guard(dashboards, table_type, context)
         assert guard is None
 
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_blocked_ids_bind_as_single_sensitive_placeholder(self):
+        """
+        The deny list compiles to one ``%(..._sensitive)s`` placeholder bound to a list,
+        not N per-ID placeholders. Mirrors ``JSONDropKeys`` in property-level AC.
+        """
+        from posthog.hogql.parser import parse_select
+
+        from posthog.clickhouse.client.escape import substitute_params_for_display
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        for resource_id in ("dash-1", "dash-2", "dash-3"):
+            AccessControl.objects.create(
+                team=self.team,
+                resource="dashboard",
+                resource_id=resource_id,
+                access_level="none",
+            )
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+        )
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id, name FROM system.dashboards"),
+            context=context,
+            dialect="clickhouse",
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        sensitive_keys = [k for k in context.values if k.endswith("_sensitive")]
+        deny_keys = [k for k in sensitive_keys if isinstance(context.values[k], list)]
+        assert len(deny_keys) == 1, f"expected exactly one sensitive list placeholder, got {sensitive_keys!r}"
+        deny_key = deny_keys[0]
+        assert context.values[deny_key] == ["dash-1", "dash-2", "dash-3"]
+        assert f"notIn(toString(system__dashboards.id), %({deny_key})s)" in sql
+        # No raw IDs leaked into the SQL template
+        for raw in ("'dash-1'", "'dash-2'", "'dash-3'"):
+            assert raw not in sql
+
+        # And the display renderer scrubs them.
+        rendered = substitute_params_for_display(sql, context.values)
+        for raw in ("dash-1", "dash-2", "dash-3"):
+            assert raw not in rendered
+        assert "[HIDDEN]" in rendered
+
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestDeniedTableError(BaseTest):

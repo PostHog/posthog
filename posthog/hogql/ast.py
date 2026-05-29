@@ -948,6 +948,11 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
+    # When True, the SQL printer routes this constant through
+    # ``HogQLContext.add_sensitive_value`` so the placeholder key gets the
+    # ``_sensitive`` suffix and ``substitute_params_for_display`` redacts the
+    # value to ``[HIDDEN]``
+    is_sensitive: bool = False
 
 
 # Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.

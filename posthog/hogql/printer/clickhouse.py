@@ -385,6 +385,8 @@ class ClickHousePrinter(BasePrinter):
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            if node.is_sensitive:
+                return self.context.add_sensitive_value(node.value)
             return self.context.add_value(node.value)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
