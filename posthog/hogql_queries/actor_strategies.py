@@ -18,7 +18,11 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
+from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
+    _batched_get_distinct_ids_for_persons,
+    _batched_get_persons_by_uuids,
+)
 from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
@@ -66,8 +70,6 @@ class PersonStrategy(ActorStrategy):
     field = "person"
     origin = "persons"
     origin_id = "id"
-
-    _SQL_BATCH_SIZE = 1000
 
     def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
         from posthog.personhog_client.client import get_personhog_client
@@ -132,8 +134,8 @@ class PersonStrategy(ActorStrategy):
         all_distinct_ids: list = []
 
         with conn.cursor() as cursor:
-            for i in range(0, len(actor_ids_list), self._SQL_BATCH_SIZE):
-                batch = actor_ids_list[i : i + self._SQL_BATCH_SIZE]
+            for i in range(0, len(actor_ids_list), PERSONHOG_BATCH_SIZE):
+                batch = actor_ids_list[i : i + PERSONHOG_BATCH_SIZE]
                 persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at, {person_table}.last_seen_at
                     FROM {person_table}
                     WHERE {person_table}.uuid = ANY(%(uuids)s)
@@ -148,8 +150,8 @@ class PersonStrategy(ActorStrategy):
                 all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
 
             person_ids = [x[0] for x in all_people]
-            for i in range(0, len(person_ids), self._SQL_BATCH_SIZE):
-                batch = person_ids[i : i + self._SQL_BATCH_SIZE]
+            for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
+                batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
                 cursor.execute(
                     f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
                     FROM {pdi_table}
