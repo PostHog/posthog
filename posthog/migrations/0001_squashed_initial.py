@@ -1105,18 +1105,9 @@ class Migration(migrations.Migration):
                 "constraints": [],
             },
         ),
-        migrations.CreateModel(
-            name="InstanceSetting",
-            fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("key", models.CharField(max_length=128)),
-                ("raw_value", models.CharField(blank=True, max_length=1024)),
-            ],
-            options={
-                "indexes": [],
-                "constraints": [models.UniqueConstraint(fields=("key",), name="unique key")],
-            },
-        ),
+        # InstanceSetting moved up to posthog/0000_squashed_stub.py so the table
+        # exists by the time `migrate_clickhouse` (running in parallel from bin/migrate)
+        # reads it via get_instance_setting().
         migrations.CreateModel(
             name="Prompt",
             fields=[
