@@ -811,6 +811,66 @@
             "readOnlyHint": false
         }
     },
+    "autoresearch-training-runs-artifacts-delete-create": {
+        "description": "Remove one file from a training run's artifact bundle. Idempotent — deleting a missing file is a no-op.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Delete an artifact bundle file",
+        "title": "Delete an artifact bundle file",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "autoresearch-training-runs-artifacts-get-create": {
+        "description": "Fetch one file from a training run's artifact bundle, base64-encoded. Use this to read the prior champion's train.py / features.sql as a starting point before iterating (look up the champion's source_training_run via autoresearch-models-retrieve).",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Get an artifact bundle file",
+        "title": "Get an artifact bundle file",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-training-runs-artifacts-retrieve": {
+        "description": "List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql, recipe.yml, and any eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List artifact bundle files",
+        "title": "List artifact bundle files",
+        "required_scopes": ["autoresearch:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "autoresearch-training-runs-artifacts-upload-create": {
+        "description": "Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, recipe.yml, or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and predict.py (standalone sklearn scripts), features.sql (HogQL with the {anchors}/{lookback_days} contract), and recipe.yml (informational metadata), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference runs in a sandbox.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Upload an artifact bundle file",
+        "title": "Upload an artifact bundle file",
+        "required_scopes": ["autoresearch:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "autoresearch-training-runs-complete-create": {
         "description": "Finalize a training run. The backend selects the best iteration (highest holdout_score, or the best_iteration_id you name), decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card.",
         "category": "Autoresearch",

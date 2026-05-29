@@ -4416,6 +4416,64 @@ export namespace Schemas {
     }
 
     /**
+     * A single bundle file's content, base64-encoded.
+     */
+    export interface ArtifactContent {
+      /** Relative path of the file within the bundle. */
+      path: string;
+      /** File size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the file content. */
+      sha256: string;
+      /** File contents, base64-encoded. */
+      content_base64: string;
+    }
+
+    /**
+     * Whether a delete removed an existing file.
+     */
+    export interface ArtifactDeleteResult {
+      /** Relative path targeted for deletion. */
+      path: string;
+      /** True if a file existed and was removed; False if nothing was there. */
+      deleted: boolean;
+    }
+
+    /**
+     * The relative paths present in a training run's bundle.
+     */
+    export interface ArtifactList {
+      /** Relative paths of every file stored under this training run's bundle prefix. */
+      paths: string[];
+      /** Number of files in the bundle. */
+      count: number;
+    }
+
+    /**
+     * Input for fetching or deleting one bundle file by path.
+     */
+    export interface ArtifactPath {
+      /**
+         * Relative path of the file within the bundle, e.g. 'train.py'.
+         * @maxLength 500
+         */
+      path: string;
+    }
+
+    /**
+     * Input for uploading one file of a training run's artifact bundle.
+     */
+    export interface ArtifactUpload {
+      /**
+         * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', 'recipe.yml', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+         * @maxLength 500
+         */
+      path: string;
+      /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
+      content_base64: string;
+    }
+
+    /**
      * * `user` - user
     * `role` - role
      */
@@ -36685,6 +36743,18 @@ export namespace Schemas {
          * @maximum 500
          */
       iteration_budget?: number;
+    }
+
+    /**
+     * Result of an upload: where the file landed and its content hash.
+     */
+    export interface StoredArtifact {
+      /** Relative path the file was stored at. */
+      path: string;
+      /** Decoded file size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the decoded file content. */
+      sha256: string;
     }
 
     export interface SummaryBullet {

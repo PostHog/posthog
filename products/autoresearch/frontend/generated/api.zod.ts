@@ -143,6 +143,58 @@ export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
     .describe('Input for opening an agent-driven training run.')
 
 /**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsDeleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax)
+            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
+    })
+    .describe('Input for fetching or deleting one bundle file by path.')
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsGetCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsGetCreateBodyPathMax)
+            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
+    })
+    .describe('Input for fetching or deleting one bundle file by path.')
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, features.sql, and recipe.yml.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax)
+            .describe(
+                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', 'recipe.yml', or 'eda\/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
+            ),
+        content_base64: zod
+            .string()
+            .describe(
+                'File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded.'
+            ),
+    })
+    .describe("Input for uploading one file of a training run's artifact bundle.")
+
+/**
  * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
  * @summary Complete a training run
  */

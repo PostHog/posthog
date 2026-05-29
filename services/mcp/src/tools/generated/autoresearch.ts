@@ -27,6 +27,13 @@ import {
     AutoresearchTemplatesListQueryParams,
     AutoresearchTrainCreateBody,
     AutoresearchTrainCreateParams,
+    AutoresearchTrainingRunsArtifactsDeleteCreateBody,
+    AutoresearchTrainingRunsArtifactsDeleteCreateParams,
+    AutoresearchTrainingRunsArtifactsGetCreateBody,
+    AutoresearchTrainingRunsArtifactsGetCreateParams,
+    AutoresearchTrainingRunsArtifactsRetrieveParams,
+    AutoresearchTrainingRunsArtifactsUploadCreateBody,
+    AutoresearchTrainingRunsArtifactsUploadCreateParams,
     AutoresearchTrainingRunsCompleteCreateBody,
     AutoresearchTrainingRunsCompleteCreateParams,
     AutoresearchTrainingRunsCreateBody,
@@ -629,6 +636,106 @@ const autoresearchTrainCreate = (): ToolBase<
     },
 })
 
+const AutoresearchTrainingRunsArtifactsUploadCreateSchema = AutoresearchTrainingRunsArtifactsUploadCreateParams.omit({
+    project_id: true,
+}).extend(AutoresearchTrainingRunsArtifactsUploadCreateBody.shape)
+
+const autoresearchTrainingRunsArtifactsUploadCreate = (): ToolBase<
+    typeof AutoresearchTrainingRunsArtifactsUploadCreateSchema,
+    Schemas.StoredArtifact
+> => ({
+    name: 'autoresearch-training-runs-artifacts-upload-create',
+    schema: AutoresearchTrainingRunsArtifactsUploadCreateSchema,
+    mcpVersion: 2,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsArtifactsUploadCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.content_base64 !== undefined) {
+            body['content_base64'] = params.content_base64
+        }
+        const result = await context.api.request<Schemas.StoredArtifact>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/artifacts/upload/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AutoresearchTrainingRunsArtifactsGetCreateSchema = AutoresearchTrainingRunsArtifactsGetCreateParams.omit({
+    project_id: true,
+}).extend(AutoresearchTrainingRunsArtifactsGetCreateBody.shape)
+
+const autoresearchTrainingRunsArtifactsGetCreate = (): ToolBase<
+    typeof AutoresearchTrainingRunsArtifactsGetCreateSchema,
+    Schemas.ArtifactContent
+> => ({
+    name: 'autoresearch-training-runs-artifacts-get-create',
+    schema: AutoresearchTrainingRunsArtifactsGetCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsArtifactsGetCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        const result = await context.api.request<Schemas.ArtifactContent>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/artifacts/get/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AutoresearchTrainingRunsArtifactsRetrieveSchema = AutoresearchTrainingRunsArtifactsRetrieveParams.omit({
+    project_id: true,
+})
+
+const autoresearchTrainingRunsArtifactsRetrieve = (): ToolBase<
+    typeof AutoresearchTrainingRunsArtifactsRetrieveSchema,
+    Schemas.ArtifactList
+> => ({
+    name: 'autoresearch-training-runs-artifacts-retrieve',
+    schema: AutoresearchTrainingRunsArtifactsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsArtifactsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ArtifactList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/artifacts/`,
+        })
+        return result
+    },
+})
+
+const AutoresearchTrainingRunsArtifactsDeleteCreateSchema = AutoresearchTrainingRunsArtifactsDeleteCreateParams.omit({
+    project_id: true,
+}).extend(AutoresearchTrainingRunsArtifactsDeleteCreateBody.shape)
+
+const autoresearchTrainingRunsArtifactsDeleteCreate = (): ToolBase<
+    typeof AutoresearchTrainingRunsArtifactsDeleteCreateSchema,
+    Schemas.ArtifactDeleteResult
+> => ({
+    name: 'autoresearch-training-runs-artifacts-delete-create',
+    schema: AutoresearchTrainingRunsArtifactsDeleteCreateSchema,
+    mcpVersion: 2,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsArtifactsDeleteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        const result = await context.api.request<Schemas.ArtifactDeleteResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/artifacts/delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AutoresearchTrainingRunsCompleteCreateSchema = AutoresearchTrainingRunsCompleteCreateParams.omit({
     project_id: true,
 }).extend(AutoresearchTrainingRunsCompleteCreateBody.shape)
@@ -885,6 +992,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-suggestions-retrieve': autoresearchSuggestionsRetrieve,
     'autoresearch-templates-list': autoresearchTemplatesList,
     'autoresearch-train-create': autoresearchTrainCreate,
+    'autoresearch-training-runs-artifacts-upload-create': autoresearchTrainingRunsArtifactsUploadCreate,
+    'autoresearch-training-runs-artifacts-get-create': autoresearchTrainingRunsArtifactsGetCreate,
+    'autoresearch-training-runs-artifacts-retrieve': autoresearchTrainingRunsArtifactsRetrieve,
+    'autoresearch-training-runs-artifacts-delete-create': autoresearchTrainingRunsArtifactsDeleteCreate,
     'autoresearch-training-runs-complete-create': autoresearchTrainingRunsCompleteCreate,
     'autoresearch-training-runs-create': autoresearchTrainingRunsCreate,
     'autoresearch-training-runs-iterations-create': autoresearchTrainingRunsIterationsCreate,

@@ -9,6 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArtifactContentApi,
+    ArtifactDeleteResultApi,
+    ArtifactListApi,
+    ArtifactPathApi,
+    ArtifactUploadApi,
     AutoresearchIterationApi,
     AutoresearchListParams,
     AutoresearchModelApi,
@@ -36,6 +41,7 @@ import type {
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
     StartTrainingRequestApi,
+    StoredArtifactApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
 } from './api.schemas'
@@ -397,6 +403,109 @@ export const autoresearchTrainingRunsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAutoresearchTrainingRunsArtifactsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/`
+}
+
+/**
+ * List the files an agent has uploaded for this training run's artifact bundle (train.py, predict.py, features.sql, recipe.yml, and any eda/ notebooks).
+ * @summary List artifact bundle files
+ */
+export const autoresearchTrainingRunsArtifactsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ArtifactListApi> => {
+    return apiMutator<ArtifactListApi>(getAutoresearchTrainingRunsArtifactsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsDeleteCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/delete/`
+}
+
+/**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactDeleteResultApi> => {
+    return apiMutator<ArtifactDeleteResultApi>(
+        getAutoresearchTrainingRunsArtifactsDeleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactPathApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsArtifactsGetCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/get/`
+}
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactContentApi> => {
+    return apiMutator<ArtifactContentApi>(getAutoresearchTrainingRunsArtifactsGetCreateUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(artifactPathApi),
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsUploadCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/upload/`
+}
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, features.sql, and recipe.yml.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactUploadApi: ArtifactUploadApi,
+    options?: RequestInit
+): Promise<StoredArtifactApi> => {
+    return apiMutator<StoredArtifactApi>(
+        getAutoresearchTrainingRunsArtifactsUploadCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactUploadApi),
+        }
+    )
 }
 
 export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, pipelineId: string, id: string) => {
