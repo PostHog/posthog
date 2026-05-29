@@ -77,12 +77,10 @@ jobs:
               working-directory: rust
               run: |
                   if [ "$EVENT_NAME" = "pull_request" ]; then
-                      base_ref="$PR_BASE_SHA"
+                      result=$(./target/release/affected-services --base-ref "$PR_BASE_SHA")
                   else
-                      base_ref="$PUSH_BEFORE_SHA"
+                      result=$(./target/release/affected-services --files rust/Cargo.lock)
                   fi
-
-                  result=$(./target/release/affected-services --base-ref "$base_ref")
                   rebuild_all=$(echo "$result" | jq -r '.rebuild_all')
                   images=$(echo "$result" | jq -r '.images | join(",")')
 
