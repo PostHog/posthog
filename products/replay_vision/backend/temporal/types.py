@@ -79,9 +79,8 @@ class CreateObservationInputs(BaseModel, frozen=True):
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
-    """`was_created=False` means the row already existed; the caller should no-op."""
-
-    observation_id: UUID
+    # `was_created=False` means no row was persisted (either the row already existed, or the org's monthly quota is exhausted); the caller should no-op.
+    observation_id: UUID | None
     was_created: bool
     scanner_type: ScannerType
 

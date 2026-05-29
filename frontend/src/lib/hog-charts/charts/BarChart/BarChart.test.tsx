@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { renderHogChart } from '../../testing'
+import { getHogChartTooltip, renderHogChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -338,6 +338,105 @@ describe('BarChart', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
             expect(tooltipEl?.textContent ?? '').toBe('')
+        })
+
+        it('stacked horizontal suppresses tooltip past the bar value extent', async () => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                />
+            )
+            // plotHeight/2 lands in the middle row (Tue), which stacks to 35 while the value axis
+            // runs to the global max (Wed = 55) — so the left of the plot is filled bar and the
+            // right is empty track.
+            const yMidRow = dimensions.plotTop + dimensions.plotHeight / 2
+            // Over the bar: tooltip shows.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + dimensions.plotWidth * 0.2,
+                clientY: yMidRow,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.element.textContent).toContain('Tue')
+            // Past the bar's value extent: tooltip must clear.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + dimensions.plotWidth * 0.95,
+                clientY: yMidRow,
+            })
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+        })
+
+        describe('sparse-stacked horizontal (overlap layout)', () => {
+            // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
+            // its own dataIndex, every label is the same band. Smallest bar paints on top, so
+            // its colour wins at x=0..20, then mid at 20..50, then big at 50..100.
+            const SPARSE_LABELS = ['band', 'band', 'band']
+            const SPARSE_SERIES: Series[] = [
+                // DESC, matching how `trendsDataLogic` sorts ActionsBarValue results.
+                { key: 'big', label: 'Big', data: [100, 0, 0] },
+                { key: 'mid', label: 'Mid', data: [0, 50, 0] },
+                { key: 'small', label: 'Small', data: [0, 0, 20] },
+            ]
+            const HORIZONTAL_STACKED: BarChartConfig = { barLayout: 'stacked', axisOrientation: 'horizontal' }
+            // Value scale `[0, 100]` (already nice).
+            const xForValue = (value: number): number => dimensions.plotLeft + (value / 100) * dimensions.plotWidth
+            const yMidBand = dimensions.plotTop + dimensions.plotHeight / 2
+
+            it.each<[string, number, string, number]>([
+                ['small slice (0 < x < 20)', 10, 'small', 20],
+                ['mid slice (20 < x < 50)', 30, 'mid', 50],
+                ['big slice (50 < x < 100)', 75, 'big', 100],
+            ])(
+                'tooltip narrows to the visible segment with its own value for cursor in the %s',
+                async (_name, valueAtCursor, key, expectedValue) => {
+                    const { chart } = renderHogChart(
+                        <BarChart
+                            series={SPARSE_SERIES}
+                            labels={SPARSE_LABELS}
+                            theme={THEME}
+                            config={HORIZONTAL_STACKED}
+                        />
+                    )
+                    fireEvent.mouseMove(chart.element, {
+                        clientX: xForValue(valueAtCursor),
+                        clientY: yMidBand,
+                    })
+                    const tooltip = await chart.waitForTooltip()
+                    expect(tooltip.seriesData[0].series.key).toBe(key)
+                    expect(tooltip.seriesData[0].value).toBe(expectedValue)
+                }
+            )
+
+            it.each<[string, number, string, number, number]>([
+                ['small slice', 10, 'small', 20, 2],
+                ['mid slice', 30, 'mid', 50, 1],
+                ['big slice', 75, 'big', 100, 0],
+            ])(
+                'onPointClick routes to the visible segment for cursor in the %s',
+                async (_name, valueAtCursor, key, expectedValue, expectedSeriesIndex) => {
+                    const onPointClick = jest.fn()
+                    const { chart } = renderHogChart(
+                        <BarChart
+                            series={SPARSE_SERIES}
+                            labels={SPARSE_LABELS}
+                            theme={THEME}
+                            config={HORIZONTAL_STACKED}
+                            onPointClick={onPointClick}
+                        />
+                    )
+                    fireEvent.mouseMove(chart.element, {
+                        clientX: xForValue(valueAtCursor),
+                        clientY: yMidBand,
+                    })
+                    fireEvent.click(chart.element)
+                    const click: PointClickData = onPointClick.mock.calls[0][0]
+                    expect(click.series.key).toBe(key)
+                    expect(click.value).toBe(expectedValue)
+                    expect(click.seriesIndex).toBe(expectedSeriesIndex)
+                }
+            )
         })
 
         it('grouped layout still narrows when the cursor is above every bar (value-axis miss)', async () => {

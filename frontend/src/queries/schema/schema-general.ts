@@ -178,6 +178,7 @@ export enum NodeKind {
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
+    AccountsQuery = 'AccountsQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -243,6 +244,7 @@ export type AnyDataNode =
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
+    | AccountsQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -348,6 +350,7 @@ export type QuerySchema =
 
     // Customer analytics
     | UsageMetricsQuery
+    | AccountsQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -1052,6 +1055,7 @@ export interface DataTableNode
                     | ExperimentTrendsQuery
                     | TracesQuery
                     | EndpointsUsageTableQuery
+                    | AccountsQuery
                 )['response']
             >
         >,
@@ -1090,6 +1094,7 @@ export interface DataTableNode
         | TracesQuery
         | TraceQuery
         | EndpointsUsageTableQuery
+        | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -2251,6 +2256,35 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     search?: string
     properties?: AnyGroupScopeFilter[]
     group_type_index: integer
+    orderBy?: string[]
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedAccountsQueryResponse = CachedQueryResponse<AccountsQueryResponse>
+
+export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    kind: NodeKind.AccountsQuery
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit: integer
+    offset: integer
+}
+
+export type AccountsRoleAssignmentFilter = integer | 'unassigned'
+
+export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
+    kind: NodeKind.AccountsQuery
+    select?: HogQLExpression[]
+    search?: string
+    tagNames?: string[]
+    csm?: AccountsRoleAssignmentFilter
+    accountExecutive?: AccountsRoleAssignmentFilter
+    accountOwner?: AccountsRoleAssignmentFilter
+    allRolesUnassigned?: boolean
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -4297,6 +4331,8 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     url_pattern: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
+    /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
+    search_aliases?: string[]
 }
 
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
@@ -5870,6 +5906,14 @@ export interface SourceConfig {
      * @default false
      */
     featured?: boolean
+
+    /**
+     * Whether the source-creation wizard should expose the per-column projection picker.
+     * Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker
+     * for drivers that ignore `enabled_columns` at sync time.
+     * @default false
+     */
+    supportsColumnSelection?: boolean
 }
 
 export const externalDataSources = [
@@ -6311,6 +6355,11 @@ export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
 }
 
+/** Subscriptions a free-tier team may create. */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'
@@ -6511,6 +6560,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
     COHORTS = 'cohorts',
@@ -6532,7 +6582,6 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
-    LLM_ANALYTICS = 'llm_analytics',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',
@@ -6607,6 +6656,9 @@ export enum ProductIntentContext {
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
     LOGS_SET_FILTERS = 'logs_set_filters',
     LOGS_SETTINGS_OPENED = 'logs_settings_opened',
+
+    // Metrics
+    METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
