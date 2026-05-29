@@ -77,6 +77,54 @@ export function useSessionTeamId(): number | null {
     return info?.teamId ?? null
 }
 
+export interface SessionUser {
+    email: string | null
+    firstName: string | null
+    lastName: string | null
+    /** Convenience: 2-char uppercase initials from the name or email. */
+    initials: string
+    /** Convenience: name when present, falling back to the email's local part. */
+    displayName: string
+}
+
+export function useSessionUser(): SessionUser | null {
+    const { info } = useSession()
+    const profile = (info?.profile ?? null) as {
+        email?: string | null
+        first_name?: string | null
+        last_name?: string | null
+    } | null
+    if (!profile) {
+        return null
+    }
+    const firstName = profile.first_name ?? null
+    const lastName = profile.last_name ?? null
+    const email = profile.email ?? null
+    const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || email?.split('@')[0] || 'Account'
+    const initials = computeInitials(firstName, lastName, email)
+    return { email, firstName, lastName, initials, displayName }
+}
+
+function computeInitials(first: string | null, last: string | null, email: string | null): string {
+    const fromName = [first, last]
+        .filter((s): s is string => !!s && s.length > 0)
+        .map((s) => s[0]!.toUpperCase())
+        .join('')
+    if (fromName.length > 0) {
+        return fromName.slice(0, 2)
+    }
+    if (email) {
+        return email.slice(0, 2).toUpperCase()
+    }
+    return '??'
+}
+
+export function usePosthogBaseUrl(): string | null {
+    const { info } = useSession()
+    const url = (info as { posthogBaseUrl?: string } | null)?.posthogBaseUrl ?? null
+    return url
+}
+
 /**
  * `<SessionGate>` — blocks rendering until `/api/auth/me` resolves
  * (or errors). Mount it once inside the AppShell so child pages can

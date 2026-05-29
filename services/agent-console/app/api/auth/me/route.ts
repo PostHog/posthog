@@ -43,6 +43,10 @@ export async function GET(): Promise<Response> {
         teamId,
         oidc,
         profile,
+        // Surfaced so the browser can link back to the main app (the
+        // sidebar's "Back to PostHog" item) without leaking the internal
+        // url into client code.
+        posthogBaseUrl: posthogBaseUrl(),
     })
 }
 
