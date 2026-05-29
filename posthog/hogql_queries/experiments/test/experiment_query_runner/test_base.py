@@ -2293,17 +2293,73 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert control_variant is not None
         assert test_variant is not None
 
-    def test_missing_control_variant_raises_validation_error(self):
+    @parameterized.expand(
+        [
+            # Default baseline: "control" missing, other variants still present.
+            (
+                "default_baseline_missing",
+                None,
+                [
+                    {"key": "variant_a", "rollout_percentage": 50},
+                    {"key": "variant_b", "rollout_percentage": 50},
+                ],
+                "control",
+                ["variant_a", "variant_b"],
+            ),
+            # Custom baseline_variant_key set via stats_config, not on the flag.
+            (
+                "custom_baseline_missing",
+                {"baseline_variant_key": "baseline_v2"},
+                [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "baseline_v2",
+                ["control", "test"],
+            ),
+        ]
+    )
+    def test_missing_baseline_variant_raises_validation_error(
+        self, _name, stats_config, variants, expected_missing_key, expected_available
+    ):
         from rest_framework.exceptions import ValidationError
 
-        ff = self.create_feature_flag(key="missing-control-flag")
-        experiment = self.create_experiment(name="missing-control", feature_flag=ff)
+        ff = self.create_feature_flag(key="missing-baseline-flag")
+        experiment = self.create_experiment(name="missing-baseline", feature_flag=ff)
 
-        # Remove the "control" variant from the flag
-        ff.filters["multivariate"]["variants"] = [
-            {"key": "variant_a", "rollout_percentage": 50},
-            {"key": "variant_b", "rollout_percentage": 50},
-        ]
+        ff.filters["multivariate"]["variants"] = variants
+        ff.save()
+
+        if stats_config is not None:
+            experiment.stats_config = stats_config
+            experiment.save()
+
+        query = ExperimentQuery(
+            experiment_id=experiment.id,
+            metric=ExperimentMeanMetric(
+                metric_type="mean",
+                source=EventsNode(event="$pageview"),
+            ),
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentQueryRunner(query=query, team=self.team)
+
+        error_message = str(ctx.exception.detail)
+        self.assertIn(expected_missing_key, error_message)
+        self.assertIn("missing-baseline-flag", error_message)
+        for variant_key in expected_available:
+            self.assertIn(variant_key, error_message)
+
+    def test_missing_baseline_variant_with_empty_variants_renders_readable_message(self):
+        """When the multivariate config is gone entirely, the error message must
+        still read cleanly — not `"Available variants: . Please restore…"`."""
+        from rest_framework.exceptions import ValidationError
+
+        ff = self.create_feature_flag(key="no-variants-flag")
+        experiment = self.create_experiment(name="no-variants", feature_flag=ff)
+
+        ff.filters["multivariate"]["variants"] = []
         ff.save()
 
         query = ExperimentQuery(
@@ -2318,6 +2374,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             ExperimentQueryRunner(query=query, team=self.team)
 
         error_message = str(ctx.exception.detail)
-        self.assertIn("control", error_message)
-        self.assertIn("missing-control-flag", error_message)
-        self.assertIn("variant_a", error_message)
+        self.assertIn("Available variants: none.", error_message)
+        # Guard against the original dangling-period rendering.
+        self.assertNotIn("Available variants: .", error_message)
