@@ -99,14 +99,26 @@ jobs:
             - name: Compute affected crates
               id: affected
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/master' }}
+                  PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  PUSH_BEFORE_SHA: ${{ github.event.before }}
                   EVENT_NAME: ${{ github.event_name }}
               working-directory: rust
               run: |
-                  if [ "$EVENT_NAME" = "push" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                  if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
                       result=$(./target/release/affected-services --files rust/Cargo.lock)
+                  elif [ "$EVENT_NAME" = "push" ]; then
+                      base_ref="$PUSH_BEFORE_SHA"
                   else
-                      result=$(./target/release/affected-services --base-ref "$BASE_REF")
+                      base_ref="$PR_BASE_SHA"
+                  fi
+
+                  if [ -z "${result:-}" ]; then
+                      if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then
+                          echo "No valid base ref — rebuilding all"
+                          result=$(./target/release/affected-services --files rust/Cargo.lock)
+                      else
+                          result=$(./target/release/affected-services --base-ref "$base_ref")
+                      fi
                   fi
 
                   crates=$(echo "$result" | jq -c '.crates')
