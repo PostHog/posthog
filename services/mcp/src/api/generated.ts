@@ -12310,6 +12310,8 @@ export namespace Schemas {
       name: string;
       row_count?: number | null;
       schema?: DatabaseSchemaSchema | null;
+      /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
+      search_aliases?: string[] | null;
       source?: DatabaseSchemaSource | null;
       type?: 'data_warehouse';
       url_pattern: string;
