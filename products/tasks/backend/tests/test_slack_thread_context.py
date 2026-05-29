@@ -155,6 +155,17 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         )
         assert run_payload["log_url"] == "https://s3.example/presigned"
 
+    def test_log_presign_failure_returns_200_with_null_log_url(self):
+        # Presign failures must degrade to a null log_url, not 500.
+        self._create_fixture()
+        with patch(
+            "products.tasks.backend.api.object_storage.get_presigned_url",
+            side_effect=Exception("boto signing error"),
+        ):
+            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["runs"][0]["log_url"] is None
+
     def test_reply_url_uses_thread_ts_query_param(self):
         self._create_fixture()
         reply_url = (

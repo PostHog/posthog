@@ -295,12 +295,12 @@ def _slack_repo_research_payload(
     log_url = None
     run_status = None
     if research_run is not None:
-        sandbox_url = (research_run.state or {}).get("sandbox_url")
+        sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
         try:
             log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
         except Exception:
-            logger.exception("slack_thread_context_research_log_presign_failed", run_id=research_run_id)
+            logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
     workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
     return {
@@ -548,7 +548,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
             except Exception:
-                logger.exception("slack_thread_context_log_presign_failed", run_id=str(run.id))
+                logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
                 presigned_log_url = None
             run_payloads.append(
                 {
