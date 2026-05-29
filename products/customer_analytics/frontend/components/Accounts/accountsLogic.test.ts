@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType } from '~/types'
 
@@ -9,6 +10,10 @@ import { accountsList, accountsPartialUpdate } from 'products/customer_analytics
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_PAGE_SIZE, accountsLogic, savingRoleKey } from './accountsLogic'
+
+// `hogqlQuery.source` is typed as the full DataTableNode source union; this logic
+// always produces an AccountsQuery, so narrow once for the orderBy assertions.
+const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
@@ -181,13 +186,13 @@ describe('accountsLogic', () => {
     describe('sortOrder', () => {
         it('starts unset and produces no orderBy on the AccountsQuery', () => {
             expect(logic.values.sortOrder).toBeNull()
-            expect(logic.values.hogqlQuery.source.orderBy).toBeUndefined()
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
 
         it('toggleSort on a fresh column starts ascending', () => {
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['notebook_count'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
         })
 
         it('toggleSort cycles asc -> desc -> null on repeated clicks', () => {
@@ -195,10 +200,10 @@ describe('accountsLogic', () => {
             expect(logic.values.sortOrder?.direction).toBe('asc')
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'desc' })
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['notebook_count DESC'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
             logic.actions.toggleSort('notebook_count')
             expect(logic.values.sortOrder).toBeNull()
-            expect(logic.values.hogqlQuery.source.orderBy).toBeUndefined()
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
 
         it('toggleSort on a different column resets to ascending', () => {
@@ -206,30 +211,30 @@ describe('accountsLogic', () => {
             logic.actions.toggleSort('notebook_count') // desc
             logic.actions.toggleSort('csm')
             expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(csm, 2)'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2)'])
         })
 
         it('csm desc produces tupleElement(csm, 2) DESC', () => {
             logic.actions.toggleSort('csm')
             logic.actions.toggleSort('csm')
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(csm, 2) DESC'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2) DESC'])
         })
 
         it('account_executive sort uses the tupleElement expression', () => {
             logic.actions.toggleSort('account_executive')
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(account_executive, 2)'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_executive, 2)'])
         })
 
         it('account_owner sort uses the tupleElement expression', () => {
             logic.actions.toggleSort('account_owner')
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['tupleElement(account_owner, 2)'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_owner, 2)'])
         })
 
         it('arbitrary column sorts by its alias directly', () => {
             logic.actions.toggleSort('name')
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['name'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name'])
             logic.actions.toggleSort('name')
-            expect(logic.values.hogqlQuery.source.orderBy).toEqual(['name DESC'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name DESC'])
         })
 
         it('toggleSort resets pagination to page 1', async () => {

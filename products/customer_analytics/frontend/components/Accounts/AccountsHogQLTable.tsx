@@ -15,6 +15,7 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
+import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
 
@@ -59,7 +60,7 @@ function getCellAt(record: unknown, names: string[], column: string): unknown {
 const PINNED_COLUMN_NAMES = ['context.columns.id', 'context.columns.external_id']
 
 function useColumnNames(): string[] {
-    const { visibleColumnNames } = useValues(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     return [...PINNED_COLUMN_NAMES, ...visibleColumnNames]
 }
 
@@ -231,7 +232,7 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 }
 
 function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames } = useValues(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {
             id: HIDDEN_COLUMN,

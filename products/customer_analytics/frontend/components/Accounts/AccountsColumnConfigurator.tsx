@@ -8,27 +8,20 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonModal,
-    LemonSearchableSelect,
-    LemonTextArea,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 
-import { AccountColumnGroup, AccountColumnGroupKey, accountsLogic } from './accountsLogic'
+import { AccountColumnGroup, AccountColumnGroupKey, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 
 const HOGQL_DOCS_URL = 'https://posthog.com/docs/hogql'
 
 export function AccountsColumnConfigurator(): JSX.Element {
-    const { columnConfiguratorVisible } = useValues(accountsLogic)
-    const { showColumnConfigurator, hideColumnConfigurator } = useActions(accountsLogic)
+    const { columnConfiguratorVisible } = useValues(accountsColumnConfigLogic)
+    const { showColumnConfigurator, hideColumnConfigurator } = useActions(accountsColumnConfigLogic)
 
     return (
         <>
@@ -46,15 +39,10 @@ export function AccountsColumnConfigurator(): JSX.Element {
     )
 }
 
-function AccountsColumnConfiguratorModal({
-    isOpen,
-    onClose,
-}: {
-    isOpen: boolean
-    onClose: () => void
-}): JSX.Element {
-    const { selectColumns, accountsColumnGroups, databaseLoading } = useValues(accountsLogic)
-    const { saveColumns, moveColumn, resetColumns, setSelectColumns, unselectColumn } = useActions(accountsLogic)
+function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
+    const { selectColumns, accountsColumnGroups, databaseLoading } = useValues(accountsColumnConfigLogic)
+    const { saveColumns, moveColumn, resetColumns, setSelectColumns, unselectColumn } =
+        useActions(accountsColumnConfigLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const next = window.prompt('Edit column', column)
@@ -178,15 +166,9 @@ function SelectedAccountColumn({
     )
 }
 
-function AvailableColumnsPicker({
-    groups,
-    loading,
-}: {
-    groups: AccountColumnGroup[]
-    loading: boolean
-}): JSX.Element {
-    const { selectColumns } = useValues(accountsLogic)
-    const { selectColumn } = useActions(accountsLogic)
+function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGroup[]; loading: boolean }): JSX.Element {
+    const { selectColumns } = useValues(accountsColumnConfigLogic)
+    const { selectColumn } = useActions(accountsColumnConfigLogic)
     const [activeGroupKey, setActiveGroupKey] = useState<AccountColumnGroupKey>('account_properties')
     const [search, setSearch] = useState('')
     const [sqlInput, setSqlInput] = useState('')
