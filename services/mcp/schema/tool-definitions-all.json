@@ -4239,8 +4239,8 @@
         }
     },
     "notebook-edit": {
-        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this for notebook content changes instead of notebooks-partial-update. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors. Prefer the `edits` array with append, insert_after, insert_before, insert_after_heading, insert_between, replace_block, and replace_text. For small SQL changes like LIMIT 25 -> LIMIT 200, use replace_text with anchor set to the query title or section heading; the tool can replace text inside query/code node attributes. Heading anchors search that section until the next same-or-higher-level heading. Markdown content supports <query> blocks for inline query nodes. The old_value/new_value subtree replacement form is also supported; use edits for small or anchored changes and subtree replacement when copying exact JSON nodes from notebooks-retrieve.",
-        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, then call notebook-edit. Use the edits array for anchored edits. For small SQL changes, use replace_text with anchor set to the query title or section heading; do not rebuild the whole query block.",
+        "description": "Edit notebook content via collab save. Prefer `edits`: append/insert_after/insert_before/insert_after_heading/insert_between/replace_block/replace_text. Small SQL change? Use replace_text with anchor=query title or section heading; it edits query/code attrs too. Heading anchor searches section. Also accepts old_value/new_value subtree replacement.",
+        "system_prompt_hint": "Notebook edit: retrieve, then notebook-edit. Prefer edits. For SQL changes use replace_text anchor=query title/heading; do not rebuild query blocks.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { Schemas } from '@/api/generated'
 import { PostHogApiError } from '@/lib/errors'
 import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import editNotebook from '@/tools/notebooks/editByReplacement'
+import type { WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
 vi.mock('@/lib/posthog/flags', () => ({
@@ -123,11 +125,11 @@ describe('notebook-edit anchored edits', () => {
         const context = createMockContext(requestMock)
         const tool = editNotebook()
 
-        const result = await tool.handler(context, {
+        const result = (await tool.handler(context, {
             short_id: 'abc123',
             max_retries: 3,
             edits: [{ type: 'append', nodes: [paragraph('Added')] }],
-        })
+        })) as WithPostHogUrl<Schemas.Notebook & { applied_edits: number }>
 
         expect(result._posthogUrl).toBe('https://app.posthog.com/project/42/notebooks/abc123')
         expect(result.applied_edits).toBe(1)

@@ -21,6 +21,7 @@ const SubtreeReplacementSchema = z
     })
 
 export const NotebookEditCombinedSchema = z.union([NotebookEditSchema, SubtreeReplacementSchema])
+export { NotebookEditCombinedSchema as NotebookEditSchema }
 
 type Params = z.infer<typeof NotebookEditCombinedSchema>
 type SubtreeReplacementParams = z.infer<typeof SubtreeReplacementSchema>

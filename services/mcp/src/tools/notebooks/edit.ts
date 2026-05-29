@@ -436,7 +436,7 @@ function nodesUseExecutableAnalysisBlocks(nodes: ProseMirrorNode[] | undefined):
 }
 
 function editUsesExecutableAnalysisBlocks(edit: NotebookEdit): boolean {
-    if (edit.type === 'replace_text') {
+    if (edit.type === 'replace_text' || edit.type === 'replace_subtree') {
         return false
     }
     return contentUsesExecutableAnalysisBlocks(edit.content) || nodesUseExecutableAnalysisBlocks(edit.nodes)
