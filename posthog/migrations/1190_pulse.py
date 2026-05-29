@@ -8,9 +8,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1155_sharingconfiguration_interviewee_context"),
-    ]
+    dependencies = [("posthog", "1189_file_system_shortcut_order_index")]
 
     operations = [
         migrations.CreateModel(
