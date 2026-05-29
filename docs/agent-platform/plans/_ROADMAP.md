@@ -72,10 +72,12 @@ The keystone. Every plan above this depends on the state machine and
 spec shape it introduces.
 
 - [`long-running-sessions.md`](long-running-sessions.md) — extends
-  the session state machine with a new `suspended` state, adds
-  per-agent resumability config + context-compaction strategies
-  (window / summarize / none), locks down the trigger-side contract
-  for reopening old sessions. Status: design complete.
+  the session state machine with a new `suspended` (parked-cold)
+  state alongside `completed` (parked-hot), adds per-agent
+  resumability config + context-compaction strategies (window /
+  summarize / none), locks down the trigger-side contract for
+  reopening old sessions. **Plan refreshed against the new state
+  machine (no more `waiting`); code-side v0 pending.**
 - [`typed-config-loader.md`](typed-config-loader.md) — one zod schema
   per service, lint-blocked `process.env.*` outside `config.ts`,
   generated runbook from the schemas. **v0 (janitor pilot) ✅ shipped;
@@ -84,11 +86,15 @@ spec shape it introduces.
 
 **What this layer must ship before anything above:**
 
-- `suspended` state and `waiting → suspended → waiting` transitions.
+- `suspended` state + `completed → suspended → queued` transitions
+  (parked-hot → parked-cold → wake; rehydrate at runner claim).
 - `spec.resume.*` validated at freeze time, backwards-compatible
-  defaults.
-- Janitor extension: `compactAged`, `wakeFromSuspended` policies.
-- `external_key_reuse` policy on the trigger ingress.
+  defaults (`resume.enabled = false` preserves today's behaviour).
+- Janitor sweep extension: `compactAged` (compaction step on
+  resume-enabled `completed` rows) + `maxResumeAgeClose` (cold rows
+  past their per-agent TTL → `closed`).
+- Runner rehydrate step: if `compacted_prefix` is non-null, prepend
+  the synthetic summary into the model context.
 
 ## B. Trust & control — **Dylan**
 
