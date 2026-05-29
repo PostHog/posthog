@@ -143,9 +143,12 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
         const statusById = new Map<string, GuardedStatus>()
         items.forEach((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            // Lua returns [tokensBefore, tokensAfter, statusCode]; we drop tokensAfter — it reflects
+            // the summed cost, and we re-simulate per-input fan-out below.
             const raw = tokenRes?.[1] as [unknown, unknown, unknown] | undefined
-            const tokensBefore = raw ? Number(raw[0]) : req.bucketSize
-            const statusCode = raw ? Number(raw[2]) : 0
+            const [rawTokensBefore, , rawStatusCode] = raw ?? []
+            const tokensBefore = rawTokensBefore != null ? Number(rawTokensBefore) : req.bucketSize
+            const statusCode = rawStatusCode != null ? Number(rawStatusCode) : 0
             const status = STATUS_BY_CODE[statusCode] ?? 'allowed'
             budgetById.set(req.id, tokensBefore)
             statusById.set(req.id, status)
