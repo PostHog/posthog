@@ -62,6 +62,14 @@ export const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
 
 export const getCustomApiBaseUrl = (): string | undefined => env.POSTHOG_API_BASE_URL
 
+/**
+ * Public-facing base URL for rendered links. Set when `POSTHOG_API_BASE_URL` points
+ * at a non-clickable hostname (e.g. cluster-internal Hono routing). Falls back to
+ * `POSTHOG_API_BASE_URL` when unset.
+ */
+export const getPublicApiBaseUrl = (): string | undefined =>
+    env.POSTHOG_API_PUBLIC_URL || env.POSTHOG_API_BASE_URL
+
 const CLOUD_HOSTS = new Set(['us.posthog.com', 'eu.posthog.com'])
 
 export const isCloudApi = (): boolean => {

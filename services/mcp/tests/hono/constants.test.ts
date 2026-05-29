@@ -8,6 +8,7 @@ import {
     getBaseUrlForRegion,
     getCustomApiBaseUrl,
     getEnv,
+    getPublicApiBaseUrl,
     getUserAgent,
     toCloudRegion,
 } from '@/hono/constants'
@@ -54,6 +55,26 @@ describe('Hono Constants', () => {
         it('should return the env var value when set', () => {
             process.env.POSTHOG_API_BASE_URL = 'https://custom.posthog.com'
             expect(getCustomApiBaseUrl()).toBe('https://custom.posthog.com')
+        })
+    })
+
+    describe('getPublicApiBaseUrl', () => {
+        it('returns POSTHOG_API_PUBLIC_URL when set, even if POSTHOG_API_BASE_URL is also set', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            process.env.POSTHOG_API_PUBLIC_URL = 'https://us.posthog.com'
+            expect(getPublicApiBaseUrl()).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to POSTHOG_API_BASE_URL when POSTHOG_API_PUBLIC_URL is unset', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            delete process.env.POSTHOG_API_PUBLIC_URL
+            expect(getPublicApiBaseUrl()).toBe('https://us.posthog.com')
+        })
+
+        it('returns undefined when neither env var is set', () => {
+            delete process.env.POSTHOG_API_BASE_URL
+            delete process.env.POSTHOG_API_PUBLIC_URL
+            expect(getPublicApiBaseUrl()).toBeUndefined()
         })
     })
 
@@ -126,6 +147,7 @@ describe('Hono Constants', () => {
         it('should return all expected fields', () => {
             const env = getEnv()
             expect(env).toHaveProperty('POSTHOG_API_BASE_URL')
+            expect(env).toHaveProperty('POSTHOG_API_PUBLIC_URL')
             expect(env).toHaveProperty('MCP_APPS_BASE_URL')
             expect(env).toHaveProperty('POSTHOG_MCP_APPS_ANALYTICS_BASE_URL')
             expect(env).toHaveProperty('POSTHOG_UI_APPS_TOKEN')

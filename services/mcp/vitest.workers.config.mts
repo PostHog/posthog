@@ -31,6 +31,7 @@ export default defineWorkersProject({
                         // make init()'s analytics / observability paths short-
                         // circuit cleanly.
                         POSTHOG_API_BASE_URL: '',
+                        POSTHOG_API_PUBLIC_URL: '',
                         POSTHOG_ANALYTICS_API_KEY: '',
                         POSTHOG_ANALYTICS_HOST: '',
                         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: '',

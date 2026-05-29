@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mockMe = vi.fn()
+const apiClientCtor = vi.fn().mockImplementation(() => ({
+    users: () => ({ me: mockMe }),
+}))
 
 vi.mock('@/api/client', () => ({
-    ApiClient: vi.fn().mockImplementation(() => ({
-        users: () => ({ me: mockMe }),
-    })),
+    ApiClient: apiClientCtor,
 }))
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
@@ -63,6 +64,42 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 describe('RequestContext', () => {
+    describe('ApiClient construction', () => {
+        const originalEnv = { ...process.env }
+
+        afterEach(() => {
+            process.env = { ...originalEnv }
+            apiClientCtor.mockClear()
+        })
+
+        it('passes POSTHOG_API_PUBLIC_URL as publicBaseUrl to the ApiClient', async () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            process.env.POSTHOG_API_PUBLIC_URL = 'https://us.posthog.com'
+
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+            await ctx.getDistinctId()
+
+            expect(apiClientCtor).toHaveBeenCalledTimes(1)
+            const config = apiClientCtor.mock.calls[0]![0]
+            expect(config.baseUrl).toBe('http://posthog-web-django.posthog.svc.cluster.local:8000')
+            expect(config.publicBaseUrl).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to POSTHOG_API_BASE_URL when POSTHOG_API_PUBLIC_URL is not set', async () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            delete process.env.POSTHOG_API_PUBLIC_URL
+
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+            await ctx.getDistinctId()
+
+            const config = apiClientCtor.mock.calls[0]![0]
+            expect(config.baseUrl).toBe('https://us.posthog.com')
+            expect(config.publicBaseUrl).toBe('https://us.posthog.com')
+        })
+    })
+
     describe('getDistinctId', () => {
         it('deduplicates concurrent calls into a single API request', async () => {
             mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
