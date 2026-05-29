@@ -63,13 +63,20 @@ class _SharedParserSnapshotExtension(AmberSnapshotExtension):
 
     @classmethod
     def get_snapshot_name(cls, *, test_location: Any, index: Any = 0) -> str:
+        # Strip `parameterized.expand`'s `_<idx>` / `_<idx>_<name>` suffix so
+        # `test_foo_0_case_a` keys the same snapshot as the un-parametrized
+        # `test_foo`. The `_assert_ast` snapshot key is the SOURCE STRING via
+        # `_snapshot_key(src)` — so a parameterized variant carrying the same
+        # `src` should reuse the same snapshot regardless of method-name
+        # decoration.
+        base_method = re.sub(r"_\d+(?:_[A-Za-z0-9_]+)?$", "", test_location.methodname)
         if isinstance(index, str):
             index_suffix = f"[{index}]"
         elif index:
             index_suffix = f".{index}"
         else:
             index_suffix = ""
-        return f"{test_location.methodname}{index_suffix}"
+        return f"{base_method}{index_suffix}"
 
 
 def _snapshot_key(src: str) -> str:
@@ -4892,18 +4899,22 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "select")
 
-        def test_values_clause_in_from_carries_positions(self):
-            # `tableExpr: LPAREN valuesClause RPAREN` — the ValuesQuery node spans the
-            # inner `VALUES (...)` (cpp's valuesClause ctx), not the stripped outer
-            # parens. Pinned with positions so a regression that drops the span (or
-            # wraps the outer parens) fails here on rust / rust-py.
-            cases = (
-                "SELECT * FROM (VALUES (1, 'a'))",
-                "SELECT * FROM (VALUES (1, 'a')) AS v(id, name)",
-                "SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))",
-            )
-            for src in cases:
-                self._assert_ast(src, "select")
+        @parameterized.expand(
+            [
+                # `tableExpr: LPAREN valuesClause RPAREN` — the ValuesQuery node spans the
+                # inner `VALUES (...)` (cpp's valuesClause ctx), not the stripped outer
+                # parens. Pinned with positions so a regression that drops the span (or
+                # wraps the outer parens) fails here on rust / rust-py.
+                ("no_alias", "SELECT * FROM (VALUES (1, 'a'))"),
+                ("alias_with_columns", "SELECT * FROM (VALUES (1, 'a')) AS v(id, name)"),
+                (
+                    "multi_row_tuples",
+                    "SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))",
+                ),
+            ]
+        )
+        def test_values_clause_in_from_carries_positions(self, _name: str, src: str) -> None:
+            self._assert_ast(src, "select")
 
         @no_memory_leak_check  # re-clears positions per run (allocates); correctness pin, runs once
         def test_internal_parse_emits_no_positions(self):
@@ -4919,26 +4930,27 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIsNone(internal.start)
             self.assertIsNone(internal.end)
 
-        def test_template_string_top_level_carries_outer_span(self):
-            # `parse_full_template_string` returns the result of the body splitter — a multi-chunk
-            # `concat(...)` or a single chunk. cpp positions by chunk count: the multi-chunk wrapper
-            # spans the whole `F'…'` input (rule ctx), but a single-chunk shortcut keeps the inner
-            # element's own span (literal text or substitution expr). Both shapes pinned so a
-            # regression that wraps unconditionally (clobbering the single-chunk span) — or that
-            # drops the multi-chunk wrap — fails here.
-            cases = (
+        @parameterized.expand(
+            [
+                # `parse_full_template_string` returns the result of the body splitter — a multi-chunk
+                # `concat(...)` or a single chunk. cpp positions by chunk count: the multi-chunk wrapper
+                # spans the whole `F'…'` input (rule ctx), but a single-chunk shortcut keeps the inner
+                # element's own span (literal text or substitution expr). Both shapes pinned so a
+                # regression that wraps unconditionally (clobbering the single-chunk span) — or that
+                # drops the multi-chunk wrap — fails here.
                 # multi-chunk → outer span (0..len(src))
-                "Hello, {arrayMap(a -> a, [1, 2, 3])}!",
-                "v={event.properties.$lib_version}",
-                "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+                ("multi_arraymap_bang", "Hello, {arrayMap(a -> a, [1, 2, 3])}!"),
+                ("multi_lib_version", "v={event.properties.$lib_version}"),
+                ("multi_typescript_arraymap", "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"),
                 # single literal → wrap_literal_chunk span (body_offset..body_end)
-                "hello",
+                ("single_literal_hello", "hello"),
                 # single substitution → inner expr span (only the placeholder body)
-                "{x}",
-                "{true}",
-            )
-            for src in cases:
-                self._assert_ast(src, "template")
+                ("single_substitution_field", "{x}"),
+                ("single_substitution_bool", "{true}"),
+            ]
+        )
+        def test_template_string_top_level_carries_outer_span(self, _name: str, src: str) -> None:
+            self._assert_ast(src, "template")
 
         def test_columns_macro_asterisk_form_as_list_element(self):
             # `COLUMNS(…)` tries `columnExprList` before `* EXCLUDE` / `id.* …`, so an asterisk-form + postfix call is `ColumnsList(ExprCall(asterisk-form))`.
