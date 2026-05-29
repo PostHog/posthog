@@ -58,6 +58,21 @@ export class TrendsInsight extends ChartInsightBase {
         await expect(this.detailsLoader).toHaveCount(0)
     }
 
+    // Re-reads the Total column until it settles on the expected values. A bare
+    // snapshot read can capture the previous query's rows: after an action that
+    // recomputes the insight, the old table is still mounted and the details
+    // loader has not reappeared yet, so waitForDetailsTable returns against stale
+    // content. Polling rides out that transition instead of racing it.
+    async expectTotals(expected: string[], timeout = 15000): Promise<void> {
+        await this.waitForDetailsTable()
+        await expect.poll(async () => await this.details.column('Total'), { timeout }).toEqual(expected)
+    }
+
+    async expectRowTotal(row: string, expected: string, timeout = 15000): Promise<void> {
+        await this.waitForDetailsTable()
+        await expect.poll(async () => await this.details.row(row).column('Total'), { timeout }).toEqual(expected)
+    }
+
     async addSeries(): Promise<void> {
         await this.addSeriesButton.click()
     }

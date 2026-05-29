@@ -589,15 +589,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # First-party apps skip consent screen entirely
         if application.is_first_party:
             try:
-                # Auto-approve with all user's accessible organizations.
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
-
-                # TODO(charlesvien): Populate scoped_teams for backwards compat with old
-                # Code clients that throw "No team found in OAuth scopes" when
-                # scoped_teams is empty. Remove once Code reads scoped_organizations.
-                team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(team_ids)
+                credentials["scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -816,8 +810,27 @@ class OAuthTokenView(TokenView):
 
                 if access_token_value:
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
-                    response_data["scoped_teams"] = access_token.scoped_teams or []
-                    response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    scoped_teams = list(access_token.scoped_teams or [])
+                    scoped_organizations = list(access_token.scoped_organizations or [])
+
+                    # First-party clients (PostHog Code) read scoped_teams from /oauth/token
+                    # to populate the project selector. When the app is org-scoped only,
+                    # access_token.scoped_teams is empty in the DB by design — derive teams
+                    # from scoped_organizations so clients keep working without weakening
+                    # the stored token scope.
+                    # TODO(@charlesvien): remove this after a migration period in PostHog Code.
+                    if (
+                        not scoped_teams
+                        and scoped_organizations
+                        and access_token.application
+                        and access_token.application.is_first_party
+                    ):
+                        scoped_teams = list(
+                            Team.objects.filter(organization_id__in=scoped_organizations).values_list("pk", flat=True)
+                        )
+
+                    response_data["scoped_teams"] = scoped_teams
+                    response_data["scoped_organizations"] = scoped_organizations
 
                     if region_info := get_region_info():
                         response_data.update(region_info)
