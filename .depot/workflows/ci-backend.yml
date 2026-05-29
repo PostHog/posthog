@@ -196,14 +196,6 @@ jobs:
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - name: Cache docker compose images
-              uses: ./.depot/actions/cache-compose-images
-              with:
-                  compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
-                  compose-profiles: temporal,azure
-                  services: db redis7 clickhouse zookeeper kafka objectstorage feature-flags temporal elasticsearch objectstorage-azure
-                  cache-key-suffix: turbo-tests
-                  clickhouse-server-image: clickhouse/clickhouse-server:26.3.10.60
             - name: Start services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -358,12 +350,6 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - name: Cache docker compose images
-              uses: ./.depot/actions/cache-compose-images
-              with:
-                  compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
-                  compose-profiles: temporal,azure
-                  cache-key-suffix: check-migrations
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -641,13 +627,6 @@ jobs:
                   echo "✅ No stray Python files or migrations found at product roots."
             # Pre-tests
             # Copies the fully versioned UDF xml file for use in CI testing
-            - name: Cache docker compose images
-              uses: ./.depot/actions/cache-compose-images
-              with:
-                  compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
-                  compose-profiles: temporal,azure
-                  cache-key-suffix: django
-                  clickhouse-server-image: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
             - name: Stop/Start stack with Docker Compose
               shell: bash
               env:
@@ -1064,13 +1043,6 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - name: Cache docker compose images
-              uses: ./.depot/actions/cache-compose-images
-              with:
-                  compose-files: docker-compose.dev.yml:docker-compose.profiles.yml
-                  compose-profiles: temporal,azure
-                  cache-key-suffix: async-migrations
-                  clickhouse-server-image: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
             - name: Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
