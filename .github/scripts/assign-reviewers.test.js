@@ -35,18 +35,12 @@ describe('assign-reviewers', () => {
     })
 
     describe('classifyOwner', () => {
-        test('resolves teams, users, and rejects malformed', () => {
-            expect(classifyOwner('@PostHog/team-surveys')).toEqual({
-                type: 'team',
-                name: 'team-surveys',
-                owner: '@PostHog/team-surveys',
-            })
-            expect(classifyOwner('@rafaeelaudibert')).toEqual({
-                type: 'user',
-                name: 'rafaeelaudibert',
-                owner: '@rafaeelaudibert',
-            })
-            expect(classifyOwner('not-an-owner')).toBeNull()
+        test.each([
+            ['@PostHog/team-surveys', { type: 'team', name: 'team-surveys', owner: '@PostHog/team-surveys' }],
+            ['@rafaeelaudibert', { type: 'user', name: 'rafaeelaudibert', owner: '@rafaeelaudibert' }],
+            ['not-an-owner', null],
+        ])('%s', (input, expected) => {
+            expect(classifyOwner(input)).toEqual(expected)
         })
     })
 
@@ -147,13 +141,25 @@ describe('assign-reviewers', () => {
             expect(demoted.every((f) => f.reason === 'capped')).toBe(true)
         })
 
-        test('never caps explicit users', () => {
-            const users = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) =>
-                fp(`@user-${i}`, 50, 1, 'user')
+        test('never caps explicit users even when teams overflow the cap', () => {
+            // All substantive, so the cap (teams-only) is the only thing that can demote.
+            const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) =>
+                fp(`@PostHog/team-${i}`, 50 + i)
             )
-            const { requested, demoted } = classifyOwners(users)
-            expect(requested.filter((f) => f.type === 'user')).toHaveLength(users.length)
-            expect(demoted).toHaveLength(0)
+            const users = [fp('@user-a', 20, 1, 'user'), fp('@user-b', 20, 1, 'user')]
+            const { requested, demoted } = classifyOwners([...teams, ...users])
+
+            // Both users survive the cap...
+            expect(
+                requested
+                    .filter((f) => f.type === 'user')
+                    .map((f) => f.owner)
+                    .sort()
+            ).toEqual(['@user-a', '@user-b'])
+            // ...while the smallest teams beyond the cap are demoted.
+            expect(requested.filter((f) => f.type === 'team')).toHaveLength(CONFIG.maxTeamsRequested)
+            expect(demoted.map((f) => f.owner)).toEqual(expect.arrayContaining(['@PostHog/team-0', '@PostHog/team-1']))
+            expect(demoted.every((f) => f.type === 'team')).toBe(true)
         })
     })
 
