@@ -89,6 +89,75 @@ PyPI package) so a bump signals "both parsers move together." The
 publish workflow builds wheels, pushes to PyPI via trusted publishing,
 then opens a follow-up PR that updates the repo-root pin.
 
+## Building a new candidate parser
+
+Bringing a new candidate to cpp parity is a phased effort. Divergences are
+abundant early on and rare in the long tail; different tools fit different
+phases, and chasing the long tail before locking in real-traffic parity
+wastes time. In rough order:
+
+1. **Hand-write the easy stuff.** Get the candidate parsing a basic subset
+   (simple `SELECT`, identifiers, literals, common operators). Validate with
+   a handful of unit tests.
+
+2. **Pin every case in
+   [`parser_test_factory`](../../../posthog/hogql/test/_test_parser.py).**
+   Each case runs against all four backends (`cpp-json`, `python`,
+   `rust-json`, `rust-py`), so candidate-only failures surface immediately.
+   This file is where every found-and-fixed divergence eventually lands.
+
+3. **Hunt divergences in bulk with the streamable fuzzer.** In this phase
+   divergences are abundant, so the survey-stream mode of
+   [`pbt_diagnostic.py`](../../../posthog/hogql/scripts/pbt_diagnostic.py)
+   produces shrunk repros faster than you can fix them. Pair with the
+   rejection-parity contract via `--mutate` / `--grammar-mutate`:
+
+   ```bash
+   PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \
+       --rule select --n 20000 --shrink-failures --dedup-stream \
+       --write-divergences /tmp/div.jsonl
+   ```
+
+   Background-grind / foreground-fixer loop: a fixer agent tails the JSONL
+   as the grind produces it.
+
+4. **Validate against the production distribution.** Once the streamable
+   fuzzer is mostly clean, run
+   [`log_corpus_diagnostic.py`](../../../posthog/hogql/scripts/log_corpus_diagnostic.py)
+   (production SELECTs from the last 7 days) and
+   [`hog_corpus_diagnostic.py`](../../../posthog/hogql/scripts/hog_corpus_diagnostic.py)
+   (Hog programs). These are the right shipping bar; don't chase 100% on
+   adversarial PBT before real-traffic parity is locked.
+
+5. **Promote findings to the regression suite.**
+   [`pbt_corpus.py extract`](../../../posthog/hogql/scripts/pbt_corpus.py)
+   deduplicates a JSONL log into a stable corpus; `check` replays it against
+   the current parsers to verify each entry still triggers what it used to.
+   Lift entries from the corpus into `parser_test_factory` cases.
+
+6. **Adversarial / long tail.** The pytest grammar PBT
+   (`RUN_PBT=1 hogli test posthog/hogql/test/test_parser_grammar_pbt.py`)
+   is the slower offline-audit variant of the diagnostic with the same
+   coverage-guided generation. Pair it with **agent-driven edge-case
+   hunting**: an LLM picking constructs the fuzzer is unlikely to invent
+   (deeply-nested `BETWEEN`, `WITHIN GROUP` shapes, mode-stack transitions
+   across HogQLX / template strings) and producing test cases by hand.
+   After real-traffic parity, this is the only model that closes the long
+   tail.
+
+7. **Perf parity.** Run
+   [`parser_bench.py`](../../../posthog/hogql/scripts/parser_bench.py)
+   before and after non-trivial changes. The candidate should be at parity
+   or better on the bench corpus.
+
+8. **Ship via shadow mode.** Enable the candidate as the shadow backend
+   (`CPP_WITH_RUST_SHADOW` or `CPP_WITH_RUST_PY_SHADOW` in
+   [`parser.py`](../../../posthog/hogql/parser.py)). TEST mode raises on
+   mismatch — any remaining divergence surfaces as a test failure.
+   Production runs it at a 1% sample, logging mismatches via
+   `hogql_parser_shadow_comparisons_total`. Graduate from shadow to primary
+   when the mismatch rate is within your budget.
+
 ## Adding a new grammar feature
 
 Steps 1–4 are the one-time grammar-update process — done once,
@@ -343,6 +412,24 @@ regression slips past the PBT but shows up in the suite.
 from posthog.hogql.constants import HogQLParserBackend
 parse_expr(src, backend=HogQLParserBackend.CPP_WITH_RUST_SHADOW)
 ```
+
+### Tool index
+
+A one-line map of every parser-parity tool, grouped by use:
+
+| Use case | Tool |
+|---|---|
+| Pin a known case as a regression | [`parser_test_factory`](../../../posthog/hogql/test/_test_parser.py) (runs across all 4 backends) |
+| Hunt divergences in bulk, streaming | `pbt_diagnostic.py --shrink-failures --dedup-stream --write-divergences PATH` |
+| Exercise the rejection / over-acceptance contract | `pbt_diagnostic.py --mutate` / `--grammar-mutate` |
+| Promote JSONL findings to a stable corpus | [`pbt_corpus.py extract`](../../../posthog/hogql/scripts/pbt_corpus.py) / `check` |
+| Validate real-traffic parity (SQL queries) | [`log_corpus_diagnostic.py`](../../../posthog/hogql/scripts/log_corpus_diagnostic.py) |
+| Validate real-traffic parity (Hog programs) | [`hog_corpus_diagnostic.py`](../../../posthog/hogql/scripts/hog_corpus_diagnostic.py) |
+| Regenerate PBT strategies after grammar edits | `python -m posthog.hogql.scripts.build_grammar_strategies` |
+| Perf parity benchmark | [`parser_bench.py`](../../../posthog/hogql/scripts/parser_bench.py) |
+| Production safety net | `HogQLParserMode.CPP_WITH_RUST_*_SHADOW` in [`parser.py`](../../../posthog/hogql/parser.py) |
+| Offline audit with deeper steering | `RUN_PBT=1 hogli test posthog/hogql/test/test_parser_grammar_pbt.py` |
+| Adversarial / edge-case hunting | Agent (no tool — point an LLM at the grammar surface) |
 
 ## Rules of thumb for the parity loop
 
