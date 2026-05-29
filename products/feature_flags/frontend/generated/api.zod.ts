@@ -38,7 +38,6 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const featureFlagsCreateBodyFiltersOneGroupsItemEarlyExitDefault = false
 export const featureFlagsCreateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
@@ -279,12 +278,6 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
-                        early_exit: zod
-                            .boolean()
-                            .default(featureFlagsCreateBodyFiltersOneGroupsItemEarlyExitDefault)
-                            .describe(
-                                'Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.'
-                            ),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -430,7 +423,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const featureFlagsPartialUpdateBodyFiltersOneGroupsItemEarlyExitDefault = false
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -671,12 +663,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
-                        early_exit: zod
-                            .boolean()
-                            .default(featureFlagsPartialUpdateBodyFiltersOneGroupsItemEarlyExitDefault)
-                            .describe(
-                                'Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.'
-                            ),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()

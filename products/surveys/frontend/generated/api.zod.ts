@@ -11,7 +11,6 @@ import * as zod from 'zod'
 
 export const surveysCreateBodyNameMax = 400
 
-export const surveysCreateBodyTargetingFlagFiltersOneGroupsItemEarlyExitDefault = false
 export const surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault = false
 export const surveysCreateBodyQuestionsItemThreeBranchingOneThreeIndexMin = 0
 
@@ -330,12 +329,6 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('Rollout percentage for this release condition group.'),
                             variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
-                            early_exit: zod
-                                .boolean()
-                                .default(surveysCreateBodyTargetingFlagFiltersOneGroupsItemEarlyExitDefault)
-                                .describe(
-                                    'Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.'
-                                ),
                             aggregation_group_type_index: zod
                                 .number()
                                 .nullish()
@@ -911,7 +904,6 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod
 
 export const surveysPartialUpdateBodyNameMax = 400
 
-export const surveysPartialUpdateBodyTargetingFlagFiltersOneGroupsItemEarlyExitDefault = false
 export const surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
 export const surveysPartialUpdateBodyQuestionsItemThreeBranchingOneThreeIndexMin = 0
 
@@ -1231,12 +1223,6 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('Rollout percentage for this release condition group.'),
                             variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
-                            early_exit: zod
-                                .boolean()
-                                .default(surveysPartialUpdateBodyTargetingFlagFiltersOneGroupsItemEarlyExitDefault)
-                                .describe(
-                                    'Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.'
-                                ),
                             aggregation_group_type_index: zod
                                 .number()
                                 .nullish()
