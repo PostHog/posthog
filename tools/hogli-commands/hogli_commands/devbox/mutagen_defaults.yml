@@ -14,12 +14,21 @@ sync:
                 - 'node_modules'
                 - '.venv'
                 # PostHog's Python venv lives under `.flox/cache/venv` (flox), not
-                # `.venv`; the whole `.flox/` tree is machine/OS-native and
-                # per-box, so it must never propagate macOS binaries to the box.
-                - '.flox'
+                # `.venv`. Ignore only flox's machine-local subdirs (mirrors
+                # `.flox/.gitignore`); the tracked `.flox/env*` definition still
+                # syncs so dev-environment edits reach the box.
+                - '.flox/cache'
+                - '.flox/run'
+                - '.flox/lib'
+                - '.flox/log'
                 - '**/__pycache__'
                 - '*.pyc'
                 - '*.egg-info'
+                # Compiled native artifacts (e.g. the built hogql_parser
+                # extension) are OS-specific -- never round-trip macOS .so/.dylib
+                # onto the Linux box.
+                - '*.so'
+                - '*.dylib'
                 - '.pnpm-store'
                 - 'target'
                 - 'rust/target'
@@ -33,7 +42,12 @@ sync:
                 - 'posthog/hogql/grammar/HogQLParser.interp'
                 - 'posthog/hogql/grammar/HogQLParser.tokens'
                 - 'posthog/hogql/grammar/HogQLParserVisitor.py'
-                - 'common/hogql_parser'
+                # NB: don't ignore all of `common/hogql_parser` -- it holds
+                # hand-maintained C++ sources (error.cpp, parser_python.cpp,
+                # CMakeLists.txt...) that must sync. Its build outputs are caught
+                # by the *.so/build/dist/.cache/build_wasm ignores instead.
+                - 'common/hogql_parser/.cache'
+                - 'common/hogql_parser/build_wasm'
                 - 'frontend/types'
                 - 'frontend/dist'
                 - 'frontend/.cache'

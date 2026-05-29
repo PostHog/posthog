@@ -3403,6 +3403,18 @@ class TestConflictCount:
         assert devbox_mutagen.conflict_count(session) == expected
 
 
+class TestWorkspaceLabels:
+    """The create-side labels and the lookup-side selector must share one key."""
+
+    def test_labels_and_selector_agree(self) -> None:
+        labels = devbox_mutagen.workspace_labels("devbox-test-user")
+        selector = devbox_mutagen.workspace_label_selector("devbox-test-user")
+        assert labels == {"hogli-workspace": "devbox-test-user"}
+        # Selector is exactly `key=value` for the single create-side label.
+        ((key, value),) = labels.items()
+        assert selector == f"{key}={value}"
+
+
 class TestEnsureUserMutagenConfig:
     """Test that the user-side mutagen.yml is seeded from the packaged defaults."""
 
@@ -3421,11 +3433,15 @@ class TestEnsureUserMutagenConfig:
         assert "pnpm-lock.yaml" not in contents
         assert "uv.lock" not in contents
         assert "Cargo.lock" not in contents
-        # The worktree `.git` *file* and the machine-native `.flox/` venv tree
-        # must be ignored: `vcs: true` only catches the `.git/` directory, and
-        # PostHog's venv lives under `.flox`, not `.venv`.
+        # The worktree `.git` *file* must be ignored (`vcs: true` only catches the
+        # `.git/` directory). The flox venv lives under `.flox/cache`, so only
+        # flox's machine-local subdirs are ignored -- NOT all of `.flox` (that
+        # would drop the tracked `.flox/env` definition) and NOT the
+        # hand-maintained `common/hogql_parser` C++ sources.
         assert "'.git'" in contents
-        assert "'.flox'" in contents
+        assert "'.flox/cache'" in contents
+        assert "\n                - '.flox'\n" not in contents
+        assert "'common/hogql_parser'" not in contents
 
     def test_preserves_existing_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         target = tmp_path / "mutagen.yml"
@@ -3435,6 +3451,38 @@ class TestEnsureUserMutagenConfig:
         devbox_mutagen.ensure_user_mutagen_config()
 
         assert target.read_text() == "custom: contents\n"
+
+    def test_refreshes_unmodified_copy_when_defaults_change(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "mutagen.yml"
+        monkeypatch.setattr(devbox_mutagen, "_USER_CONFIG_PATH", target)
+        devbox_mutagen.ensure_user_mutagen_config()
+        original = target.read_text()
+
+        # Simulate a shipped bump to the packaged defaults.
+        new_defaults = tmp_path / "new_defaults.yml"
+        new_defaults.write_text(original + "\n# new ignore added upstream\n")
+        monkeypatch.setattr(devbox_mutagen, "_PACKAGED_DEFAULTS", new_defaults)
+
+        devbox_mutagen.ensure_user_mutagen_config()
+        # An untouched copy is refreshed in place rather than left stale.
+        assert target.read_text() == original + "\n# new ignore added upstream\n"
+
+    def test_does_not_clobber_user_edits_on_defaults_change(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "mutagen.yml"
+        monkeypatch.setattr(devbox_mutagen, "_USER_CONFIG_PATH", target)
+        devbox_mutagen.ensure_user_mutagen_config()
+
+        target.write_text("# my hand-tuned ignores\n")  # user edits their copy
+        new_defaults = tmp_path / "new_defaults.yml"
+        new_defaults.write_text("sync: {}\n# new ignore added upstream\n")
+        monkeypatch.setattr(devbox_mutagen, "_PACKAGED_DEFAULTS", new_defaults)
+
+        devbox_mutagen.ensure_user_mutagen_config()
+        assert target.read_text() == "# my hand-tuned ignores\n"  # preserved
 
 
 class TestDevboxSyncCommand:
@@ -3484,6 +3532,17 @@ class TestDevboxSyncCommand:
         result = runner.invoke(cli, ["devbox:sync", "--json", "--terminate"])
         assert result.exit_code != 0
         assert "json" in result.output.lower()
+
+    def test_rejects_shared_at_user_target(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Syncing onto someone else's box would push your checkout over theirs;
+        # the guard must fire before any resolution/create work.
+        def boom(*a: object, **kw: object) -> tuple[str, None]:
+            raise AssertionError("resolve_workspace_name must not run for @user targets")
+
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", boom)
+        result = runner.invoke(cli, ["devbox:sync", "@alice/api"])
+        assert result.exit_code != 0
+        assert "@user" in result.output or "own devboxes" in result.output
 
     def test_terminate_invokes_label_scoped_terminate(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))

@@ -155,6 +155,10 @@ def cmd_sync(
         raise click.UsageError("Pick at most one of --status, --pause, --resume, --terminate, --flush.")
     if as_json and (pause or resume or terminate or flush):
         raise click.UsageError("--json reports state only; it can't combine with --pause/--resume/--terminate/--flush.")
+    if workspace and workspace.startswith("@"):
+        # Local is the source of truth: syncing onto another user's box would
+        # push your checkout over theirs. v1 targets your own devboxes only.
+        _fail("devbox:sync only targets your own devboxes; `@user` shared targets are not supported.")
 
     name, workspaces = resolve_workspace_name(workspace)
     label = mutagen.workspace_label_selector(name)
@@ -209,7 +213,7 @@ def cmd_sync(
         src=str(local_path),
         dst=f"coder.{name}:{_REMOTE_REPO_PATH}",
         config_path=config_path,
-        labels={"hogli-workspace": name},
+        labels=mutagen.workspace_labels(name),
     )
     click.echo("Sync created. Initial scan and copy may take a few minutes for large checkouts.")
     click.echo(f"Inspect: hogli devbox:sync{_workspace_arg_suffix(name)} --status")

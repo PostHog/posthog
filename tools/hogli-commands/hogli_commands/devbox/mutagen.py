@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shlex
 import shutil
+import hashlib
 import platform
 import subprocess
 from pathlib import Path
@@ -171,24 +172,60 @@ def user_mutagen_config_path() -> Path:
     return _USER_CONFIG_PATH
 
 
-def ensure_user_mutagen_config() -> Path:
-    """Copy the packaged ``mutagen_defaults.yml`` to ``~/.hogli/mutagen.yml`` if absent.
+def _config_seed_path(config_path: Path) -> Path:
+    """Sidecar recording the hash of the defaults we last seeded into ``config_path``."""
+    return config_path.with_name(f".{config_path.name}.seed")
 
-    The user-side file is intentionally user-editable: a developer can tweak
-    ignore paths or sync mode without forking hogli. We never overwrite an
-    existing file -- bumps to the packaged defaults are opt-in via ``rm`` +
-    ``hogli devbox:setup``.
+
+def ensure_user_mutagen_config() -> Path:
+    """Seed (and refresh) ``~/.hogli/mutagen.yml`` from the packaged defaults.
+
+    The user file is intentionally editable, so edits are never clobbered. But an
+    *untouched* copy is refreshed when the packaged defaults change: we record the
+    hash of what we seeded in a sidecar and overwrite only while the on-disk file
+    still matches that recorded seed. Without this, a shipped fix to the ignore
+    list (e.g. a newly-ignored build dir) would stay dead forever for anyone who
+    seeded an older copy. A file whose contents differ from the recorded seed is
+    treated as user-owned and left alone (so pre-sidecar files are preserved --
+    delete them to re-seed).
     """
     target = user_mutagen_config_path()
+    packaged = _PACKAGED_DEFAULTS.read_text()
+    packaged_hash = hashlib.sha256(packaged.encode()).hexdigest()
+    seed_path = _config_seed_path(target)
+
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(_PACKAGED_DEFAULTS.read_text())
+        target.write_text(packaged)
+        seed_path.write_text(packaged_hash)
+        return target
+
+    current_hash = hashlib.sha256(target.read_text().encode()).hexdigest()
+    if current_hash == packaged_hash:
+        seed_path.write_text(packaged_hash)  # keep the sidecar in step for the next bump
+        return target
+
+    seeded_hash = seed_path.read_text().strip() if seed_path.exists() else None
+    if seeded_hash == current_hash:
+        # Untouched since we seeded it, but the packaged defaults changed -- refresh.
+        target.write_text(packaged)
+        seed_path.write_text(packaged_hash)
     return target
+
+
+# Single source of truth for the label hogli stamps on every sync session, so the
+# create side (sync_create) and the lookup side (selector) can never drift apart.
+_WORKSPACE_LABEL_KEY = "hogli-workspace"
+
+
+def workspace_labels(workspace: str) -> dict[str, str]:
+    """Return the labels hogli attaches when creating a sync session for ``workspace``."""
+    return {_WORKSPACE_LABEL_KEY: workspace}
 
 
 def workspace_label_selector(workspace: str) -> str:
     """Return the mutagen ``--label-selector`` string for a hogli workspace."""
-    return f"hogli-workspace={workspace}"
+    return f"{_WORKSPACE_LABEL_KEY}={workspace}"
 
 
 def conflict_count(session: dict[str, Any]) -> int:
