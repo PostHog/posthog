@@ -466,8 +466,7 @@ mod tests {
 
         // Simulate 2 consecutive probe failures
         health.consecutive_probe_failures = 2;
-        let transitioned =
-            health.try_transition(WorkerState::Unhealthy, Duration::ZERO, url);
+        let transitioned = health.try_transition(WorkerState::Unhealthy, Duration::ZERO, url);
 
         assert!(transitioned);
         assert_eq!(health.state, WorkerState::Unhealthy);
@@ -485,8 +484,7 @@ mod tests {
         assert_eq!(health.state, WorkerState::Unhealthy);
 
         // Probe success → Degraded
-        let transitioned =
-            health.try_transition(WorkerState::Degraded, Duration::ZERO, url);
+        let transitioned = health.try_transition(WorkerState::Degraded, Duration::ZERO, url);
 
         assert!(transitioned);
         assert_eq!(health.state, WorkerState::Degraded);
@@ -693,8 +691,7 @@ mod tests {
         let (url, health_lock) = &registry.workers[0];
         let mut health = health_lock.lock().unwrap();
 
-        let transitioned =
-            health.try_transition(WorkerState::Healthy, Duration::ZERO, url);
+        let transitioned = health.try_transition(WorkerState::Healthy, Duration::ZERO, url);
 
         assert!(!transitioned);
         assert_eq!(health.state, WorkerState::Healthy);
