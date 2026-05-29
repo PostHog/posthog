@@ -84,7 +84,6 @@ ActivityScope = Literal[
     "LogsAlertConfiguration",
     "LogsExclusionRule",
     "ProductTour",
-    "Pulse",
     "Ticket",
     "InstanceSetting",
 ]

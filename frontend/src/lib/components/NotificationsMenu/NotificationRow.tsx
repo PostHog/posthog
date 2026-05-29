@@ -41,6 +41,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Experiments concluded',
         description: 'When an experiment you created ends',
     },
+    pulse_digest: {
+        label: 'Pulse digests',
+        description: 'When Max surfaces a notable change in your product metrics',
+    },
 }
 
 export function NotificationRow({

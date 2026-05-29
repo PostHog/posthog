@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from django.db.models import Q
@@ -14,7 +14,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.models import ActivityLog, Cohort, NotificationViewed, User
 from posthog.models.comment import Comment
-from posthog.models.pulse import PULSE_ACTIVITY_SCOPE
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -35,9 +34,7 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
         if "user" not in self.context:
             return False
 
-        user_bookmark: NotificationViewed | None = NotificationViewed.objects.filter(
-            user=self.context["user"]
-        ).first()
+        user_bookmark: NotificationViewed | None = NotificationViewed.objects.filter(user=self.context["user"]).first()
 
         if user_bookmark is None:
             return True
@@ -224,13 +221,6 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                         | Q(Q(scope="Cohort") & Q(item_id__in=my_cohorts))
                         | Q(Q(scope="HogFunction") & Q(item_id__in=my_hog_functions))
-                        # Pulse findings are system-generated and surface to every team member.
-                        # Bounded to a recent window since system-scoped entries are excluded by
-                        # the partial `idx_alog_team_scope_created` index.
-                        | Q(
-                            scope=PULSE_ACTIVITY_SCOPE,
-                            created_at__gte=datetime.now(UTC) - timedelta(days=30),
-                        )
                     )
                     | Q(
                         # don't want to see creation of these things since that was before the user edited these things
