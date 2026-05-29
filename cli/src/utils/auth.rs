@@ -94,9 +94,7 @@ impl CredentialProvider for EnvVarProvider {
                 path.display()
             )
         }
-        anyhow::bail!(
-            "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env"
-        )
+        anyhow::bail!("Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env")
     }
 
     fn store_credentials(&self, _token: Token) -> Result<(), Error> {
