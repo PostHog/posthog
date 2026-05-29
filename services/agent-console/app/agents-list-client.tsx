@@ -2,11 +2,33 @@
 
 import { useRouter } from 'next/navigation'
 
+import type { ChatSession } from '@posthog/agent-chat'
+import type { FleetStats } from '@posthog/agent-chat/fixtures'
+
 import { useSetDockPage } from '@/components/dock-context'
 import { useSessionTeamId } from '@/components/session-context'
-import { getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
+import { ApiError, getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 import { AgentsList } from '@/pages/AgentsList'
+
+const EMPTY_FLEET_STATS: FleetStats = {
+    liveSessionCount: 0,
+    sessions24hCount: 0,
+    spend24hUsd: 0,
+    approvalsPendingCount: 0,
+}
+
+/** Treat a 404 as "this endpoint isn't built yet" and return a default. */
+async function tolerateMissing<T>(p: Promise<T>, fallback: T): Promise<T> {
+    try {
+        return await p
+    } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+            return fallback
+        }
+        throw err
+    }
+}
 
 export function AgentsListClient(): React.ReactElement {
     const router = useRouter()
@@ -15,8 +37,10 @@ export function AgentsListClient(): React.ReactElement {
     useSetDockPage({ kind: 'agent-list' })
 
     const agents = useResource(() => listAgents(teamId), [teamId])
-    const fleet = useResource(() => getFleetStats(teamId), [teamId])
-    const live = useResource(() => listLiveSessions(teamId), [teamId])
+    // Fleet endpoints are Phase C — tolerate 404 so the agents list still
+    // renders against bare Django.
+    const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId])
+    const live = useResource(() => tolerateMissing(listLiveSessions(teamId), [] as ChatSession[]), [teamId])
 
     const loading = agents.loading || fleet.loading || live.loading
     const error = agents.error ?? fleet.error ?? live.error
