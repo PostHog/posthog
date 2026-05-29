@@ -27,6 +27,7 @@ import {
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
 
+import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'
 import type {
     SchemaConfigurationSection,
     SchemaSceneTab,
@@ -48,82 +49,106 @@ import {
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
-    Actions: () => import('../../products/actions/frontend/pages/Actions'),
-    Action: () => import('../../products/actions/frontend/pages/Action'),
-    NewAction: () => import('../../products/actions/frontend/pages/Action'),
-    BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
+    Actions: () => import('../products/actions/frontend/pages/Actions'),
+    Action: () => import('../products/actions/frontend/pages/Action'),
+    NewAction: () => import('../products/actions/frontend/pages/Action'),
+    AIObservability: () => import('../products/ai_observability/frontend/AIObservabilityScene'),
+    AIObservabilityTrace: () => import('../products/ai_observability/frontend/AIObservabilityTraceScene'),
+    AIObservabilitySession: () => import('../products/ai_observability/frontend/AIObservabilitySessionScene'),
+    AIObservabilityUsers: () => import('../products/ai_observability/frontend/AIObservabilityUsers'),
+    AIObservabilityPlayground: () =>
+        import('../products/ai_observability/frontend/playground/AIObservabilityPlaygroundScene'),
+    AIObservabilityDatasets: () =>
+        import('../products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene'),
+    AIObservabilityDataset: () => import('../products/ai_observability/frontend/datasets/AIObservabilityDatasetScene'),
+    AIObservabilityEvaluations: () =>
+        import('../products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene'),
+    AIObservabilityEvaluation: () =>
+        import('../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
+    AIObservabilityEvaluationTemplates: () =>
+        import('../products/ai_observability/frontend/evaluations/EvaluationTemplates'),
+    AIObservabilityTags: () => import('../products/ai_observability/frontend/tags/AIObservabilityTagsScene'),
+    AIObservabilityTag: () => import('../products/ai_observability/frontend/tags/AIObservabilityTag'),
+    AIObservabilityPrompts: () => import('../products/ai_observability/frontend/prompts/LLMPromptsScene'),
+    AIObservabilityPrompt: () => import('../products/ai_observability/frontend/prompts/LLMPromptScene'),
+    AIObservabilitySkills: () => import('../products/ai_observability/frontend/skills/LLMSkillsScene'),
+    AIObservabilitySkill: () => import('../products/ai_observability/frontend/skills/LLMSkillScene'),
+    AIObservabilityClusters: () =>
+        import('../products/ai_observability/frontend/clusters/AIObservabilityClustersScene'),
+    AIObservabilityCluster: () => import('../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
+    BusinessKnowledge: () => import('../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
-    SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
-    SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
-    SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
-    CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
+    SupportTickets: () => import('../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
+    SupportTicketDetail: () => import('../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
+    SupportSettings: () => import('../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
+    CustomerAnalytics: () => import('../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
+        import('../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
     CustomerJourneyBuilder: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
+        import('../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
     CustomerJourneyTemplates: () =>
-        import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
-    DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
+        import('../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
+    DataOps: () => import('../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
-    Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
-    DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
-    DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
-    DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
-    Deployments: () => import('../../products/deployments/frontend/Deployments'),
-    DeploymentProject: () => import('../../products/deployments/frontend/DeploymentProject'),
-    Deployment: () => import('../../products/deployments/frontend/Deployment'),
-    EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
-    EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
-    EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
-    EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
-    ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
+    Sources: () => import('../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
+    DataWarehouseSource: () => import('../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
+    DataWarehouseSourceNew: () => import('../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
+    DataWarehouseSourceSchema: () => import('../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
+    Deployments: () => import('../products/deployments/frontend/Deployments'),
+    DeploymentProject: () => import('../products/deployments/frontend/DeploymentProject'),
+    Deployment: () => import('../products/deployments/frontend/Deployment'),
+    EarlyAccessFeatures: () => import('../products/early_access_features/frontend/EarlyAccessFeatures'),
+    EarlyAccessFeature: () => import('../products/early_access_features/frontend/EarlyAccessFeature'),
+    EndpointsScene: () => import('../products/endpoints/frontend/EndpointsScene'),
+    EndpointScene: () => import('../products/endpoints/frontend/EndpointScene'),
+    ErrorTracking: () => import('../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
+        import('../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
     ErrorTrackingIssueFingerprints: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
-    FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
-    Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
-    FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
-    LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
-    LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
-    Links: () => import('../../products/links/frontend/LinksScene'),
-    Link: () => import('../../products/links/frontend/LinkScene'),
-    LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
-    Logs: () => import('../../products/logs/frontend/LogsScene'),
-    LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
-    LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
+        import('../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
+    FeatureFlagTemplates: () => import('../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
+    Game368Hedgehogs: () => import('../products/games/368Hedgehogs/368Hedgehogs'),
+    FlappyHog: () => import('../products/games/FlappyHog/FlappyHog'),
+    LegalDocuments: () => import('../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
+    LegalDocumentNew: () => import('../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
+    Links: () => import('../products/links/frontend/LinksScene'),
+    Link: () => import('../products/links/frontend/LinkScene'),
+    LiveDebugger: () => import('../products/live_debugger/frontend/LiveDebugger'),
+    Logs: () => import('../products/logs/frontend/LogsScene'),
+    LogsAlertDetail: () => import('../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
+    LogsSamplingNew: () => import('../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
-        import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
-    ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
-    ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
-    MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
-    MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
-    Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
-    ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
-    ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
-    ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
-    RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
-    SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
-    SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
-    TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
-    TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
-    Tracing: () => import('../../products/tracing/frontend/TracingScene'),
-    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
-    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
-    UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
-    VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
-    VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
-    VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
-    VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
+        import('../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
+    ManagedMigration: () => import('../products/managed_migrations/frontend/ManagedMigration'),
+    ManagedMigrationNew: () => import('../products/managed_migrations/frontend/ManagedMigration'),
+    MCPAnalytics: () => import('../products/mcp_analytics/frontend/MCPAnalyticsScene'),
+    MCPAnalyticsToolDetail: () => import('../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
+    Metrics: () => import('../products/metrics/frontend/MetricsScene'),
+    ReplayVision: () => import('../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
+    ReplayVisionScanner: () => import('../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
+    ReplayVisionObservation: () => import('../products/replay_vision/frontend/observations/ReplayObservation'),
+    RevenueAnalytics: () => import('../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    SessionGroupSummariesTable: () => import('../products/session_summaries/frontend/SessionGroupSummariesTable'),
+    SessionGroupSummary: () => import('../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    TaskTracker: () => import('../products/tasks/frontend/TaskTracker'),
+    TaskDetail: () => import('../products/tasks/frontend/TaskDetailScene'),
+    Tracing: () => import('../products/tracing/frontend/TracingScene'),
+    UserInterviews: () => import('../products/user_interviews/frontend/UserInterviews'),
+    UserInterview: () => import('../products/user_interviews/frontend/UserInterview'),
+    UserInterviewResponse: () => import('../products/user_interviews/frontend/UserInterviewResponse'),
+    VisualReviewIndex: () => import('../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
+    VisualReviewRuns: () => import('../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
+    VisualReviewRun: () => import('../products/visual_review/frontend/scenes/VisualReviewRunScene'),
+    VisualReviewSettings: () => import('../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
     VisualReviewSnapshotHistory: () =>
-        import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
+        import('../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     VisualReviewSnapshotOverview: () =>
-        import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
-    Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
-    Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
-    WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
+        import('../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
+    Workflows: () => import('../products/workflows/frontend/WorkflowsScene'),
+    Workflow: () => import('../products/workflows/frontend/Workflows/WorkflowScene'),
+    WorkflowsLibraryTemplate: () => import('../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -132,6 +157,37 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
+    '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
+    '/ai-observability/reviews': ['AIObservability', 'aiObservabilityReviews'],
+    '/ai-observability/traces': ['AIObservability', 'aiObservabilityTraces'],
+    '/ai-observability/traces/:id': ['AIObservabilityTrace', 'aiObservability'],
+    '/ai-observability/users': ['AIObservability', 'aiObservabilityUsers'],
+    '/ai-observability/errors': ['AIObservability', 'aiObservabilityErrors'],
+    '/ai-observability/tools': ['AIObservability', 'aiObservabilityTools'],
+    '/ai-observability/sentiment': ['AIObservability', 'aiObservabilitySentiment'],
+    '/ai-observability/sessions': ['AIObservability', 'aiObservabilitySessions'],
+    '/ai-observability/sessions/:id': ['AIObservabilitySession', 'aiObservability'],
+    '/ai-observability/playground': ['AIObservabilityPlayground', 'aiObservabilityPlayground'],
+    '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
+    '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
+    [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
+    '/ai-evals/datasets': ['AIObservabilityDatasets', 'aiObservabilityDatasets'],
+    '/ai-evals/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
+    '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
+    '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
+    '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
+    '/ai-evals/evaluations/offline/experiments': ['AIObservabilityEvaluations', 'aiObservabilityOfflineEvaluations'],
+    '/ai-evals/evaluations/offline/experiments/:experimentId': [
+        'AIObservabilityEvaluations',
+        'aiObservabilityOfflineEvaluationExperiment',
+    ],
+    '/ai-evals/evaluations/templates': ['AIObservabilityEvaluationTemplates', 'aiObservabilityEvaluationTemplates'],
+    '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
+    '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
+    '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
+    '/prompt-management/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
+    '/prompt-management/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -230,6 +286,122 @@ export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/ai-observability': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
+    '/ai-observability/settings': (_params, searchParams, hashParams) => {
+        const nextHashParams = { ...hashParams }
+        if (Object.prototype.hasOwnProperty.call(nextHashParams, 'llm-analytics-byok')) {
+            delete nextHashParams['llm-analytics-byok']
+        }
+        if (nextHashParams.setting === 'llm-analytics-byok') {
+            nextHashParams.setting = 'ai-observability-byok'
+        }
+        if (nextHashParams.selectedSetting === 'llm-analytics-byok') {
+            nextHashParams.selectedSetting = 'ai-observability-byok'
+        }
+        nextHashParams['ai-observability-byok'] = null
+        return combineUrl(urls.settings('project-ai-observability'), searchParams, nextHashParams).url
+    },
+    '/ai-evals': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/tags': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
+    '/ai-evals/tags/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
+    '/prompt-management': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
+    '/llm-analytics': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
+    '/llm-analytics/settings': (_params, searchParams, hashParams) => {
+        const nextHashParams = { ...hashParams }
+        if (Object.prototype.hasOwnProperty.call(nextHashParams, 'llm-analytics-byok')) {
+            delete nextHashParams['llm-analytics-byok']
+        }
+        if (nextHashParams.setting === 'llm-analytics-byok') {
+            nextHashParams.setting = 'ai-observability-byok'
+        }
+        if (nextHashParams.selectedSetting === 'llm-analytics-byok') {
+            nextHashParams.selectedSetting = 'ai-observability-byok'
+        }
+        nextHashParams['ai-observability-byok'] = null
+        return combineUrl(urls.settings('project-ai-observability'), searchParams, nextHashParams).url
+    },
+    '/llm-analytics/dashboard': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
+    '/llm-analytics/generations': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityGenerations(), searchParams, hashParams).url,
+    '/llm-analytics/reviews': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
+    '/llm-analytics/traces': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTraces(), searchParams, hashParams).url,
+    '/llm-analytics/traces/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTrace(params.id), searchParams, hashParams).url,
+    '/llm-analytics/users': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityUsers(), searchParams, hashParams).url,
+    '/llm-analytics/errors': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityErrors(), searchParams, hashParams).url,
+    '/llm-analytics/tools': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTools(), searchParams, hashParams).url,
+    '/llm-analytics/sentiment': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySentiment(), searchParams, hashParams).url,
+    '/llm-analytics/sessions': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySessions(), searchParams, hashParams).url,
+    '/llm-analytics/sessions/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySession(params.id), searchParams, hashParams).url,
+    '/llm-analytics/playground': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
+    '/llm-analytics/clusters': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityClusters(), searchParams, hashParams).url,
+    '/llm-analytics/clusters/:runId': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityClusters(params.runId), searchParams, hashParams).url,
+    '/llm-analytics/clusters/:runId/:clusterId': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityCluster(params.runId, params.clusterId), searchParams, hashParams).url,
+    '/llm-analytics/datasets': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDatasets(), searchParams, hashParams).url,
+    '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
+    '/llm-analytics/tags': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
+    '/llm-analytics/tags/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
+    '/llm-analytics/evaluations': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
+    '/llm-analytics/evaluations/offline/experiments': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
+    '/llm-analytics/evaluations/offline/experiments/:experimentId': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(params.experimentId), searchParams, hashParams).url,
+    '/llm-analytics/evaluations/templates': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluationTemplates(), searchParams, hashParams).url,
+    '/llm-analytics/evaluations/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityEvaluation(params.id), searchParams, hashParams).url,
+    '/llm-analytics/prompts': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
+    '/llm-analytics/prompts/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityPrompt(params.name), searchParams, hashParams).url,
+    '/llm-analytics/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
+    '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySkill(params.name), searchParams, hashParams).url,
+    '/llm-observability': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
+    '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
+    '/llm-observability/generations': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityGenerations(), searchParams, hashParams).url,
+    '/llm-observability/reviews': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
+    '/llm-observability/traces': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTraces(), searchParams, hashParams).url,
+    '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityTrace(params.id), searchParams, hashParams).url,
+    '/llm-observability/users': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityUsers(), searchParams, hashParams).url,
+    '/llm-observability/playground': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
     '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) =>
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
@@ -262,6 +434,97 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AIObservability: {
+        projectBased: true,
+        name: 'AI observability',
+        layout: 'app-container',
+        description: 'Analyze and understand your AI usage and performance.',
+        iconType: 'llm_analytics',
+    },
+    AIObservabilityTrace: { projectBased: true, name: 'AI observability trace', layout: 'app-container' },
+    AIObservabilitySession: { projectBased: true, name: 'AI observability session', layout: 'app-container' },
+    AIObservabilityUsers: { projectBased: true, name: 'AI observability users', layout: 'app-container' },
+    AIObservabilityPlayground: {
+        projectBased: true,
+        name: 'Playground',
+        description: 'Test and experiment with LLM prompts in a sandbox environment.',
+        layout: 'app-full-scene-height',
+        iconType: 'llm_playground',
+    },
+    AIObservabilityDatasets: {
+        projectBased: true,
+        name: 'Datasets',
+        description: 'Manage datasets for testing and evaluation.',
+        layout: 'app-container',
+        iconType: 'llm_datasets',
+    },
+    AIObservabilityDataset: { projectBased: true, name: 'Dataset', layout: 'app-container', iconType: 'llm_datasets' },
+    AIObservabilityEvaluations: {
+        projectBased: true,
+        name: 'Evaluations',
+        description: 'Configure and monitor automated LLM output evaluations.',
+        activityScope: 'AIObservability',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
+    AIObservabilityEvaluation: {
+        projectBased: true,
+        name: 'Evaluation',
+        activityScope: 'AIObservability',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
+    AIObservabilityEvaluationTemplates: {
+        projectBased: true,
+        name: 'Evaluation templates',
+        activityScope: 'AIObservability',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
+    AIObservabilityTags: {
+        projectBased: true,
+        name: 'Taggers',
+        description: 'Add custom tags to your AI generations automatically.',
+        activityScope: 'AIObservability',
+        layout: 'app-container',
+        iconType: 'llm_tags',
+    },
+    AIObservabilityTag: {
+        projectBased: true,
+        name: 'Tagger',
+        activityScope: 'AIObservability',
+        layout: 'app-container',
+        iconType: 'llm_tags',
+    },
+    AIObservabilityPrompts: {
+        projectBased: true,
+        name: 'Prompts',
+        description: 'Track and manage your LLM prompts.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
+    AIObservabilityPrompt: { projectBased: true, name: 'Prompt', layout: 'app-container', iconType: 'llm_prompts' },
+    AIObservabilitySkills: {
+        projectBased: true,
+        name: 'Skills',
+        description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
+    AIObservabilitySkill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    AIObservabilityClusters: {
+        projectBased: true,
+        name: 'Clusters',
+        description: 'Discover patterns and clusters in your AI usage.',
+        layout: 'app-container',
+        iconType: 'llm_clusters',
+    },
+    AIObservabilityCluster: {
+        projectBased: true,
+        name: 'AI observability cluster',
+        layout: 'app-container',
+        iconType: 'llm_clusters',
+    },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -522,6 +785,70 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
+    aiObservabilityGenerations: (): string => '/ai-observability/generations',
+    aiObservabilityReviews: (): string => '/ai-observability/reviews',
+    aiObservabilityTraces: (): string => '/ai-observability/traces',
+    aiObservabilityTrace: (
+        id: string,
+        params?: {
+            event?: string
+            timestamp?: string
+            exception_ts?: string
+            search?: string
+            tab?: string
+            msg?: string
+        }
+    ): string => {
+        const queryParams = new URLSearchParams(params)
+        const stringifiedParams = queryParams.toString()
+        return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+    },
+    aiObservabilityUsers: (): string => '/ai-observability/users',
+    aiObservabilityErrors: (): string => '/ai-observability/errors',
+    aiObservabilityTools: (): string => '/ai-observability/tools',
+    aiObservabilitySentiment: (): string => '/ai-observability/sentiment',
+    aiObservabilitySessions: (): string => '/ai-observability/sessions',
+    aiObservabilitySession: (
+        id: string,
+        params?: {
+            timestamp?: string
+        }
+    ): string => {
+        const queryParams = new URLSearchParams(params)
+        const stringifiedParams = queryParams.toString()
+        return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+    },
+    aiObservabilityPlayground: (): string => '/ai-observability/playground',
+    aiObservabilityDatasets: (): string => '/ai-evals/datasets',
+    aiObservabilityDataset: (
+        id: string,
+        params?: {
+            item?: string
+        }
+    ): string => combineUrl(`/ai-evals/datasets/${id}`, params).url,
+    aiObservabilityTags: (): string => '/ai-evals/taggers',
+    aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
+    aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
+    aiObservabilityOfflineEvaluations: (): string => '/ai-evals/evaluations/offline/experiments',
+    aiObservabilityOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
+        `/ai-evals/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,
+    aiObservabilityEvaluationTemplates: (): string => '/ai-evals/evaluations/templates',
+    aiObservabilityEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
+    aiObservabilityPrompts: (): string => '/prompt-management/prompts',
+    aiObservabilityPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
+    aiObservabilitySkills: (): string => '/prompt-management/skills',
+    aiObservabilitySkill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/prompt-management/skills/${name}`, params).url,
+    aiObservabilityClusters: (runId?: string): string =>
+        runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
+    aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
+        `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     businessKnowledge: (): string => '/business-knowledge',
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
@@ -1167,6 +1494,36 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Clusters',
+        intents: [ProductKey.LLM_CLUSTERS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_clusters',
+        iconType: 'llm_clusters' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityClusters(),
+        sceneKey: 'AIObservabilityClusters',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -1207,6 +1564,38 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
             'DataWarehouseSourceSchema',
+        ],
+    },
+    {
+        path: 'Datasets',
+        intents: [ProductKey.LLM_DATASETS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_datasets',
+        iconType: 'llm_datasets' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityDatasets(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
+        tags: ['beta'],
+        sceneKey: 'AIObservabilityDatasets',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
         ],
     },
     {
@@ -1266,6 +1655,37 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingIssueFingerprints'],
     },
     {
+        path: 'Evaluations',
+        intents: [ProductKey.LLM_EVALUATIONS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_evaluations',
+        iconType: 'llm_evaluations' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityEvaluations(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
+        sceneKey: 'AIObservabilityEvaluations',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
+    },
+    {
         path: `Experiments`,
         intents: [ProductKey.EXPERIMENTS],
         category: ProductItemCategory.FEATURES,
@@ -1295,6 +1715,44 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         sceneKey: 'Heatmaps',
         sceneKeys: ['Heatmaps'],
+    },
+    {
+        path: 'LLM analytics',
+        displayLabel: 'AI observability',
+        intents: [
+            ProductKey.AI_OBSERVABILITY,
+            ProductKey.LLM_EVALUATIONS,
+            ProductKey.LLM_DATASETS,
+            ProductKey.LLM_PROMPTS,
+            ProductKey.LLM_CLUSTERS,
+        ],
+        category: ProductItemCategory.AI_ENGINEERING,
+        visualOrder: 1,
+        type: 'llm_analytics',
+        iconType: 'llm_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityDashboard(),
+        sceneKey: 'AIObservability',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
     },
     {
         path: 'Links',
@@ -1378,6 +1836,36 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Notebook', 'Notebooks'],
     },
     {
+        path: 'Playground',
+        intents: [ProductKey.AI_OBSERVABILITY],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_playground',
+        iconType: 'llm_playground' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityPlayground(),
+        sceneKey: 'AIObservabilityPlayground',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
+    },
+    {
         path: 'Product analytics',
         intents: [ProductKey.PRODUCT_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -1399,6 +1887,38 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKey: 'ProductTours',
         sceneKeys: ['ProductTour', 'ProductTours'],
         flag: FEATURE_FLAGS.PRODUCT_TOURS,
+    },
+    {
+        path: 'Prompts',
+        intents: [ProductKey.LLM_PROMPTS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_prompts',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityPrompts(),
+        flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
+        tags: ['beta'],
+        sceneKey: 'AIObservabilityPrompts',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
     },
     {
         path: 'Replay vision',
@@ -1450,6 +1970,38 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback', 'ReplayKiosk'],
     },
     {
+        path: 'Skills',
+        intents: [ProductKey.LLM_PROMPTS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_skills',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilitySkills(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
+        tags: ['beta'],
+        sceneKey: 'AIObservabilitySkills',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
+    },
+    {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
         category: ProductItemCategory.BEHAVIOR,
@@ -1473,6 +2025,38 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Survey', 'Surveys'],
     },
     {
+        path: 'Taggers',
+        intents: [ProductKey.AI_OBSERVABILITY],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'llm_tags',
+        iconType: 'llm_tags' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.aiObservabilityTags(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
+        tags: ['alpha'],
+        sceneKey: 'AIObservabilityTags',
+        sceneKeys: [
+            'AIObservability',
+            'AIObservabilityTrace',
+            'AIObservabilitySession',
+            'AIObservabilityUsers',
+            'AIObservabilityPlayground',
+            'AIObservabilityDatasets',
+            'AIObservabilityDataset',
+            'AIObservabilityEvaluations',
+            'AIObservabilityEvaluation',
+            'AIObservabilityEvaluationTemplates',
+            'AIObservabilityTags',
+            'AIObservabilityTag',
+            'AIObservabilityPrompts',
+            'AIObservabilityPrompt',
+            'AIObservabilitySkills',
+            'AIObservabilitySkill',
+            'AIObservabilityClusters',
+            'AIObservabilityCluster',
+        ],
+    },
+    {
         path: 'Toolbar',
         intents: [ProductKey.TOOLBAR],
         href: urls.toolbarLaunch(),
@@ -1485,7 +2069,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tracing',
         intents: [ProductKey.TRACING],
-        category: ProductItemCategory.UNRELEASED,
+        category: ProductItemCategory.APP_MONITORING,
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
