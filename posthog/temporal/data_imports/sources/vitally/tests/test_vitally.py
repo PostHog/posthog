@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
@@ -100,10 +100,12 @@ class TestGetCustomObjectRecordsResource:
         resource = get_custom_object_records_resource("featureRequest", "abc", should_use_incremental_field=True)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        params = resource["endpoint"]["params"]
+        params = cast(dict[str, Any], resource["endpoint"]["params"])
         assert params["sortBy"] == "updatedAt"
-        assert isinstance(params["updatedAt"], dict)
-        assert params["updatedAt"]["cursor_path"] == "updatedAt"
+        updated_at_config = params["updatedAt"]
+        assert isinstance(updated_at_config, dict)
+        assert updated_at_config["type"] == "incremental"
+        assert updated_at_config["cursor_path"] == "updatedAt"
 
 
 class TestVitallySourceCustomObjectRouting:
