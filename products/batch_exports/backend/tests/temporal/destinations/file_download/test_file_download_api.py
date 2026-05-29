@@ -27,13 +27,20 @@ from posthog.models import BatchExportDestination, BatchExportFileDownload, Batc
 from posthog.models.scoping import team_scope
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
 
+skip_without_aws_credentials = pytest.mark.skipif(
+    not has_valid_credentials(),
+    reason="AWS credentials not set in environment",
+)
 
+
+@skip_without_aws_credentials
 async def test_can_generate_s3_pre_signed_url(s3_client, s3_bucket, aws_role_arn):
     """Test we can generate a S3 pre signed URL for some test data."""
     key = f"batch-exports/{str(uuid.uuid4())}"
@@ -210,7 +217,6 @@ async def test_file_download_retrieve_returns_files(
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
 
 
-@pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download_fails_when_not_completed(
     async_client: AsyncClient, temporal_client, team, user, data_interval_start, data_interval_end, generate_test_data
@@ -242,6 +248,7 @@ async def test_file_download_download_fails_when_not_completed(
             assert b"still in progress" in response.content
 
 
+@skip_without_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download(
@@ -403,6 +410,7 @@ async def test_file_download_list_returns_run_ids_and_statuses(
     ]
 
 
+@skip_without_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_end_to_end(

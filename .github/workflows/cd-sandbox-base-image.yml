@@ -9,7 +9,7 @@ on:
 
 jobs:
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine if sandbox image needs to be built
@@ -47,7 +47,7 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 30
         permissions:
             contents: read
@@ -76,17 +76,14 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
-                  toolchain: stable
-                  components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  toolchain: 1.91.1
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-skills
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -160,7 +157,7 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: depot-ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -182,12 +179,6 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-
             - name: Login to ghcr.io
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -198,47 +189,56 @@ jobs:
 
             - name: Build and push container image (base)
               id: build
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
-                  platforms: linux/arm64,linux/amd64
+                  platforms: linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+                  cache-from: |
+                      type=gha,scope=posthog-sandbox-base-${{ github.ref_name }}
+                      type=gha,scope=posthog-sandbox-base
+                  cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=posthog-sandbox-base,mode=max' || format('type=gha,scope=posthog-sandbox-base-{0},mode=max', github.ref_name) }}
 
             - name: Build and push container image (notebook)
               id: build-notebook
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
-                  platforms: linux/arm64,linux/amd64
+                  platforms: linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+                  cache-from: |
+                      type=gha,scope=posthog-sandbox-notebook-${{ github.ref_name }}
+                      type=gha,scope=posthog-sandbox-notebook
+                  cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=posthog-sandbox-notebook,mode=max' || format('type=gha,scope=posthog-sandbox-notebook-{0},mode=max', github.ref_name) }}
 
             - name: Build and push container image (pi)
               id: build-pi
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
                   context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-pi:master,ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) }}
-                  platforms: linux/arm64,linux/amd64
+                  platforms: linux/amd64
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+                  cache-from: |
+                      type=gha,scope=posthog-sandbox-pi-${{ github.ref_name }}
+                      type=gha,scope=posthog-sandbox-pi
+                  cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=posthog-sandbox-pi,mode=max' || format('type=gha,scope=posthog-sandbox-pi-{0},mode=max', github.ref_name) }}
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         permissions: {}

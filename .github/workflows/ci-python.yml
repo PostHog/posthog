@@ -19,7 +19,7 @@ jobs:
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         name: Determine need to run python checks
         # Set job outputs to values from filter step
@@ -75,8 +75,8 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Python code quality (posthog-hetzner)
+        runs-on: posthog-hetzner
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -220,7 +220,7 @@ jobs:
     python_tests:
         needs: [changes, code-quality]
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         steps:

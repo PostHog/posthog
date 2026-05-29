@@ -18,7 +18,7 @@ permissions:
 jobs:
     check-sdk-requirements:
         name: Check for SDK version requirements
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
 
         steps:

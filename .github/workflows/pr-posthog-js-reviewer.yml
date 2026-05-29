@@ -21,7 +21,7 @@ permissions:
 jobs:
     check-posthog-js:
         name: Sync client libraries review request
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
 
         # Skip forks for security - they could manipulate package.json to trigger unwanted reviews.

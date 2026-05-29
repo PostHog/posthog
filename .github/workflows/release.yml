@@ -47,7 +47,7 @@ on:
 jobs:
     # Run 'dist plan' (or host) to determine what tasks we need to do
     plan:
-        runs-on: 'ubuntu-22.04'
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         outputs:
             val: ${{ steps.plan.outputs.manifest }}
@@ -109,7 +109,7 @@ jobs:
             # - 1 "global" task that builds universal installers
             # - N "local" tasks that build each platform's binaries and platform-specific installers
             matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
-        runs-on: ${{ matrix.runner }}
+        runs-on: ${{ startsWith(matrix.runner, 'ubuntu-') && 'posthog-hetzner' || matrix.runner }}
         timeout-minutes: 30
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
@@ -173,7 +173,7 @@ jobs:
         needs:
             - plan
             - build-local-artifacts
-        runs-on: 'ubuntu-22.04'
+        runs-on: posthog-hetzner
         timeout-minutes: 15
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -223,7 +223,7 @@ jobs:
             - build-global-artifacts
         # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
         if: ${{ always() && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
-        runs-on: 'ubuntu-22.04'
+        runs-on: posthog-hetzner
         timeout-minutes: 15
         outputs:
             val: ${{ steps.host.outputs.manifest }}
@@ -292,7 +292,7 @@ jobs:
         needs:
             - plan
             - host
-        runs-on: 'ubuntu-22.04'
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

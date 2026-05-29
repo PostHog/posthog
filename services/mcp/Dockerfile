@@ -17,7 +17,7 @@ ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 # Everything (including ioredis) is bundled, so the runtime stage doesn't need
 # `node_modules` at all.
 #
-FROM ${NODE_IMAGE} AS build
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /code
 
 # `corepack enable` reads the `packageManager` field in package.json to pick the
@@ -42,8 +42,8 @@ COPY tools/openapi-codegen/package.json tools/openapi-codegen/package.json
 # can resolve the full dependency graph during install.
 COPY packages/ packages/
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter @posthog/mcp...
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --filter @posthog/mcp... --store-dir /pnpm/store
 
 COPY services/mcp/ services/mcp/
 COPY tools/openapi-codegen/ tools/openapi-codegen/

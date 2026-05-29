@@ -19,7 +19,7 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         name: Determine need to run skill checks
         outputs:
@@ -47,7 +47,7 @@ jobs:
 
     check-skills:
         name: Check agent skills
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.skills == 'true'
@@ -80,17 +80,14 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
-                  toolchain: stable
-                  components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  toolchain: 1.91.1
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-skills
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -131,7 +128,7 @@ jobs:
 
     release-skills:
         name: Release agent skills
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 30
         needs: check-skills
         if: github.ref == 'refs/heads/master'
@@ -166,17 +163,14 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
-                  toolchain: stable
-                  components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: false
+                  toolchain: 1.91.1
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-skills
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli

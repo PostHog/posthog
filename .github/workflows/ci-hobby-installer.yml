@@ -15,7 +15,7 @@ permissions:
 
 jobs:
     lint-and-test:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 10
 
         steps:
@@ -38,15 +38,13 @@ jobs:
               run: cd bin/hobby-installer && make test
 
     build:
-        runs-on: ${{ matrix.runner }}
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         strategy:
             matrix:
                 include:
-                    - runner: ubuntu-24.04
-                      arch: amd64
-                    - runner: ubuntu-24.04-arm
-                      arch: arm64
+                    - arch: amd64
+                    - arch: arm64
 
         steps:
             - name: Checkout code

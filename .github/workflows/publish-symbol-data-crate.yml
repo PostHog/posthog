@@ -11,7 +11,7 @@ env:
 jobs:
     publish:
         name: Publish to crates.io
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
 
@@ -26,10 +26,15 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-symbol-data
+                  cache-save-if: ${{ github.ref_type == 'tag' }}
+                  rustflags: ''
 
             - name: Verify tag matches crate version
               run: |

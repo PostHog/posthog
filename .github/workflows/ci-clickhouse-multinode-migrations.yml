@@ -27,7 +27,7 @@ permissions:
 jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 25
         env:
             DEBUG: '1'
@@ -94,6 +94,8 @@ jobs:
               if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   # On merge_group the queue branch is built directly on top of
                   # this base SHA (latest master), so it is exactly the SHA the
                   # cache producer keyed off — no merge-base computation needed.
@@ -106,6 +108,10 @@ jobs:
                   # queue's base SHA directly.
                   if [ "${GITHUB_EVENT_NAME}" = "merge_group" ]; then
                       BASE_SHA="${MERGE_GROUP_BASE_SHA}"
+                  elif [ "$HEAD_REF" = "rory/test-hetzner-runners" ]; then
+                      echo "key=posthog-schema-branch-${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+                      echo "::notice::using schema cache from ${HEAD_REF}@${HEAD_SHA}"
+                      exit 0
                   else
                       # fetch-depth: 1000 on checkout bounds how far back the
                       # merge base can be found; older divergence yields an empty

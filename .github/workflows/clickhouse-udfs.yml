@@ -12,7 +12,7 @@ permissions:
 
 jobs:
     trigger_udfs_workflow:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         steps:
             - name: Get app token

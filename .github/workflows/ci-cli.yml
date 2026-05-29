@@ -14,7 +14,7 @@ concurrency:
 jobs:
     tests:
         name: Run tests
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         defaults:
             run:
@@ -23,9 +23,14 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
+                  rust-src-dir: cli
+                  cache-workspaces: cli
+                  cache-shared-key: v2-rust-cli
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Check Cargo.lock is up to date
               run: |
@@ -37,7 +42,7 @@ jobs:
 
     clippy:
         name: Clippy
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         defaults:
             run:
@@ -46,17 +51,22 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
                   components: clippy
+                  rust-src-dir: cli
+                  cache-workspaces: cli
+                  cache-shared-key: v2-rust-cli
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Run clippy
               run: cargo clippy --all-targets --all-features -- -D warnings
 
     format:
         name: Format
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         defaults:
             run:
@@ -65,10 +75,15 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
                   components: rustfmt
+                  rust-src-dir: cli
+                  cache-workspaces: cli
+                  cache-shared-key: v2-rust-cli
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Check formatting
               run: cargo fmt --all -- --check

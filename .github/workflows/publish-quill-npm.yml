@@ -22,7 +22,7 @@ concurrency:
 jobs:
     publish:
         name: Build and publish
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 15
         environment: Release
         permissions:

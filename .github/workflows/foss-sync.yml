@@ -14,7 +14,7 @@ jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         permissions:
             contents: read

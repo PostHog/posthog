@@ -27,7 +27,7 @@ jobs:
     # Determine if we should run based on changed files or preview label
     # See https://github.com/dorny/paths-filter#conditional-execution
     changes:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: github.event_name == 'pull_request'
         name: Determine need to run hobby checks
@@ -97,7 +97,7 @@ jobs:
     wait-for-docker-image:
         name: Wait for Docker image build
         needs: changes
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 90
         if: github.event_name == 'pull_request' && needs.changes.outputs.should_run == 'true'
         outputs:
@@ -326,7 +326,7 @@ jobs:
                       });
 
     hobby-test:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 90
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]

@@ -24,7 +24,7 @@ jobs:
     # Job to decide if we should run nodejs services ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         name: Determine need to run Node.js checks
         permissions:
@@ -64,9 +64,9 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality (depot-ubuntu-latest)
+        name: Node.js Code quality (posthog-hetzner)
         needs: changes
-        runs-on: depot-ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -102,9 +102,9 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build (depot-ubuntu-latest)
+        name: Node.js Build (posthog-hetzner)
         needs: changes
-        runs-on: depot-ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -148,9 +148,9 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-latest-4)
+        name: Node.js Tests ${{matrix.shard}}/3 (posthog-hetzner-4)
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 30 # We know tests don't take this long
         strategy:
             fail-fast: false
@@ -205,17 +205,15 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-backend
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install sqlx-cli
               working-directory: rust
@@ -283,6 +281,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   GH_TOKEN: ${{ github.token }}
+                  POSTHOG_SCHEMA_RESTORE_BASE_BRANCH: ${{ github.event.pull_request.head.ref == 'rory/test-hetzner-runners' && 'rory/test-hetzner-runners' || 'master' }}
               run: |
                   # Download pre-migrated schema from CI
                   ./bin/hogli db:download-schema
@@ -355,7 +354,7 @@ jobs:
     node_tests:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         steps:

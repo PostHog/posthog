@@ -15,7 +15,7 @@ permissions:
 
 jobs:
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         name: Determine need to run MCP checks
         outputs:
@@ -81,7 +81,7 @@ jobs:
                         - '.github/workflows/mcp-publish.yml'
     build:
         name: Build Package
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
@@ -154,7 +154,7 @@ jobs:
 
     unit-tests:
         name: Unit Tests
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
@@ -228,8 +228,8 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests (depot-ubuntu-latest-4)
-        runs-on: depot-ubuntu-latest-4
+        name: Integration Tests (posthog-hetzner-4)
+        runs-on: posthog-hetzner-4
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
@@ -353,17 +353,14 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
-                  components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-mcp'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-mcp
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -406,7 +403,15 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
+                  if [ "$HEAD_REF" = "rory/test-hetzner-runners" ]; then
+                      echo "key=posthog-schema-branch-${HEAD_SHA}" >> $GITHUB_OUTPUT
+                      echo "::notice::using schema cache from ${HEAD_REF}@${HEAD_SHA}"
+                      exit 0
+                  fi
+
                   # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
                   # The fetch-depth:1000 checkout + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
@@ -562,7 +567,7 @@ jobs:
 
     handle-snapshots:
         name: Commit snapshot changes
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         needs: [changes, unit-tests]
         if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
@@ -630,7 +635,7 @@ jobs:
     mcp_tests:
         needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         steps:

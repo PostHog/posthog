@@ -49,7 +49,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV BUILD_LIBRDKAFKA=0 \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24,sharing=locked \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/replay-headless... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \

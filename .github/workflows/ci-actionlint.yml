@@ -20,7 +20,7 @@ env:
 
 jobs:
     actionlint:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         continue-on-error: true
         steps:

@@ -18,7 +18,7 @@ jobs:
     # Job to decide if we should run rust ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
@@ -55,7 +55,6 @@ jobs:
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'
-                        - '.github/actions/setup-sccache/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
@@ -152,10 +151,10 @@ jobs:
                       f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
-        name: Build Rust services (depot-ubuntu-22.04-4)
+        name: Build Rust services (posthog-hetzner-4)
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 15
         permissions:
             contents: read
@@ -174,7 +173,6 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
-                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -186,13 +184,15 @@ jobs:
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
-
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-ci
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Run cargo build
               env:
@@ -206,7 +206,7 @@ jobs:
             matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 20
         permissions:
             contents: read
@@ -246,16 +246,18 @@ jobs:
                   docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-ci
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
-
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -324,10 +326,10 @@ jobs:
                   done
 
     linting:
-        name: Lint Rust services (depot-ubuntu-22.04-4)
+        name: Lint Rust services (posthog-hetzner-4)
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 15
         permissions:
             contents: read
@@ -346,7 +348,6 @@ jobs:
                       rust/
                       proto/
                       .github/actions/setup-protoc/
-                      .github/actions/setup-sccache/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -358,14 +359,16 @@ jobs:
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
 
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+            - name: Install Rust
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
-
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-ci
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Check format
               run: cargo fmt -- --check
@@ -396,7 +399,7 @@ jobs:
     rust_tests:
         needs: [changes, build, test, linting]
         name: Rust Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         permissions: {}

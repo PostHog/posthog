@@ -28,7 +28,7 @@ jobs:
                  (github.event.review.author_association == 'OWNER' || github.event.review.author_association == 'MEMBER' || github.event.review.author_association == 'COLLABORATOR'))
               )
             )
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         steps:
             - name: Trigger Inkeep Agent

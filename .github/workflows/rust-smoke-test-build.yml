@@ -35,7 +35,7 @@ concurrency:
 jobs:
     authorize:
         name: authorize smoke test
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: |
             github.event_name == 'workflow_dispatch' ||
@@ -47,7 +47,7 @@ jobs:
 
     resolve-filter:
         name: resolve image filter
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 2
         if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
         permissions: {}
@@ -87,7 +87,7 @@ jobs:
                 type=sha
                 type=raw,value=${{ github.head_ref || github.ref_name }}
             checkout-ref: ${{ github.event.pull_request.head.sha || github.sha }}
-            timeout-minutes: 30
+            timeout-minutes: 60
             event-name: posthog-rust-smoke-test-image-build
             extra-failure-props: '"pr": "${{ github.event.pull_request.number }}"'
         secrets: inherit

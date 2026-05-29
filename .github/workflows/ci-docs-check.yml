@@ -28,7 +28,7 @@ permissions:
 jobs:
     check-docs-generated:
         name: Check docs are up to date
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 10
 
         steps:

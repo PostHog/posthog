@@ -25,7 +25,7 @@ permissions:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         name: Determine need to run LLM Services checks
         outputs:
@@ -53,7 +53,7 @@ jobs:
         name: LLM Gateway Tests
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         defaults:
             run:
@@ -95,7 +95,7 @@ jobs:
     llm_services_tests:
         needs: [changes, llm-gateway]
         name: LLM Services Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         steps:

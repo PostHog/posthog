@@ -24,7 +24,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:24.13.0-bookworm-slim AS frontend-build
+FROM --platform=$BUILDPLATFORM node:24.13.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -40,7 +40,7 @@ COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24,sharing=locked \
     corepack enable && pnpm --version && \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
@@ -54,7 +54,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:24.13.0-bookworm-slim AS sourcemap-upload
+FROM --platform=$BUILDPLATFORM node:24.13.0-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -95,7 +95,7 @@ COPY bin/turbo bin/turbo
 COPY patches/ patches/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/plugin_transpiler/ common/plugin_transpiler/
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24,sharing=locked \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build

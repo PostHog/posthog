@@ -18,7 +18,7 @@ permissions:
 
 jobs:
     test:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 10
 
         steps:

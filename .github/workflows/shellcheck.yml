@@ -9,7 +9,7 @@ permissions:
 
 jobs:
     shell_check:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         name: shellcheck
         steps:

@@ -53,7 +53,7 @@ jobs:
             github.event_name == 'issue_comment' &&
             github.event.issue.pull_request &&
             startsWith(github.event.comment.body, '/pr-canary')
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         permissions:
             pull-requests: write
@@ -287,7 +287,7 @@ jobs:
                 (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'canary-flags')) ||
                 (needs.handle_comment.result == 'success' && needs.handle_comment.outputs.should_build == 'true')
             )
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         permissions:
             contents: read
@@ -689,8 +689,8 @@ jobs:
             !cancelled() &&
             needs.preflight.result == 'success' &&
             needs.preflight.outputs.should_proceed == 'true'
-        runs-on: depot-ubuntu-22.04
-        timeout-minutes: 30
+        runs-on: posthog-hetzner
+        timeout-minutes: 60
         permissions:
             id-token: write
             contents: read
@@ -710,9 +710,6 @@ jobs:
 
             - name: Copy proto files into rust build context
               run: cp -r proto rust/proto
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
             - name: Login to ghcr.io
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -734,14 +731,13 @@ jobs:
 
             - name: Build and push feature-flags image
               id: docker_build
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
-                  project: vglf58qgzw
                   context: ./rust/
                   file: ./rust/Dockerfile
                   push: true
                   tags: ghcr.io/posthog/posthog/feature-flags:${{ needs.preflight.outputs.image_tag }}
-                  platforms: linux/arm64
+                  platforms: linux/amd64
                   build-args: |
                       SCCACHE_LOG=warn
                       SCCACHE_NO_DAEMON=1
@@ -749,6 +745,10 @@ jobs:
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+                  cache-from: |
+                      type=gha,scope=feature-flags-${{ github.ref_name }}
+                      type=gha,scope=feature-flags
+                  cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=feature-flags,mode=max' || format('type=gha,scope=feature-flags-{0},mode=max', github.ref_name) }}
 
             - name: Get deployer token
               id: deployer

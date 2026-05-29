@@ -1,6 +1,9 @@
 import datetime as dt
 
 import pytest
+from unittest import mock
+
+import botocore.exceptions
 
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
@@ -8,6 +11,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     S3InsertInputs,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_object_key, get_query_timeout
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import check_valid_credentials
 
 
 @pytest.mark.parametrize(
@@ -25,6 +29,31 @@ from products.batch_exports.backend.temporal.destinations.utils import get_objec
 )
 def test_get_query_timeout(data_interval_start, data_interval_end, expected_timeout):
     assert get_query_timeout(data_interval_start, data_interval_end) == expected_timeout
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exception",
+    [
+        botocore.exceptions.ClientError(
+            {"Error": {"Code": "InvalidClientTokenId", "Message": "invalid credentials"}},
+            "GetCallerIdentity",
+        ),
+        botocore.exceptions.NoCredentialsError(),
+        botocore.exceptions.PartialCredentialsError(provider="env", cred_var="AWS_SECRET_ACCESS_KEY"),
+    ],
+)
+async def test_check_valid_credentials_returns_false_for_invalid_credentials(exception):
+    sts_client = mock.AsyncMock()
+    sts_client.get_caller_identity.side_effect = exception
+    session = mock.Mock()
+    session.client.return_value.__aenter__.return_value = sts_client
+
+    with mock.patch(
+        "products.batch_exports.backend.tests.temporal.destinations.s3.utils.aioboto3.Session",
+        return_value=session,
+    ):
+        assert await check_valid_credentials() is False
 
 
 base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}

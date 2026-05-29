@@ -11,7 +11,7 @@ jobs:
     eval:
         timeout-minutes: 45
         name: AI evals / ${{ matrix.group }}
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         # Skipping on forks as Braintrust credentials are not available there
         if: |
             github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')
@@ -99,17 +99,14 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
               with:
                   toolchain: 1.91.1
-                  components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
+                  rust-src-dir: rust
+                  cache-workspaces: rust
+                  cache-shared-key: v2-rust-backend
+                  cache-save-if: ${{ github.ref == 'refs/heads/master' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
+                  rustflags: ''
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -142,7 +139,7 @@ jobs:
     eval-summary:
         timeout-minutes: 5
         name: AI evals / summary
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         needs: eval
         if: always() && needs.eval.result != 'skipped'
 

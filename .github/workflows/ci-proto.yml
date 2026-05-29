@@ -16,7 +16,7 @@ permissions:
 
 jobs:
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run proto checks
@@ -45,10 +45,10 @@ jobs:
                         - '.github/workflows/ci-proto.yml'
 
     lint:
-        name: Lint proto definitions (depot-ubuntu-22.04-4)
+        name: Lint proto definitions (posthog-hetzner-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 5
 
         steps:
@@ -66,10 +66,10 @@ jobs:
               run: buf lint proto/
 
     breaking:
-        name: Check for breaking changes (depot-ubuntu-22.04-4)
+        name: Check for breaking changes (posthog-hetzner-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 5
 
         steps:
@@ -87,10 +87,10 @@ jobs:
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
 
     python-codegen:
-        name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Python proto stubs are up to date (posthog-hetzner-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: posthog-hetzner-4
         timeout-minutes: 10
 
         steps:
@@ -121,7 +121,7 @@ jobs:
     proto_checks:
         needs: [changes, lint, breaking, python-codegen]
         name: Proto Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: always()
         steps:

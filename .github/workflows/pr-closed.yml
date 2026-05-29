@@ -24,7 +24,7 @@ jobs:
     disable-canary-flags:
         name: Disable feature flags canary
         if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         steps:
             - name: Get deployer token
@@ -54,7 +54,7 @@ jobs:
 
     report-pr-age:
         name: Report age of PR
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.merged == true
         steps:

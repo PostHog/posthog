@@ -10,11 +10,7 @@ jobs:
     turbo-affected-4:
         timeout-minutes: 30
         name: Turbo Affected
-        runs-on: ${{ matrix.os }}
-        strategy:
-            matrix:
-                # os: [depot-ubuntu-22.04, depot-ubuntu-22.04-4]
-                os: [depot-ubuntu-22.04-4]
+        runs-on: posthog-hetzner-4
         permissions:
             contents: read
 

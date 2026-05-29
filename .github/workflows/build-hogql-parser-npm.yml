@@ -17,7 +17,7 @@ concurrency:
 jobs:
     check-package-version:
         name: Check npm package version
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 5
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
@@ -67,7 +67,7 @@ jobs:
     build-wasm:
         name: Build WASM
         needs: check-package-version
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 30
         if: needs.check-package-version.outputs.is-new-version == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
@@ -93,7 +93,7 @@ jobs:
     publish-npm:
         name: Publish on npm
         needs: build-wasm
-        runs-on: ubuntu-24.04
+        runs-on: posthog-hetzner
         timeout-minutes: 10
         permissions:
             contents: read

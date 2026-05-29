@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
     update-ai-costs:
-        runs-on: ubuntu-latest
+        runs-on: posthog-hetzner
         timeout-minutes: 5
 
         steps:
