@@ -25,6 +25,12 @@ fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
 
 /// A `performed_event_multiple` leaf on `$pageview` with a fixed conditionHash and a tunable
 /// window/threshold (the fields that the conditionHash does *not* encode).
+/// A compiled program shared by every leaf with `BEHAVIORAL_HASH` (the conditionHash encodes only
+/// the event matcher, so the window/threshold do not change it — nor the bytecode).
+fn behavioral_bytecode() -> Value {
+    json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
+}
+
 fn behavioral_multiple(time_value: i64, operator_value: i64) -> Value {
     json!({
         "type": "behavioral",
@@ -35,6 +41,7 @@ fn behavioral_multiple(time_value: i64, operator_value: i64) -> Value {
         "operator": "gte",
         "operator_value": operator_value,
         "conditionHash": "0123456789abcdef",
+        "bytecode": behavioral_bytecode(),
     })
 }
 
@@ -45,6 +52,7 @@ fn person_leaf() -> Value {
         "value": "a@b.com",
         "operator": "exact",
         "conditionHash": "fedcba9876543210",
+        "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
     })
 }
 
@@ -144,6 +152,46 @@ fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
 }
 
 #[test]
+fn bytecode_is_captured_and_deduped_by_condition_hash() {
+    // Same conditionHash across two cohorts (different windows) → one bytecode entry; the person
+    // leaf adds a second, distinct one. This is what PR 1.6 fetches to feed the HogVM.
+    let catalog = build_catalog_from_rows(vec![
+        row(1, 7, cohort(vec![behavioral_multiple(7, 3), person_leaf()])),
+        row(2, 7, cohort(vec![behavioral_multiple(30, 5)])),
+    ]);
+
+    let team = catalog.team(TeamId(7)).expect("team 7 present");
+    assert_eq!(team.by_condition_to_bytecode.len(), 2);
+    assert_eq!(
+        team.by_condition_to_bytecode[&BEHAVIORAL_HASH].as_ref(),
+        behavioral_bytecode().as_array().unwrap(),
+    );
+    assert!(team.by_condition_to_bytecode.contains_key(&PERSON_HASH));
+}
+
+#[test]
+fn leaf_without_bytecode_is_dropped() {
+    // A behavioral leaf carrying a conditionHash but no inline bytecode is not realtime-executable
+    // and must not enter any index (Node manager.ts:137 requires both).
+    let no_bytecode = json!({
+        "type": "behavioral",
+        "value": "performed_event_multiple",
+        "key": "$pageview",
+        "time_value": 7,
+        "time_interval": "day",
+        "operator": "gte",
+        "operator_value": 3,
+        "conditionHash": "0123456789abcdef",
+    });
+    let catalog = build_catalog_from_rows(vec![row(1, 7, cohort(vec![no_bytecode]))]);
+
+    let team = catalog.team(TeamId(7)).expect("team 7 present");
+    assert!(team.unique_condition_hashes.is_empty());
+    assert!(team.by_condition_to_bytecode.is_empty());
+    assert!(team.by_condition_to_lsk.is_empty());
+}
+
+#[test]
 fn teams_are_isolated() {
     let catalog = build_catalog_from_rows(vec![
         row(1, 7, cohort(vec![behavioral_multiple(7, 3)])),
@@ -169,6 +217,7 @@ fn or_group_of_two_person_leaves_is_not_sibling_merged() {
         "value": "x",
         "operator": "exact",
         "conditionHash": "fedcba9876543210",
+        "bytecode": ["_H", 1, 32, "x", 32, "name", 32, "properties", 32, "person", 1, 3, 11],
     });
     let catalog = build_catalog_from_rows(vec![row(
         1,

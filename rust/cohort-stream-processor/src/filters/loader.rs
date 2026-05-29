@@ -94,6 +94,7 @@ mod tests {
                     "operator": "gte",
                     "operator_value": 3,
                     "conditionHash": "0123456789abcdef",
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
                 }],
             }
         })

@@ -8,6 +8,8 @@
 //! Optional predicate fields are read as-is — absent fields hash as `""`/`0` per the
 //! [`LeafStateKey`] contract. Save-time default normalization (§4.10) is deferred.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use crate::filters::tree::{
@@ -21,6 +23,10 @@ use crate::stage1::key::LeafStateKey;
 pub enum LeafDropReason {
     /// No `conditionHash`, or one that is not a 16-character string.
     MissingConditionHash,
+    /// No inline `bytecode`, or a `bytecode` that is not a JSON array. The leaf is not
+    /// realtime-executable, mirroring Node's gate (`manager.ts:137`, which requires *both*
+    /// `conditionHash` and `bytecode`).
+    MissingBytecode,
     /// A behavioral `value` outside the two bytecode-producing types.
     UnsupportedBehavioralValue,
     /// A behavioral leaf keyed by an action id (integer `key`) — never produced bytecode.
@@ -33,6 +39,7 @@ impl LeafDropReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::MissingConditionHash => "missing_condition_hash",
+            Self::MissingBytecode => "missing_bytecode",
             Self::UnsupportedBehavioralValue => "unsupported_behavioral_value",
             Self::BehavioralActionKey => "behavioral_action_key",
             Self::MalformedLeaf => "malformed_leaf",
@@ -82,7 +89,12 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
 
-    // 4. A non-empty string event key (guaranteed when bytecode exists, defended explicitly).
+    // 4. Require inline array bytecode (Node gates on conditionHash *and* bytecode together).
+    let Some(bytecode) = bytecode_array(node.get("bytecode")) else {
+        return LeafClass::Drop(LeafDropReason::MissingBytecode);
+    };
+
+    // 5. A non-empty string event key (guaranteed when bytecode exists, defended explicitly).
     let Some(event_key) = node
         .get("key")
         .and_then(Value::as_str)
@@ -103,6 +115,7 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         explicit_datetime_to: opt_string(node.get("explicit_datetime_to")),
         leaf_state_key: LeafStateKey([0u8; 16]),
         state_variant: None,
+        bytecode,
     }
     .with_state_key();
 
@@ -134,14 +147,18 @@ fn cohort_ref_negation(node: &Value) -> bool {
 }
 
 fn classify_person(node: &Value, missing_reason: LeafDropReason) -> LeafClass {
-    match condition_hash_bytes(node.get("conditionHash")) {
-        Some(condition_hash) => LeafClass::Keep(CohortLeaf::PersonProperty(PersonLeafConfig {
-            condition_hash,
-            leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
-            raw: node.clone(),
-        })),
-        None => LeafClass::Drop(missing_reason),
-    }
+    let Some(condition_hash) = condition_hash_bytes(node.get("conditionHash")) else {
+        return LeafClass::Drop(missing_reason);
+    };
+    let Some(bytecode) = bytecode_array(node.get("bytecode")) else {
+        return LeafClass::Drop(LeafDropReason::MissingBytecode);
+    };
+    LeafClass::Keep(CohortLeaf::PersonProperty(PersonLeafConfig {
+        condition_hash,
+        leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
+        bytecode,
+        raw: node.clone(),
+    }))
 }
 
 /// The 16 ASCII bytes of the hex `conditionHash` string. The hash is `sha256(bytecode)[:16]`,
@@ -157,6 +174,15 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     } else {
         None
     }
+}
+
+/// The leaf's inline compiled `bytecode` as a shared `Arc<Vec<Value>>`, or `None` if it is absent
+/// or not a JSON array. Wrapped in `Arc` (a cold 5-minute path) so tree clones / ArcSwap snapshots
+/// share one allocation, consistent with commit `0359855` ("avoid deep-cloning"). The bytecode
+/// itself is not hex-decoded or validated here — `Program::new` validates it at evaluation time.
+fn bytecode_array(value: Option<&Value>) -> Option<Arc<Vec<Value>>> {
+    let array = value?.as_array()?;
+    Some(Arc::new(array.clone()))
 }
 
 /// A referenced cohort id, stored as a JSON number or a string-encoded int (`cohort.py` does
@@ -186,6 +212,12 @@ mod tests {
 
     const HASH: &str = "0123456789abcdef";
 
+    /// A representative compiled program (`event == "$pageview"`); the exact ops are irrelevant
+    /// to classification — only that `bytecode` is present and array-valued.
+    fn bytecode() -> Value {
+        json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
+    }
+
     fn hash_bytes() -> [u8; 16] {
         *b"0123456789abcdef"
     }
@@ -201,6 +233,7 @@ mod tests {
             "operator": "gte",
             "operator_value": 3,
             "conditionHash": HASH,
+            "bytecode": bytecode(),
         });
         let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
             panic!("expected a kept behavioral leaf");
@@ -211,6 +244,7 @@ mod tests {
         assert_eq!(leaf.time_value, Some(7));
         assert_eq!(leaf.operator.as_deref(), Some("gte"));
         assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
+        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
     }
 
     #[test]
@@ -271,12 +305,14 @@ mod tests {
             "key": "email",
             "value": "a@b.com",
             "conditionHash": HASH,
+            "bytecode": bytecode(),
         });
         let LeafClass::Keep(CohortLeaf::PersonProperty(leaf)) = classify_leaf(&node) else {
             panic!("expected a kept person leaf");
         };
         assert_eq!(leaf.condition_hash, hash_bytes());
         assert_eq!(leaf.leaf_state_key, LeafStateKey(hash_bytes()));
+        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
         assert_eq!(leaf.raw, node);
     }
 
@@ -286,6 +322,50 @@ mod tests {
         assert!(matches!(
             classify_leaf(&node),
             LeafClass::Drop(LeafDropReason::MissingConditionHash)
+        ));
+    }
+
+    #[test]
+    fn behavioral_without_bytecode_is_dropped() {
+        // conditionHash present but no inline bytecode → not realtime-executable (Node manager.ts:137).
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "conditionHash": HASH,
+        });
+        assert!(matches!(
+            classify_leaf(&node),
+            LeafClass::Drop(LeafDropReason::MissingBytecode)
+        ));
+    }
+
+    #[test]
+    fn person_without_bytecode_is_dropped() {
+        let node = json!({
+            "type": "person",
+            "key": "email",
+            "value": "a@b.com",
+            "conditionHash": HASH,
+        });
+        assert!(matches!(
+            classify_leaf(&node),
+            LeafClass::Drop(LeafDropReason::MissingBytecode)
+        ));
+    }
+
+    #[test]
+    fn non_array_bytecode_is_dropped() {
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "conditionHash": HASH,
+            "bytecode": "not-an-array",
+        });
+        assert!(matches!(
+            classify_leaf(&node),
+            LeafClass::Drop(LeafDropReason::MissingBytecode)
         ));
     }
 
@@ -345,7 +425,12 @@ mod tests {
 
     #[test]
     fn unknown_type_with_condition_hash_is_a_person_leaf() {
-        let node = json!({ "type": "event", "key": "$pageview", "conditionHash": HASH });
+        let node = json!({
+            "type": "event",
+            "key": "$pageview",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+        });
         assert!(matches!(
             classify_leaf(&node),
             LeafClass::Keep(CohortLeaf::PersonProperty(_))

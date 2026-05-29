@@ -27,6 +27,17 @@ pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
 /// (a panic on a compaction thread is FFI UB), labelled by `kind` (counter).
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
+// ── HogVM executor (PR 1.4) ───────────────────────────────────────────────────
+/// A cohort bytecode invoked a `CALL_GLOBAL`/symbol with no registered Rust native — i.e.
+/// the M0 survey missed it. Labelled by `name`; a non-zero value means a cohort may be
+/// silently evaluating to `false` (counter).
+pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
+/// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
+pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
+/// `properties`/`person_properties` JSON parse failure; the event is skipped, matching Node
+/// (consumer.ts:200). Labelled by `field` (counter).
+pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics

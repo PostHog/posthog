@@ -93,13 +93,16 @@ pub struct Stage1Key {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
     /// A `performed_event_multiple` leaf with every discriminating field populated, the
-    /// baseline for the discrimination matrix.
+    /// baseline for the discrimination matrix. `bytecode` is intentionally empty — it is not
+    /// hashed into the [`LeafStateKey`], so it cannot affect any assertion here.
     fn baseline() -> BehavioralLeafConfig {
         BehavioralLeafConfig {
             condition_hash: HASH,
@@ -113,6 +116,7 @@ mod tests {
             explicit_datetime_to: None,
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
+            bytecode: Arc::new(vec![]),
         }
         .with_state_key()
     }
@@ -165,6 +169,7 @@ mod tests {
             explicit_datetime_to: Some("2026-02-01T00:00:00Z".to_string()),
             leaf_state_key: LeafStateKey([0u8; 16]),
             state_variant: None,
+            bytecode: Arc::new(vec![]),
         }
         .with_state_key()
     }

@@ -7,6 +7,7 @@
 //! workspace dependency and this is a cold 5-minute path (D-1).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use metrics::counter;
 use serde_json::Value;
@@ -26,6 +27,11 @@ pub struct TeamFilters {
     /// `conditionHash → [CohortId]`. Stage 2 / cleanup walks back from a condition to the
     /// cohorts that contain a leaf with it.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
+    /// `conditionHash → bytecode`. PR 1.6's hot path fetches the program here, builds the globals,
+    /// and calls [`crate::hogvm::evaluate`] once per unique conditionHash per event. One entry per
+    /// conditionHash: the bytecode is identical across cohorts/leaves that share it, since
+    /// `conditionHash = sha256(bytecode)`.
+    pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
     /// Distinct conditionHashes for this team — preserves the per-team HogVM dedup
     /// (`manager.ts:109-113`): one execution per unique conditionHash per event.
     pub unique_condition_hashes: HashSet<[u8; 16]>,
@@ -39,6 +45,7 @@ pub struct TeamFilters {
 pub struct TeamFiltersBuilder {
     by_condition_to_lsk: HashMap<[u8; 16], HashSet<LeafStateKey>>,
     by_condition_to_cohorts: HashMap<[u8; 16], HashSet<CohortId>>,
+    by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
 }
@@ -49,6 +56,7 @@ impl LeafSink for TeamFiltersBuilder {
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
+        bytecode: &Arc<Vec<Value>>,
     ) {
         self.by_condition_to_lsk
             .entry(condition_hash)
@@ -58,6 +66,11 @@ impl LeafSink for TeamFiltersBuilder {
             .entry(condition_hash)
             .or_default()
             .insert(cohort_id);
+        // First-wins: every leaf sharing this conditionHash carries identical bytecode, so the Arc
+        // is cloned at most once per conditionHash.
+        self.by_condition_to_bytecode
+            .entry(condition_hash)
+            .or_insert_with(|| Arc::clone(bytecode));
         self.unique_condition_hashes.insert(condition_hash);
     }
 
@@ -86,6 +99,7 @@ impl TeamFiltersBuilder {
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
             by_condition_to_cohorts: sorted_vec_map(self.by_condition_to_cohorts),
+            by_condition_to_bytecode: self.by_condition_to_bytecode,
             unique_condition_hashes: self.unique_condition_hashes,
             cohorts: self.cohorts,
         }
@@ -110,6 +124,10 @@ mod tests {
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
+    fn behavioral_bytecode() -> Value {
+        json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
+    }
+
     fn behavioral_multiple(time_value: i64, operator_value: i64) -> Value {
         json!({
             "type": "behavioral",
@@ -120,6 +138,9 @@ mod tests {
             "operator": "gte",
             "operator_value": operator_value,
             "conditionHash": "0123456789abcdef",
+            // Identical across windows: the bytecode encodes only the event matcher, so leaves
+            // sharing a conditionHash share bytecode (conditionHash = sha256(bytecode)).
+            "bytecode": behavioral_bytecode(),
         })
     }
 
@@ -170,5 +191,26 @@ mod tests {
         );
         // Still one unique conditionHash (the HogVM dedup unit).
         assert_eq!(frozen.unique_condition_hashes.len(), 1);
+        // ...and exactly one captured bytecode (first-wins; identical per conditionHash).
+        assert_eq!(frozen.by_condition_to_bytecode.len(), 1);
+    }
+
+    #[test]
+    fn bytecode_is_captured_under_its_condition_hash() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_multiple(7, 3)]),
+            )
+            .unwrap();
+        let frozen = builder.freeze();
+
+        let bytecode = frozen
+            .by_condition_to_bytecode
+            .get(&HASH)
+            .expect("bytecode captured under the conditionHash");
+        assert_eq!(bytecode.as_ref(), behavioral_bytecode().as_array().unwrap());
     }
 }

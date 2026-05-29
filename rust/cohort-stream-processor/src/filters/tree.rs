@@ -6,6 +6,8 @@
 //! kept leaf caches its derived [`LeafStateKey`] (and reserves a `state_variant` slot PR 1.6
 //! fills in) so the hot path never re-derives it.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -89,6 +91,11 @@ pub struct BehavioralLeafConfig {
     /// immutable for the lifetime of the snapshot.
     pub leaf_state_key: LeafStateKey,
     pub state_variant: Option<StateVariantSlot>,
+    /// The leaf's inline compiled bytecode (sibling to `conditionHash` in the filter JSON), the
+    /// program PR 1.6 feeds to [`crate::hogvm::evaluate`]. `Arc` so tree clones / ArcSwap snapshots
+    /// share one allocation. Excluded from [`LeafStateKey`] (the LSK hashes `condition_hash`, which
+    /// already is `sha256(bytecode)`), and never read by [`with_state_key`].
+    pub bytecode: Arc<Vec<Value>>,
 }
 
 impl BehavioralLeafConfig {
@@ -103,11 +110,13 @@ impl BehavioralLeafConfig {
 }
 
 /// A person-property leaf. The raw JSON is retained so Stage 2 can re-walk the original
-/// predicate; Stage 1 only needs the `condition_hash` / `leaf_state_key`.
+/// predicate; Stage 1 needs the `condition_hash` / `leaf_state_key` and the `bytecode`.
 #[derive(Debug, Clone)]
 pub struct PersonLeafConfig {
     pub condition_hash: [u8; 16],
     pub leaf_state_key: LeafStateKey,
+    /// The leaf's inline compiled bytecode — see [`BehavioralLeafConfig::bytecode`].
+    pub bytecode: Arc<Vec<Value>>,
     pub raw: Value,
 }
 
@@ -145,6 +154,16 @@ impl CohortLeaf {
             Self::CohortRef(_) => None,
         }
     }
+
+    /// The leaf's inline compiled bytecode, or `None` for a cohort reference (cohort refs are
+    /// skipped during HogVM evaluation, `manager.ts:142`).
+    pub fn bytecode(&self) -> Option<&Arc<Vec<Value>>> {
+        match self {
+            Self::PersonProperty(leaf) => Some(&leaf.bytecode),
+            Self::Behavioral(leaf) => Some(&leaf.bytecode),
+            Self::CohortRef(_) => None,
+        }
+    }
 }
 
 /// Boolean combinator for a property group.
@@ -177,13 +196,16 @@ pub struct CohortTree {
 /// tests use a lightweight collecting sink.
 pub trait LeafSink {
     /// A kept, state-keyed leaf (person property or behavioral): records the
-    /// `condition_hash → leaf_state_key` and `condition_hash → cohort_id` edges and the
-    /// per-team `conditionHash` dedup membership in one call.
+    /// `condition_hash → leaf_state_key`, `condition_hash → cohort_id`, and
+    /// `condition_hash → bytecode` edges and the per-team `conditionHash` dedup membership in one
+    /// call. `bytecode` is borrowed; the implementation clones the `Arc` only on first insert per
+    /// `conditionHash` (identical across cohorts since `conditionHash = sha256(bytecode)`).
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
+        bytecode: &Arc<Vec<Value>>,
     );
 
     /// A dropped leaf, for the skip counter.
@@ -235,10 +257,14 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
 
     match classify_leaf(node) {
         LeafClass::Keep(leaf) => {
-            // Kept leaves are person/behavioral, which always carry both; the guard is purely
+            // Kept leaves are person/behavioral, which always carry all three; the guard is purely
             // defensive against a future variant.
-            if let (Some(hash), Some(lsk)) = (leaf.condition_hash(), leaf.leaf_state_key()) {
-                sink.record_state_keyed(cohort_id, hash, lsk);
+            if let (Some(hash), Some(lsk), Some(bytecode)) = (
+                leaf.condition_hash(),
+                leaf.leaf_state_key(),
+                leaf.bytecode(),
+            ) {
+                sink.record_state_keyed(cohort_id, hash, lsk, bytecode);
             }
             Some(FilterNode::Leaf(leaf))
         }
@@ -272,8 +298,17 @@ mod tests {
         dropped: Vec<LeafDropReason>,
     }
 
+    // Bytecode capture into the indices is exercised against the real `TeamFiltersBuilder` in
+    // `reverse_index` / the `filter_catalog` integration test; this sink only needs to observe the
+    // state-keyed/dropped edges, so it ignores the bytecode argument.
     impl LeafSink for CollectingSink {
-        fn record_state_keyed(&mut self, cohort_id: CohortId, hash: [u8; 16], lsk: LeafStateKey) {
+        fn record_state_keyed(
+            &mut self,
+            cohort_id: CohortId,
+            hash: [u8; 16],
+            lsk: LeafStateKey,
+            _bytecode: &Arc<Vec<Value>>,
+        ) {
             self.state_keyed.push((cohort_id, hash, lsk));
         }
         fn record_dropped(&mut self, reason: LeafDropReason) {
@@ -288,6 +323,7 @@ mod tests {
             "value": "a@b.com",
             "operator": "exact",
             "conditionHash": String::from_utf8(hash.to_vec()).unwrap(),
+            "bytecode": ["_H", 1, 29],
         })
     }
 
