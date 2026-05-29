@@ -38,7 +38,7 @@
 ## 🤖 Agent context
 
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
-<!-- Include:
+<!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
      - decisions made along the way (what was tried, rejected, chosen, and why)
      - anything else that helps reviewers
