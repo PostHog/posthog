@@ -1719,12 +1719,14 @@ def _strip_cycle_edges_from_migrations(edges: list[tuple[str, str, str, str]], t
 
 def _strip_replaces_from_claimed_squashes(squash_paths: list[Path], target_dir: Path) -> list[Path]:
     """For each pre-existing squash file in `target_dir` that's claimed by any
-    of our new squashes, remove its `replaces = [...]` attribute in place.
+    of our new squashes, delete it. Our new squash already lists every migration
+    name the old squash claimed in its own `replaces=` — Django doesn't need the
+    file to exist to honour the redirect. Leaving the file in place was causing
+    `manage.py sqlmigrate posthog 0001` ambiguity in CI (two 0001_*.py files).
 
     Recognising a squash: load it as a module and check `Migration.replaces`.
     Skip files we just wrote ourselves.
     """
-    import re
     import importlib.util
 
     def load_module(p: Path) -> Any | None:
@@ -1747,31 +1749,27 @@ def _strip_replaces_from_claimed_squashes(squash_paths: list[Path], target_dir: 
             our_claims.add(name)
 
     new_stems = {p.stem for p in squash_paths}
-    stripped: list[Path] = []
+    deleted: list[Path] = []
     for p in target_dir.glob("*.py"):
         if p.stem == "__init__" or p.stem in new_stems:
             continue
         if p.stem not in our_claims:
             continue
+        # A retired squash is identifiable either by still carrying a
+        # `replaces=` attribute or by a `*_squashed_*` name (in case a prior
+        # install pass already stripped its replaces). Regular non-squash
+        # migrations stay in place — Django folds them via our squash's
+        # replaces= list. We only delete files whose name starts with `0001`,
+        # so leaving them around would create `sqlmigrate` prefix ambiguity
+        # with our new `0001_squashed_initial`.
+        if "_squashed_" not in p.stem:
+            continue
         mod = load_module(p)
-        if mod is None or not getattr(mod.Migration, "replaces", None):
+        if mod is None:
             continue
-        # Strip the replaces attribute. We match either a single-line declaration
-        # or a multi-line one (preserving everything else).
-        src = p.read_text()
-        new_src = re.sub(
-            r"^\s*replaces\s*=\s*\[[^\]]*\]\s*\n",
-            "",
-            src,
-            count=1,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        if new_src == src:
-            sys.stderr.write(f"  warning: could not strip replaces in {p}\n")
-            continue
-        p.write_text(new_src)
-        stripped.append(p)
-    return stripped
+        p.unlink()
+        deleted.append(p)
+    return deleted
 
 
 def _run_uninstall(args: argparse.Namespace) -> None:

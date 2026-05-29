@@ -776,7 +776,10 @@ jobs:
                     if [[ $file =~ rust/persons_migrations ]]; then
                       continue
                     fi
-                    if [[ $file =~ migrations/([0-9]+)_ ]]; then
+                    if [[ $file =~ migrations/([0-9]+_[^/]+)\.py$ ]]; then
+                      # Full migration name (e.g. 0001_squashed_initial) — the
+                      # numeric prefix alone is ambiguous when a squash and its
+                      # retired predecessor share leading digits.
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
                       # For new structure products/user_interviews/backend/migrations, we want user_interviews
