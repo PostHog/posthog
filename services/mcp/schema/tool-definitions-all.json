@@ -4269,21 +4269,6 @@
             "readOnlyHint": false
         }
     },
-    "notebooks-destroy": {
-        "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
-        "category": "Notebooks",
-        "feature": "notebooks",
-        "summary": "Delete notebook",
-        "title": "Delete notebook",
-        "required_scopes": ["notebook:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "notebooks-create-from-markdown": {
         "description": "Create a notebook from agent-friendly markdown. Use this instead of notebooks-create when writing a new multi-node analysis. Content supports normal markdown plus <query title=\"...\">{...query JSON...}</query> blocks for old-style query nodes. For SQL analysis, prefer <query> blocks containing HogQLQuery or InsightVizNode query JSON; do not use <hogql>, <ducksql>, or <python> blocks unless the notebook-python feature flag is enabled and the user specifically needs executable notebook cells. Use execute-sql or query-run first when you need to inspect live values before deciding which nodes to create.",
         "category": "Notebooks",
@@ -4295,6 +4280,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-destroy": {
+        "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Delete notebook",
+        "title": "Delete notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
