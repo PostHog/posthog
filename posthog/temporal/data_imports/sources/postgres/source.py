@@ -19,15 +19,17 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    PostgresImplementation,
     SSLRequiredError,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
@@ -41,6 +43,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     source_requires_ssl,
 )
 
+from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 log = logging.getLogger(__name__)
@@ -55,11 +58,18 @@ PostgresErrors = {
 }
 
 
+_POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+
 @SourceRegistry.register
-class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
+
+    @property
+    def get_implementation(self) -> PostgresImplementation:
+        return _POSTGRES_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -180,6 +190,15 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Drop the Temporal schedule + PostHog-managed slot/publication.
@@ -532,7 +551,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
-            enabled_columns=schema.enabled_columns,
+            enabled_columns=inputs.enabled_columns,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.

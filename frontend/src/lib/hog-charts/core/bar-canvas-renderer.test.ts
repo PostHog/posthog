@@ -1,7 +1,14 @@
 import * as d3 from 'd3'
 
 import { dimensions, makeSeries } from '../testing'
-import { type BarRect, drawBarHighlight, drawBars, type DrawContext, traceRoundedBarPath } from './canvas-renderer'
+import {
+    type BarRect,
+    drawBarHighlight,
+    drawBars,
+    drawBarTracks,
+    type DrawContext,
+    traceRoundedBarPath,
+} from './canvas-renderer'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -13,10 +20,13 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         fill: jest.fn(),
         closePath: jest.fn(),
         setLineDash: jest.fn(),
+        save: jest.fn(),
+        restore: jest.fn(),
         createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
+        globalAlpha: 1,
     } as unknown as jest.Mocked<CanvasRenderingContext2D>
 }
 
@@ -238,6 +248,41 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const ctx = mockCanvasContext()
             drawBarHighlight(ctx, BASE_BAR, 'rgba(1,2,3,0.4)')
             expect(ctx.fillStyle).toBe('rgba(1,2,3,0.4)')
+        })
+    })
+
+    describe('drawBarTracks', () => {
+        const series = makeSeries({ key: 's', data: [40, 70] })
+
+        it('paints a tinted base and hatched stripes per track', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+            drawBarTracks(drawCtx, series, [bar({ dataIndex: 0 }), bar({ dataIndex: 1, x: 200 })], 6)
+            // Two passes (base + hatch) per track => 2 fills × 2 tracks.
+            expect(ctx.fill).toHaveBeenCalledTimes(4)
+        })
+
+        it('wraps drawing in save/restore so the track alpha does not leak', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a'])
+            drawBarTracks(drawCtx, series, [bar({ dataIndex: 0 })], 6)
+            expect(ctx.save).toHaveBeenCalledTimes(1)
+            expect(ctx.restore).toHaveBeenCalledTimes(1)
+        })
+
+        it('skips degenerate track rects', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a'])
+            drawBarTracks(drawCtx, series, [bar({ dataIndex: 0, width: 0 })], 6)
+            expect(ctx.fill).not.toHaveBeenCalled()
+        })
+
+        it('does nothing when there are no tracks', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a'])
+            drawBarTracks(drawCtx, series, [], 6)
+            expect(ctx.fill).not.toHaveBeenCalled()
+            expect(ctx.save).not.toHaveBeenCalled()
         })
     })
 })

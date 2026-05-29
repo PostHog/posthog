@@ -53,7 +53,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_schema["properties"]["results"]["type"], "array")
 
     def test_openapi_spec_with_variables(self):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         variable = InsightVariable.objects.create(
             team=self.team,
@@ -92,7 +92,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(variables_schema["properties"]["country"]["type"], "string")
 
     def test_openapi_spec_variable_types(self):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         test_cases = [
             (InsightVariable.Type.NUMBER, "number", None),

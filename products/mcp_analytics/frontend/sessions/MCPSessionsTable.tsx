@@ -1,3 +1,5 @@
+import './MCPSessionsTable.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
@@ -12,8 +14,8 @@ import { mcpSessionsLogic, type MCPSessionSortColumn } from './mcpSessionsLogic'
 import { formatDuration, sessionDurationMs } from './utils'
 
 export function MCPSessionsTable(): JSX.Element {
-    const { setFilters, loadSessions, selectSession, setSorting } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, selectedSessionId, sorting } = useValues(mcpSessionsLogic)
+    const { setFilters, loadSessions, loadMoreSessions, selectSession, setSorting } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, selectedSessionId, sorting, hasNext } = useValues(mcpSessionsLogic)
 
     const columns: LemonTableColumns<MCPSessionApi> = [
         {
@@ -80,37 +82,56 @@ export function MCPSessionsTable(): JSX.Element {
             </div>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
                 <div className="flex-1 min-w-0">
-                    <LemonTable
-                        data-attr="mcp-sessions-table"
-                        size="small"
-                        pagination={{ pageSize: 20 }}
-                        dataSource={sessions}
-                        rowKey="session_id"
-                        columns={columns}
-                        loading={sessionsLoading}
-                        sorting={sorting ? { columnKey: sorting.column, order: sorting.order } : null}
-                        onSort={(newSorting) =>
-                            setSorting(
-                                newSorting
-                                    ? {
-                                          column: newSorting.columnKey as MCPSessionSortColumn,
-                                          order: newSorting.order,
-                                      }
-                                    : null
-                            )
-                        }
-                        useURLForSorting={false}
-                        emptyState="No MCP sessions yet — try the seed_mcp_sessions management command for local data."
-                        nouns={['session', 'sessions']}
-                        onRow={(record) => ({
-                            onClick: () => selectSession(record.session_id),
-                        })}
-                        rowClassName={(record) =>
-                            record.session_id === selectedSessionId
-                                ? 'cursor-pointer bg-accent-highlight-secondary'
-                                : 'cursor-pointer'
-                        }
-                    />
+                    <div className="max-h-[37rem] overflow-y-auto rounded border border-primary bg-surface-primary">
+                        <LemonTable
+                            data-attr="mcp-sessions-table"
+                            className="MCPSessionsTable"
+                            size="small"
+                            embedded
+                            dataSource={sessions}
+                            rowKey="session_id"
+                            columns={columns}
+                            // Only show the full-table loading overlay on the initial/reset load;
+                            // "load more" appends and is signalled by the footer button's own spinner.
+                            loading={sessionsLoading && sessions.length === 0}
+                            sorting={sorting ? { columnKey: sorting.column, order: sorting.order } : null}
+                            onSort={(newSorting) =>
+                                setSorting(
+                                    newSorting
+                                        ? {
+                                              column: newSorting.columnKey as MCPSessionSortColumn,
+                                              order: newSorting.order,
+                                          }
+                                        : null
+                                )
+                            }
+                            useURLForSorting={false}
+                            emptyState="No MCP sessions yet"
+                            nouns={['session', 'sessions']}
+                            onRow={(record) => ({
+                                onClick: () => selectSession(record.session_id),
+                            })}
+                            rowClassName={(record) =>
+                                record.session_id === selectedSessionId
+                                    ? 'cursor-pointer bg-accent-highlight-secondary'
+                                    : 'cursor-pointer'
+                            }
+                            footer={
+                                hasNext ? (
+                                    <div className="flex justify-center py-1">
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => loadMoreSessions()}
+                                            loading={sessionsLoading}
+                                        >
+                                            Load more
+                                        </LemonButton>
+                                    </div>
+                                ) : undefined
+                            }
+                        />
+                    </div>
                 </div>
                 <aside className="w-full lg:w-[480px] flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
                     <MCPSessionDetail />

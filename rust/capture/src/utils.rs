@@ -3,7 +3,7 @@ use base64::Engine;
 use common_types::RawEvent;
 use rand::RngCore;
 use std::collections::HashSet;
-use tracing::error;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -149,7 +149,7 @@ pub fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureE
             let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
+            debug!(
                 location = location,
                 data_snippet = data_snippet,
                 "decode_base64 failure: {}",
@@ -170,7 +170,7 @@ pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
             let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
+            debug!(
                 form_data = form_data_snippet,
                 "failed to decode urlencoded form body: {e:#}"
             );
@@ -190,7 +190,7 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
             let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
+            debug!(
                 payload_snippet = payload_snippet,
                 "decompress_lz64: failed decompress to UTF16"
             );
@@ -204,11 +204,7 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
     // obtain the JSON event batch payload we've come to know and love
     let decompressed = match String::from_utf16(&decomp_utf16) {
         Ok(result) => result,
-        Err(e) => {
-            error!(
-                "decompress_lz64: failed UTF16 to UTF8 conversion, got: {}",
-                e
-            );
+        Err(_) => {
             return Err(CaptureError::RequestDecodingError(String::from(
                 "decompress_lz64: failed UTF16 to UTF8 conversion",
             )));
@@ -216,10 +212,6 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
     };
 
     if decompressed.len() > limit {
-        error!(
-            "lz64 request payload size limit exceeded: {}",
-            decompressed.len()
-        );
         report_dropped_events("event_too_big", 1);
         return Err(CaptureError::EventTooBig(String::from(
             "lz64 request payload size limit exceeded",

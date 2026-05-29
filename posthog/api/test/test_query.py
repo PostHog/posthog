@@ -36,10 +36,10 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, QueryTags
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):

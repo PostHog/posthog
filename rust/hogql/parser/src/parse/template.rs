@@ -6,10 +6,8 @@
 //! to the byte after `{`, then advance past the closing `}` it stopped
 //! on.
 
-use serde_json::Value;
-
 use super::Parser;
-use crate::emit;
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Lexer, TokenKind};
 
@@ -33,90 +31,152 @@ use crate::lex::{Lexer, TokenKind};
 /// `\X`, and starts a fresh token, so the body splitter does the same:
 /// it closes the current literal chunk and opens a new one (an extra
 /// `concat` argument).
-pub(super) fn parse_template_body(
+pub(super) fn parse_template_body<E: Emitter + Clone>(
+    emit: &E,
     full_src: &str,
     body_offset: usize,
     body_end: usize,
-) -> Result<Value, ParseError> {
+) -> Result<E::Value, ParseError> {
     let body = &full_src[body_offset..body_end];
     let bytes = body.as_bytes();
     // (start_in_body, end_in_body, value) — absolute positions wrap on
     // each push so callers receive cpp-shaped `start` / `end` spans.
-    let mut chunks: Vec<Value> = Vec::new();
+    let mut chunks: Vec<E::Value> = Vec::new();
     let mut literal = String::new();
     let mut literal_start = 0; // byte offset within `body` where the current literal began
     let mut i = 0;
     while i < bytes.len() {
         let c = bytes[i];
+        // `\` always introduces an escape: cpp's `STRING_TEXT` lexer
+        // sweeps over `ESCAPE_CHAR_COMMON`, then `parse_string_text_ctx`
+        // decodes recognised ones and drops the byte for unrecognised
+        // ones. We do both in one pass.
         if c == b'\\' && i + 1 < bytes.len() {
             let next = bytes[i + 1];
-            // Escapes the f-string `STRING_TEXT` lexer rule admits
-            // (`BACKSLASH LBRACE` / `BACKSLASH QUOTE_SINGLE` /
-            // `ESCAPE_CHAR_COMMON`) stay inside the current literal
-            // chunk; their decoded value follows the cpp
-            // `parse_string_text_ctx` + `replace_common_escape_characters`
-            // pair — note `\0` is dropped (NUL ignored) and `\xHH` is
-            // left verbatim (the cpp escape map has no `\x` case).
             match next {
-                b'{' => literal.push('{'),
-                b'\'' => literal.push('\''),
-                b'\\' => literal.push('\\'),
-                b'n' => literal.push('\n'),
-                b't' => literal.push('\t'),
-                b'r' => literal.push('\r'),
-                b'b' => literal.push('\u{08}'),
-                b'f' => literal.push('\u{0C}'),
-                b'a' => literal.push('\u{07}'),
-                b'v' => literal.push('\u{0B}'),
-                b'0' => { /* NUL is ignored, contributing nothing */ }
-                b'x' if i + 4 <= bytes.len()
-                    && bytes[i + 2].is_ascii_hexdigit()
-                    && bytes[i + 3].is_ascii_hexdigit() =>
-                {
-                    literal.push_str(&body[i..i + 4]);
-                    i += 4;
+                b'{' => {
+                    literal.push('{');
+                    i += 2;
+                    continue;
+                }
+                b'}' => {
+                    literal.push('}');
+                    i += 2;
+                    continue;
+                }
+                b'\'' => {
+                    literal.push('\'');
+                    i += 2;
+                    continue;
+                }
+                b'\\' => {
+                    literal.push('\\');
+                    i += 2;
+                    continue;
+                }
+                b'n' => {
+                    literal.push('\n');
+                    i += 2;
+                    continue;
+                }
+                b't' => {
+                    literal.push('\t');
+                    i += 2;
+                    continue;
+                }
+                b'r' => {
+                    literal.push('\r');
+                    i += 2;
+                    continue;
+                }
+                b'b' => {
+                    literal.push('\u{08}');
+                    i += 2;
+                    continue;
+                }
+                b'f' => {
+                    literal.push('\u{0C}');
+                    i += 2;
+                    continue;
+                }
+                b'a' => {
+                    literal.push('\u{07}');
+                    i += 2;
+                    continue;
+                }
+                b'v' => {
+                    literal.push('\u{0B}');
+                    i += 2;
+                    continue;
+                }
+                b'0' => {
+                    // cpp's `parse_string_text_ctx` drops `\0` (NUL is
+                    // not emitted, contributing nothing to the output).
+                    i += 2;
+                    continue;
+                }
+                b'x' => {
+                    // cpp keeps `\xHH` verbatim as `\xHH` — the lexer
+                    // doesn't decode it, and `parse_string_text_ctx`
+                    // copies the backslash + the 'x' + the two hex
+                    // digits literally.
+                    literal.push('\\');
+                    i += 1;
                     continue;
                 }
                 _ => {
-                    // An escape the lexer rule cannot span: cpp's
-                    // `STRING_TEXT` token ends here, the offending
-                    // `\X` is dropped by lexer error recovery, and a
-                    // fresh `STRING_TEXT` (a new concat chunk) begins.
+                    // Unknown `\X` — cpp ends the current `STRING_TEXT`
+                    // token at the `\`, then starts a fresh token on
+                    // the next valid character. The body splitter
+                    // models that by closing the current literal chunk
+                    // and dropping the `\X` sequence (both the backslash
+                    // and the escaped char — cpp drops `\q`, `\é`, and
+                    // `\😀` alike, all contributing nothing).
                     if !literal.is_empty() {
                         chunks.push(wrap_literal_chunk(
+                            emit,
                             full_src,
                             std::mem::take(&mut literal),
                             body_offset + literal_start,
                             body_offset + i,
                         ));
                     }
-                    i += 2;
+                    // `X` may be a multibyte codepoint (`\é`, `\😀`), so step
+                    // past the whole escaped char, not a fixed 2 bytes — a
+                    // fixed step lands mid-char and panics the `&body[i..]`
+                    // slice at the bottom of the loop.
+                    let escaped_char = body[i + 1..]
+                        .chars()
+                        .next()
+                        .expect("guarded by `i + 1 < bytes.len()`");
+                    i += 1 + escaped_char.len_utf8();
                     literal_start = i;
                     continue;
                 }
             }
-            i += 2;
-            continue;
         }
         if c == b'{' {
             if !literal.is_empty() {
                 chunks.push(wrap_literal_chunk(
+                    emit,
                     full_src,
                     std::mem::take(&mut literal),
                     body_offset + literal_start,
                     body_offset + i,
                 ));
             }
-            // Locate the matching `}` with a raw-lexer brace scan
-            // before sub-parsing. The Lexer consumes string / quoted-
-            // identifier / nested-template tokens whole, so a `}`
-            // inside a literal is never miscounted. The expression is
-            // then sub-parsed from a slice that *ends at* the `}` —
-            // this is what keeps the sub-parser's two-token lookahead
-            // from lexing on into the literal template text that
-            // follows the block. That trailing text is not a valid
-            // default-mode token stream (a bare `\` escape, for one),
-            // so letting the lookahead reach it spuriously fails the
+            // The body inside `{ … }` is parsed as a `columnExpr`. cpp's
+            // `parse_string_template` lifts the `{ … }` lexer mode into
+            // a sub-`columnExpr` parse — paren-balance via the
+            // sub-lexer so nested `{}` (Hog blocks, dicts) within the
+            // expression don't terminate the substitution. We mirror
+            // that here by lexing through `{`/`}` until the matching
+            // close-brace lands at depth zero.
+            //
+            // Positions stay absolute in `full_src`. cpp's grammar
+            // emits ctx spans relative to the *outer* source — the
+            // visitor doesn't reset them per template chunk — so the
+            // sub-parser's nodes share an `offset` space with the
             // whole template.
             //
             // Scan via the FULL source so the lexer's positions are
@@ -152,7 +212,11 @@ pub(super) fn parse_template_body(
             // `full_src` keeps the absolute offsets up to that point —
             // a Parser::with_pos started at `abs_brace_start + 1`
             // emits absolute positions in `full_src`.
-            let mut sub = Parser::with_pos(&full_src[..close_brace_start], abs_brace_start + 1)?;
+            let mut sub = Parser::<'_, E>::with_pos_emit(
+                &full_src[..close_brace_start],
+                abs_brace_start + 1,
+                emit.clone(),
+            )?;
             let expr = sub.parse_expr_bp(0)?;
             if !matches!(sub.peek(), TokenKind::Eof) {
                 return Err(ParseError::syntax(
@@ -180,6 +244,7 @@ pub(super) fn parse_template_body(
     }
     if !literal.is_empty() {
         chunks.push(wrap_literal_chunk(
+            emit,
             full_src,
             literal,
             body_offset + literal_start,
@@ -187,13 +252,16 @@ pub(super) fn parse_template_body(
         ));
     }
     if chunks.is_empty() {
-        // Empty body — cpp emits an empty-string Constant spanning the
-        // body (between the quotes). Position it accordingly.
+        // Empty body — cpp spans the empty-string Constant over the WHOLE
+        // `f'…'` token (there is no interior text to span), not the zero-width
+        // gap between the quotes. The token runs from `body_offset - 2` (`f'`)
+        // through `body_end + 1` (past the closing `'`).
         return Ok(wrap_literal_chunk(
+            emit,
             full_src,
             String::new(),
-            body_offset,
-            body_end,
+            body_offset - 2,
+            body_end + 1,
         ));
     }
     // A single-chunk template IS that chunk — whether a literal
@@ -205,7 +273,7 @@ pub(super) fn parse_template_body(
     // The outer concat Call wraps the chunks. Its position spans the
     // whole template body — the caller adds the outer wrap based on
     // the `f'…'` token bounds via the standard pratt-loop wrap.
-    Ok(emit::call("concat", chunks))
+    Ok(emit.call("concat", chunks))
 }
 
 /// Wrap a literal-chunk Constant with the cpp `STRING_TEXT` ctx span.
@@ -214,18 +282,24 @@ pub(super) fn parse_template_body(
 /// envelope without spinning up a fresh `Parser` (which would try to
 /// lex the rest of the source starting from `start`, and inside an
 /// `f'…'` body that lex would fail on the trailing unclosed `'`).
-fn wrap_literal_chunk(full_src: &str, value: String, start: usize, end: usize) -> Value {
-    let constant = emit::constant(Value::String(value));
-    let start_pos = pos_in_source(full_src, start);
-    let end_pos = pos_in_source(full_src, end);
-    emit::with_pos(constant, start_pos, end_pos)
+fn wrap_literal_chunk<E: Emitter>(
+    emit: &E,
+    full_src: &str,
+    value: String,
+    start: usize,
+    end: usize,
+) -> E::Value {
+    let constant = emit.constant(emit.string(&value));
+    let start_pos = pos_in_source(emit, full_src, start);
+    let end_pos = pos_in_source(emit, full_src, end);
+    emit.with_pos(constant, start_pos, end_pos)
 }
 
 /// Compute the cpp-shape `{line, column, offset}` envelope for an
 /// absolute byte offset in `src`. `offset` is the character index
 /// (Unicode code points), matching cpp's ANTLR `getStartIndex()`
 /// semantics; `column` is character-position-in-line.
-fn pos_in_source(src: &str, byte_offset: usize) -> Value {
+pub(crate) fn pos_in_source<E: Emitter>(emit: &E, src: &str, byte_offset: usize) -> E::Value {
     // Line: count `\n` bytes before `byte_offset`.
     let preceding = &src[..byte_offset.min(src.len())];
     let line_breaks = preceding.bytes().filter(|&b| b == b'\n').count();
@@ -238,5 +312,5 @@ fn pos_in_source(src: &str, byte_offset: usize) -> Value {
     } else {
         preceding.chars().count()
     };
-    emit::position(line, column, char_offset)
+    emit.position(line, column, char_offset)
 }

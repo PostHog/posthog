@@ -88,10 +88,18 @@ pub struct Config {
     #[envconfig(default = "http://127.0.0.1:50051")]
     pub replica_url: String,
 
-    /// Number of gRPC channels (HTTP/2 connections) to open to the replica backend.
+    /// Number of gRPC channels (HTTP/2 connections) to open to the replica backend
+    /// for heavy RPCs (Person/Group lookups with large JSON property blobs).
     /// Multiple channels distribute requests across K8s service endpoints.
     #[envconfig(default = "4")]
     pub replica_channels: usize,
+
+    /// Number of dedicated gRPC channels for light RPCs (group type mappings,
+    /// cohort checks, scalar responses). Isolates small responses from TCP
+    /// head-of-line blocking caused by large Person/Group payloads on the
+    /// heavy channels.
+    #[envconfig(default = "2")]
+    pub replica_light_channels: usize,
 
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
@@ -138,6 +146,11 @@ pub struct Config {
     /// Applied to the router's gRPC server and its backend clients (replica, leader).
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
+
+    /// Log a warning when a gRPC response exceeds this size in bytes.
+    /// Set to 0 to disable. Default: 10 MiB.
+    #[envconfig(default = "10485760")]
+    pub response_size_warn_bytes: usize,
 
     // ── etcd coordination (leader mode only) ─────────────────────
     #[envconfig(default = "http://localhost:2379")]

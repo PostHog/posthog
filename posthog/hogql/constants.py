@@ -48,7 +48,7 @@ BREAKDOWN_VALUE_MAX_LENGTH = 400
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
 
-type HogQLParserBackend = Literal["python", "cpp-json", "rust-json"]
+type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
 
 
 class LimitContext(StrEnum):

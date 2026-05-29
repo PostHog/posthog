@@ -1190,6 +1190,8 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
         )
+        # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
+        self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
@@ -1452,15 +1454,44 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            # Injection-shaped strings — whitespace / punctuation makes them obviously not identifiers.
             ("sql_injection", "; DROP TABLE events --"),
             ("union_injection", "current_date UNION SELECT 1"),
             ("whitespace", "current date"),
             ("special_chars", "now()"),
             ("empty_string", ""),
+            # Python-valid identifiers outside `VALID_KEYWORD_NAMES` — would emit unquoted as arbitrary ClickHouse tokens if the gate only checked `isidentifier()`.
+            ("python_identifier_but_not_keyword", "hello"),
+            ("looks_like_keyword_uppercase", "CURRENT_DATE"),
+            ("dunder_attr", "__class__"),
+            ("sql_keyword_select", "SELECT"),
         ]
     )
     def test_keyword_rejects_invalid_names(self, _name: str, keyword_name: str):
-        node = ast.Keyword(name=keyword_name)
+        # `Keyword.__post_init__` rejects at construction; `visit_keyword` re-checks at print time (defense-in-depth catches the `setattr` bypass path).
+        with self.assertRaises((ValueError, QueryError)):
+            node = ast.Keyword(name=keyword_name)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+            print_prepared_ast(node, context=context, dialect="clickhouse", stack=[select_query])
+
+    @parameterized.expand(
+        [
+            ("current_date",),
+            ("current_time",),
+            ("current_timestamp",),
+            ("localtime",),
+            ("localtimestamp",),
+        ]
+    )
+    def test_keyword_accepts_valid_names(self, keyword_name: str):
+        # The five names in `ast.VALID_KEYWORD_NAMES`, kept in sync with `resolver.POSTGRES_KEYWORD_TYPES` via import-time assert.
+        ast.Keyword(name=keyword_name)
+
+    def test_keyword_printer_rejects_setattr_bypass(self):
+        # `setattr`-after-construction skips `__post_init__`; the printer's allowlist re-check stops the bypass.
+        node = ast.Keyword(name="current_date")
+        node.name = "; DROP TABLE events --"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
         with self.assertRaises(QueryError):
@@ -2342,6 +2373,24 @@ class TestPrinter(BaseTest):
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_field_nullable_not_in(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
+
+        generated_sql = self._select(
+            "SELECT minIf(timestamp, nullable_field NOT IN ('a', 'b')) AS first_seen FROM events",
+            context,
+        )
+
+        assert generated_sql == (
+            "SELECT "
+            "minIf(toTimeZone(events.timestamp, %(hogql_val_0)s), "
+            "ifNull(notIn(events.nullable_field, tuple(%(hogql_val_1)s, %(hogql_val_2)s)), 1)) AS first_seen "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
+
     def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
         # base64Encode has no type signatures → returns UnknownType(nullable=True)
         # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
@@ -2445,6 +2494,17 @@ class TestPrinter(BaseTest):
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
         self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
+
+        # NOT IN operations - no ifNull wrapping
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id NOT IN ('trace1', 'trace2')", context)
+
+        trace1_param_key = next((k for k, v in context.values.items() if v == "trace1"), None)
+        assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
+        trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
+        assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
+        self.assertIn(f"notIn(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
+        self.assertNotIn("ifNull(notIn", sql)
 
         # Verify other properties still get normal treatment
         mock_get_mat_col.return_value = None  # No materialized column for other props
@@ -4012,6 +4072,81 @@ class TestPrinter(BaseTest):
     def test_session_id_uuid_optimization_skipped(self, _name, expr):
         result = self._expr(expr)
         self.assertNotIn("$session_id_uuid", result)
+
+    @parameterized.expand(
+        [
+            (
+                "single_level_struct",
+                {
+                    "membership": {
+                        "clickhouse": "Tuple(type String, tier String)",
+                        "hogql": "StructDatabaseField",
+                        "valid": True,
+                        "fields": {
+                            "type": {"clickhouse": "String", "hogql": "string", "valid": True},
+                            "tier": {"clickhouse": "String", "hogql": "string", "valid": True},
+                        },
+                    }
+                },
+                "SELECT membership.type FROM members",
+                "tupleElement(members.membership",
+                "JSONExtractRaw(members.membership",
+            ),
+            (
+                "nested_struct",
+                {
+                    "customer": {
+                        "clickhouse": "Tuple(address Tuple(city String))",
+                        "hogql": "StructDatabaseField",
+                        "valid": True,
+                        "fields": {
+                            "address": {
+                                "clickhouse": "Tuple(city String)",
+                                "hogql": "StructDatabaseField",
+                                "valid": True,
+                                "fields": {
+                                    "city": {
+                                        "clickhouse": "String",
+                                        "hogql": "string",
+                                        "valid": True,
+                                    },
+                                },
+                            }
+                        },
+                    }
+                },
+                "SELECT customer.address.city FROM members",
+                "tupleElement(tupleElement(members.customer",
+                "JSONExtractRaw(members.customer",
+            ),
+        ]
+    )
+    def test_data_warehouse_struct_dot_notation_emits_tuple_element(
+        self, _name, columns, query, expected_substring, forbidden_substring
+    ):
+        """Regression test for #58480.
+
+        Parquet struct columns surface in HogQL as ``StructDatabaseField``
+        backed by a ClickHouse ``Tuple(...)`` column. Dot notation on these
+        columns must emit ``tupleElement(col, 'field')`` (chained for nested
+        structs) rather than the ``JSONExtractRaw(col, 'field')`` chain used
+        for JSON-string columns, because ClickHouse rejects ``JSONExtractRaw``
+        on a ``Tuple`` argument with ``illegal type: Tuple(...)``.
+        """
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="members",
+            format="Parquet",
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns=columns,
+        )
+
+        printed = self._select(query)
+
+        self.assertNotIn(forbidden_substring, printed)
+        self.assertIn(expected_substring, printed)
 
 
 @snapshot_clickhouse_queries

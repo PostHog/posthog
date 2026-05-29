@@ -94,6 +94,12 @@ export interface ToolFilterOptions {
      * Used to gate tools that declare `feature_flag` in their YAML config.
      */
     featureFlags?: Record<string, boolean> | undefined
+    /**
+     * Project IDs the token is restricted to (`scoped_teams` on the API key).
+     * When set, the backend 403s any org-level endpoint, so we drop tools that
+     * need `organization:*` scopes — they'd fail anyway.
+     */
+    scopedTeams?: number[] | undefined
 }
 
 /**
@@ -116,7 +122,7 @@ function normalizeFeatureName(name: string): string {
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags } = options || {}
+    const { features, tools, version, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -184,6 +190,14 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
             }
             return (definition.feature_flag_behavior ?? 'enable') === 'disable'
         })
+    }
+
+    // Hide tools that need org-level access when the session's token is
+    // project-scoped - the backend would 403 them
+    if (scopedTeams && scopedTeams.length > 0) {
+        entries = entries.filter(
+            ([_, definition]) => !(definition.required_scopes ?? []).some((scope) => scope.startsWith('organization'))
+        )
     }
 
     return entries.map(([toolName, _]) => toolName)

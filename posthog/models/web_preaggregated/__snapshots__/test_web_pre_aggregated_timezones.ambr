@@ -55,7 +55,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -128,7 +127,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -201,7 +199,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -274,7 +271,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -347,7 +343,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -420,7 +415,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -493,7 +487,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -566,7 +559,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -639,7 +631,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -712,7 +703,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -785,7 +775,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -858,7 +847,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -931,7 +919,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -1004,7 +991,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -1077,7 +1063,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
