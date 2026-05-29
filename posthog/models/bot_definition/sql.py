@@ -24,6 +24,11 @@ DROP_BOT_DEFINITION_TABLE_SQL = f"DROP TABLE IF EXISTS {BOT_DEFINITION_TABLE_NAM
 
 DROP_BOT_DEFINITION_DICTIONARY_SQL = f"DROP DICTIONARY IF EXISTS {BOT_DEFINITION_DICTIONARY_NAME}"
 
+# BOT_DEFINITIONS in Python is the single source of truth. Every migration that seeds bot data
+# should TRUNCATE first so re-runs and content updates produce a clean table that matches what's
+# currently in BOT_DEFINITIONS, with no leftover rows from previous shapes.
+TRUNCATE_BOT_DEFINITION_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {BOT_DEFINITION_TABLE_NAME}"
+
 
 def _bot_definition_rows() -> list[tuple[int, int, str, list[str], list[str]]]:
     """Build rows for the REGEXP_TREE table from BOT_DEFINITIONS."""
