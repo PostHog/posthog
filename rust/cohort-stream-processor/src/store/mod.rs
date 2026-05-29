@@ -21,7 +21,7 @@ pub mod keys;
 pub mod rocks;
 pub mod secondary_index;
 
-pub use column_families::{Cf, CF_PERSON_INDEX, CF_STAGE1, CF_STAGE2};
+pub use column_families::{Cf, CF_PERSON_INDEX, CF_STAGE1, CF_STAGE2, OpaqueCf};
 pub use keys::{PersonIndexKey, Stage2Key};
 pub use rocks::{BatchBuilder, CohortStore, StoreConfig, StoreError};
 pub use secondary_index::{decode_person_index, IndexOp, PERSON_INDEX_MERGE_OPERATOR_NAME};

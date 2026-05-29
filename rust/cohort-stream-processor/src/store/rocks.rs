@@ -14,12 +14,12 @@ use std::time::Instant;
 
 use metrics::{counter, histogram};
 use rocksdb::{
-    BoundColumnFamily, Cache, DBWithThreadMode, FlushOptions, MultiThreaded, Options, WriteBatch,
+    Cache, ColumnFamily, DBWithThreadMode, FlushOptions, Options, SingleThreaded, WriteBatch,
     WriteOptions,
 };
 use thiserror::Error;
 
-use super::column_families::{self, Cf};
+use super::column_families::{self, Cf, OpaqueCf};
 use super::keys::{self, PersonIndexKey, Stage2Key};
 use super::secondary_index::{decode_person_index, IndexOp};
 use crate::observability::metrics::{
@@ -94,7 +94,10 @@ pub enum StoreError {
 /// the same database, so a partition worker can hold its own clone.
 #[derive(Clone)]
 pub struct CohortStore {
-    db: Arc<DBWithThreadMode<MultiThreaded>>,
+    // SingleThreaded: the CF set is fixed at open (we never create/drop a CF at runtime), so we
+    // avoid MultiThreaded's per-`cf_handle` RwLock read + Arc clone. The DB is still `Sync`, so an
+    // `Arc` clone is shared across partition workers.
+    db: Arc<DBWithThreadMode<SingleThreaded>>,
 }
 
 impl CohortStore {
@@ -104,7 +107,7 @@ impl CohortStore {
         let db_opts = db_options(config);
         let descriptors = column_families::descriptors(config, &cache);
 
-        let db = DBWithThreadMode::<MultiThreaded>::open_cf_descriptors(
+        let db = DBWithThreadMode::<SingleThreaded>::open_cf_descriptors(
             &db_opts,
             &config.path,
             descriptors,
@@ -127,7 +130,7 @@ impl CohortStore {
     /// operator by RocksDB; prefer [`CohortStore::get_person_index`] there to decode the set.
     pub fn get(&self, cf: Cf, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
         let handle = self.cf(cf)?;
-        self.db.get_cf(&handle, key).map_err(|source| {
+        self.db.get_cf(handle, key).map_err(|source| {
             counter!(STORE_ERRORS_TOTAL, "op" => OP_GET).increment(1);
             StoreError::Backend { op: OP_GET, source }
         })
@@ -177,7 +180,7 @@ impl CohortStore {
         let mut batch = WriteBatch::default();
         for cf in Cf::ALL {
             let handle = self.cf(cf)?;
-            batch.delete_range_cf(&handle, start.as_slice(), end.as_slice());
+            batch.delete_range_cf(handle, start.as_slice(), end.as_slice());
         }
         self.commit(batch, OP_DELETE_PARTITION)
     }
@@ -190,10 +193,9 @@ impl CohortStore {
             self.cf(Cf::PersonIndex)?,
             self.cf(Cf::Stage2)?,
         ];
-        let refs: Vec<&Arc<BoundColumnFamily<'_>>> = handles.iter().collect();
         let mut flush_opts = FlushOptions::default();
         flush_opts.set_wait(true);
-        self.db.flush_cfs_opt(&refs, &flush_opts).map_err(|source| {
+        self.db.flush_cfs_opt(&handles, &flush_opts).map_err(|source| {
             counter!(STORE_ERRORS_TOTAL, "op" => OP_FLUSH).increment(1);
             StoreError::Backend {
                 op: OP_FLUSH,
@@ -202,7 +204,7 @@ impl CohortStore {
         })
     }
 
-    fn cf(&self, cf: Cf) -> Result<Arc<BoundColumnFamily<'_>>, StoreError> {
+    fn cf(&self, cf: Cf) -> Result<&ColumnFamily, StoreError> {
         self.db
             .cf_handle(cf.as_str())
             .ok_or(StoreError::UnknownColumnFamily(cf.as_str()))
@@ -232,45 +234,48 @@ impl CohortStore {
 }
 
 /// Typed builder for a multi-CF [`WriteBatch`], handed to the [`CohortStore::write_batch`]
-/// closure. Holds the three CF handles up front (owned `Arc`s, `Send + Sync`,
+/// closure. Holds the three CF handles up front (borrowed `&ColumnFamily`, which is
 /// `AsColumnFamilyRef`) so the closure can mix writes across CFs without re-resolving handles.
 pub struct BatchBuilder<'db> {
     batch: WriteBatch,
-    stage1: Arc<BoundColumnFamily<'db>>,
-    person_index: Arc<BoundColumnFamily<'db>>,
-    stage2: Arc<BoundColumnFamily<'db>>,
+    stage1: &'db ColumnFamily,
+    person_index: &'db ColumnFamily,
+    stage2: &'db ColumnFamily,
 }
 
 impl BatchBuilder<'_> {
     /// Stage the opaque Stage 1 record for `key`.
     pub fn put_stage1(&mut self, key: &Stage1Key, value: &[u8]) {
-        self.batch.put_cf(&self.stage1, key.encode(), value);
+        self.batch.put_cf(self.stage1, key.encode(), value);
     }
 
     /// Stage a deletion of `key` from `cf_stage1`.
     pub fn delete_stage1(&mut self, key: &Stage1Key) {
-        self.batch.delete_cf(&self.stage1, key.encode());
+        self.batch.delete_cf(self.stage1, key.encode());
     }
 
     /// Stage an append/remove of a leaf-state key on the person's secondary index. Read-free: the
     /// merge operator resolves it at compaction/read time (§2.5:301).
     pub fn merge_person_index(&mut self, key: &PersonIndexKey, op: IndexOp) {
         self.batch
-            .merge_cf(&self.person_index, key.encode(), op.encode());
+            .merge_cf(self.person_index, key.encode(), op.encode());
     }
 
     /// Stage the opaque Stage 2 record for `key`.
     pub fn put_stage2(&mut self, key: &Stage2Key, value: &[u8]) {
-        self.batch.put_cf(&self.stage2, key.encode(), value);
+        self.batch.put_cf(self.stage2, key.encode(), value);
     }
 
-    /// Escape hatch for a raw put to any CF, by pre-encoded key bytes.
-    pub fn put_raw(&mut self, cf: Cf, key: &[u8], value: &[u8]) {
-        match cf {
-            Cf::Stage1 => self.batch.put_cf(&self.stage1, key, value),
-            Cf::PersonIndex => self.batch.put_cf(&self.person_index, key, value),
-            Cf::Stage2 => self.batch.put_cf(&self.stage2, key, value),
-        }
+    /// Escape hatch for a raw put by pre-encoded key bytes. Only opaque-value CFs are addressable
+    /// via [`OpaqueCf`] — `cf_person_index` is merge-only and not an `OpaqueCf` variant, so a raw
+    /// put to it cannot be constructed (it won't compile), protecting the merge operator's value
+    /// format.
+    pub fn put_raw(&mut self, cf: OpaqueCf, key: &[u8], value: &[u8]) {
+        let handle = match cf {
+            OpaqueCf::Stage1 => self.stage1,
+            OpaqueCf::Stage2 => self.stage2,
+        };
+        self.batch.put_cf(handle, key, value);
     }
 }
 
@@ -300,5 +305,14 @@ mod tests {
         assert!(config.block_cache_bytes > 0);
         assert!(config.write_buffer_bytes > 0);
         assert!(config.max_open_files > 0);
+    }
+
+    /// `CohortStore` must stay `Send + Sync` so a single store can be cloned across partition
+    /// workers — the property the `SingleThreaded` DB (still `Sync`) is chosen to preserve. This
+    /// is a compile-time guard: it fails to compile if a future non-`Sync` field is added.
+    #[test]
+    fn cohort_store_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<CohortStore>();
     }
 }

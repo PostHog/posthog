@@ -41,6 +41,34 @@ impl Cf {
     }
 }
 
+/// A column family whose value is caller-owned opaque bytes — safe for a raw `put`.
+///
+/// `cf_person_index` is merge-only: its value format (packed `[u8; 16] × N`) is owned by the
+/// merge operator, so a raw `put` of arbitrary bytes there would silently corrupt the set on the
+/// next merge. It is therefore deliberately *not* a variant here, which makes a raw put to the
+/// merge CF unrepresentable (it won't compile) rather than a runtime footgun.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum OpaqueCf {
+    Stage1,
+    Stage2,
+}
+
+impl OpaqueCf {
+    /// The full-set [`Cf`] this opaque CF corresponds to.
+    pub const fn cf(self) -> Cf {
+        match self {
+            OpaqueCf::Stage1 => Cf::Stage1,
+            OpaqueCf::Stage2 => Cf::Stage2,
+        }
+    }
+}
+
+impl From<OpaqueCf> for Cf {
+    fn from(cf: OpaqueCf) -> Cf {
+        cf.cf()
+    }
+}
+
 /// Build the descriptor for each CF. The shared block `cache` is attached to every CF's block
 /// options; RocksDB clones and retains it for the DB's lifetime, so the caller need not.
 pub fn descriptors(config: &StoreConfig, cache: &Cache) -> Vec<ColumnFamilyDescriptor> {

@@ -3,7 +3,8 @@
 //! `delete_partition` isolation, and reopen-after-flush persistence.
 
 use cohort_stream_processor::store::{
-    Cf, CohortStore, IndexOp, LeafStateKey, PersonIndexKey, Stage1Key, Stage2Key, StoreConfig,
+    Cf, CohortStore, IndexOp, LeafStateKey, OpaqueCf, PersonIndexKey, Stage1Key, Stage2Key,
+    StoreConfig,
 };
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -96,6 +97,32 @@ fn point_writes_and_reads_per_cf() {
         .get_person_index(&person_index_key(0, 100, 999))
         .unwrap()
         .is_empty());
+}
+
+/// The typed escape hatch: a raw put by pre-encoded key bytes lands in the addressed opaque CF and
+/// reads back through both the generic and typed accessors. `cf_person_index` is merge-only and not
+/// an `OpaqueCf` variant, so a raw put to it cannot be expressed here (it would not compile).
+#[test]
+fn put_raw_writes_to_the_addressed_opaque_cf() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    let s1 = stage1_key(4, 100, 7, 11);
+    let s2 = stage2_key(4, 100, 88, 11);
+
+    store
+        .write_batch(|b| {
+            b.put_raw(OpaqueCf::Stage1, &s1.encode(), b"raw-s1");
+            b.put_raw(OpaqueCf::Stage2, &s2.encode(), b"raw-s2");
+        })
+        .unwrap();
+
+    assert_eq!(store.get_stage1(&s1).unwrap().as_deref(), Some(&b"raw-s1"[..]));
+    assert_eq!(
+        store.get(Cf::Stage1, &s1.encode()).unwrap().as_deref(),
+        Some(&b"raw-s1"[..])
+    );
+    assert_eq!(store.get_stage2(&s2).unwrap().as_deref(), Some(&b"raw-s2"[..]));
 }
 
 /// Acceptance 2 — the §2.5:301 invariant: a `cf_stage1` put and its `cf_person_index` append are
