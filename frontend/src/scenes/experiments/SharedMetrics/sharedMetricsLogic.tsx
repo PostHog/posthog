@@ -1,13 +1,19 @@
-import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SharedMetric } from './sharedMetricLogic'
 import type { sharedMetricsLogicType } from './sharedMetricsLogicType'
+
+export const PAGE_SIZE = 100
+
+export type SharedMetricsResult = CountedPaginatedResponse<SharedMetric>
 
 export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     path(['scenes', 'experiments', 'sharedMetricsLogic']),
@@ -16,6 +22,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     actions({
         updateSharedMetricTags: (metricId: SharedMetric['id'], tags: string[]) => ({ metricId, tags }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setPage: (page: number) => ({ page }),
         deleteSharedMetric: (metricId: SharedMetric['id']) => ({ metricId }),
     }),
 
@@ -34,21 +41,55 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setSearchTerm: () => 1,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
         sharedMetrics: [
-            [] as SharedMetric[],
+            { count: 0, results: [] } as SharedMetricsResult,
             {
                 loadSharedMetrics: async () => {
-                    const response = await api.get(`api/projects/${values.currentProjectId}/experiment_saved_metrics`)
-                    return response.results as SharedMetric[]
+                    const params = toParams({
+                        limit: PAGE_SIZE,
+                        offset: (values.page - 1) * PAGE_SIZE,
+                        search: values.searchTerm || undefined,
+                    })
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
+                    )
+                    return response as SharedMetricsResult
                 },
             },
         ],
     })),
 
+    selectors({
+        count: [(s) => [s.sharedMetrics], (sharedMetrics): number => sharedMetrics.count],
+        pagination: [
+            (s) => [s.page, s.count],
+            (page, count): PaginationManual => ({
+                controlled: true,
+                pageSize: PAGE_SIZE,
+                currentPage: page,
+                entryCount: count,
+            }),
+        ],
+    }),
+
     listeners(({ actions, values }) => ({
+        setPage: async () => {
+            actions.loadSharedMetrics()
+        },
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSharedMetrics()
+        },
         updateSharedMetricTags: async ({ metricId, tags }) => {
             try {
                 await api.update(`api/projects/${values.currentProjectId}/experiment_saved_metrics/${metricId}`, {
