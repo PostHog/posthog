@@ -227,7 +227,6 @@ class UpdateFeatureFlagAction(BaseAction):
     # (e.g. groups) or a single dict (e.g. holdout). Both are handled by _extract_rollout_percentages.
     ROLLOUT_PERCENTAGE_PATHS = [
         ("groups", "rollout_percentage"),
-        ("super_groups", "rollout_percentage"),
         ("holdout", "exclusion_percentage"),
         ("multivariate", "variants", "rollout_percentage"),
     ]

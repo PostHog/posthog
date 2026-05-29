@@ -566,7 +566,8 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "invalid_input")
-        self.assertEqual(data["detail"], "Unexpected character '!' (U+0021)")
+        # rust-py and the legacy cpp parser surface different low-level wording on this
+        # garbage input; just assert that a parse error was returned.
         self.assertEqual(data["type"], "validation_error")
 
     def test_missing_source_table_name(self):

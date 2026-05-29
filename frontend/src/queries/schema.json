@@ -18661,7 +18661,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "type": ["number", "null"]
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string"
@@ -19041,6 +19041,13 @@
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
+                "excluded_variants": {
+                    "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "feature_flag_variants": {
                     "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
@@ -21914,7 +21921,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -22021,7 +22028,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "debug": {
@@ -22166,7 +22173,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "explain": {
@@ -22282,7 +22289,7 @@
                     "type": "boolean"
                 },
                 "parserMode": {
-                    "description": "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "description": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
                     "enum": [
                         "cpp_only",
                         "cpp_with_rust_shadow",

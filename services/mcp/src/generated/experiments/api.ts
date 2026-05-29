@@ -159,6 +159,7 @@ export const experimentsCreateBodyNameMax = 400
 
 export const experimentsCreateBodyDescriptionMax = 3000
 
+export const experimentsCreateBodyParametersOneExcludedVariantsDefault = null
 export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
 export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
 export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
@@ -415,6 +416,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
+                    excluded_variants: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .default(experimentsCreateBodyParametersOneExcludedVariantsDefault)
+                        .describe(
+                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
+                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -2846,6 +2853,7 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
+export const experimentsPartialUpdateBodyParametersOneExcludedVariantsDefault = null
 export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
 export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
 export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
@@ -3104,6 +3112,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
+                    excluded_variants: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .default(experimentsPartialUpdateBodyParametersOneExcludedVariantsDefault)
+                        .describe(
+                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
+                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -5616,6 +5630,7 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
+export const experimentsDuplicateCreateBodyParametersOneExcludedVariantsDefault = null
 export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
 export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
 export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
@@ -5876,6 +5891,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
+                    excluded_variants: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .default(experimentsDuplicateCreateBodyParametersOneExcludedVariantsDefault)
+                        .describe(
+                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
+                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
