@@ -408,16 +408,18 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Saved metric {metric_uuid} not found for experiment {experiment_id}",
         )
 
-    # The frontend wraps every saved metric with breakdownFilter.breakdowns from
-    # the link metadata before posting to /query (see sharedMetricsToExperimentMetrics
-    # in experimentLogic.tsx). The activity must apply the same wrapper or the
-    # response cache key diverges and the warmed entry is never read.
+    # The frontend receives saved metrics with two extra fields injected before
+    # they get posted back to /query: a breakdownFilter wrapper (from the link
+    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # a fingerprint (added by the experiment API serializer). The activity must
+    # apply both or the response cache key diverges from /query's.
     query = {
         **saved_metric.query,
         "breakdownFilter": {
             **(saved_metric.query.get("breakdownFilter") or {}),
             "breakdowns": saved_metric_metadata.get("breakdowns") or [],
         },
+        "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
     metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
