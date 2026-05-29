@@ -22,6 +22,7 @@ import type { Model } from '@earendil-works/pi-ai'
 import {
     AgentSession,
     AnalyticsSink,
+    ApprovalStore,
     BundleStore,
     createLogger,
     LogSink,
@@ -92,6 +93,18 @@ export interface WorkerDeps {
      * gateway tracks cost server-side; client-side estimates are unreliable.
      */
     useGatewayCost?: boolean
+    /**
+     * Approval-gated tools store (see
+     * docs/agent-platform/plans/approval-gated-tools.md). Required for
+     * `requires_approval` in spec.tools to do anything — when absent the
+     * dispatcher behaves as if no tools were gated.
+     */
+    approvals?: ApprovalStore
+    /**
+     * Builds the deep link the synthetic queued tool_result surfaces to
+     * the model. Wire from config so prod hits the real domain.
+     */
+    buildApprovalUrl?: (requestId: string) => string
 }
 
 export class Worker {
@@ -259,6 +272,8 @@ export class Worker {
                 analytics: this.deps.analytics,
                 shutdownSignal: this.shutdownController.signal,
                 useGatewayCost: this.deps.useGatewayCost,
+                approvals: this.deps.approvals,
+                buildApprovalUrl: this.deps.buildApprovalUrl,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs

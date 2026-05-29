@@ -3773,6 +3773,121 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `queued` - queued
+    * `approving` - approving
+    * `dispatched` - dispatched
+    * `dispatched_failed` - dispatched_failed
+    * `rejected` - rejected
+    * `expired` - expired
+     */
+    export type AgentApprovalRequestStateEnum = typeof AgentApprovalRequestStateEnum[keyof typeof AgentApprovalRequestStateEnum];
+
+
+    export const AgentApprovalRequestStateEnum = {
+      Queued: 'queued',
+      Approving: 'approving',
+      Dispatched: 'dispatched',
+      DispatchedFailed: 'dispatched_failed',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    /**
+     * Arguments the model proposed. Frozen at intercept time.
+     */
+    export type AgentApprovalRequestProposedArgs = { [key: string]: unknown };
+
+    /**
+     * Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.
+     * @nullable
+     */
+    export type AgentApprovalRequestDecidedArgs = { [key: string]: unknown } | null;
+
+    /**
+     * Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning.
+     */
+    export type AgentApprovalRequestAssistantMessage = { [key: string]: unknown };
+
+    /**
+     * Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.
+     */
+    export type AgentApprovalRequestApproverScope = { [key: string]: unknown };
+
+    /**
+     * `{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.
+     * @nullable
+     */
+    export type AgentApprovalRequestDispatchOutcome = { [key: string]: unknown } | null;
+
+    export interface AgentApprovalRequest {
+      /** Approval request UUID — stable, used in /approvals/<id>/decide. */
+      id: string;
+      /** UUID of the session that proposed the gated call. */
+      session_id: string;
+      /** UUID of the parent agent application. */
+      application_id: string;
+      /** Team that owns the agent. */
+      team_id: number;
+      /** Revision the gated call was proposed against. */
+      revision_id: string;
+      /** Turn number within the session that emitted the call. */
+      turn: number;
+      /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
+      tool_call_id: string;
+      /** Tool id the model invoked (e.g. `@posthog/team-delete`). */
+      tool_name: string;
+      /** Arguments the model proposed. Frozen at intercept time. */
+      proposed_args: AgentApprovalRequestProposedArgs;
+      /**
+         * Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.
+         * @nullable
+         */
+      decided_args: AgentApprovalRequestDecidedArgs;
+      /** Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning. */
+      assistant_message: AgentApprovalRequestAssistantMessage;
+      /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
+      approver_scope: AgentApprovalRequestApproverScope;
+      /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
+
+      * `queued` - queued
+      * `approving` - approving
+      * `dispatched` - dispatched
+      * `dispatched_failed` - dispatched_failed
+      * `rejected` - rejected
+      * `expired` - expired */
+      state: AgentApprovalRequestStateEnum;
+      /**
+         * UUID of the user who decided. Null while queued or expired.
+         * @nullable
+         */
+      decision_by: string | null;
+      /**
+         * ISO timestamp of the decision. Null while queued.
+         * @nullable
+         */
+      decision_at: string | null;
+      /**
+         * Free-form reason supplied by the approver. Optional.
+         * @nullable
+         */
+      decision_reason: string | null;
+      /**
+         * `{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.
+         * @nullable
+         */
+      dispatch_outcome: AgentApprovalRequestDispatchOutcome;
+      /** When the model proposed the gated call. */
+      created_at: string;
+      /** When the queued request auto-rejects if no decision arrives. */
+      expires_at: string;
+    }
+
+    export interface AgentApplicationApprovalsListResponse {
+      /** Approval requests for this application, newest first. */
+      results: AgentApprovalRequest[];
+    }
+
     export interface AgentSessionUsageTotal {
       tokens_in: number;
       tokens_out: number;
@@ -3810,6 +3925,13 @@ export namespace Schemas {
 
     export interface AgentApplicationSessionsListResponse {
       sessions: AgentSessionSummary[];
+    }
+
+    export interface AgentApprovalsDecideResponse {
+      /** Always `true` on a successful decision. */
+      ok: boolean;
+      /** The approval row's new state — `approving` for approve, `rejected` for reject. */
+      state: string;
     }
 
     /**
@@ -13081,6 +13203,40 @@ export namespace Schemas {
     export interface DayItem {
       label: string;
       value: string | number;
+    }
+
+    /**
+     * Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422.
+     */
+    export type DecideApprovalRequestEditedArgs = { [key: string]: unknown };
+
+    /**
+     * * `approve` - approve
+    * `reject` - reject
+     */
+    export type DecisionEnum = typeof DecisionEnum[keyof typeof DecisionEnum];
+
+
+    export const DecisionEnum = {
+      Approve: 'approve',
+      Reject: 'reject',
+    } as const;
+
+    /**
+     * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
+
+    See docs/agent-platform/plans/approval-gated-tools.md.
+     */
+    export interface DecideApprovalRequest {
+      /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
+
+      * `approve` - approve
+      * `reject` - reject */
+      decision: DecisionEnum;
+      /** Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422. */
+      edited_args?: DecideApprovalRequestEditedArgs;
+      /** Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user. */
+      reason?: string;
     }
 
     /**
@@ -44014,6 +44170,15 @@ export namespace Schemas {
      * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
      */
     path: string;
+    };
+
+    export type AgentApplicationsApprovalsListParams = {
+    limit?: number;
+    offset?: number;
+    /**
+     * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
+     */
+    state?: string;
     };
 
     export type AgentApplicationsPreviewProxyGetParams = {

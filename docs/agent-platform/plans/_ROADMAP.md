@@ -106,14 +106,16 @@ any UX work.
 It also introduces the **activity-log integration** for the agent
 platform — a shared dependency the next two plans rely on.
 
-### B.2 [`approval-gated-tools.md`](approval-gated-tools.md) — **Dylan** (approvals tab **Ben**)
+### B.2 [`approval-gated-tools.md`](approval-gated-tools.md) — **v0 shipped**
 
 Per-tool `requires_approval` flag on `AgentSpec`; runner intercepts
-the call before dispatch; `PendingApproval` table; UI + MCP approval
-surfaces. Composes with the elevation plan's principal model — the
-`approvers: ["session_owner", "team_members"]` list resolves against
-the same `SessionPrincipal` shape, and elevation grants automatically
-widen who's eligible to approve when `approvers` includes scopes.
+the call before dispatch; `agent_tool_approval_request` table with
+canonical-args idempotency; janitor `/approvals/*` HTTP surface;
+Django proxy via janitor_client (team-admin auth); non-blocking
+session — model receives a synthetic queued tool_result and continues.
+v1 adds the session-detail approvals tab + team-level inbox UI,
+notification fan-out, and richer approver scopes (depends on B.1's
+principal model).
 
 ### B.3 [`rate-limiting-sessions.md`](rate-limiting-sessions.md) — **Dylan**
 

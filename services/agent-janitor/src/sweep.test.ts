@@ -82,18 +82,18 @@ describe('sweepOnce', () => {
         }
 
         let r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 1, poisoned: 0, failed: 0 })
+        expect(r).toEqual({ requeued: 1, poisoned: 0, failed: 0, expired_approvals: 0 })
         expect((await queue.get('p'))!.retry_count).toBe(1)
 
         await setStale()
         r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 1, poisoned: 0, failed: 0 })
+        expect(r).toEqual({ requeued: 1, poisoned: 0, failed: 0, expired_approvals: 0 })
         expect((await queue.get('p'))!.retry_count).toBe(2)
 
         // Third reap: retry_count would go to 3, exceeds maxRetries=2 → poisoned.
         await setStale()
         r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 0, poisoned: 1, failed: 0 })
+        expect(r).toEqual({ requeued: 0, poisoned: 1, failed: 0, expired_approvals: 0 })
         expect((await queue.get('p'))!.state).toBe('failed')
         expect((await queue.get('p'))!.retry_count).toBe(3)
     })

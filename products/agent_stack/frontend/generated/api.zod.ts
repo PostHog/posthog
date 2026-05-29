@@ -702,6 +702,36 @@ export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Approve or reject a queued tool-approval request. Team-admin only
+(plan §6.1). The runtime side runs the tool platform-side on approve
+and wakes the session with a synthetic tool_result either way.
+ */
+export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
+    .object({
+        decision: zod
+            .enum(['approve', 'reject'])
+            .describe('\* `approve` - approve\n\* `reject` - reject')
+            .describe(
+                "The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.\n\n\* `approve` - approve\n\* `reject` - reject"
+            ),
+        edited_args: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                "Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422."
+            ),
+        reason: zod
+            .string()
+            .optional()
+            .describe(
+                "Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user."
+            ),
+    })
+    .describe(
+        'Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.\n\nSee docs\/agent-platform\/plans\/approval-gated-tools.md.'
+    )
+
+/**
  * Replace the agent's encrypted env block.
 
 The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted

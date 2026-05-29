@@ -327,7 +327,7 @@ describe('janitor HTTP', () => {
         const { app } = mk()
         const res = await request(app).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ requeued: 0, poisoned: 0, failed: 0 })
+        expect(res.body).toEqual({ requeued: 0, poisoned: 0, failed: 0, expired_approvals: 0 })
     })
 
     it('enforces internal secret when configured', async () => {

@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AgentApplicationApi,
+    AgentApplicationApprovalsListResponseApi,
     AgentApplicationSessionsListResponseApi,
+    AgentApplicationsApprovalsListParams,
     AgentApplicationsListParams,
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
@@ -20,10 +22,12 @@ import type {
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApprovalsDecideResponseApi,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
     AgentRevisionValidateResponseApi,
     CloneFromRequestApi,
+    DecideApprovalRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
@@ -816,6 +820,93 @@ export const agentApplicationsDestroy = async (projectId: string, id: string, op
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getAgentApplicationsApprovalsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AgentApplicationsApprovalsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/approvals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/approvals/`
+}
+
+/**
+ * List approval-gated tool requests for this application. Team-admin
+only (per plan §6.1). Default returns all states — pass `?state=queued`
+for the inbox view.
+ */
+export const agentApplicationsApprovalsList = async (
+    projectId: string,
+    id: string,
+    params?: AgentApplicationsApprovalsListParams,
+    options?: RequestInit
+): Promise<AgentApplicationApprovalsListResponseApi> => {
+    return apiMutator<AgentApplicationApprovalsListResponseApi>(
+        getAgentApplicationsApprovalsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsApprovalsRetrieveUrl = (projectId: string, id: string, approvalId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/approvals/${approvalId}/`
+}
+
+/**
+ * Single approval request — full proposed args, assistant snapshot,
+decision metadata, dispatch outcome. Team-admin only (plan §6.1).
+ */
+export const agentApplicationsApprovalsRetrieve = async (
+    projectId: string,
+    id: string,
+    approvalId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsApprovalsRetrieveUrl(projectId, id, approvalId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsApprovalsDecideUrl = (projectId: string, id: string, approvalId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/approvals/${approvalId}/decide/`
+}
+
+/**
+ * Approve or reject a queued tool-approval request. Team-admin only
+(plan §6.1). The runtime side runs the tool platform-side on approve
+and wakes the session with a synthetic tool_result either way.
+ */
+export const agentApplicationsApprovalsDecide = async (
+    projectId: string,
+    id: string,
+    approvalId: string,
+    decideApprovalRequestApi: DecideApprovalRequestApi,
+    options?: RequestInit
+): Promise<AgentApprovalsDecideResponseApi> => {
+    return apiMutator<AgentApprovalsDecideResponseApi>(
+        getAgentApplicationsApprovalsDecideUrl(projectId, id, approvalId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(decideApprovalRequestApi),
+        }
+    )
 }
 
 export const getAgentApplicationsPreviewProxyGetUrl = (

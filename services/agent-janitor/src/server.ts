@@ -45,7 +45,10 @@ import { z } from 'zod'
 import {
     accumulateUsage,
     AgentSession,
+    ApprovalRequest,
+    ApprovalStore,
     BundleStore,
+    ConversationMessage,
     createLogger,
     EMPTY_USAGE_TOTAL,
     lastAssistantTextPreview,
@@ -54,6 +57,7 @@ import {
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
+import { buildApprovalDecidedMarker } from './approval-marker'
 import { asyncHandler, errorHandler } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
 import { validateRevisionBundle } from './validate-spec'
@@ -66,6 +70,12 @@ export interface JanitorServerOpts {
     /** Required for the /revisions/* + /native_tools endpoints. */
     revisions?: RevisionStore
     bundles?: BundleStore
+    /**
+     * Required for the /approvals/* endpoints. When omitted, those routes
+     * return 503 so a misconfigured janitor surfaces the gap loudly
+     * rather than silently dropping decisions on the floor.
+     */
+    approvals?: ApprovalStore
     internalSecret?: string
 }
 
@@ -152,6 +162,27 @@ const BundlePutBodySchema = z.object({
 
 const CloneFromBodySchema = z.object({
     source_revision_id: z.string().min(1, 'missing_source_revision_id'),
+})
+
+const ApprovalStateSchema = z.enum(['queued', 'approving', 'dispatched', 'dispatched_failed', 'rejected', 'expired'])
+
+const ListApprovalsQuerySchema = z.object({
+    application_id: z.string().min(1, 'missing_application_id'),
+    state: z
+        .string()
+        .optional()
+        .transform((s) => (s ? s.split(',').filter(Boolean) : undefined))
+        .pipe(z.array(ApprovalStateSchema).optional()),
+    limit: z.coerce.number().int().positive().max(500).optional(),
+    offset: z.coerce.number().int().nonnegative().optional(),
+})
+
+const DecideApprovalBodySchema = z.object({
+    decision: z.enum(['approve', 'reject']),
+    decided_by: z.string().min(1, 'missing_decided_by'),
+    /** Approver-edited args. Only honoured when spec.approval_policy.allow_edit is true. */
+    edited_args: z.record(z.string(), z.unknown()).optional(),
+    reason: z.string().optional(),
 })
 
 export function buildJanitorApp(opts: JanitorServerOpts): Express {
@@ -288,6 +319,171 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 }
             }
             res.json({ scanned, updated, dry_run: body.dry_run })
+        })
+    )
+
+    /* ───────────────────────────── approvals ───────────────────────────── */
+    //
+    // Approval-gated tools — see docs/agent-platform/plans/approval-gated-tools.md.
+    //
+    // Django proxies through here for the list / show / decide surface so
+    // the runtime DB (`agent_tool_approval_request`) stays node-owned, the
+    // same way bundle CRUD goes via /revisions/*. The decide endpoint also
+    // owns the wake path: mark the row, write the wake marker into
+    // pending_inputs, flip session state back to `queued` so the runner
+    // picks it up. For reject / no-edit-approve the synthetic tool_result
+    // is materialised here too; for approve the runner dispatches the
+    // tool on its next turn (so sandbox / secrets / integrations stay in
+    // their existing home — see plan §B in the design doc).
+
+    const needApprovalStore = (res: Response): boolean => {
+        if (!opts.approvals) {
+            res.status(503).json({ error: 'approval_store_not_configured' })
+            return false
+        }
+        return true
+    }
+
+    const summariseApproval = (r: ApprovalRequest): Record<string, unknown> => ({
+        id: r.id,
+        session_id: r.session_id,
+        application_id: r.application_id,
+        team_id: r.team_id,
+        revision_id: r.revision_id,
+        turn: r.turn,
+        tool_call_id: r.tool_call_id,
+        tool_name: r.tool_name,
+        proposed_args: r.proposed_args,
+        decided_args: r.decided_args,
+        assistant_message: r.assistant_message,
+        approver_scope: r.approver_scope,
+        state: r.state,
+        decision_by: r.decision_by,
+        decision_at: r.decision_at,
+        decision_reason: r.decision_reason,
+        dispatch_outcome: r.dispatch_outcome,
+        created_at: r.created_at,
+        expires_at: r.expires_at,
+    })
+
+    app.get(
+        '/approvals',
+        asyncHandler(async (req, res) => {
+            if (!needApprovalStore(res)) {
+                return
+            }
+            const q = ListApprovalsQuerySchema.parse(req.query)
+            const rows = await opts.approvals!.listByApplication(q.application_id, {
+                state: q.state,
+                limit: q.limit,
+                offset: q.offset,
+            })
+            res.json({ results: rows.map(summariseApproval) })
+        })
+    )
+
+    app.get(
+        '/approvals/:id',
+        asyncHandler(async (req, res) => {
+            if (!needApprovalStore(res)) {
+                return
+            }
+            const row = await opts.approvals!.get(req.params.id)
+            if (!row) {
+                res.status(404).json({ error: 'not_found' })
+                return
+            }
+            res.json(summariseApproval(row))
+        })
+    )
+
+    app.post(
+        '/approvals/:id/decide',
+        asyncHandler(async (req, res) => {
+            if (!needApprovalStore(res)) {
+                return
+            }
+            const body = DecideApprovalBodySchema.parse(req.body)
+            const existing = await opts.approvals!.get(req.params.id)
+            if (!existing) {
+                res.status(404).json({ error: 'not_found' })
+                return
+            }
+            if (existing.state !== 'queued') {
+                res.status(409).json({ error: 'not_queued', state: existing.state })
+                return
+            }
+
+            // edited_args is only honoured when spec opted in. We surface
+            // a structured 422 so Django can map to a user-facing error
+            // rather than silently dropping the edits.
+            if (body.edited_args !== undefined && !existing.approver_scope.allow_edit) {
+                res.status(422).json({ error: 'edits_not_allowed' })
+                return
+            }
+
+            const decidedAt = new Date().toISOString()
+            if (body.decision === 'approve') {
+                const updated = await opts.approvals!.markApproving(req.params.id, {
+                    decided_by: body.decided_by,
+                    decided_at: decidedAt,
+                    reason: body.reason,
+                    decided_args: body.edited_args,
+                })
+                if (!updated) {
+                    // Lost the race to another decider.
+                    res.status(409).json({ error: 'race_lost' })
+                    return
+                }
+                // Wake the session. The runner picks up the marker on its
+                // next turn, dispatches the tool, finalises the row, and
+                // pushes the synthetic approved tool_result into the
+                // conversation. See run-turn.ts marker-processing block.
+                const wake: ConversationMessage = {
+                    role: 'user',
+                    content: [{ type: 'text', text: buildApprovalDecidedMarker(updated.id) }],
+                    timestamp: Date.now(),
+                }
+                await opts.queue.appendPendingInput(existing.session_id, wake)
+                await opts.queue.update(existing.session_id, { state: 'queued' })
+                res.json({ ok: true, state: updated.state })
+                return
+            }
+
+            // reject: terminal-here. Materialise the synthetic rejection
+            // straight into pending_inputs as a `user` message — see the
+            // note in run-turn's marker processor for why this isn't a
+            // toolResult (Anthropic 400s when a tool_result follows a
+            // closing assistant message instead of its matching tool_use).
+            const updated = await opts.approvals!.markRejected(req.params.id, {
+                decided_by: body.decided_by,
+                decided_at: decidedAt,
+                reason: body.reason,
+            })
+            if (!updated) {
+                res.status(409).json({ error: 'race_lost' })
+                return
+            }
+            const rejectedResult: ConversationMessage = {
+                role: 'user',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            approval: {
+                                request_id: updated.id,
+                                state: 'rejected',
+                                decided_by: updated.decision_by ?? undefined,
+                                reason: updated.decision_reason ?? undefined,
+                            },
+                        }),
+                    },
+                ],
+                timestamp: Date.now(),
+            }
+            await opts.queue.appendPendingInput(existing.session_id, rejectedResult)
+            await opts.queue.update(existing.session_id, { state: 'queued' })
+            res.json({ ok: true, state: updated.state })
         })
     )
 

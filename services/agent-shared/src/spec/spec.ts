@@ -51,15 +51,49 @@ export const TriggerSchema = z.discriminatedUnion('type', [
     }),
 ])
 
+/**
+ * Approval policy attached to a tool ref. Authoritative defaults live here —
+ * the dispatcher reads `ToolRef.approval_policy` directly after Zod parsing,
+ * so omitting fields in the spec falls through to these values.
+ *
+ * `approvers` is a closed set in v0 (`team_admins` only); see plan §6.1 for
+ * why richer scopes are deferred.
+ */
+export const ApprovalPolicySchema = z.object({
+    approvers: z
+        .array(z.enum(['team_admins']))
+        .min(1)
+        .default(['team_admins']),
+    allow_edit: z.boolean().default(false),
+    ttl_ms: z
+        .number()
+        .int()
+        .min(60_000) // 1 minute
+        .max(7 * 24 * 60 * 60 * 1000) // 7 days
+        .default(24 * 60 * 60 * 1000), // 24h
+    allow_agent_approver: z.boolean().default(false),
+})
+
+const DEFAULT_APPROVAL_POLICY = {
+    approvers: ['team_admins' as const],
+    allow_edit: false,
+    ttl_ms: 24 * 60 * 60 * 1000,
+    allow_agent_approver: false,
+}
+
 export const ToolRefSchema = z.discriminatedUnion('kind', [
     z.object({
         kind: z.literal('native'),
         id: z.string(),
+        requires_approval: z.boolean().default(false),
+        approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
     }),
     z.object({
         kind: z.literal('custom'),
         id: z.string(),
         path: z.string(),
+        requires_approval: z.boolean().default(false),
+        approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
     }),
 ])
 
@@ -136,6 +170,7 @@ export const AgentSpecSchema = z.object({
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
 export type Trigger = z.infer<typeof TriggerSchema>
 export type ToolRef = z.infer<typeof ToolRefSchema>
+export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type SkillRef = z.infer<typeof SkillRefSchema>
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>

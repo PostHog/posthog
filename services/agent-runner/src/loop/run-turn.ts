@@ -22,8 +22,10 @@ import {
     AgentSession,
     AnalyticsSink,
     analyticsDistinctId,
+    ApprovalStore,
     AssistantMessageRecord,
     BundleStore,
+    ConversationMessage,
     createLogger,
     generationSpanId,
     IntegrationCredentials,
@@ -41,8 +43,9 @@ import {
 } from '@posthog/agent-shared'
 
 import { PiClient } from '../models/pi-client'
+import { parseApprovalDecidedMarker } from './approval-marker'
 import { buildToolList } from './build-tool-list'
-import { dispatchOne } from './dispatch-one'
+import { dispatchApproved, dispatchOne } from './dispatch-one'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 import { buildSystemPrompt } from './system-prompt'
 
@@ -87,6 +90,19 @@ export interface RunSessionDeps {
      * side estimates we ignore — the gateway tracks server-side cost.
      */
     useGatewayCost?: boolean
+    /**
+     * Approval-gated tool store. When set, the dispatcher intercepts tool
+     * calls flagged `requires_approval` and the turn loop processes
+     * approval-decided wake markers in `pending_inputs`. See
+     * docs/agent-platform/plans/approval-gated-tools.md.
+     */
+    approvals?: ApprovalStore
+    /**
+     * URL the synthetic queued tool_result surfaces to the model. The
+     * dispatcher calls this with the new request id. Defaults to a
+     * `urn:posthog:approval:<id>` placeholder.
+     */
+    buildApprovalUrl?: (requestId: string) => string
 }
 
 export type RunOutcome =
@@ -169,8 +185,50 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         // Drain pending_inputs into the active conversation BEFORE invoking
         // the model. This is the merge point for /send during an in-flight
         // turn: those messages land here for the next pi-ai call to see.
+        //
+        // Approval-decided markers are intercepted BEFORE the drain — for
+        // each marker we dispatch the approved tool, finalise the row, and
+        // push the wrapped synthetic tool_result onto conversation. The
+        // marker itself never lands in conversation, so the model never
+        // sees the sentinel string. See approval-marker.ts.
         if (session.pending_inputs.length > 0) {
-            session.conversation.push(...session.pending_inputs)
+            const remaining: ConversationMessage[] = []
+            for (const msg of session.pending_inputs) {
+                const requestId = approvalMarkerRequestId(msg)
+                if (!requestId || !deps.approvals) {
+                    remaining.push(msg)
+                    continue
+                }
+                const row = await deps.approvals.get(requestId)
+                if (!row || row.state !== 'approving') {
+                    // Stale / orphan marker — drop it. The decide path
+                    // would have set state to `approving` if the row is
+                    // ours to dispatch; anything else means the row was
+                    // already finalised or was never valid.
+                    runLog.warn({ requestId, rowState: row?.state ?? 'missing' }, 'approval.marker.dropped_stale')
+                    continue
+                }
+                await dispatchApproved(row, {
+                    rev,
+                    session,
+                    sandbox: deps.sandbox,
+                    integrations: deps.integrations,
+                    secrets: deps.secrets,
+                    bundle: deps.bundle,
+                    runLog,
+                    log,
+                    emit,
+                    analytics,
+                    parentSpanId: generationSpanId(session.id, turns + 1),
+                    distinctId,
+                    toolNameMap,
+                    turn: turns + 1,
+                    approvals: deps.approvals,
+                })
+            }
+            if (remaining.length > 0) {
+                session.conversation.push(...remaining)
+            }
             session.pending_inputs = []
         }
 
@@ -377,6 +435,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 distinctId,
                 toolNameMap,
                 turn: turns,
+                approvals: deps.approvals,
+                buildApprovalUrl: deps.buildApprovalUrl,
             })
             if (signal.kind === 'suspend') {
                 suspend = { prompt: signal.prompt }
@@ -401,4 +461,23 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     }
     await emit('failed', { reason: 'max_turns_exceeded', turns })
     return { state: 'failed', reason: 'max_turns_exceeded', turns }
+}
+
+/**
+ * Returns the approval request id when this message is the runner's
+ * internal "approval decided" wake marker — see approval-marker.ts. The
+ * janitor's decide-approve endpoint writes one of these into
+ * `pending_inputs` so the next turn can dispatch the approved tool.
+ */
+function approvalMarkerRequestId(msg: ConversationMessage): string | null {
+    if (msg.role !== 'user') {
+        return null
+    }
+    if (typeof msg.content === 'string') {
+        return parseApprovalDecidedMarker(msg.content)
+    }
+    if (Array.isArray(msg.content) && msg.content.length === 1 && msg.content[0].type === 'text') {
+        return parseApprovalDecidedMarker(msg.content[0].text)
+    }
+    return null
 }

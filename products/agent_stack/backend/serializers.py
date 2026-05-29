@@ -146,3 +146,24 @@ class NewDraftRevisionRequestSerializer(serializers.Serializer):
 
     application_id = serializers.UUIDField()
     source_revision_id = serializers.UUIDField()
+
+
+class DecideApprovalRequestSerializer(serializers.Serializer):
+    """Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
+
+    See docs/agent-platform/plans/approval-gated-tools.md."""
+
+    decision = serializers.ChoiceField(
+        choices=["approve", "reject"],
+        help_text="The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.",
+    )
+    edited_args = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text="Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422.",
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user.",
+    )

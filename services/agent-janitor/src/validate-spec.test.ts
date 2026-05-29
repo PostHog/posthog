@@ -1,11 +1,13 @@
-import { AgentRevision, AgentSpec, AgentSpecSchema, MemoryBundleStore } from '@posthog/agent-shared'
+import { z } from 'zod'
+
+import { AgentRevision, AgentSpecSchema, MemoryBundleStore } from '@posthog/agent-shared'
 
 import { validateRevisionBundle } from './validate-spec'
 
 // Default fixture has a `chat` trigger so every test isn't forced to declare
 // one. The `no_triggers` rule is exercised explicitly below by passing
 // `triggers: []`.
-function mkRev(spec: Partial<AgentSpec> = {}): AgentRevision {
+function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevision {
     return {
         id: 'rev1',
         application_id: 'app1',

@@ -14,7 +14,7 @@
  * lister to exercise the policy logic without PG.
  */
 
-import { AgentSession, SessionQueue } from '@posthog/agent-shared'
+import { AgentSession, ApprovalStore, ConversationMessage, SessionQueue } from '@posthog/agent-shared'
 
 export interface SweepDeps {
     queue: SessionQueue
@@ -34,6 +34,14 @@ export interface SweepDeps {
      * inject any AgentSession[].
      */
     listWaitingCandidates?: () => Promise<AgentSession[]>
+    /**
+     * Approval-gated tools store (see plan
+     * docs/agent-platform/plans/approval-gated-tools.md). When wired, the
+     * sweep also expires queued approval rows past `expires_at`, injects
+     * the synthetic `expired` tool_result into the session's
+     * pending_inputs, and wakes the session.
+     */
+    approvals?: ApprovalStore
     now?: () => Date
 }
 
@@ -43,6 +51,8 @@ export interface SweepResult {
     poisoned: number
     /** Stuck waiting sessions that aged out past `stuckWaitingThresholdMs`. */
     failed: number
+    /** Queued approval requests aged past `expires_at` that were terminated this sweep. */
+    expired_approvals: number
 }
 
 export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
@@ -69,5 +79,32 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
             }
         }
     }
-    return { requeued, poisoned, failed }
+
+    // Policy 3: expire queued approval requests past their TTL and wake the
+    // associated sessions so the model sees a synthetic expired envelope.
+    // The wake message is a `user` message (not a tool_result) — see
+    // dispatch-one's dispatchApproved for the reasoning.
+    let expiredApprovals = 0
+    if (deps.approvals) {
+        const expired = await deps.approvals.expireQueued(now.toISOString())
+        for (const row of expired) {
+            const msg: ConversationMessage = {
+                role: 'user',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            approval: { request_id: row.id, state: 'expired' },
+                        }),
+                    },
+                ],
+                timestamp: now.getTime(),
+            }
+            await deps.queue.appendPendingInput(row.session_id, msg)
+            await deps.queue.update(row.session_id, { state: 'queued' })
+            expiredApprovals++
+        }
+    }
+
+    return { requeued, poisoned, failed, expired_approvals: expiredApprovals }
 }

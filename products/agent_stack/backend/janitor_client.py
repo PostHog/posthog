@@ -143,6 +143,45 @@ class JanitorClient:
             json={"source_revision_id": source_revision_id},
         )
 
+    # ── approvals ──────────────────────────────────────────────────────────
+    # See docs/agent-platform/plans/approval-gated-tools.md.
+
+    def list_approvals(
+        self,
+        application_id: str,
+        *,
+        state: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {"application_id": application_id}
+        if state:
+            params["state"] = state
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        return self._call("GET", "/approvals", params=params)
+
+    def get_approval(self, approval_id: str) -> dict:
+        return self._call("GET", f"/approvals/{approval_id}")
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        *,
+        decision: str,
+        decided_by: str,
+        edited_args: dict[str, Any] | None = None,
+        reason: str | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {"decision": decision, "decided_by": decided_by}
+        if edited_args is not None:
+            body["edited_args"] = edited_args
+        if reason is not None:
+            body["reason"] = reason
+        return self._call("POST", f"/approvals/{approval_id}/decide", json=body)
+
     # ── catalog ────────────────────────────────────────────────────────────
 
     def native_tools(self) -> dict:

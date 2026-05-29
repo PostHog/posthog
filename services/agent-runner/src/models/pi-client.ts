@@ -16,12 +16,24 @@ import {
     getModel,
     KnownProvider,
     Model,
+    registerBuiltInApiProviders,
     SimpleStreamOptions,
     streamSimple,
     ToolCall,
 } from '@earendil-works/pi-ai'
 
 import type { ReasoningEffort } from '@posthog/agent-shared'
+
+// pi-ai ships built-in providers (Anthropic, OpenAI, Google, Mistral,
+// Bedrock, …) but only activates them when a caller opts in via this
+// function. Without it `streamSimple` / `completeSimple` raise
+// "No API provider registered for api: <id>" and the runner reports the
+// turn as failed with errorMessage "Connection error." (pi-ai catches the
+// underlying ProviderRegistryError and rewrites it into a stream-level
+// error event). One module-level call is enough — subsequent calls are
+// idempotent. The faux test path registers its own provider on top via
+// `registerFauxProvider()` (see services/agent-tests/src/harness/faux.ts).
+registerBuiltInApiProviders()
 
 export interface PiClient {
     /**

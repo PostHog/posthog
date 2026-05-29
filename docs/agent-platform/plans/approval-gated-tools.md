@@ -239,59 +239,54 @@ Approver decides via UI / MCP. The approval endpoint:
 dispatched_failed` (tool threw). The approval decision and the
    dispatch outcome are separately recorded — the human approved the
    intent; whether it executed cleanly is the tool's behaviour.
-5. Writes a synthetic tool_result message into the session's
-   `pending_inputs`:
+5. Writes a synthetic wake message into the session's `pending_inputs`.
+   The QUEUED synthetic result (at intercept time, see §2) is a
+   `tool_result` because it immediately follows the assistant's
+   `tool_call` — Anthropic-compatible pairing.
+   **The WAKE message (approve / reject / expire) is a `user` message,
+   not a tool_result.** By the time the approval lands, the model has
+   already produced an intervening assistant text reacting to the
+   queued result; Anthropic (and other strict providers) reject a
+   tool_result that doesn't immediately follow its matching tool_use in
+   the prior assistant message. A user message carrying the same JSON
+   envelope sidesteps the protocol violation — the model reads it as
+   ordinary follow-up context.
 
 ```jsonc
 // approve → dispatched
 {
-  "role": "tool",
-  "tool_call_id": "tc_abc",  // matches the original call
-  "content": {
-    "approval": {
-      "request_id": "ar_xyz",
-      "state": "approved",
-      "decided_by": "user_42",
-      "edited_args": false,
-    },
-    "result": <actual tool result>,
-  },
+  "role": "user",
+  "content": [{
+    "type": "text",
+    "text": "{\"approval\":{\"request_id\":\"ar_xyz\",\"state\":\"approved\",\"decided_by\":\"user_42\",\"edited_args\":false},\"result\":<actual tool result>}",
+  }],
 }
 
 // approve → dispatched_failed
 {
-  "role": "tool",
-  "tool_call_id": "tc_abc",
-  "is_error": true,
-  "content": {
-    "approval": { "request_id": "ar_xyz", "state": "approved", ... },
-    "error": "<tool's error message>",
-  },
+  "role": "user",
+  "content": [{
+    "type": "text",
+    "text": "{\"approval\":{\"request_id\":\"ar_xyz\",\"state\":\"approved\",...},\"error\":\"<tool's error message>\"}",
+  }],
 }
 
 // reject
 {
-  "role": "tool",
-  "tool_call_id": "tc_abc",
-  "is_error": true,
-  "content": {
-    "approval": {
-      "request_id": "ar_xyz",
-      "state": "rejected",
-      "decided_by": "user_42",
-      "reason": "<approver text>",
-    },
-  },
+  "role": "user",
+  "content": [{
+    "type": "text",
+    "text": "{\"approval\":{\"request_id\":\"ar_xyz\",\"state\":\"rejected\",\"decided_by\":\"user_42\",\"reason\":\"<approver text>\"}}",
+  }],
 }
 
 // expired (janitor sweep)
 {
-  "role": "tool",
-  "tool_call_id": "tc_abc",
-  "is_error": true,
-  "content": {
-    "approval": { "request_id": "ar_xyz", "state": "expired" },
-  },
+  "role": "user",
+  "content": [{
+    "type": "text",
+    "text": "{\"approval\":{\"request_id\":\"ar_xyz\",\"state\":\"expired\"}}",
+  }],
 }
 ```
 
@@ -626,29 +621,49 @@ parking the session:
 Additive — disabled by default per tool. Existing agents see zero
 behaviour change.
 
-**v0 — foundation.** Not yet built.
+**v0 — foundation.** **Shipped.**
 
-- Add `ToolRef.requires_approval` + `approval_policy` to
-  `services/agent-shared/src/spec/spec.ts`. Defaults: `false`,
-  `{approvers: ["team_admins"], allow_edit: false, ttl_ms: 86400000,
-allow_agent_approver: false}`.
-- Schema migration: new `agent_tool_approval_request` table.
-- Dispatcher intercept in
-  `services/agent-runner/src/loop/dispatch-one.ts`: UPSERT-by-hash,
-  return synthetic queued tool_result. Idempotency unit-tested.
-- Django actions on `AgentApplicationViewSet`:
-  - `agent-applications-approvals-list`
-  - `agent-applications-approvals-decide`
-- Approval-decide path: validate principal, dispatch tool with
-  approved args (one-shot bypass), record outcome on row, inject
-  synthetic tool_result into `pending_inputs`, wake session.
-- Janitor sweep: expire `state: queued` rows past `expires_at`,
-  inject expiry message.
-- Activity-log: register `approve_tool_call` / `reject_tool_call` /
-  `expire_tool_call`.
-- e2e case in `agent-tests/` covering the full loop: gated call →
-  queued result → approval decision → tool dispatch → synthetic
-  result → model continues.
+- ✅ `ToolRef.requires_approval` + `approval_policy` on
+  [services/agent-shared/src/spec/spec.ts](../../../services/agent-shared/src/spec/spec.ts).
+  Defaults match plan: `false`, `{approvers: ["team_admins"],
+allow_edit: false, ttl_ms: 86400000, allow_agent_approver: false}`.
+- ✅ `agent_tool_approval_request` table in
+  [services/agent-migrations/migrations/](../../../services/agent-migrations/migrations/)
+  (the migrations service that replaced the boot-time `SCHEMA_SQL` /
+  rust sqlx setup as a side effect of this change).
+- ✅ `ApprovalStore` interface + `MemoryApprovalStore` +
+  `PgApprovalStore` in
+  [services/agent-shared/src/persistence/](../../../services/agent-shared/src/persistence/).
+- ✅ Dispatcher intercept in
+  [services/agent-runner/src/loop/dispatch-one.ts](../../../services/agent-runner/src/loop/dispatch-one.ts):
+  UPSERT-by-hash, synthetic queued tool_result, `prior_decision`
+  surfaced on re-issue after terminal state.
+- ✅ Janitor `/approvals/*` HTTP surface in
+  [services/agent-janitor/src/server.ts](../../../services/agent-janitor/src/server.ts):
+  `GET /approvals`, `GET /approvals/:id`, `POST /approvals/:id/decide`.
+- ✅ Wake path. Decide-approve writes a sentinel
+  `__POSTHOG_APPROVAL_DECIDED__:<id>` marker into `pending_inputs` and
+  flips state to `queued`; the runner's turn-start
+  ([approval-marker.ts](../../../services/agent-runner/src/loop/approval-marker.ts))
+  recognises the marker, dispatches the tool via the existing
+  `dispatchTool` path (full sandbox / secret / integration access),
+  finalises the row with `markDispatched`, pushes a synthetic
+  approved-or-failed tool_result. Decide-reject materialises the
+  synthetic rejected tool_result inline.
+- ✅ Janitor sweep: `expireQueued` past `expires_at`, injects the
+  synthetic expired result into `pending_inputs`, wakes the session.
+- ✅ Django proxy:
+  [`agent-applications-approvals-list`](../../../products/agent_stack/backend/api.py),
+  `agent-applications-approvals-retrieve`,
+  `agent-applications-approvals-decide`. Team-admin only per §6.1.
+  AGENT_DB never queried directly — proxied through
+  `janitor_client.list_approvals` / `decide_approval`.
+- ✅ e2e:
+  [services/agent-tests/src/cases/approval-gated.test.ts](../../../services/agent-tests/src/cases/approval-gated.test.ts)
+  covers happy-path / reject / idempotency / re-issue + prior_decision
+  / expiry / mixed turn / custom-sandboxed-tool.
+- ⏳ Activity-log integration (`approve_tool_call` /
+  `reject_tool_call` / `expire_tool_call`) — deferred to v1.
 
 **v1 — first real users + UI.** After v0.
 

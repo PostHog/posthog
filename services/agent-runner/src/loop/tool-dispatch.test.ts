@@ -1,12 +1,22 @@
-import { AgentRevision, AgentSpecSchema, InProcessSandboxPool, MemoryBundleStore, Sandbox } from '@posthog/agent-shared'
+import { z } from 'zod'
+
+import {
+    AgentRevision,
+    AgentSpecSchema,
+    InProcessSandboxPool,
+    MemoryBundleStore,
+    Sandbox,
+    ToolRefSchema,
+} from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { dispatchTool } from './tool-dispatch'
 
-function makeRev(
-    toolRefs: AgentRevision['spec']['tools'],
-    skills: AgentRevision['spec']['skills'] = []
-): AgentRevision {
+// Tests pass raw tool-ref shapes (without spec-defaulted fields like
+// requires_approval); Zod fills the rest in during parse.
+type ToolRefInput = z.input<typeof ToolRefSchema>
+
+function makeRev(toolRefs: ToolRefInput[], skills: AgentRevision['spec']['skills'] = []): AgentRevision {
     return {
         id: 'rev1',
         application_id: 'app1',

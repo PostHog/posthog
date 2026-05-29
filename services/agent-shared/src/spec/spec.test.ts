@@ -42,4 +42,104 @@ describe('AgentSpecSchema', () => {
     it('rejects unknown tool kind', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
     })
+
+    describe('approval-gated tools', () => {
+        it('defaults tools to requires_approval: false with admin-only policy', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [{ kind: 'native', id: '@posthog/query' }],
+            })
+            const t = spec.tools[0]
+            expect(t.requires_approval).toBe(false)
+            expect(t.approval_policy.approvers).toEqual(['team_admins'])
+            expect(t.approval_policy.allow_edit).toBe(false)
+            expect(t.approval_policy.allow_agent_approver).toBe(false)
+            expect(t.approval_policy.ttl_ms).toBe(24 * 60 * 60 * 1000)
+        })
+
+        it('parses requires_approval: true with overridden policy fields', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { allow_edit: true, ttl_ms: 60 * 60 * 1000 },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            expect(t.requires_approval).toBe(true)
+            expect(t.approval_policy.allow_edit).toBe(true)
+            expect(t.approval_policy.ttl_ms).toBe(60 * 60 * 1000)
+            // unspecified fields still defaulted
+            expect(t.approval_policy.approvers).toEqual(['team_admins'])
+            expect(t.approval_policy.allow_agent_approver).toBe(false)
+        })
+
+        it('rejects ttl_ms below 1 minute', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    tools: [
+                        {
+                            kind: 'native',
+                            id: '@posthog/team-delete',
+                            requires_approval: true,
+                            approval_policy: { ttl_ms: 30_000 },
+                        },
+                    ],
+                })
+            ).toThrow()
+        })
+
+        it('rejects ttl_ms above 7 days', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    tools: [
+                        {
+                            kind: 'native',
+                            id: '@posthog/team-delete',
+                            requires_approval: true,
+                            approval_policy: { ttl_ms: 30 * 24 * 60 * 60 * 1000 },
+                        },
+                    ],
+                })
+            ).toThrow()
+        })
+
+        it('rejects empty approvers list', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    tools: [
+                        {
+                            kind: 'native',
+                            id: '@posthog/team-delete',
+                            requires_approval: true,
+                            approval_policy: { approvers: [] },
+                        },
+                    ],
+                })
+            ).toThrow()
+        })
+
+        it('rejects approver scopes not yet supported in v0', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    tools: [
+                        {
+                            kind: 'native',
+                            id: '@posthog/team-delete',
+                            requires_approval: true,
+                            approval_policy: { approvers: ['session_owner'] },
+                        },
+                    ],
+                })
+            ).toThrow()
+        })
+    })
 })
