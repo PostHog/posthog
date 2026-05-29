@@ -279,10 +279,9 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
                   AFFECTED_CRATES: ${{ needs.affected.outputs.affected_crates }}
               run: |
-                  crates=$(echo "$AFFECTED_CRATES" | python3 -c "import json,sys; print(' '.join(f'-p {c}' for c in json.load(sys.stdin)))" 2>/dev/null || echo "--all")
-                  if [ "$crates" = "--all" ] || [ -z "$crates" ]; then
-                      echo "Building all crates"
-                      cargo build --all --locked --release
+                  crates=$(echo "$AFFECTED_CRATES" | python3 -c "import json,sys; print(' '.join(f'-p {c}' for c in json.load(sys.stdin)))")
+                  if [ -z "$crates" ]; then
+                      echo "No affected crates — skipping build"
                   else
                       echo "Building affected crates: $crates"
                       cargo build $crates --locked --release
