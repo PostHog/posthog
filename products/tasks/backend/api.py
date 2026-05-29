@@ -526,7 +526,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # 3. Find runs for the task
         runs = list(TaskRun.objects.filter(task=task).order_by("created_at", "id"))
         # Include repo discovery runs, if present
-        repo_research_run_ids = [rid for run in runs if (rid := (run.state or {}).get("repo_research_run_id"))]
+        repo_research_run_ids = [
+            rid
+            for run in runs
+            if (rid := (run.state if isinstance(run.state, dict) else {}).get("repo_research_run_id"))
+        ]
         repo_research_runs_by_id: dict[str, TaskRun] = (
             {str(r.id): r for r in TaskRun.objects.filter(team=task.team, id__in=repo_research_run_ids)}
             if repo_research_run_ids
@@ -537,8 +541,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         run_payloads: list[dict[str, Any]] = []
         # 4. Find workflows for the runs
         for run in runs:
-            state = run.state or {}
-            output = run.output or {}
+            state = run.state if isinstance(run.state, dict) else {}
+            output = run.output if isinstance(run.output, dict) else {}
             task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
             mention_workflow_id = state.get("slack_mention_workflow_id")
             try:
