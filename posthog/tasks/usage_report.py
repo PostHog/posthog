@@ -34,9 +34,7 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
@@ -46,6 +44,8 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -231,7 +231,7 @@ class UsageReportCounters:
     logs_mb_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
-    web_logs_records_in_period: int
+    # Web (browser) is intentionally absent: posthog-js doesn't set telemetry.sdk.name on logs yet.
     ios_logs_records_in_period: int
     react_native_logs_records_in_period: int
     android_logs_records_in_period: int
@@ -1727,11 +1727,11 @@ def get_teams_with_logs_records_in_period(
         )
 
 
-# Maps the `telemetry.sdk.name` resource attribute (set by each PostHog SDK on every log record)
-# to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys. The web
-# SDK reports its LIB_NAME ("web"); mobile SDKs report their package name.
+# Maps the `telemetry.sdk.name` resource attribute (the mobile SDK package name, set on every log
+# record) to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys.
+# The browser SDK (posthog-js) is omitted: it doesn't set telemetry.sdk.name on logs (it only sets
+# the OTLP scope name), so a "web" entry here would never match. Add it once posthog-js is fixed.
 SDK_TELEMETRY_NAMES: dict[str, str] = {
-    "web": "web",
     "posthog-ios": "ios",
     "posthog-react-native": "react_native",
     "posthog-android": "android",
@@ -1750,13 +1750,17 @@ def get_teams_with_sdk_logs_records_in_period(
     Returns log record counts grouped by team and PostHog SDK, for the given period.
 
     The result is keyed by the short SDK suffix used on `UsageReportCounters`
-    (`web`, `ios`, `react_native`, `android`, `flutter`); each value is a list of
+    (`ios`, `react_native`, `android`, `flutter`); each value is a list of
     `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
     (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
-    pre-filter on the `logs` table — without it, scanning the `resource_attributes` map cluster-wide
+    pre-filter on `logs_distributed` — without it, scanning the `resource_attributes` map cluster-wide
     hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+
+    NB: query the physical `logs_distributed` table, not `logs`. `logs` is the HogQL table alias and
+    only resolves inside HogQL (`parse_select`); raw `sync_execute` runs ClickHouse SQL directly, where
+    no `logs` table exists — using it fails the whole usage-report run (see PR #60611 revert).
     """
     if not team_ids_with_logs:
         return {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}
@@ -1768,7 +1772,7 @@ def get_teams_with_sdk_logs_records_in_period(
                 team_id,
                 resource_attributes['telemetry.sdk.name'] AS sdk_name,
                 count() AS count
-            FROM logs
+            FROM logs_distributed
             WHERE team_id IN %(team_ids)s
               AND timestamp >= %(begin)s
               AND timestamp < %(end)s
@@ -2163,7 +2167,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_records_in_period": logs_records_rows,
-        "teams_with_web_logs_records_in_period": sdk_logs_by_suffix["web"],
         "teams_with_ios_logs_records_in_period": sdk_logs_by_suffix["ios"],
         "teams_with_react_native_logs_records_in_period": sdk_logs_by_suffix["react_native"],
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
@@ -2327,7 +2330,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
-        web_logs_records_in_period=all_data["teams_with_web_logs_records_in_period"].get(team.id, 0),
         ios_logs_records_in_period=all_data["teams_with_ios_logs_records_in_period"].get(team.id, 0),
         react_native_logs_records_in_period=all_data["teams_with_react_native_logs_records_in_period"].get(team.id, 0),
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),

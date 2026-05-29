@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 from posthog.models.utils import UUIDModel
 
@@ -60,3 +61,51 @@ class SlackUserProfileCache(UUIDModel):
                 name="uniq_slack_user_profile_cache_integration_user",
             )
         ]
+
+
+class SlackSettings(UUIDModel):
+    """Per-(Slack workspace, Slack user) settings for inbound `slack-posthog-code`
+    events. Currently stores the routing default — which PostHog integration a
+    mention from this Slack user should route to.
+
+    Two row shapes share this table:
+    - ``slack_user_id`` set → that Slack user's personal settings for this workspace.
+      Written by the Slack `@PostHog project <id>` directive or the user-level
+      settings UI.
+    - ``slack_user_id IS NULL`` → workspace-wide fallback, applied when an
+      inbound event's Slack user has no personal row yet. Written only via the
+      PostHog project-level settings UI by a team admin (never via Slack).
+
+    A user-specific row, if present, always wins over the workspace-wide row at
+    resolution time.
+    """
+
+    default_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.CASCADE,
+        related_name="slack_settings_as_default",
+    )
+    slack_workspace_id = models.CharField(max_length=64)
+    slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "slack_user_id"],
+                name="uniq_slack_settings_per_user",
+                condition=Q(slack_user_id__isnull=False),
+            ),
+            # Partial: NULL slack_user_id is the workspace-wide row, which
+            # Postgres's default NULL-distinct rule wouldn't otherwise dedupe.
+            models.UniqueConstraint(
+                fields=["slack_workspace_id"],
+                name="uniq_slack_settings_per_workspace",
+                condition=Q(slack_user_id__isnull=True),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        who = self.slack_user_id or "(workspace default)"
+        return f"{self.slack_workspace_id} / {who} → integration {self.default_integration_id}"

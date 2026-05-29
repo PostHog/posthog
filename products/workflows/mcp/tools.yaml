@@ -107,6 +107,15 @@ tools:
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
         enabled: false
+    internal-hog-flows-process-due-schedules-create:
+        operation: internal_hog_flows_process_due_schedules_create
+        enabled: false
+    internal-hog-flows-user-blast-radius-create:
+        operation: internal_hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-user-blast-radius-persons-create:
+        operation: internal_hog_flows_user_blast_radius_persons_create
+        enabled: false
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true

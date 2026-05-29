@@ -1258,6 +1258,18 @@ class SlackIntegration:
         }
 
 
+def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
+    """Sign a body with the Slack HMAC-SHA256 scheme; returns (signature, timestamp).
+
+    Used by both prod (PostHog→PostHog cross-region calls that reuse the Slack signing scheme)
+    and tests. The matching verifier is `validate_slack_request` below.
+    """
+    ts = str(int(time.time()))
+    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
+    signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
+    return signature, ts
+
+
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
     """
     Validate a Slack request using HMAC-SHA256 signature verification.

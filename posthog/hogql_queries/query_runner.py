@@ -12,6 +12,7 @@ from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
+    AccountsQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -301,6 +302,7 @@ RunnableQueryNode = Union[
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
+    AccountsQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -1013,6 +1015,18 @@ def get_query_runner(
         from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountsQuery":
+        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+
+        return AccountsQueryRunner(
             query=query,
             team=team,
             timings=timings,
