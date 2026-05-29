@@ -1049,8 +1049,13 @@ jobs:
 
             - name: Run migrations for this PR
               run: |
-                  # Run Django migrations first (excluding managed=False models)
-                  python manage.py migrate
+                  # Run Django migrations first (excluding managed=False models).
+                  # TEMP: nextgensquash trial — --skip-checks because the PR's
+                  # squash + master's pre-applied state makes Django's
+                  # check_consistent_history flag a phantom social_django dep
+                  # via the squash's replaces= fold. Same flag we already use
+                  # in our custom migrate.py for the same reason.
+                  python manage.py migrate --skip-checks
                   # Then run persons migrations using sqlx
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
