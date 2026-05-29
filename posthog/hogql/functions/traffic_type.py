@@ -13,42 +13,24 @@ runners) to provide maximum flexibility during development. This allows usage in
 - Any future features that leverage HogQL expressions
 
 Bot patterns live in a ClickHouse REGEXP_TREE dictionary (web_bot_definition_dict)
-backed by the web_bot_definition table. This allows the pattern list to scale beyond
-what can be inlined in SQL, and lets patterns be updated without code deploys.
+backed by the web_bot_definition table. We do NOT call dictGet*/dictHas directly
+from emitted SQL — those would let any HogQL author probe arbitrary cluster
+dictionaries (including team-scoped ones). Instead we go through the
+botGetName/botGetCategory/botGetTrafficType/botGetOperator/botIsBot UDFs, which
+hardcode the dictionary name at CREATE FUNCTION time and only expose the bot
+lookup surface.
 
 The source of truth for initial data is
 products.web_analytics.backend.hogql_queries.bot_definitions. Changes there require a
 new ClickHouse migration to update the web_bot_definition table and reload the dict.
 """
 
-from django.conf import settings
-
 from posthog.hogql import ast
-
-from posthog.models.bot_definition.sql import BOT_DEFINITION_DICTIONARY_NAME
-
-
-def _bot_dict() -> str:
-    """Fully-qualified dictionary name, evaluated at call time for test-DB compatibility."""
-    return f"{settings.CLICKHOUSE_DATABASE}.{BOT_DEFINITION_DICTIONARY_NAME}"
 
 
 def _safe_ua(user_agent_expr: ast.Expr) -> ast.Expr:
     """Wrap expression in ifNull(..., '') so NULL user agents match the ^$ pattern."""
     return ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
-
-
-def _dict_get(user_agent_expr: ast.Expr, attribute: str, default: str) -> ast.Expr:
-    """Build dictGetOrDefault(<dict>, <attribute>, ifNull(ua, ''), <default>) AST."""
-    return ast.Call(
-        name="dictGetOrDefault",
-        args=[
-            ast.Constant(value=_bot_dict()),
-            ast.Constant(value=attribute),
-            _safe_ua(user_agent_expr),
-            ast.Constant(value=default),
-        ],
-    )
 
 
 def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -59,7 +41,7 @@ def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
-    return _dict_get(args[0], "name", "")
+    return ast.Call(name="botGetName", args=[_safe_ua(args[0])])
 
 
 def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -70,7 +52,7 @@ def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
     """
-    return _dict_get(args[0], "operator", "")
+    return ast.Call(name="botGetOperator", args=[_safe_ua(args[0])])
 
 
 def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -81,7 +63,7 @@ def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns one of: 'AI Agent', 'Bot', 'Automation', 'Regular'
     """
-    return _dict_get(args[0], "traffic_type", "Regular")
+    return ast.Call(name="botGetTrafficType", args=[_safe_ua(args[0])])
 
 
 def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -93,7 +75,7 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Returns subcategory: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', etc.
     For regular traffic, returns 'regular'.
     """
-    return _dict_get(args[0], "category", "regular")
+    return ast.Call(name="botGetCategory", args=[_safe_ua(args[0])])
 
 
 def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -105,11 +87,7 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Returns true if the user agent matches bot/automation patterns, false otherwise.
     NULL user agents are treated as bots (empty UA is classified as Automation via the ^$ pattern).
     """
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.NotEq,
-        left=_dict_get(args[0], "traffic_type", "Regular"),
-        right=ast.Constant(value="Regular"),
-    )
+    return ast.Call(name="botIsBot", args=[_safe_ua(args[0])])
 
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -122,4 +100,13 @@ def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',
                 'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
     """
-    return _dict_get(args[0], "category", "")
+    # botGetCategory defaults to 'regular' for regular traffic; this variant returns '' for backwards-compat callers.
+    cat = ast.Call(name="botGetCategory", args=[_safe_ua(args[0])])
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=cat, right=ast.Constant(value="regular")),
+            ast.Constant(value=""),
+            cat,
+        ],
+    )

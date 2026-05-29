@@ -156,11 +156,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "tupleMultiplyByNumber": HogQLFunctionMeta("tupleMultiplyByNumber", 2, 2),
     "tupleDivideByNumber": HogQLFunctionMeta("tupleDivideByNumber", 2, 2),
     "dotProduct": HogQLFunctionMeta("dotProduct", 2, 2),
-    # dictionaries
-    "dictGet": HogQLFunctionMeta("dictGet", 3, 3),
-    "dictGetOrDefault": HogQLFunctionMeta("dictGetOrDefault", 4, 4),
-    "dictGetOrNull": HogQLFunctionMeta("dictGetOrNull", 3, 3),
-    "dictHas": HogQLFunctionMeta("dictHas", 2, 2),
+    # Bot detection UDFs (web_bot_definition_dict wrappers) — see posthog/models/bot_definition/sql.py.
+    # Each hardcodes the dictionary name at CREATE FUNCTION time, so users invoking these from HogQL
+    # cannot probe arbitrary cluster dictionaries.
+    "botGetName": HogQLFunctionMeta("botGetName", 1, 1),
+    "botGetCategory": HogQLFunctionMeta("botGetCategory", 1, 1),
+    "botGetTrafficType": HogQLFunctionMeta("botGetTrafficType", 1, 1),
+    "botGetOperator": HogQLFunctionMeta("botGetOperator", 1, 1),
+    "botIsBot": HogQLFunctionMeta("botIsBot", 1, 1),
     # other
     "isFinite": HogQLFunctionMeta("isFinite", 1, 1),
     "isInfinite": HogQLFunctionMeta("isInfinite", 1, 1),
