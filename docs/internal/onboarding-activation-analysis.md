@@ -43,34 +43,34 @@ Pre-onboarding the user passes through `productSelection`, which fires
 
 ### Events fired at each stage (the ones we can actually measure)
 
-| Event                              | Where it fires                                                                 | Useful props                |
-| ---------------------------------- | ------------------------------------------------------------------------------ | --------------------------- |
-| `user signed up`                   | Backend on signup completion                                                   | `is_organization_first_user`, `referral_source`, `signup_social_provider` |
-| `onboarding started`               | `productSelectionLogic.ts:317` — when product selection scene mounts           | `entrypoint`                |
-| `onboarding product toggled`       | Each product selection toggle                                                  | `productKey`, `selected`    |
-| `onboarding_products_confirmed`    | After clicking continue on product selection                                   |                             |
-| `onboarding step completed`        | `OnboardingStep.tsx:62`, `NextButton.tsx:29`, `PlanCards.tsx:99`, others       | `step_key`, `product_key`   |
-| `onboarding step skipped`          | `OnboardingStep.tsx:56`, `NextButton.tsx:35-36` ("Skip installation" CTA; event fires at `:24`) | `step_key`, `product_key`   |
-| `onboarding adblock detection completed` | `useAdblockDetection.ts:57` on install scene                             | `status`                    |
-| `first team event ingested`        | Backend, on first event from a new team                                        | (system property)           |
-| `subscribed during onboarding`     | Listener on billing callback `success=true`                                    | `productKey`                |
-| `onboarding exit modal opened`     | When user clicks the leave-onboarding affordance                               | `step_at_open`              |
-| `onboarding completed`             | `onboardingLogic.tsx:511` after the user clicks "Finish" on the last step      | `productKey`                |
-| `product intent marked activated`  | Backend — when the team passes a per-product activation threshold              | `product_type`              |
-| `post_onboarding_modal_shown`/`cta_clicked`/`dismissed` | Post-completion modal                                      |                             |
+| Event                                                   | Where it fires                                                                                  | Useful props                                                              |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `user signed up`                                        | Backend on signup completion                                                                    | `is_organization_first_user`, `referral_source`, `signup_social_provider` |
+| `onboarding started`                                    | `productSelectionLogic.ts:317` — when product selection scene mounts                            | `entrypoint`                                                              |
+| `onboarding product toggled`                            | Each product selection toggle                                                                   | `productKey`, `selected`                                                  |
+| `onboarding_products_confirmed`                         | After clicking continue on product selection                                                    |                                                                           |
+| `onboarding step completed`                             | `OnboardingStep.tsx:62`, `NextButton.tsx:29`, `PlanCards.tsx:99`, others                        | `step_key`, `product_key`                                                 |
+| `onboarding step skipped`                               | `OnboardingStep.tsx:56`, `NextButton.tsx:35-36` ("Skip installation" CTA; event fires at `:24`) | `step_key`, `product_key`                                                 |
+| `onboarding adblock detection completed`                | `useAdblockDetection.ts:57` on install scene                                                    | `status`                                                                  |
+| `first team event ingested`                             | Backend, on first event from a new team                                                         | (system property)                                                         |
+| `subscribed during onboarding`                          | Listener on billing callback `success=true`                                                     | `productKey`                                                              |
+| `onboarding exit modal opened`                          | When user clicks the leave-onboarding affordance                                                | `step_at_open`                                                            |
+| `onboarding completed`                                  | `onboardingLogic.tsx:511` after the user clicks "Finish" on the last step                       | `productKey`                                                              |
+| `product intent marked activated`                       | Backend — when the team passes a per-product activation threshold                               | `product_type`                                                            |
+| `post_onboarding_modal_shown`/`cta_clicked`/`dismissed` | Post-completion modal                                                                           |                                                                           |
 
 ## 2. Activation funnel (last 30d, 14d conversion window)
 
 Series: `user signed up` → `onboarding started` → `onboarding step completed` →
 `first team event ingested` → `onboarding completed` (ordered, 14-day window).
 
-| # | Step                          | Users  | % of signups | Step-over-step |
-| - | ----------------------------- | ------ | ------------ | -------------- |
-| 1 | `user signed up`              | 72,823 | 100.0%       | —              |
-| 2 | `onboarding started`          | 44,555 | 61.2%        | **−38.8%**     |
-| 3 | `onboarding step completed`   | 30,317 | 41.6%        | −31.9%         |
-| 4 | `first team event ingested`   | 19,378 | 26.6%        | −36.1%         |
-| 5 | `onboarding completed`        |  2,599 |  **3.6%**    | **−86.6%**     |
+| #   | Step                        | Users  | % of signups | Step-over-step |
+| --- | --------------------------- | ------ | ------------ | -------------- |
+| 1   | `user signed up`            | 72,823 | 100.0%       | —              |
+| 2   | `onboarding started`        | 44,555 | 61.2%        | **−38.8%**     |
+| 3   | `onboarding step completed` | 30,317 | 41.6%        | −31.9%         |
+| 4   | `first team event ingested` | 19,378 | 26.6%        | −36.1%         |
+| 5   | `onboarding completed`      | 2,599  | **3.6%**     | **−86.6%**     |
 
 ### How to read this
 
@@ -94,15 +94,15 @@ Step-completion (col 2) is near-universal because every flow auto-fires at least
 
 | Product           | Started | Step ✓ | First event | Onboarding ✓ |
 | ----------------- | ------: | -----: | ----------: | -----------: |
-| product_analytics | 7,924   | 98%    | **61%**     | 7%           |
-| session_replay    | 1,411   | 99%    | 56%         | 6%           |
-| logs              | 1,365   | 100%   | 54%         | 7%           |
-| web_analytics     | 1,220   | 99%    | 59%         | 8%           |
-| llm_analytics     |   343   | 99%    | **33%**     | 3%           |
-| feature_flags     |   233   | 99%    | 46%         | 4%           |
-| error_tracking    |   155   | 100%   | 54%         | 11%          |
-| surveys           |    73   | 100%   | 47%         | 3%           |
-| experiments       |    68   | 96%    | 43%         | 4%           |
+| product_analytics |   7,924 |    98% |     **61%** |           7% |
+| session_replay    |   1,411 |    99% |         56% |           6% |
+| logs              |   1,365 |   100% |         54% |           7% |
+| web_analytics     |   1,220 |    99% |         59% |           8% |
+| llm_analytics     |     343 |    99% |     **33%** |           3% |
+| feature_flags     |     233 |    99% |         46% |           4% |
+| error_tracking    |     155 |   100% |         54% |          11% |
+| surveys           |      73 |   100% |         47% |           3% |
+| experiments       |      68 |    96% |         43% |           4% |
 
 LLM analytics is the worst-performing product onboarding by a wide margin
 (33% first-event rate vs ~55-61% baseline), and feature flags trails too.
@@ -113,14 +113,14 @@ LLM analytics is the worst-performing product onboarding by a wide margin
 
 | Step key             | Completed | Skipped | Skip share |
 | -------------------- | --------: | ------: | ---------: |
-| `install`            |    11,785 |  31,396 | **72.7%**  |
-| `link_data`          |       422 |  25,386 | 98.4%      |
-| `authorized_domains` |     2,626 |   1,772 | 40.3%      |
-| `source_maps`        |        46 |     397 | 89.6%      |
-| `alerts`             |         0 |     396 | 100%       |
-| `invite_teammates`   |    33,467 |       0 | 0% *       |
-| `configure`          |    32,206 |       0 | 0% *       |
-| `plans`              |    29,078 |       0 | 0% *       |
+| `install`            |    11,785 |  31,396 |  **72.7%** |
+| `link_data`          |       422 |  25,386 |      98.4% |
+| `authorized_domains` |     2,626 |   1,772 |      40.3% |
+| `source_maps`        |        46 |     397 |      89.6% |
+| `alerts`             |         0 |     396 |       100% |
+| `invite_teammates`   |    33,467 |       0 |      0% \* |
+| `configure`          |    32,206 |       0 |      0% \* |
+| `plans`              |    29,078 |       0 |      0% \* |
 
 \* "completed" includes auto-advances by `goToNextStep` even when the user did nothing
 on the step. `invite_teammates`, `configure`, and `plans` don't expose an explicit Skip
@@ -134,12 +134,12 @@ as activated via async first events — but they leave the install step unverifi
 
 ### Time to convert (median, unbreakdown funnel)
 
-| Transition                                          | Median           | Mean            |
-| --------------------------------------------------- | ---------------- | --------------- |
-| `user signed up` → `onboarding started`             | ~5 s             | ~62 min         |
-| `onboarding started` → `onboarding step completed`  | ~4.5 min         | ~45 min         |
-| `onboarding step completed` → `first team event`    | ~35 min          | ~14 hours       |
-| `first team event` → `onboarding completed`         | ~3 min (when it happens) | ~13 hours |
+| Transition                                         | Median                   | Mean      |
+| -------------------------------------------------- | ------------------------ | --------- |
+| `user signed up` → `onboarding started`            | ~5 s                     | ~62 min   |
+| `onboarding started` → `onboarding step completed` | ~4.5 min                 | ~45 min   |
+| `onboarding step completed` → `first team event`   | ~35 min                  | ~14 hours |
+| `first team event` → `onboarding completed`        | ~3 min (when it happens) | ~13 hours |
 
 Long tails dominate the means. The median for "see first event" is ~35 minutes after
 finishing the first step — that's plausibly the time it takes a developer to copy-paste
@@ -196,7 +196,7 @@ onboarding once the user is inside the product. Realistically:
 - Or the user reaches the verify state, then clicks into a dashboard tab and the
   onboarding tab is forgotten.
 
-This is the worst step-over-step but the *least* addressable of the four. Better
+This is the worst step-over-step but the _least_ addressable of the four. Better
 measurement (treating "first event within 14d" as activation) and a server-driven
 auto-complete-on-first-event would help — but this isn't where the experiment leverage is.
 
@@ -206,7 +206,7 @@ LLM analytics is **22 percentage points below** the baseline first-event rate. L
 causes: most other products' SDKs install via a one-liner; LLM analytics requires
 wrapping the model client (OpenAI / Anthropic / LangChain) and has more surface area for
 copy-paste mistakes. Feature flags' 46% is similarly explainable — the install completes
-when a flag is *evaluated*, not on SDK init.
+when a flag is _evaluated_, not on SDK init.
 
 ## 4. Recommended experiments
 
