@@ -53,8 +53,11 @@ from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.organization import OrganizationMembership
@@ -269,6 +272,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "retrieve",
         "sessions_list",
         "sessions_retrieve",
+        "session_logs",
         "preview_proxy",
         "approvals_list",
         "approvals_retrieve",
@@ -692,6 +696,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
+        # Every CH query needs `tag_queries(product, feature)` — without
+        # it the query layer raises `UntaggedQueryError`. There's no
+        # agent-specific ProductKey yet; LOGS is the closest fit.
+        tag_queries(product=ProductKey.LOGS, feature=Feature.QUERY)
         params = LogEntryRequestSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         p = params.validated_data

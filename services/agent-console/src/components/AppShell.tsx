@@ -34,6 +34,7 @@ import { DockContextProvider } from './dock-context'
 import { FocusContextProvider } from './focus-context'
 import { PostHogMark } from './PostHogMark'
 import { SessionGate, SessionProvider, usePosthogBaseUrl, useSessionUser } from './session-context'
+import { TopLoadingBar } from './TopLoadingBar'
 
 const DOCK_WIDTH = 360
 
@@ -43,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
             <TooltipProvider delay={150}>
                 <DockContextProvider>
                     <FocusContextProvider>
+                        <TopLoadingBar />
                         <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
                             <Sidebar />
                             <main className="flex-1 overflow-y-auto">

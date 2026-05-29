@@ -19,12 +19,12 @@
 
 'use client'
 
-import { ChevronRightIcon, PlayIcon } from 'lucide-react'
+import { AlertTriangleIcon, ChevronRightIcon, PlayIcon } from 'lucide-react'
 import { useMemo } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, AgentRevisionFixture, AgentStats } from '@posthog/agent-chat/fixtures'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { AgentOverview } from '@/components/AgentOverview'
 import { ApplicationSettings } from '@/components/ApplicationSettings'
@@ -74,6 +74,8 @@ export interface AgentDetailProps {
     onTryAgent?: () => void
     onOpenSession?: (sessionId: string) => void
     onBackToList?: () => void
+    /** Called after a successful freeze/promote/archive — parent refetches. */
+    onRevisionsMutated?: () => void
 }
 
 export function AgentDetail({
@@ -86,6 +88,7 @@ export function AgentDetail({
     onTryAgent,
     onOpenSession,
     onBackToList,
+    onRevisionsMutated,
 }: AgentDetailProps): React.ReactElement {
     const sortedRevisions = useMemo(
         () => [...revisions].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
@@ -99,6 +102,14 @@ export function AgentDetail({
     const tab = urlState.tab
     const selectedRevId = urlState.revisionId ?? defaultRevisionId
 
+    const liveRevisionHasChatTrigger = liveRevision ? hasChatTrigger(liveRevision.spec) : false
+    const canPlayground = !!liveRevision && liveRevisionHasChatTrigger
+    const playgroundDisabledReason = !liveRevision
+        ? 'Promote a draft to live to enable the playground.'
+        : !liveRevisionHasChatTrigger
+          ? 'The live revision has no chat trigger.'
+          : null
+
     return (
         <div className="mx-auto max-w-5xl px-6 py-6">
             <Breadcrumb name={agent.name} onBackToList={onBackToList} />
@@ -108,15 +119,21 @@ export function AgentDetail({
                     <h1 className="text-xl font-medium tracking-tight">{agent.name}</h1>
                     <p className="text-sm text-muted-foreground">{agent.description}</p>
                 </div>
-                <button
-                    type="button"
+                <TryInPlaygroundButton
+                    enabled={canPlayground}
+                    disabledReason={playgroundDisabledReason}
                     onClick={() => onTryAgent?.()}
-                    className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors hover:bg-accent"
-                >
-                    <PlayIcon className="h-3 w-3" />
-                    Try in playground
-                </button>
+                />
             </header>
+
+            {!liveRevision ? (
+                <NoLiveRevisionBanner
+                    hasDrafts={sortedRevisions.length > 0}
+                    onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })}
+                />
+            ) : !liveRevisionHasChatTrigger ? (
+                <NoChatTriggerBanner onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })} />
+            ) : null}
 
             <Tabs value={tab} onValueChange={(v) => onChangeUrlState({ tab: v as TabKey })} className="mt-5">
                 <TabsList variant="line">
@@ -163,6 +180,7 @@ export function AgentDetail({
                             highlightedSection={urlState.section}
                             focusedBundlePath={urlState.filePath}
                             onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
+                            onMutated={onRevisionsMutated}
                         />
                     </Section>
                 </TabsContent>
@@ -176,6 +194,102 @@ export function AgentDetail({
 }
 
 /* ── Sub-components ─────────────────────────────────────────────── */
+
+function hasChatTrigger(spec: Record<string, unknown>): boolean {
+    const triggers = spec.triggers
+    if (!Array.isArray(triggers)) {
+        return false
+    }
+    return triggers.some((t) => typeof t === 'object' && t !== null && (t as { type?: unknown }).type === 'chat')
+}
+
+function TryInPlaygroundButton({
+    enabled,
+    disabledReason,
+    onClick,
+}: {
+    enabled: boolean
+    disabledReason: string | null
+    onClick: () => void
+}): React.ReactElement {
+    const button = (
+        <button
+            type="button"
+            onClick={enabled ? onClick : undefined}
+            disabled={!enabled}
+            className={
+                'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium transition-colors ' +
+                (enabled
+                    ? 'cursor-pointer hover:bg-accent'
+                    : 'cursor-not-allowed text-muted-foreground opacity-60 hover:bg-background')
+            }
+        >
+            <PlayIcon className="h-3 w-3" />
+            Try in playground
+        </button>
+    )
+    if (enabled || !disabledReason) {
+        return button
+    }
+    return (
+        <Tooltip>
+            <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
+            <TooltipContent side="bottom">{disabledReason}</TooltipContent>
+        </Tooltip>
+    )
+}
+
+function NoLiveRevisionBanner({
+    hasDrafts,
+    onOpenConfiguration,
+}: {
+    hasDrafts: boolean
+    onOpenConfiguration: () => void
+}): React.ReactElement {
+    return (
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+            <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <div className="space-y-0.5">
+                <p className="font-medium text-foreground">No live revision yet</p>
+                <p className="text-muted-foreground">
+                    The playground stays disabled until a revision is promoted to live.{' '}
+                    {hasDrafts ? (
+                        <button
+                            type="button"
+                            onClick={onOpenConfiguration}
+                            className="cursor-pointer text-foreground underline-offset-2 hover:underline"
+                        >
+                            Promote a revision
+                        </button>
+                    ) : (
+                        <span>Push a bundle from the agent runner to create a draft.</span>
+                    )}
+                </p>
+            </div>
+        </div>
+    )
+}
+
+function NoChatTriggerBanner({ onOpenConfiguration }: { onOpenConfiguration: () => void }): React.ReactElement {
+    return (
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <div className="space-y-0.5">
+                <p className="font-medium text-foreground">No chat trigger on live revision</p>
+                <p className="text-muted-foreground">
+                    This agent runs without an interactive surface — the playground can't reach it.{' '}
+                    <button
+                        type="button"
+                        onClick={onOpenConfiguration}
+                        className="cursor-pointer text-foreground underline-offset-2 hover:underline"
+                    >
+                        View configuration
+                    </button>
+                </p>
+            </div>
+        </div>
+    )
+}
 
 function Breadcrumb({ name, onBackToList }: { name: string; onBackToList?: () => void }): React.ReactElement {
     return (

@@ -26,11 +26,12 @@ import { JsonView } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
 
 import { useSessionTeamId } from '@/components/session-context'
-import { getBundle } from '@/lib/apiClient'
+import { ApiError, archiveRevision, freezeRevision, getBundle, promoteRevision } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 
 import { BundleTree } from './BundleTree'
 import { ConfigPanel, KNOWN_SPEC_KEYS, UnstructuredFields } from './ConfigPanel'
+import { ConfirmDialog } from './ConfirmDialog'
 
 type ConfigView = 'structured' | 'raw'
 
@@ -45,6 +46,15 @@ export interface RevisionsBrowserProps {
     /** Currently-open bundle file (driven by `?file=` in the URL). */
     focusedBundlePath?: string | null
     onSelectBundleFile?: (path: string) => void
+    /** Refetch trigger after a successful lifecycle action. */
+    onMutated?: () => void
+}
+
+type LifecycleAction = 'freeze' | 'promote' | 'archive'
+
+interface PendingAction {
+    action: LifecycleAction
+    revision: AgentRevisionFixture
 }
 
 export function RevisionsBrowser({
@@ -55,8 +65,12 @@ export function RevisionsBrowser({
     highlightedSection,
     focusedBundlePath,
     onSelectBundleFile,
+    onMutated,
 }: RevisionsBrowserProps): React.ReactElement {
     const [configView, setConfigView] = useState<ConfigView>('structured')
+    const [pending, setPending] = useState<PendingAction | null>(null)
+    const [running, setRunning] = useState(false)
+    const [actionError, setActionError] = useState<string | null>(null)
 
     const sortedRevisions = useMemo(() => {
         const live = revisions.find((r) => r.id === agent.live_revision)
@@ -69,6 +83,41 @@ export function RevisionsBrowser({
     const selected = revisions.find((r) => r.id === selectedRevisionId) ?? sortedRevisions[0] ?? null
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
+
+    const requestAction = (action: LifecycleAction, revision: AgentRevisionFixture): void => {
+        setActionError(null)
+        setPending({ action, revision })
+    }
+    const closeDialog = (): void => {
+        if (running) {
+            return
+        }
+        setPending(null)
+        setActionError(null)
+    }
+    const runAction = async (): Promise<void> => {
+        if (!pending) {
+            return
+        }
+        setRunning(true)
+        setActionError(null)
+        const fn =
+            pending.action === 'freeze'
+                ? freezeRevision
+                : pending.action === 'promote'
+                  ? promoteRevision
+                  : archiveRevision
+        try {
+            await fn(teamId, agent.slug, pending.revision.id)
+            setPending(null)
+            onMutated?.()
+        } catch (err) {
+            const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err)
+            setActionError(msg)
+        } finally {
+            setRunning(false)
+        }
+    }
 
     // Bundle is per-revision — fetch lazily for whichever revision is selected.
     const bundleRes = useResource(
@@ -88,69 +137,201 @@ export function RevisionsBrowser({
     }
 
     return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-            <ul
-                className="divide-y divide-border overflow-hidden rounded-md border border-border bg-background"
-                aria-label="Revisions"
-            >
-                {sortedRevisions.map((r) => (
-                    <li key={r.id}>
-                        <RevisionListItem
-                            revision={r}
-                            isLive={r.id === agent.live_revision}
-                            isSelected={selected?.id === r.id}
-                            onClick={() => onSelectRevision(r.id)}
-                        />
-                    </li>
-                ))}
-            </ul>
+        <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+                <ul
+                    className="divide-y divide-border overflow-hidden rounded-md border border-border bg-background"
+                    aria-label="Revisions"
+                >
+                    {sortedRevisions.map((r) => (
+                        <li key={r.id}>
+                            <RevisionListItem
+                                revision={r}
+                                isLive={r.id === agent.live_revision}
+                                isSelected={selected?.id === r.id}
+                                onClick={() => onSelectRevision(r.id)}
+                            />
+                        </li>
+                    ))}
+                </ul>
 
-            <div className="min-w-0 space-y-4">
-                {selected ? (
-                    <>
-                        <RevisionMetaRow revision={selected} isLive={selected.id === agent.live_revision} />
-
-                        <Section title="Config" right={<ConfigViewToggle view={configView} onChange={setConfigView} />}>
-                            {configView === 'structured' ? (
-                                <>
-                                    <ConfigPanel
-                                        spec={selected.spec as Record<string, unknown>}
-                                        highlightedSection={highlightedSection}
-                                    />
-                                    <UnstructuredFields
-                                        spec={selected.spec as Record<string, unknown>}
-                                        knownKeys={KNOWN_SPEC_KEYS}
-                                    />
-                                </>
-                            ) : (
-                                <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
-                            )}
-                        </Section>
-
-                        <Section title="Bundle">
-                            <div className="h-[480px]">
-                                {bundleError ? (
-                                    <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive">
-                                        Failed to load bundle: {bundleError.message}
-                                    </div>
-                                ) : bundleLoading ? (
-                                    <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
-                                        Loading bundle…
-                                    </div>
-                                ) : (
-                                    <BundleTree
-                                        files={bundle}
-                                        selectedPath={focusedBundlePath ?? null}
-                                        onSelectPath={onSelectBundleFile}
-                                    />
-                                )}
+                <div className="min-w-0 space-y-4">
+                    {selected ? (
+                        <>
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <RevisionMetaRow revision={selected} isLive={selected.id === agent.live_revision} />
+                                <RevisionActions
+                                    revision={selected}
+                                    isLive={selected.id === agent.live_revision}
+                                    hasLiveRevision={!!agent.live_revision}
+                                    onAction={(action) => requestAction(action, selected)}
+                                />
                             </div>
-                        </Section>
-                    </>
-                ) : (
-                    <EmptyDetail />
-                )}
+
+                            <Section
+                                title="Config"
+                                right={<ConfigViewToggle view={configView} onChange={setConfigView} />}
+                            >
+                                {configView === 'structured' ? (
+                                    <>
+                                        <ConfigPanel
+                                            spec={selected.spec as Record<string, unknown>}
+                                            highlightedSection={highlightedSection}
+                                        />
+                                        <UnstructuredFields
+                                            spec={selected.spec as Record<string, unknown>}
+                                            knownKeys={KNOWN_SPEC_KEYS}
+                                        />
+                                    </>
+                                ) : (
+                                    <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
+                                )}
+                            </Section>
+
+                            <Section title="Bundle">
+                                <div className="h-[480px]">
+                                    {bundleError ? (
+                                        <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive">
+                                            Failed to load bundle: {bundleError.message}
+                                        </div>
+                                    ) : bundleLoading ? (
+                                        <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                                            Loading bundle…
+                                        </div>
+                                    ) : (
+                                        <BundleTree
+                                            files={bundle}
+                                            selectedPath={focusedBundlePath ?? null}
+                                            onSelectPath={onSelectBundleFile}
+                                        />
+                                    )}
+                                </div>
+                            </Section>
+                        </>
+                    ) : (
+                        <EmptyDetail />
+                    )}
+                </div>
             </div>
+            {pending ? (
+                <ConfirmDialog
+                    open
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            closeDialog()
+                        }
+                    }}
+                    title={dialogCopy(pending, agent).title}
+                    description={dialogCopy(pending, agent).description}
+                    confirmLabel={dialogCopy(pending, agent).confirmLabel}
+                    confirmVariant={pending.action === 'archive' ? 'destructive' : 'default'}
+                    running={running}
+                    error={actionError}
+                    onConfirm={runAction}
+                />
+            ) : null}
+        </>
+    )
+}
+
+function dialogCopy(
+    pending: PendingAction,
+    agent: AgentApplicationFixture
+): { title: string; description: React.ReactNode; confirmLabel: string } {
+    const id = short(pending.revision.id)
+    if (pending.action === 'freeze') {
+        return {
+            title: `Freeze revision ${id}`,
+            description: (
+                <>
+                    Stamps the bundle sha256 and locks the spec. The revision moves from <strong>draft</strong> to{' '}
+                    <strong>ready</strong> and becomes immutable. Required before promoting to live.
+                </>
+            ),
+            confirmLabel: 'Freeze',
+        }
+    }
+    if (pending.action === 'promote') {
+        const replacing = agent.live_revision && agent.live_revision !== pending.revision.id
+        return {
+            title: `Promote ${id} to live`,
+            description: replacing ? (
+                <>
+                    The current live revision will be demoted to <strong>archived</strong> and traffic will switch to{' '}
+                    <code>{id}</code> immediately.
+                </>
+            ) : (
+                <>
+                    This will become the live revision for <strong>{agent.name}</strong>. The playground and any
+                    configured triggers will start serving from it immediately.
+                </>
+            ),
+            confirmLabel: 'Promote to live',
+        }
+    }
+    return {
+        title: `Archive revision ${id}`,
+        description:
+            pending.revision.id === agent.live_revision ? (
+                <>
+                    This is the currently live revision — archiving it will leave the agent with no deployable version
+                    until another revision is promoted.
+                </>
+            ) : (
+                <>This revision will be hidden from the default list and can no longer be promoted.</>
+            ),
+        confirmLabel: 'Archive',
+    }
+}
+
+function RevisionActions({
+    revision,
+    isLive,
+    hasLiveRevision,
+    onAction,
+}: {
+    revision: AgentRevisionFixture
+    isLive: boolean
+    hasLiveRevision: boolean
+    onAction: (action: LifecycleAction) => void
+}): React.ReactElement | null {
+    const buttons: { label: string; action: LifecycleAction; tone: 'default' | 'destructive' }[] = []
+
+    if (revision.state === 'draft') {
+        buttons.push({ label: 'Freeze', action: 'freeze', tone: 'default' })
+    }
+    if (revision.state === 'ready') {
+        buttons.push({ label: 'Promote to live', action: 'promote', tone: 'default' })
+    }
+    // Don't offer archive on a live revision when there's no replacement
+    // ready — the Django side would 400 (no deployable version left would
+    // technically be allowed, but the UX is confusing). Surface it only
+    // when it's safe to archive in one click.
+    if (revision.state !== 'archived' && !(isLive && hasLiveRevision)) {
+        buttons.push({ label: 'Archive', action: 'archive', tone: 'destructive' })
+    }
+
+    if (buttons.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex shrink-0 gap-1.5">
+            {buttons.map((b) => (
+                <button
+                    key={b.action}
+                    type="button"
+                    onClick={() => onAction(b.action)}
+                    className={
+                        'inline-flex h-7 cursor-pointer items-center rounded-md border px-2.5 text-[0.6875rem] font-medium transition-colors ' +
+                        (b.tone === 'destructive'
+                            ? 'border-destructive/40 text-destructive hover:bg-destructive/10'
+                            : 'border-border bg-background hover:bg-accent')
+                    }
+                >
+                    {b.label}
+                </button>
+            ))}
         </div>
     )
 }

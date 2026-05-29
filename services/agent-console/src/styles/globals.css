@@ -41,3 +41,43 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* Indeterminate sliding bar used by <TopLoadingBar />. The bar's width
+ * is fixed at 1/3 of the viewport; we translate it across the screen so
+ * it reads as continuous activity without needing a real progress value. */
+@keyframes TopLoadingBar__slide {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    50% {
+        transform: translateX(150%);
+    }
+
+    100% {
+        transform: translateX(400%);
+    }
+}
+
+.animate-top-loading-bar {
+    animation: TopLoadingBar__slide 1.2s ease-in-out infinite;
+}
+
+/* Subtle shimmer used by skeleton placeholders. */
+@keyframes Skeleton__shimmer {
+    0% {
+        opacity: 0.55;
+    }
+
+    50% {
+        opacity: 0.9;
+    }
+
+    100% {
+        opacity: 0.55;
+    }
+}
+
+.animate-skeleton {
+    animation: Skeleton__shimmer 1.4s ease-in-out infinite;
+}

@@ -5,8 +5,10 @@ import { notFound, useRouter, useSearchParams } from 'next/navigation'
 import type { ChatSession } from '@posthog/agent-chat'
 
 import { useSetDockPage, useDockStore } from '@/components/dock-context'
+import { AgentDetailSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getAgent, getAgentStats, listRevisions, listSessionsForAgent } from '@/lib/apiClient'
+import { bumpReload } from '@/lib/reloadSignal'
 import { useResource } from '@/lib/useResource'
 import { AgentDetail, parseUrlState, type AgentDetailUrlState } from '@/pages/AgentDetail'
 
@@ -25,7 +27,7 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
         return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {agent.error.message}</div>
     }
     if (!agent.data) {
-        return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
+        return <AgentDetailSkeleton />
     }
 
     const urlState = parseUrlState(new URLSearchParams(searchParams?.toString() ?? ''), agent.data.live_revision)
@@ -90,16 +92,22 @@ function AgentDetailInner({
     // Revisions + agent: must succeed.
     const stats = useResource(() => getAgentStats(teamId, slug).catch(() => null), [teamId, slug])
     const sessions = useResource(
-        () => listSessionsForAgent(teamId, slug).catch(() => [] as ChatSession[]),
-        [teamId, slug]
+        () =>
+            listSessionsForAgent(teamId, slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
+                () => [] as ChatSession[]
+            ),
+        [teamId, slug, agent.id]
     )
     const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug])
 
     if (revisions.error) {
         return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {revisions.error.message}</div>
     }
-    if (stats.loading || sessions.loading || revisions.loading || !revisions.data) {
-        return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
+    // Only block on the very first load. After we have data, refetches
+    // (e.g. from bumpReload after promote) render stale-while-revalidate
+    // so the page doesn't flash back to "Loading…".
+    if (!revisions.data) {
+        return <AgentDetailSkeleton />
     }
 
     const effectiveStats = stats.data ?? {
@@ -122,6 +130,7 @@ function AgentDetailInner({
             onTryAgent={() => enterPlayground(agentRef)}
             onBackToList={onBackToList}
             onOpenSession={onOpenSession}
+            onRevisionsMutated={bumpReload}
         />
     )
 }

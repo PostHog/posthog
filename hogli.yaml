@@ -487,6 +487,10 @@ build:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
+    build:openapi-agent-console:
+        cmd: pnpm --filter=@posthog/agent-console run sync:api-schema
+        description: Snapshot the agent_stack OpenAPI types into agent-console so
+            the package builds without a cross-monorepo path import (Docker-friendly).
     build:openapi:
         steps:
             - build:openapi-schema
@@ -495,6 +499,7 @@ build:
             - build:openapi-mcp
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
+            - build:openapi-agent-console
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build

@@ -168,24 +168,7 @@ export class PgSessionQueue implements SessionQueue {
     async listByApplication(applicationId: string, opts: ListSessionsOpts = {}): Promise<AgentSession[]> {
         const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
         const offset = Math.max(0, opts.offset ?? 0)
-        const where: string[] = ['application_id = $1']
-        const params: unknown[] = [applicationId]
-        if (opts.states && opts.states.length > 0) {
-            params.push(opts.states)
-            where.push(`state = ANY($${params.length}::text[])`)
-        }
-        if (opts.revisionId) {
-            params.push(opts.revisionId)
-            where.push(`revision_id = $${params.length}`)
-        }
-        if (opts.createdAfter) {
-            params.push(opts.createdAfter)
-            where.push(`created_at >= $${params.length}`)
-        }
-        if (opts.createdBefore) {
-            params.push(opts.createdBefore)
-            where.push(`created_at <= $${params.length}`)
-        }
+        const { where, params } = buildSessionFilter(applicationId, opts)
         params.push(limit, offset)
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
@@ -196,6 +179,18 @@ export class PgSessionQueue implements SessionQueue {
             params
         )
         return r.rows.map(rowToSession)
+    }
+
+    async countByApplication(
+        applicationId: string,
+        opts: Omit<ListSessionsOpts, 'limit' | 'offset'> = {}
+    ): Promise<number> {
+        const { where, params } = buildSessionFilter(applicationId, opts)
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count FROM agent_session WHERE ${where.join(' AND ')}`,
+            params
+        )
+        return Number(r.rows[0]?.count ?? 0)
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
@@ -264,6 +259,31 @@ interface DbRow {
     usage_total: unknown
     created_at: Date
     updated_at: Date
+}
+
+function buildSessionFilter(
+    applicationId: string,
+    opts: Omit<ListSessionsOpts, 'limit' | 'offset'>
+): { where: string[]; params: unknown[] } {
+    const where: string[] = ['application_id = $1']
+    const params: unknown[] = [applicationId]
+    if (opts.states && opts.states.length > 0) {
+        params.push(opts.states)
+        where.push(`state = ANY($${params.length}::text[])`)
+    }
+    if (opts.revisionId) {
+        params.push(opts.revisionId)
+        where.push(`revision_id = $${params.length}`)
+    }
+    if (opts.createdAfter) {
+        params.push(opts.createdAfter)
+        where.push(`created_at >= $${params.length}`)
+    }
+    if (opts.createdBefore) {
+        params.push(opts.createdBefore)
+        where.push(`created_at <= $${params.length}`)
+    }
+    return { where, params }
 }
 
 function rowToSession(row: DbRow): AgentSession {

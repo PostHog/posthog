@@ -11,6 +11,8 @@
 
 import { http, HttpResponse } from 'msw'
 
+import type { Turn } from '@posthog/agent-chat'
+
 import {
     getAgentBySlugStore,
     getAgentStatsStore,
@@ -23,6 +25,20 @@ import {
     listRevisionsStore,
     listSessionsForAgentStore,
 } from './store'
+
+function lastAssistantText(turns: Turn[]): string | null {
+    for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i]
+        if (t.kind === 'assistant') {
+            for (const p of t.parts) {
+                if (p.kind === 'text') {
+                    return p.text
+                }
+            }
+        }
+    }
+    return null
+}
 
 const PROJECT_PREFIX = '/api/projects/:projectId'
 
@@ -95,7 +111,27 @@ export const handlers = [
         if (!getAgentBySlugStore(slug)) {
             return HttpResponse.json({ error: 'not_found' }, { status: 404 })
         }
-        return HttpResponse.json({ results: listSessionsForAgentStore(slug) })
+        // Mirror the real Django shape so the apiClient mapper runs the
+        // same path under storybook as in prod.
+        const results = listSessionsForAgentStore(slug).map((s) => ({
+            id: s.id,
+            application_id: s.application.id,
+            revision_id: '',
+            state: s.state,
+            external_key: null,
+            principal: { kind: s.principal.kind, display_name: s.principal.displayName },
+            turns: s.turns.length,
+            preview: lastAssistantText(s.turns),
+            usage_total: {
+                tokens_in: s.usage.inputTokens,
+                tokens_out: s.usage.outputTokens,
+                cost_total: s.usage.costUsd,
+            },
+            retry_count: 0,
+            created_at: s.started_at ?? new Date().toISOString(),
+            updated_at: s.ended_at ?? s.started_at ?? new Date().toISOString(),
+        }))
+        return HttpResponse.json({ results, count: results.length })
     }),
 
     http.get(`${PROJECT_PREFIX}/agent_applications/:slug/sessions/:sessionId/`, ({ params }) => {

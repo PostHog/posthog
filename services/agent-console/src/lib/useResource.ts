@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { startInFlight } from './loadingIndicator'
 import { useReloadKey } from './reloadSignal'
 
 export interface ResourceState<T> {
@@ -38,9 +39,19 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
     useEffect(() => {
         const myReqId = ++reqIdRef.current
         setLoading(true)
+        const releaseInFlight = startInFlight()
+        let released = false
+        const release = (): void => {
+            if (released) {
+                return
+            }
+            released = true
+            releaseInFlight()
+        }
         factoryRef
             .current()
             .then((result) => {
+                release()
                 if (myReqId !== reqIdRef.current) {
                     return
                 }
@@ -49,12 +60,16 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
                 setLoading(false)
             })
             .catch((err) => {
+                release()
                 if (myReqId !== reqIdRef.current) {
                     return
                 }
                 setError(err instanceof Error ? err : new Error(String(err)))
                 setLoading(false)
             })
+        // Stale-effect cleanup: a deps change before settle should still
+        // decrement the counter so it doesn't stick high.
+        return release
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [...deps, reloadKey, manualReloadKey])
 

@@ -6,6 +6,7 @@ import type { ChatSession } from '@posthog/agent-chat'
 import type { FleetStats } from '@posthog/agent-chat/fixtures'
 
 import { useSetDockPage } from '@/components/dock-context'
+import { AgentsListSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
@@ -42,14 +43,16 @@ export function AgentsListClient(): React.ReactElement {
     const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId])
     const live = useResource(() => tolerateMissing(listLiveSessions(teamId), [] as ChatSession[]), [teamId])
 
-    const loading = agents.loading || fleet.loading || live.loading
     const error = agents.error ?? fleet.error ?? live.error
 
     if (error) {
         return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {error.message}</div>
     }
-    if (loading || !agents.data || !fleet.data || !live.data) {
-        return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
+    // Stale-while-revalidate: only block on the first load, not on
+    // refetches triggered by bumpReload (otherwise lifecycle actions
+    // flash the whole page back to a placeholder).
+    if (!agents.data || !fleet.data || !live.data) {
+        return <AgentsListSkeleton />
     }
 
     const liveSessions = live.data

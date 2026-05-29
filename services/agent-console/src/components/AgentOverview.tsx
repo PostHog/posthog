@@ -244,7 +244,10 @@ function describeTrigger(trigger: { type: string; config?: Record<string, unknow
 
 function RecentSessionRow({ session, onClick }: { session: ChatSession; onClick?: () => void }): React.ReactElement {
     const tone = stateTone(session.state)
-    const taskLine = firstUserText(session) ?? '—'
+    // Prefer the user's task; the list endpoint only returns a preview
+    // (last assistant text), so fall back to that when there's no
+    // hydrated user turn.
+    const taskLine = firstUserText(session) ?? firstAssistantText(session) ?? '—'
     return (
         <button
             type="button"
@@ -301,6 +304,19 @@ function firstUserText(session: ChatSession): string | null {
     for (const turn of session.turns) {
         if (turn.kind === 'user') {
             return turn.text
+        }
+    }
+    return null
+}
+
+function firstAssistantText(session: ChatSession): string | null {
+    for (const turn of session.turns) {
+        if (turn.kind === 'assistant') {
+            for (const p of turn.parts) {
+                if (p.kind === 'text') {
+                    return p.text
+                }
+            }
         }
     }
     return null

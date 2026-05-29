@@ -43,6 +43,12 @@ export interface SessionQueue {
      */
     listByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<AgentSession[]>
     /**
+     * Count sessions matching the same filters as `listByApplication`. Used
+     * by paginated callers (the janitor wraps `{ results, count }`). `limit`
+     * and `offset` are ignored — the count is over the full filtered set.
+     */
+    countByApplication(applicationId: string, opts?: Omit<ListSessionsOpts, 'limit' | 'offset'>): Promise<number>
+    /**
      * Re-queue sessions stuck in 'running' beyond the TTL (their worker
      * probably crashed). The session's conversation is preserved; a sibling
      * worker picks it up via the normal claim path.
@@ -123,8 +129,21 @@ export class MemorySessionQueue implements SessionQueue {
     async listByApplication(applicationId: string, opts: ListSessionsOpts = {}): Promise<AgentSession[]> {
         const limit = opts.limit ?? 100
         const offset = opts.offset ?? 0
+        const matches = this.filteredSessions(applicationId, opts)
+        matches.sort((a, b) => b.created_at.localeCompare(a.created_at))
+        return matches.slice(offset, offset + limit)
+    }
+
+    async countByApplication(
+        applicationId: string,
+        opts: Omit<ListSessionsOpts, 'limit' | 'offset'> = {}
+    ): Promise<number> {
+        return this.filteredSessions(applicationId, opts).length
+    }
+
+    private filteredSessions(applicationId: string, opts: Omit<ListSessionsOpts, 'limit' | 'offset'>): AgentSession[] {
         const stateSet = opts.states && opts.states.length > 0 ? new Set(opts.states) : null
-        const matches = [...this.sessions.values()].filter((s) => {
+        return [...this.sessions.values()].filter((s) => {
             if (s.application_id !== applicationId) {
                 return false
             }
@@ -142,8 +161,6 @@ export class MemorySessionQueue implements SessionQueue {
             }
             return true
         })
-        matches.sort((a, b) => b.created_at.localeCompare(a.created_at))
-        return matches.slice(offset, offset + limit)
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
