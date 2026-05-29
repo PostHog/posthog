@@ -309,9 +309,38 @@ class TestPostHogCallback:
         assert "$ai_cache_read_input_tokens" not in props
         assert "$ai_cache_creation_input_tokens" not in props
 
+    @pytest.mark.parametrize(
+        "cost_breakdown,expected_input_cost,expected_output_cost",
+        [
+            pytest.param(
+                {
+                    "input_cost": 0.003,
+                    "cache_read_cost": 0.001,
+                    "cache_creation_cost": 0.002,
+                    "output_cost": 0.006,
+                    "total_cost": 0.012,
+                },
+                0.006,
+                0.006,
+                id="anthropic_with_cache",
+            ),
+            pytest.param(
+                {"input_cost": 0.02, "output_cost": 0.03},
+                0.02,
+                0.03,
+                id="no_cache_components",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_on_success_emits_cost_breakdown_components_separately(
-        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
+    async def test_on_success_emits_cost_breakdown(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        mock_posthog_client: tuple,
+        cost_breakdown: dict,
+        expected_input_cost: float,
+        expected_output_cost: float,
     ) -> None:
         _, mock_client = mock_posthog_client
         kwargs = {
@@ -320,14 +349,8 @@ class TestPostHogCallback:
                 "custom_llm_provider": "anthropic",
                 "prompt_tokens": 100,
                 "completion_tokens": 20,
-                "response_cost": 0.012,
-                "cost_breakdown": {
-                    "input_cost": 0.003,
-                    "cache_read_cost": 0.001,
-                    "cache_creation_cost": 0.002,
-                    "output_cost": 0.006,
-                    "total_cost": 0.012,
-                },
+                "response_cost": cost_breakdown.get("total_cost"),
+                "cost_breakdown": cost_breakdown,
             },
             "litellm_params": {},
         }
@@ -339,48 +362,13 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         props = mock_client.capture.call_args.kwargs["properties"]
-        # Each LiteLLM cost_breakdown component maps 1:1 to its PostHog
-        # property — disjoint, so the sum reconciles to $ai_total_cost_usd.
-        assert props["$ai_input_cost_usd"] == 0.003
-        assert props["$ai_output_cost_usd"] == 0.006
-        assert props["$ai_cache_read_cost_usd"] == 0.001
-        assert props["$ai_cache_creation_cost_usd"] == 0.002
-        assert props["$ai_total_cost_usd"] == 0.012
+        # Cache components fold into $ai_input_cost_usd because the analytics
+        # schema only materializes input/output/total cost columns.
+        assert props["$ai_input_cost_usd"] == pytest.approx(expected_input_cost)
+        assert props["$ai_output_cost_usd"] == expected_output_cost
 
     @pytest.mark.asyncio
-    async def test_on_success_omits_cache_costs_when_breakdown_lacks_them(
-        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
-    ) -> None:
-        _, mock_client = mock_posthog_client
-        kwargs = {
-            "standard_logging_object": {
-                "model": "gpt-4o",
-                "custom_llm_provider": "openai",
-                "prompt_tokens": 100,
-                "completion_tokens": 20,
-                "response_cost": 0.05,
-                "cost_breakdown": {
-                    "input_cost": 0.02,
-                    "output_cost": 0.03,
-                },
-            },
-            "litellm_params": {},
-        }
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
-        ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-        props = mock_client.capture.call_args.kwargs["properties"]
-        assert props["$ai_input_cost_usd"] == 0.02
-        assert props["$ai_output_cost_usd"] == 0.03
-        assert "$ai_cache_read_cost_usd" not in props
-        assert "$ai_cache_creation_cost_usd" not in props
-
-    @pytest.mark.asyncio
-    async def test_on_success_omits_cost_breakdown_when_litellm_omits_it(
+    async def test_on_success_omits_per_side_cost_when_breakdown_absent(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
@@ -399,8 +387,6 @@ class TestPostHogCallback:
         props = mock_client.capture.call_args.kwargs["properties"]
         assert "$ai_input_cost_usd" not in props
         assert "$ai_output_cost_usd" not in props
-        assert "$ai_cache_read_cost_usd" not in props
-        assert "$ai_cache_creation_cost_usd" not in props
 
     @pytest.mark.asyncio
     async def test_on_success_emits_reasoning_tokens_when_present(

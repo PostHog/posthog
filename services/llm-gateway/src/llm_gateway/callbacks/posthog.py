@@ -222,16 +222,19 @@ class PostHogCallback(InstrumentedCallback):
 
         # Forward LiteLLM's cost_breakdown so ingestion passes the per-side
         # numbers through instead of rederiving them and mispricing cache.
+        # Only $ai_input_cost_usd / $ai_output_cost_usd / $ai_total_cost_usd
+        # are materialized in posthog/models/ai_events/sql.py, so cache costs
+        # are folded into the input total to keep input + output ≈ total.
         cost_breakdown = standard_logging_object.get("cost_breakdown") or {}
-        for breakdown_key, property_key in (
-            ("input_cost", "$ai_input_cost_usd"),
-            ("output_cost", "$ai_output_cost_usd"),
-            ("cache_read_cost", "$ai_cache_read_cost_usd"),
-            ("cache_creation_cost", "$ai_cache_creation_cost_usd"),
-        ):
-            cost_value = cost_breakdown.get(breakdown_key)
-            if cost_value is not None:
-                properties[property_key] = cost_value
+        input_cost_components = [
+            cost_breakdown.get(k) for k in ("input_cost", "cache_read_cost", "cache_creation_cost")
+        ]
+        input_cost_values = [v for v in input_cost_components if v is not None]
+        if input_cost_values:
+            properties["$ai_input_cost_usd"] = sum(input_cost_values)
+        output_cost = cost_breakdown.get("output_cost")
+        if output_cost is not None:
+            properties["$ai_output_cost_usd"] = output_cost
 
         response = standard_logging_object.get("response")
         if response:
