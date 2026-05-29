@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { drawPieSlices, drawPieSliceShape } from '../../core/canvas-renderer'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { useRadialLayout } from '../../core/radial-context'
@@ -142,7 +143,10 @@ function PieChartInner<Meta = unknown>({
         if (!layout) {
             return
         }
-        drawSlices(args.ctx, layout, args.theme, { skipIndex: -1, offset: 0 })
+        drawPieSlices(args.ctx, layout, layout.slices, {
+            offset: 0,
+            backgroundColor: args.theme.backgroundColor,
+        })
     }, [])
 
     const drawHover = useCallback(
@@ -173,15 +177,15 @@ function PieChartInner<Meta = unknown>({
             //   2. Paint the slice in its real color at the offset position.
             // Without step 1 the offset copy only partially overlaps the original, leaving a
             // crescent of the un-offset slice visible — a smear, not a clean pop-out.
-            drawSliceShape(args.ctx, slice, layout, {
+            drawPieSliceShape(args.ctx, layout, slice, {
                 offset: 0,
                 fillStyle: args.theme.backgroundColor,
                 withStroke: undefined,
             })
-            drawSliceShape(args.ctx, slice, layout, {
+            drawPieSliceShape(args.ctx, layout, slice, {
                 offset: effectiveHoverOffset,
                 fillStyle: slice.color,
-                withStroke: layout.slices.length > 1 ? args.theme.backgroundColor : undefined,
+                withStroke: args.theme.backgroundColor,
             })
             return true
         },
@@ -239,91 +243,4 @@ function PieCenterLabel({ children }: { children: React.ReactNode }): React.Reac
 function getLayoutFromArgs<Meta>(args: ChartDrawArgs): PieLayout<Meta> | null {
     const priv = args.scales._private as { __radialChart?: { layout: PieLayout<Meta> } } | undefined
     return priv?.__radialChart?.layout ?? null
-}
-
-interface DrawSlicesOptions {
-    skipIndex: number
-    offset: number
-}
-
-function drawSlices<Meta>(
-    ctx: CanvasRenderingContext2D,
-    layout: PieLayout<Meta>,
-    theme: ChartTheme,
-    { skipIndex, offset }: DrawSlicesOptions
-): void {
-    for (let i = 0; i < layout.slices.length; i++) {
-        if (i === skipIndex) {
-            continue
-        }
-        drawSlice(ctx, layout.slices[i], layout, theme, { offset })
-    }
-}
-
-interface DrawSliceOptions {
-    offset: number
-}
-
-function drawSlice<Meta>(
-    ctx: CanvasRenderingContext2D,
-    slice: PieLayout<Meta>['slices'][number],
-    layout: PieLayout<Meta>,
-    theme: ChartTheme,
-    { offset }: DrawSliceOptions
-): void {
-    // Inter-slice stroke in the theme background — visually separates adjacent slices
-    // without a heavy outline. Skipped when there's only one slice (no neighbour to separate from).
-    const withStroke = layout.slices.length > 1 ? theme.backgroundColor : undefined
-    drawSliceShape(ctx, slice, layout, { offset, fillStyle: slice.color, withStroke })
-}
-
-interface DrawSliceShapeOptions {
-    offset: number
-    fillStyle: string
-    /** Inter-slice stroke color (typically `theme.backgroundColor`). Omit to skip stroking. */
-    withStroke: string | undefined
-}
-
-/** Lower-level slice painter — takes explicit fill / stroke so the hover layer can both
- *  mask (background fill, no stroke) and re-paint (slice color, with stroke) using the same
- *  arc geometry. */
-function drawSliceShape<Meta>(
-    ctx: CanvasRenderingContext2D,
-    slice: PieLayout<Meta>['slices'][number],
-    layout: PieLayout<Meta>,
-    { offset, fillStyle, withStroke }: DrawSliceShapeOptions
-): void {
-    const halfPad = layout.padAngle / 2
-    const start = slice.startAngle + halfPad
-    const end = slice.endAngle - halfPad
-    if (start >= end) {
-        return
-    }
-    const offsetX = offset === 0 ? 0 : Math.sin(slice.centroidAngle) * offset
-    const offsetY = offset === 0 ? 0 : -Math.cos(slice.centroidAngle) * offset
-    const cx = layout.cx + offsetX
-    const cy = layout.cy + offsetY
-
-    // Canvas arc convention: 0 = 3 o'clock, increasing clockwise. d3.pie uses
-    // 0 = 12 o'clock. Subtract π/2 to align.
-    const cStart = start - Math.PI / 2
-    const cEnd = end - Math.PI / 2
-
-    ctx.fillStyle = fillStyle
-    ctx.beginPath()
-    if (layout.innerRadius > 0) {
-        ctx.arc(cx, cy, layout.outerRadius, cStart, cEnd, false)
-        ctx.arc(cx, cy, layout.innerRadius, cEnd, cStart, true)
-    } else {
-        ctx.moveTo(cx, cy)
-        ctx.arc(cx, cy, layout.outerRadius, cStart, cEnd, false)
-    }
-    ctx.closePath()
-    ctx.fill()
-
-    if (withStroke) {
-        ctx.lineWidth = 1
-        ctx.strokeStyle = withStroke
-        ctx.stroke()
-    }
 }
