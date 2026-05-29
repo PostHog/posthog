@@ -409,6 +409,17 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # The manifest declares the upstream's row ordering; default "asc" to
         # match PostHog's other REST sources. An incorrect "asc" assumption on a
         # non-ascending API can skip rows on a resumed incremental sync.
+        #
+        # "desc" only defers committing the high-watermark until the run finishes
+        # (so a partial run can't advance the cursor past rows it never reached on
+        # the next scheduled sync). It does NOT make a single run resumable: the
+        # generic REST engine has no earliest-value sweep, so an interrupted "desc"
+        # run restarts from the newest page rather than continuing older rows. This
+        # is deliberately non-resumable — duplicate work is collapsed by
+        # primary_keys, and the only failure mode is an endpoint too large to
+        # finish within one worker window. A proper fix would slice the cursor into
+        # windows with per-window state (cf. Airbyte's DatetimeBasedCursor), which
+        # the generic engine doesn't support today.
         sort_mode: SortMode = "desc" if chosen.get("sort_mode") == "desc" else "asc"
 
         return SourceResponse(
