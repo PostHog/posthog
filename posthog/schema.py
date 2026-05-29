@@ -22684,7 +22684,11 @@ class HogQLQuery(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description=("Optional direct external data source id for running against a specific source"),
+        description=(
+            "Optional id of a direct external data source (access_method='direct') to"
+            " run against instead of ClickHouse. Warehouse import sources are not valid"
+            " here."
+        ),
     )
     explain: bool | None = None
     filters: HogQLFilters | None = None
@@ -26389,7 +26393,11 @@ class HogQLAutocomplete(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description=("Optional direct external data source id for running against a specific source"),
+        description=(
+            "Optional id of a direct external data source (access_method='direct') to"
+            " run against instead of ClickHouse. Warehouse import sources are not valid"
+            " here."
+        ),
     )
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
@@ -26471,7 +26479,11 @@ class HogQLMetadata(BaseModel):
     )
     connectionId: str | None = Field(
         default=None,
-        description=("Optional direct external data source id for running against a specific source"),
+        description=(
+            "Optional id of a direct external data source (access_method='direct') to"
+            " run against instead of ClickHouse. Warehouse import sources are not valid"
+            " here."
+        ),
     )
     debug: bool | None = Field(
         default=None,

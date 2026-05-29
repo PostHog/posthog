@@ -23,7 +23,7 @@ from products.slack_app.backend.slack_thread import (
     ack_emoji_for,
     stale_ack_emojis_for,
 )
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionUnavailableError,
@@ -168,6 +168,18 @@ class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
+    # Event that dispatched the workflow
+    slack_event_id: str | None = None
+
+
+def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
+    """Construct the dispatch workflow id from webhook inputs."""
+    event = inputs.event
+    if inputs.slack_event_id:
+        suffix = inputs.slack_event_id
+    else:
+        suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
+    return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 
 @dataclass
@@ -202,11 +214,16 @@ class SlackRepoSelectionOutcome:
     `found` → use `repository`. `no_match` → no plausible candidate, create a
     no-repo task. `failed` → agent crashed/timed out/hallucinated, fall back to
     the interactive repo picker so the user can resolve manually.
+
+    `repo_research_task_id`/`repo_research_run_id` point at the internal sandbox
+    run the repo discovery agent spun up to make this call.
     """
 
     status: Literal["found", "no_match", "failed"]
     repository: str | None
     reason: str
+    repo_research_task_id: str | None = None
+    repo_research_run_id: str | None = None
 
 
 @dataclass
@@ -356,6 +373,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # once all pre-rollout workflows have drained — they live at most
             # ~25 minutes (activity timeouts + picker wait).
             repository: str | None
+            # Set only on the ambiguous path that runs the discovery sandbox
+            repo_research_task_id: str | None = None
+            repo_research_run_id: str | None = None
             if workflow.patched("posthog-code-repo-discovery-agent-2026-05"):
                 cascade = await _execute_posthog_code_activity(
                     cascade_posthog_code_repository_activity,
@@ -387,6 +407,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             thread_messages,
                             user_id,
                         )
+                        repo_research_task_id = outcome.repo_research_task_id
+                        repo_research_run_id = outcome.repo_research_run_id
 
                         if outcome.status == "found":
                             repository = outcome.repository
@@ -514,6 +536,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 event,
                 thread_messages,
                 repository,
+                repo_research_task_id,
+                repo_research_run_id,
             )
         except Exception as exc:
             workflow.logger.exception(
@@ -760,6 +784,13 @@ async def discover_posthog_code_repository_via_agent_activity(
     # selector. The selector is domain-agnostic; the caller serializes.
     context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
 
+    # Captured even when select_repository later raises
+    research_ids: dict[str, str] = {}
+
+    def _capture_research_session(task_id: str, run_id: str) -> None:
+        research_ids["task_id"] = task_id
+        research_ids["run_id"] = run_id
+
     try:
         async with Heartbeater():
             result = await select_repository(
@@ -767,6 +798,7 @@ async def discover_posthog_code_repository_via_agent_activity(
                 user_id=user_id,
                 context=context_block,
                 origin_product=Task.OriginProduct.SLACK,
+                on_research_session=_capture_research_session,
             )
     except RepoSelectionRejectedError as exc:
         logger.warning(
@@ -780,6 +812,8 @@ async def discover_posthog_code_repository_via_agent_activity(
             repository=None,
             # Don't echo `exc.returned_repository` — it's raw LLM output and reaches Slack mrkdwn.
             reason="Agent returned an unrecognized repository.",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
         )
     except RepoSelectionUnavailableError as exc:
         logger.warning(
@@ -791,6 +825,8 @@ async def discover_posthog_code_repository_via_agent_activity(
             status="failed",
             repository=None,
             reason=f"Repo selection unavailable: {exc.reason}",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
         )
     except Exception as exc:
         logger.exception(
@@ -802,6 +838,8 @@ async def discover_posthog_code_repository_via_agent_activity(
             status="failed",
             repository=None,
             reason=f"Agent failed: {type(exc).__name__}",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
         )
 
     if result.repository is None:
@@ -809,11 +847,15 @@ async def discover_posthog_code_repository_via_agent_activity(
             status="no_match",
             repository=None,
             reason=result.reason,
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
         )
     return SlackRepoSelectionOutcome(
         status="found",
         repository=result.repository,
         reason=result.reason,
+        repo_research_task_id=research_ids.get("task_id"),
+        repo_research_run_id=research_ids.get("run_id"),
     )
 
 
@@ -998,6 +1040,8 @@ def create_posthog_code_task_for_repo_activity(
     event: dict[str, Any],
     thread_messages: list[dict[str, str]],
     repository: str | None,
+    repo_research_task_id: str | None = None,
+    repo_research_run_id: str | None = None,
 ) -> None:
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -1109,6 +1153,20 @@ def create_posthog_code_task_for_repo_activity(
                     "mentioning_slack_user_id": slack_user_id,
                 },
             )
+            # Track the workflow to link Temporal jobs to Slack threads
+            state_updates: dict[str, str] = {"slack_mention_workflow_id": derive_mention_workflow_id(inputs)}
+            if repo_research_task_id and repo_research_run_id:
+                state_updates["repo_research_task_id"] = repo_research_task_id
+                state_updates["repo_research_run_id"] = repo_research_run_id
+            try:
+                TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+            except Exception:
+                logger.exception(
+                    "posthog_code_persist_mention_workflow_id_failed",
+                    task_run_id=str(task_run.id),
+                    channel=channel,
+                    thread_ts=thread_ts,
+                )
 
     # 3. Now start the workflow
     if task and task_run:
@@ -1378,6 +1436,7 @@ def _resume_task_with_new_run(
     extra_state["pending_user_message"] = initial_prompt_override
     if user_message_ts:
         extra_state["pending_user_message_ts"] = user_message_ts
+    extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
         new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)

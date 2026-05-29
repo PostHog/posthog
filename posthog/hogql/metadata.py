@@ -11,7 +11,7 @@ from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
@@ -48,7 +48,7 @@ def get_hogql_metadata(
     source = get_direct_connection_source(team, query.connectionId)
     if query.connectionId and source is None:
         response.isValid = False
-        response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
+        response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
         return response
 
     database = None
