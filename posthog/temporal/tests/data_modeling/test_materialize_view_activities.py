@@ -1,6 +1,6 @@
 import asyncio
-from collections.abc import Collection
-from typing import cast
+from collections.abc import Collection, Iterable
+from typing import Any, cast
 
 import pytest
 import unittest.mock
@@ -667,7 +667,8 @@ class TestMaterializeViewActivity:
         # synthesizes one carrying the schema and returns it as file_uris. without
         # this, prepare_queryable_table_activity would later list a never-created
         # S3 folder and raise FileNotFoundError.
-        empty_schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
+        fields: Iterable[pa.Field[Any]] = [pa.field("id", pa.int64()), pa.field("name", pa.string())]
+        empty_schema = pa.schema(fields)
 
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
