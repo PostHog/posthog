@@ -82,12 +82,26 @@ def _lint_tach_toml() -> list[str]:
     return issues
 
 
+def _is_backend_product_dir(d: Path) -> bool:
+    """Identify products with backend code that should be linted.
+
+    A `backend/` directory is the load-bearing signal here. Previously the
+    lint used `__init__.py` as the discovery signal, which silently dropped
+    any product that had backend code but was missing the file we want the
+    lint itself to enforce (the bug that let `actions/` slip through for
+    weeks after the model move). Discovery should NOT depend on the file
+    being checked.
+
+    Frontend-only products (no `backend/`) are skipped — they don't carry
+    Python code that needs `__init__.py`, `apps.py`, `backend:test`, etc.
+    """
+    if not d.is_dir() or d.name.startswith((".", "_")):
+        return False
+    return (d / "backend").is_dir()
+
+
 def lint_all_products() -> None:
-    product_dirs = sorted(
-        d
-        for d in PRODUCTS_DIR.iterdir()
-        if d.is_dir() and not d.name.startswith((".", "_")) and (d / "__init__.py").exists()
-    )
+    product_dirs = sorted(d for d in PRODUCTS_DIR.iterdir() if _is_backend_product_dir(d))
 
     strict = [d.name for d in product_dirs if is_isolated_product(d / "backend")]
     lenient = [d.name for d in product_dirs if not is_isolated_product(d / "backend")]
