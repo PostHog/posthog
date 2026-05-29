@@ -838,5 +838,40 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 })
             )
         })
+
+        it('does NOT call fetchDistinctIdsForPersons for event-triggered invocations', async () => {
+            // Regression guard for the optimization: when event.distinct_id is set going in,
+            // the persons-manager uses the by-distinct_id lookup which returns the distinct_id
+            // as part of the lookup key — no separate fetchDistinctIdsForPersons RPC needed.
+            // Without this guard, the by-person_id path could accidentally be used for event
+            // triggers and pay an unnecessary postgres round-trip per worker tick.
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-event-no-extra-rpc',
+                name: 'Workflows E2E Event No Extra RPC',
+                code: `fetch(inputs.url, { 'method': 'POST' });`,
+                inputs_schema: [{ key: 'url', type: 'string', required: true }],
+            })
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: fetchAction('https://example.com/event-trigger-no-extra-rpc'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            const distinctIdSpy = jest.spyOn(hub.personRepository, 'fetchDistinctIdsForPersons')
+
+            await triggerWorkflow(createGlobals({ distinct_id: personDistinctId }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalled()
+            }, 5000)
+
+            expect(distinctIdSpy).not.toHaveBeenCalled()
+        })
     })
 })
