@@ -2,16 +2,22 @@ import { Pool } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
+import { isTransientPgError } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
 
 // Counts Postgres write failures from createJob / bulkCreateJobs *after* input
 // validation has passed. Zod parse errors and the overwrite-conflict logical
-// error do not increment this counter, so any non-zero rate indicates a real
-// problem on our side (schema drift, DB unhealthy, constraint violation).
+// error do not increment this counter. The `kind` label splits failures into:
+//   - "logical": schema drift, constraint violation, anything that won't fix
+//     itself. Any non-zero rate is page-worthy.
+//   - "transient": PG / pgbouncer connection issues (matched against
+//     POSTGRES_UNAVAILABLE_ERROR_MESSAGES). Brief blips are noise; sustained
+//     rate indicates the database is unhealthy.
 const dbWriteFailureCounter = new Counter({
     name: 'cdp_cyclotron_v2_db_write_failure',
-    help: 'Failed Postgres writes to cyclotron_jobs (input already validated).',
+    help: 'Failed Postgres writes to cyclotron_jobs (input already validated), split by kind=logical|transient.',
+    labelNames: ['kind'] as const,
 })
 
 /**
@@ -112,7 +118,7 @@ export class CyclotronV2Manager {
                 ]
             )
         } catch (err) {
-            dbWriteFailureCounter.inc()
+            dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
             throw err
         }
         if (job.overwriteExisting && result.rows.length === 0) {
@@ -230,7 +236,7 @@ export class CyclotronV2Manager {
                 ]
             )
         } catch (err) {
-            dbWriteFailureCounter.inc()
+            dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
             throw err
         }
 
