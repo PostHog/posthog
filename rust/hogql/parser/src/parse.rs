@@ -44,9 +44,10 @@ pub fn parse_expr(src: &str, is_internal: bool) -> Result<Value, ParseError> {
 pub fn parse_expr_with_emit<E: Emitter + Clone>(
     emit: E,
     src: &str,
-    _is_internal: bool,
+    is_internal: bool,
 ) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
+    p.suppress_pos = is_internal;
     // Bare-list lambda `IDENT (, IDENT)* -> body` is only valid at the
     // outermost expression level; inside an argument list each item parses
     // independently and the commas are separators. So we try it here
@@ -153,15 +154,24 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
     // `body_offset` and `body_end`. For the standalone entry point the
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
-    parse_template_body(&emit, src, body_offset, body_end)
+    let result = parse_template_body(&emit, src, body_offset, body_end)?;
+    // cpp positions the result by chunk count: a multi-chunk `concat(...)`
+    // gets the outer rule-ctx span `(0, src.len())`, while a single-chunk
+    // shortcut keeps the inner element's own span (the literal text or the
+    // substitution expr). `with_pos` is idempotent — it sets `(0, src.len())`
+    // on the position-less `concat` and is a no-op on the already-positioned
+    // single-chunk cases.
+    let start_pos = template::pos_in_source(&emit, src, 0);
+    let end_pos = template::pos_in_source(&emit, src, src.len());
+    Ok(emit.with_pos(result, start_pos, end_pos))
 }
 
 // ============================================================================
 // Parser core
 // ============================================================================
 
-/// Recursion-depth cap for `parse_expr_bp`. Mirrors ClickHouse's `max_parser_depth` default (1000) so deeply-nested input (e.g. `((((…))))`) surfaces a clean `ParseError::syntax` instead of stack-OOMing the worker before any parse error can fire.
-pub(crate) const MAX_EXPR_RECURSION_DEPTH: u32 = 1000;
+/// Shared recursion-depth cap across the parser's three recursive-descent dimensions — expression nesting (`parse_expr_bp`), subquery / set nesting (`parse_select_set_stmt`), and Hog statement / block nesting (`parse_statement`). Mirrors ClickHouse's `max_parser_depth` default (1000) so deeply-nested input (`((((…))))`, `(select (select …))`, `{ { … } }`) surfaces a clean `ParseError` instead of stack-OOMing the worker before any parse error can fire. One shared counter (not one per dimension) bounds total live descent depth regardless of how the nesting is composed, and stays below the empirical host-stack overflow points (~2000 nested subqueries, ~8000 nested blocks).
+pub(crate) const MAX_RECURSION_DEPTH: u32 = 1000;
 
 pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     pub(crate) src: &'a str,
@@ -216,6 +226,20 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// (SELECT 1 ARRAY JOIN 2)) OVER w` is accepted by cpp for
     /// exactly this reason. Saved/restored around the FILTER parse.
     pub(crate) suppress_array_join_checks: bool,
+    /// When set, the parser is inside a clause cpp grammar-parses but its
+    /// visitor never visits, so VISITOR-level rejections are downgraded to
+    /// "tolerate-and-throw-away": a `DATE`/`TIMESTAMP` string literal
+    /// (`visitColumnExprDate`) and a unit-less `INTERVAL <string>`
+    /// (`visitColumnExprIntervalString`) parse into a throwaway node instead
+    /// of fatally rejecting. Set around the always-discarded `selectSetStmt`
+    /// `orderByClause?`, a `{placeholder}` body's dropped LIMIT / OFFSET, and
+    /// the discarded select-level `sampleClause`. cpp visits none of those
+    /// subtrees, so the flag intentionally leaks into nested parses there
+    /// (`({x} order by date 'd')`, `{x} limit interval 'p'` accept). A KEPT
+    /// clause (a real SelectQuery's order by / limit, a table-level sample)
+    /// leaves the flag unset, so `select 1 order by date 'd'` still rejects on
+    /// both. Saved/restored at each set site.
+    pub(crate) suppress_unvisited_clause_checks: bool,
     /// When set, the Pratt postfix loop stops before folding a
     /// `(…)`-call onto its LHS if a `:=` follows the matching `)`.
     /// Set by the Hog-program statement parser while parsing a
@@ -262,6 +286,15 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// directly and re-seeks the lexer, so peek1's transient invalid
     /// state is recoverable.
     pub(crate) hogqlx_text_lookahead_depth: u32,
+    /// One-shot flag set just before `parse_interval_expr` parses its value
+    /// expression and consumed at the top of `parse_primary`. When the value's
+    /// leading primary is itself an `INTERVAL`, cpp's ALL(*) reserves the
+    /// trailing unit keyword for the OUTER interval, so the nested interval is
+    /// parsed string-only (`INTERVAL '5 day'`) or as a Field / call — never the
+    /// unit-consuming `INTERVAL columnExpr interval` form. The take-on-read
+    /// semantics auto-reset across parens / call-args, so a parenthesised nested
+    /// interval (`interval (interval '5 day' month) second`) keeps its own unit.
+    pub(crate) interval_value_pending: bool,
     /// Sorted byte offsets of each line start in `src` (line 1 starts at 0,
     /// line N starts at `line_starts[N-1]`). Built once at construction;
     /// `pos(offset)` binary-searches for line / column. Used to emit cpp's
@@ -279,8 +312,20 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// once at construction so the hot wrap_pos path stays O(log n) via the
     /// line-starts binary search.
     pub(crate) is_ascii_src: bool,
-    /// Live `parse_expr_bp` recursion depth; bumped on entry, decremented on exit. Enforces `MAX_EXPR_RECURSION_DEPTH`.
-    pub(crate) expr_recursion_depth: u32,
+    /// Live recursive-descent depth shared across expression / subquery / statement nesting; bumped on entry to each recursive entry point, decremented on exit. Enforces `MAX_RECURSION_DEPTH`.
+    pub(crate) recursion_depth: u32,
+    /// When set, every node is emitted position-less (`pos_obj` returns
+    /// `null`). Mirrors cpp's `is_internal` flag, which gates every
+    /// `addPositionInfo(json, ctx)` call: a synthetic fragment parsed with
+    /// `start=None` (e.g. an injected database `ExpressionField`) carries no
+    /// meaningful source spans, so cpp emits none and we must match.
+    pub(crate) suppress_pos: bool,
+    /// UTF-8 byte length of a leading BOM (3) or 0 if none. cpp's ANTLR
+    /// lexer treats a leading `U+FEFF` as zero-width: every emitted char
+    /// offset is reckoned from the char AFTER the BOM, so `let` at byte 3
+    /// gets char offset 0 (not 1). `pos_obj` subtracts this width past the
+    /// BOM so rust matches.
+    pub(crate) leading_bom_bytes: usize,
     /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,
 }
@@ -309,15 +354,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             between_body_depth: 0,
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
+            suppress_unvisited_clause_checks: false,
             stop_postfix_call_before_colon_equals: false,
             stmt_rhs_recover_on_pratt_rhs_failure: false,
             limit_body_depth: 0,
             pivot_in_stop: None,
             hogqlx_text_lookahead_depth: 0,
+            interval_value_pending: false,
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
-            expr_recursion_depth: 0,
+            recursion_depth: 0,
+            suppress_pos: false,
+            leading_bom_bytes: if src.starts_with('\u{FEFF}') { 3 } else { 0 },
             emit,
         })
     }
@@ -437,6 +486,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// character-based, so byte offsets need converting through `src`
     /// slicing for any source containing non-ASCII bytes.
     pub(crate) fn pos_obj(&self, byte_offset: usize) -> E::Value {
+        // `is_internal` parses (cpp's term) emit no positions at all — every
+        // node stays at its dataclass `start`/`end` default. Returning `null`
+        // here is the single chokepoint: `with_pos` / `replace_pos` then leave
+        // the node bare (json `start:null` → None; py setattr of None is a
+        // no-op on the already-None default), matching cpp's `!is_internal`
+        // gate on `addPositionInfo`.
+        if self.suppress_pos {
+            return self.emit.null();
+        }
         let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
         // ASCII fast path: byte == char in every dimension. Avoid the
         // `byte_to_char_index` binary search and the line-slice chars
@@ -444,15 +502,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if self.is_ascii_src {
             return self.emit.position(line, byte_col, byte_offset);
         }
-        let char_offset = self.byte_to_char_index(byte_offset);
+        let mut char_offset = self.byte_to_char_index(byte_offset);
         // Column needs to be characters-in-line, not bytes-in-line. For
         // lines with multi-byte chars we count chars between the line
         // start and the offset.
-        let column = if byte_col == 0 {
+        let mut column = if byte_col == 0 {
             0
         } else {
             self.src[line_start_byte..byte_offset].chars().count() as u32
         };
+        // cpp's ANTLR lexer treats a leading UTF-8 BOM (`U+FEFF`, 3 bytes / 1 char) as zero-width: every char offset
+        // it reports is reckoned from the char AFTER the BOM, and the BOM contributes no column on line 1. Mirror
+        // that here past the BOM byte boundary — without this, every offset is `+1` and a BOM-prefixed source
+        // diverges from cpp at every node.
+        if self.leading_bom_bytes > 0 && byte_offset >= self.leading_bom_bytes {
+            char_offset = char_offset.saturating_sub(1);
+            if line == 1 {
+                column = column.saturating_sub(1);
+            }
+        }
         self.emit.position(line, column, char_offset)
     }
 
@@ -500,15 +568,23 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.emit.with_pos(value, s, e)
     }
 
-    /// Like [`Self::wrap_pos_to`] but overrides any existing `start` /
-    /// `end` on the node. Use when the inner expression's wrap missed
-    /// tokens that the outer grammar rule includes — e.g. cpp's
-    /// `ColumnExprColumnsReplace` ctx covers the outer parens but the
-    /// inner ColumnsExpr was wrapped at the `*` position only.
-    pub(crate) fn replace_pos_to(&self, value: E::Value, start: usize, end: usize) -> E::Value {
-        let s = self.pos_obj(start);
-        let e = self.pos_obj(end);
-        self.emit.replace_pos(value, s, e)
+    /// Run `f` one level deeper in the shared recursion-depth counter, rejecting cleanly if it would exceed [`MAX_RECURSION_DEPTH`]. The counter is decremented on every exit path (the over-depth bail and any `?` inside `f`), so it tracks live descent depth. Wraps the recursive entry points whose mutual recursion is otherwise unbounded — `parse_select_set_stmt` (subquery / set nesting) and `parse_statement` (Hog block / statement nesting); `parse_expr_bp` does the equivalent inline.
+    pub(crate) fn with_recursion_guard<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > MAX_RECURSION_DEPTH {
+            self.recursion_depth -= 1;
+            return Err(ParseError::syntax(
+                "input too deeply nested",
+                self.peek0.start,
+                self.peek0.end,
+            ));
+        }
+        let result = f(self);
+        self.recursion_depth -= 1;
+        result
     }
 
     /// Snapshot the parser cursor + per-call context so a failed
@@ -1006,6 +1082,10 @@ pub(crate) fn kw_valid_as_identifier(kw: Kw) -> bool {
             | Kw::Try
             | Kw::Catch
             | Kw::Finally
+            // MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED (…)`; the grammar's `keyword` rule omits it, so it is never a valid identifier.
+            | Kw::Materialized
+            // WITHIN is a lexer keyword used only in the `within group (...)` clause; the grammar's `keyword` rule omits it, so it is never a valid identifier.
+            | Kw::Within
     )
 }
 
@@ -1038,6 +1118,10 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
         // expression position).
         | Kw::Fn | Kw::Fun | Kw::Let | Kw::While
         | Kw::Throw | Kw::Try | Kw::Catch | Kw::Finally
+        // MATERIALIZED — keyword only in `WITH … AS MATERIALIZED (…)`, never a `keyword`-rule identifier.
+        | Kw::Materialized
+        // WITHIN — keyword only in the `within group (...)` clause, never a `keyword`-rule identifier.
+        | Kw::Within
     )
 }
 

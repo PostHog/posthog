@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -16,13 +17,14 @@ from rest_framework import status
 from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
+from posthog.models.exported_asset import get_render_access_token
 from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 def mock_exporter_template(test_func):
@@ -325,7 +327,7 @@ class TestSharing(APIBaseTest):
             content=None,
             content_location="some object url",
         )
-        patched_asset_for_token.return_value = asset
+        patched_asset_for_token.return_value = (asset, None)
 
         patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
 
@@ -1000,6 +1002,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         assert data["settings"] == expected_settings
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @mock_exporter_template
     def test_shared_resource_blocked_when_organization_disallows_public_sharing(self, _patched_exporter_task: Mock):
         """Test that shared resources return 404 when organization.allow_publicly_shared_resources is False and feature is enabled"""
         self.organization.available_product_features = [
@@ -1022,6 +1025,73 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            # Org has public sharing DISABLED: only purpose-scoped tokens get through, and only at the matching surface.
+            ("sharing_off_public_on_page", False, "public", "page", 404),
+            ("sharing_off_public_on_file", False, "public", "file", 404),
+            ("sharing_off_render_on_page", False, "render", "page", 200),
+            ("sharing_off_render_on_file", False, "render", "file", 404),
+            ("sharing_off_subscription_on_page", False, "subscription", "page", 404),
+            ("sharing_off_subscription_on_file", False, "subscription", "file", 200),
+            # Org has public sharing ENABLED: public tokens work on both surfaces; purpose tokens still pinned to their surface.
+            ("sharing_on_public_on_page", True, "public", "page", 200),
+            ("sharing_on_public_on_file", True, "public", "file", 200),
+            ("sharing_on_render_on_page", True, "render", "page", 200),
+            ("sharing_on_render_on_file", True, "render", "file", 404),
+            ("sharing_on_subscription_on_page", True, "subscription", "page", 404),
+            ("sharing_on_subscription_on_file", True, "subscription", "file", 200),
+        ]
+    )
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("posthog.api.sharing.render_template")
+    def test_exported_asset_token_access_matrix(
+        self,
+        _name: str,
+        sharing_enabled: bool,
+        token_kind: str,
+        url_kind: str,
+        expected_status: int,
+        mock_render_template: Mock,
+        _patched_exporter_task: Mock,
+    ) -> None:
+        """
+        Truth table for ExportedAsset token access. Two axes interact:
+          - organization.allow_publicly_shared_resources (on/off)
+          - JWT purpose claim (public / render / subscription_delivery) vs URL surface (page / file).
+
+        Render and subscription_delivery tokens are internal-purpose and bypass the org-level public-sharing
+        block, but each is pinned to a single URL surface so an intercepted token can't be repurposed.
+        """
+        mock_render_template.return_value = HttpResponse("<html><body>POSTHOG_EXPORTED_DATA</body></html>")
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+        ]
+        self.organization.allow_publicly_shared_resources = sharing_enabled
+        self.organization.save()
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            content=b"image",
+        )
+
+        token = {
+            "public": lambda: asset.get_public_content_url().split("token=")[1],
+            "render": lambda: get_render_access_token(asset),
+            "subscription": lambda: asset.get_subscription_delivery_content_url().split("token=")[1],
+        }[token_kind]()
+
+        path = {
+            "page": "/exporter",
+            "file": f"/exporter/{asset.filename}",
+        }[url_kind]
+
+        response = self.client.get(f"{path}?token={token}")
+        assert response.status_code == expected_status
 
     @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -1241,7 +1311,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         )
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @patch("products.product_analytics.backend.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
     def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_fetch_cached, mock_calculate):
         """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
@@ -1263,7 +1333,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @patch("products.product_analytics.backend.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
     def test_cache_miss_falls_back_to_normal_calculation(self, mock_fetch_cached, mock_calculate):
         """Test that cache miss on expected key falls back to normal calculation."""
@@ -1288,7 +1358,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("posthog.api.insight.fetch_cached_response_by_key")
+    @patch("products.product_analytics.backend.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
     def test_invalid_cache_keys_param_continues_without_it(self, mock_fetch_cached, mock_calculate):
         """Test that invalid cache_keys parameter is ignored and normal flow continues."""

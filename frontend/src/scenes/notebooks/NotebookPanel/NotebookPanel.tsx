@@ -16,7 +16,7 @@ import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/Si
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import { NotebookCollabStatus, NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { NotebookMenu } from '../NotebookMenu'
 import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
@@ -49,7 +49,12 @@ export function NotebookPanel(): JSX.Element | null {
                                     buttonProps={{ className: 'max-w-[120px]', truncate: true }}
                                 />
 
-                                {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
+                                {selectedNotebook && (
+                                    <>
+                                        <NotebookCollabStatus shortId={selectedNotebook} />
+                                        <NotebookSyncInfo shortId={selectedNotebook} />
+                                    </>
+                                )}
                             </div>
 
                             <div className="flex-1" />

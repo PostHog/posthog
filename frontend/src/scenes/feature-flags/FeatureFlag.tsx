@@ -323,9 +323,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         label: (
             <div className="flex flex-row">
                 <div>Experiments</div>
-                <LemonTag className="ml-2 float-right uppercase" type="primary">
-                    New
-                </LemonTag>
             </div>
         ),
         key: FeatureFlagsTab.EXPERIMENTS,

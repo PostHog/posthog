@@ -124,6 +124,7 @@ class TestRunAPI:
                     "github_comment_id": 99999,
                     "baseline_commit_sha": "deadbeef",
                     "baseline_healed_from_merge_base": 1,
+                    "github_check_run_id": "72855643533",
                 },
             ),
             team_id=repo.team_id,

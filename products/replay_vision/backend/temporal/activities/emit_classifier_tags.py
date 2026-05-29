@@ -12,14 +12,14 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.kafka_client.client import ProduceResult
-from posthog.kafka_client.routing import get_producer
+from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models import Team
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EmitClassifierTagsInputs
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +29,7 @@ _KAFKA_DELIVERY_TIMEOUT_S = 10.0
 
 
 @activity.defn
+@track_activity()
 async def emit_classifier_tags_activity(inputs: EmitClassifierTagsInputs) -> None:
     """Merge classifier tags into the session row via Kafka. Raises on failure."""
     # `get_metadata` only reads `team.pk`, so a stub instance avoids the extra DB roundtrip.
@@ -68,21 +69,21 @@ async def emit_classifier_tags_activity(inputs: EmitClassifierTagsInputs) -> Non
         "ai_tags_fixed": list(inputs.classifier_output.tags),
         "ai_tags_freeform": list(inputs.classifier_output.tags_freeform),
     }
-    result = await sync_to_async(_produce, thread_sensitive=False)(payload)
-    # Block on the delivery callback so broker errors propagate; `.get()` raises KafkaException on failure.
-    await sync_to_async(result.get, thread_sensitive=False)(timeout=_KAFKA_DELIVERY_TIMEOUT_S)
+
+    def emit() -> None:
+        with producer_scope(
+            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, flush_timeout=_KAFKA_DELIVERY_TIMEOUT_S
+        ) as producer:
+            result = producer.produce(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, data=payload)
+        result.get(timeout=0)
+
+    await sync_to_async(emit, thread_sensitive=False)()
     logger.debug(
         "replay_vision.emit_classifier_tags.produced",
         session_id=inputs.session_id,
         observation_id=str(inputs.observation_id),
         tags_fixed=payload["ai_tags_fixed"],
         tags_freeform=payload["ai_tags_freeform"],
-    )
-
-
-def _produce(payload: dict) -> ProduceResult:
-    return get_producer(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS).produce(
-        topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, data=payload
     )
 
 

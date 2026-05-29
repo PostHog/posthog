@@ -1,16 +1,11 @@
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
 import structlog
-import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import EventPropertyFilter, PropertyOperator
-
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
@@ -23,31 +18,26 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+    LAZY_TTL_SECONDS,
+    SESSION_FORWARD_PAD_MINUTES,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
+    can_use_lazy_precompute as _can_use_lazy_precompute_shared,
+    ceil_utc_day,
+    check_common_eligible,
+    events_session_id_expr,
+    floor_utc_day,
+    test_account_filter_expr,
+    user_filter_expr,
+)
+
+_FAMILY = "web_overview"
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 logger = structlog.get_logger(__name__)
-
-# Bucketing the precompute hourly keeps reads correct for any whole-hour-offset
-# timezone — boundaries line up exactly when the team-local window is converted
-# to UTC before filtering on `time_window_start`. Half-hour-offset timezones
-# (IST, Newfoundland, Nepal, etc.) are explicitly gated out below.
-LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
-    "1d": 60 * 60,
-    "7d": 24 * 60 * 60,
-    "default": 7 * 24 * 60 * 60,
-}
-
-# Today the gate accepts: empty user filters, or a single EventPropertyFilter
-# on `$host` with operator `exact`. Test-account filters are always allowed
-# (their content is hashed into the cache key).
-SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
-
-# Upper bound on the precompute span. Above this, the framework would create
-# enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 90
 
 
 WEB_OVERVIEW_LAZY_FAILED = Counter(
@@ -57,248 +47,27 @@ WEB_OVERVIEW_LAZY_FAILED = Counter(
 )
 
 
-class LazyPrecomputeIneligible(Exception):
-    """Base class for reasons the lazy precompute path is not eligible.
-
-    Raised by `_check_lazy_precompute_eligible` and caught by
-    `can_use_lazy_precompute`, which logs the exception class name. Subclass
-    names are the canonical identifiers used in logs/metrics — keep them
-    stable across releases.
-    """
-
-
-class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
-    pass
-
-
-class PerQueryOptInNotSet(LazyPrecomputeIneligible):
-    pass
-
-
-class NonIntegerTimezone(LazyPrecomputeIneligible):
-    pass
-
-
-class ConversionGoalUnsupported(LazyPrecomputeIneligible):
-    pass
-
-
-class SamplingEnabled(LazyPrecomputeIneligible):
-    pass
-
-
-class SessionsV2UuidMode(LazyPrecomputeIneligible):
-    pass
-
-
-class TooManyFilters(LazyPrecomputeIneligible):
-    pass
-
-
-class NonEventPropertyFilter(LazyPrecomputeIneligible):
-    pass
-
-
-class UnsupportedFilterKey(LazyPrecomputeIneligible):
-    def __init__(self, key: str):
-        self.key = key
-        super().__init__(f"key={key!r}")
-
-
-class UnsupportedFilterOperator(LazyPrecomputeIneligible):
-    def __init__(self, operator: object):
-        self.operator = operator
-        super().__init__(f"operator={operator!r}")
-
-
-class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
-    pass
-
-
-class MissingDateRange(LazyPrecomputeIneligible):
-    pass
-
-
-class DateRangeOverMax(LazyPrecomputeIneligible):
-    def __init__(self, days: int):
-        self.days = days
-        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
-
-
 def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
-    """Return True iff the lazy precompute path is eligible. Logs rejection
-    reason at INFO level so we can attribute every fall-through after deploy."""
-    try:
-        _check_lazy_precompute_eligible(runner)
-    except LazyPrecomputeIneligible as exc:
-        logger.info(
-            "web_overview_lazy_precompute_rejected",
-            team_id=runner.team.pk,
-            reason=type(exc).__name__,
-            detail=str(exc) or None,
-        )
-        return False
-    logger.info(
-        "web_overview_lazy_precompute_eligible",
-        team_id=runner.team.pk,
-    )
-    return True
+    """Return True iff the lazy precompute path is eligible for this web
+    overview query. Web overview has no checks beyond the shared gate."""
+    return _can_use_lazy_precompute_shared(runner, log_prefix="web_overview")
 
 
-def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
-    """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
-    the lazy path. Returns None on success."""
-    query = runner.query
-
-    # Rollout gate: shared PostHog feature flag AND per-query opt-in.
-    #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
-    #     flag the frontend already uses to show/hide the "Allow precompute"
-    #     button in the Web Analytics ScenePanel. One switch controls both the
-    #     UI surface and the backend gate. The flag is evaluated at the
-    #     organization level — set up an org-level release condition on the
-    #     flag to enable rollout per org. The SDK swallows its own exceptions
-    #     and returns None (falsy) on failure, so a flag-service outage
-    #     fails-closed (gate raised, fall back to v2 / raw) automatically.
-    #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
-    #     "Allow precompute" toggle).
-    if not posthoganalytics.feature_enabled(
-        "web-analytics-precompute-toggle",
-        str(runner.team.uuid),
-        groups={
-            "organization": str(runner.team.organization_id),
-            "project": str(runner.team.id),
-        },
-        group_properties={
-            "organization": {"id": str(runner.team.organization_id)},
-            "project": {"id": str(runner.team.id)},
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    ):
-        raise OrgFeatureFlagDisabled()
-
-    if query.useWebAnalyticsPrecompute is not True:
-        raise PerQueryOptInNotSet()
-
-    # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
-    # can't be served by UTC hourly buckets without sub-hour precision. Skip them
-    # rather than return wrong totals on the boundary days.
-    if not is_integer_timezone(runner.team.timezone):
-        raise NonIntegerTimezone()
-
-    if query.conversionGoal is not None:
-        raise ConversionGoalUnsupported()
-
-    if query.sampling is not None and getattr(query.sampling, "enabled", False):
-        raise SamplingEnabled()
-
-    # UUID session-id mode produces `uniqState(UUID)` from
-    # `events.$session_id_uuid`, which fails to insert into the schema's
-    # `AggregateFunction(uniq, String)` column. Gate out until the column
-    # is re-typed in a follow-up.
-    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
-        raise SessionsV2UuidMode()
-
-    properties = query.properties or []
-    if len(properties) > 1:
-        raise TooManyFilters()
-    for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
-
-    date_from = runner.query_date_range.date_from()
-    date_to = runner.query_date_range.date_to()
-    if date_from is None or date_to is None:
-        raise MissingDateRange()
-
-    days = (date_to - date_from).days
-    if days > MAX_PRECOMPUTE_DAYS:
-        raise DateRangeOverMax(days)
-
-
-def _user_filter_expr(runner: "WebOverviewQueryRunner") -> ast.Expr:
-    """Build the AST expression that gets substituted into the INSERT's WHERE clause.
-
-    The substituted AST is what `ensure_precomputed` hashes into the cache key —
-    different filter values therefore become different precomputed jobs.
-    """
-    if not runner.query.properties:
-        return ast.Constant(value=True)
-
-    # Gate already enforces single EventPropertyFilter with $host exact + string value.
-    host_filter = runner.query.properties[0]
-    assert isinstance(host_filter, EventPropertyFilter)
-    return ast.Call(
-        name="equals",
-        args=[
-            ast.Field(chain=["events", "properties", host_filter.key]),
-            ast.Constant(value=host_filter.value),
-        ],
-    )
-
-
-def _test_account_filter_expr(runner: "WebOverviewQueryRunner") -> ast.Expr:
-    """Test-account filters land in the placeholder set, so they also shape the cache key.
-
-    `_test_account_filters` may be an empty list when filterTestAccounts is False
-    or the project has none configured.
-    """
-    if not runner._test_account_filters:
-        return ast.Constant(value=True)
-    return property_to_expr(runner._test_account_filters, team=runner.team)
-
-
-def _events_session_id_expr(runner: "WebOverviewQueryRunner") -> ast.Expr:
-    return runner.events_session_property
-
-
-# Forward pad on the per-job event-scan window. The lazy_computation framework
-# chunks the precompute span into daily UTC jobs; each job covers
-# `[time_window_min, time_window_max)`. A session starting at 23:50 with events
-# spilling past midnight would lose its trailing events without a forward pad —
-# the HAVING clause attributes the session to its start hour, but the events
-# table scan needs to see those trailing events to compute correct
-# `$session_duration` / `$pageview_count` / `$is_bounce`.
-#
-# Forward-only is sufficient. The HAVING clause keeps only sessions whose
-# `min(session.$start_timestamp)` falls inside `[time_window_min, time_window_max)`.
-# Every event of such a session has `timestamp >= session.$start_timestamp >=
-# time_window_min`, so backward scanning never picks up anything that survives
-# HAVING — it only burns I/O on sessions that get discarded.
-#
-# Session length isn't bounded server-side: `$session_id` is generated by the
-# client SDK (default 30 min inactivity, 24 h hard cap in posthog-js), and the
-# threshold is per-site-configurable. Measured prod distribution (raw_sessions,
-# 1 h slice, 8.3M sessions): p99 = 79 min, p99.9 = 111 min. For team_id=2
-# (posthog.com, docs left open for days) over 7 days: p95 = 75 min,
-# p99 = 19 h, 0.6% of sessions > 24 h. The 24 h hard cap is the meaningful
-# ceiling for ~99.4% of dogfood sessions and effectively 100% of the wider
-# population; anything past it is rare enough to be a documented limitation
-# rather than a sizing target.
-#
-# Trade-off: +24 h forward costs ~2× the events scanned per daily job vs +60 min,
-# but 60 min undercounts 1.45% of sessions site-wide and 4.17% on posthog.com.
-# Correctness wins over INSERT cost at this scale.
-#
-# Sessions longer than `SESSION_FORWARD_PAD_MINUTES` are silently undercounted
-# on cross-boundary days. The long-term fix is to drive the INSERT from
-# `raw_sessions` (bounded by `session_id_v7`'s embedded UUIDv7 timestamp) and
-# source `$session_duration` / `$is_bounce` / `$pageview_count` from the
-# sessions table — same approach as the v2 preagg DAG. That removes the pad
-# entirely.
-SESSION_FORWARD_PAD_MINUTES = 24 * 60
+# Re-exported so callers (and tests) can still reach the eligibility checker
+# through this module.
+_check_lazy_precompute_eligible = check_common_eligible
 
 
 # HogQL template for the precompute INSERT. The lazy_computation framework
 # substitutes the listed placeholders (including `time_window_min`/`time_window_max`),
 # parses the result, and INSERTs into `web_overview_preaggregated`. The framework
 # automatically prepends `team_id`, `job_id` and appends `expires_at` to the SELECT.
+#
+# The forward pad on the event-scan window (`SESSION_FORWARD_PAD_MINUTES`) lets a
+# session that starts near the trailing edge of a daily UTC job still aggregate
+# its events that spill past midnight — the HAVING clause attributes the session
+# to its start hour, but the events scan needs the trailing events to compute
+# correct `$session_duration` / `$pageview_count` / `$is_bounce`.
 INSERT_QUERY_TEMPLATE = """
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
@@ -340,10 +109,10 @@ def ensure_web_overview_precomputed(
     time_range_end: datetime,
 ) -> LazyComputationResult:
     placeholders: dict[str, ast.Expr] = {
-        "events_session_id": _events_session_id_expr(runner),
+        "events_session_id": events_session_id_expr(runner),
         "event_type_filter": runner.event_type_expr,
-        "user_filter": _user_filter_expr(runner),
-        "test_account_filter": _test_account_filter_expr(runner),
+        "user_filter": user_filter_expr(runner),
+        "test_account_filter": test_account_filter_expr(runner),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
@@ -427,17 +196,6 @@ def execute_read_query(
     )
 
 
-def _floor_utc_day(dt_utc: datetime) -> datetime:
-    return datetime(dt_utc.year, dt_utc.month, dt_utc.day, tzinfo=UTC)
-
-
-def _ceil_utc_day(dt_utc: datetime) -> datetime:
-    floor = _floor_utc_day(dt_utc)
-    if floor == dt_utc:
-        return floor
-    return floor + timedelta(days=1)
-
-
 def _empty_response_row() -> list:
     # 5 metric pairs (current, previous) — previous slots are None and discarded
     # downstream when compareFilter.compare is False. When compare is True, the
@@ -473,10 +231,11 @@ def execute_lazy_precomputed_read(
         # daily-window jobs fully cover the team-tz request. Without this, the
         # 08:00 UTC start of "today PT" would fall outside the framework's UTC
         # day window and have no precomputed buckets to read.
-        time_range_start = _floor_utc_day(current_start_utc)
-        time_range_end = _ceil_utc_day(current_end_utc)
+        time_range_start = floor_utc_day(current_start_utc)
+        time_range_end = ceil_utc_day(current_end_utc)
 
         if time_range_start >= time_range_end:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             logger.info(
                 "web_overview_lazy_precompute_empty_range",
                 team_id=team_id,
@@ -509,9 +268,11 @@ def execute_lazy_precomputed_read(
         )
 
         if not result.job_ids:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()
             return None
 
         if not result.ready:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_not_ready").inc()
             logger.info(
                 "web_overview_lazy_precompute_current_not_ready",
                 team_id=team_id,
@@ -534,8 +295,8 @@ def execute_lazy_precomputed_read(
                 # query's `WHERE job_id IN %(job_ids)s` filter has no rows
                 # covering the previous window and every `*MergeIf(..., prev_*)`
                 # returns 0/NaN, silently breaking compare-period metrics.
-                prev_range_start = _floor_utc_day(previous_start_utc)
-                prev_range_end = _ceil_utc_day(previous_end_utc)
+                prev_range_start = floor_utc_day(previous_start_utc)
+                prev_range_end = ceil_utc_day(previous_end_utc)
                 if prev_range_start < prev_range_end:
                     prev_ensure_started = time.perf_counter()
                     prev_result = ensure_web_overview_precomputed(
@@ -546,6 +307,7 @@ def execute_lazy_precomputed_read(
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
 
                     if not prev_result.ready:
+                        WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()
                         logger.info(
                             "web_overview_lazy_precompute_previous_not_ready",
                             team_id=team_id,
@@ -567,6 +329,7 @@ def execute_lazy_precomputed_read(
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
         logger.info(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,

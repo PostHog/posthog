@@ -7,6 +7,7 @@ import logging
 import threading
 import subprocess
 from collections.abc import Generator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,6 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
-        item.keywords.pop("django_db", None)
 
 
 @pytest.fixture(scope="session")
@@ -579,6 +579,39 @@ class SandboxedDemoData:
         )
 
 
+# Event-level properties the error-tracking ``searchQuery`` test cases match on
+# (see ``products/error_tracking/backend/hogql_queries/error_tracking_query_runner_utils.py``).
+# These are stored as JSON arrays (``["TypeError"]``); without materialized
+# columns the bare ``properties.$exception_types`` lookup goes through
+# ``JSONExtractString`` which returns ``""`` for non-string JSON values, so
+# ``searchQuery`` filtering on these properties silently never matches anything.
+# Materializing and backfilling once per session makes the sandbox behave like
+# prod for error-tracking searchQuery, including reused local ClickHouse state
+# where the columns already exist but older demo rows still need values.
+_EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
+    "$exception_types",
+    "$exception_values",
+)
+
+
+def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
+    from ee.clickhouse.materialized_columns.columns import (
+        backfill_materialized_columns,
+        get_materialized_columns,
+        materialize,
+    )
+
+    with django_db_blocker.unblock():
+        existing_columns = get_materialized_columns("events")
+        columns = []
+        for property_name in _EVAL_MATERIALIZED_EVENT_PROPERTIES:
+            column = existing_columns.get((property_name, "properties"))
+            if column is None:
+                column = materialize("events", property_name)
+            columns.append(column)
+        backfill_materialized_columns("events", columns, timedelta(days=180))
+
+
 @pytest.fixture(scope="session", autouse=True)
 def sandboxed_demo_data(
     set_up_evals,  # noqa: F811
@@ -589,6 +622,7 @@ def sandboxed_demo_data(
     from posthog.clickhouse.client import sync_execute
 
     master_team_id = ensure_master_demo_team(django_db_blocker)
+    _ensure_event_search_columns_materialized(django_db_blocker)
     with django_db_blocker.unblock():
         rows = sync_execute(
             "SELECT event, count() FROM events WHERE team_id = %(team_id)s GROUP BY event ORDER BY 2 DESC LIMIT 20",

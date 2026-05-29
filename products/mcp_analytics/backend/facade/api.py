@@ -50,12 +50,21 @@ def create_missing_capability_submission(
 
 def list_mcp_sessions(
     team: Team, limit: int, offset: int, search: str = "", order_by: str = ""
-) -> list[contracts.MCPSession]:
+) -> contracts.MCPSessionsPage:
     return logic.list_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
 
 
 def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
     return logic.list_mcp_tool_calls(team, session_id=session_id)
+
+
+def generate_session_intent(team: Team, session_id: str) -> str:
+    """Generate (or return the cached) intent summary for an MCP session.
+
+    Shared entry point for the UI's on-demand button and any future caller
+    (e.g. clustering). Persists the result to ``MCPSession.intent``.
+    """
+    return logic.generate_session_intent(team, session_id=session_id)
 
 
 def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:

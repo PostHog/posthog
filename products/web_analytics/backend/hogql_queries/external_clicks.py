@@ -39,6 +39,8 @@ class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner[WebExternalClick
         else:
             url_expr = ast.Field(chain=["properties", "$external_click_url"])
 
+        url_expr = self._apply_path_cleaning(url_expr)
+
         with self.timings.measure("external_clicks_query"):
             query = parse_select(
                 """
@@ -117,6 +119,7 @@ GROUP BY "context.columns.url"
             query_type="external_clicks_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
         )

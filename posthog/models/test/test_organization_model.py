@@ -9,10 +9,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationInvite, Plugin
+from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
+
+from products.cdp.backend.models.plugin import Plugin
 
 from ee.billing.quota_limiting import QuotaResource
 
@@ -98,6 +100,22 @@ class TestOrganization(BaseTest):
                 self.user, name="Explicit Org", default_anonymize_ips=False
             )
             self.assertFalse(explicit_org.default_anonymize_ips)
+
+    @parameterized.expand(
+        [
+            ("eu_defaults_to_opted_out", "EU", None, False),
+            ("us_defaults_to_opted_in", "US", None, True),
+            ("unset_deployment_defaults_to_opted_in", None, None, True),
+            ("explicit_value_overrides_eu_default", "EU", True, True),
+        ]
+    )
+    def test_default_is_ai_training_opted_in_based_on_deployment(
+        self, _name, cloud_deployment, explicit_value, expected
+    ):
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            extra_kwargs = {} if explicit_value is None else {"is_ai_training_opted_in": explicit_value}
+            org, _, _ = Organization.objects.bootstrap(self.user, name=_name, **extra_kwargs)
+            self.assertEqual(org.is_ai_training_opted_in, expected)
 
     def test_update_available_product_features_ignored_if_usage_info_exists(self):
         with self.is_cloud(False):
