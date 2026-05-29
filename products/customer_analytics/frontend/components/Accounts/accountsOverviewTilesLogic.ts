@@ -1,5 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -342,47 +343,39 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         ],
         selectedTileId: [(s) => [s.tileFilter], (filter: TileFilter | null): string | null => filter?.tileId ?? null],
     }),
-    listeners(({ actions, values }) => {
-        const reload = (): void => actions.loadTileValues(undefined)
-        return {
-            addTile: reload,
-            updateTile: reload,
-            removeTile: ({ id }) => {
-                if (values.tileFilter?.tileId === id) {
-                    actions.setTileFilter(null)
-                }
-                reload()
-            },
-            moveTile: reload,
-            resetTiles: () => {
-                if (values.tileFilter) {
-                    actions.setTileFilter(null)
-                }
-                reload()
-            },
-            refreshTileValues: reload,
-            setSearchQuery: reload,
-            setTagsFilter: reload,
-            setAllRolesUnassigned: reload,
-            setCsmFilter: reload,
-            setAccountExecutiveFilter: reload,
-            setAccountOwnerFilter: reload,
-            setTileFilter: reload,
-            refreshAccounts: reload,
-            toggleTileSelection: ({ tile }) => {
-                const expression = tileToRowFilter(tile)
-                if (!expression) {
-                    return
-                }
-                if (values.tileFilter?.tileId === tile.id) {
-                    actions.setTileFilter(null)
-                } else {
-                    actions.setTileFilter({ tileId: tile.id, expression })
-                }
-            },
-        }
-    }),
-    afterMount(({ actions }) => {
-        actions.loadTileValues(undefined)
-    }),
+    listeners(({ actions, values }) => ({
+        removeTile: ({ id }) => {
+            if (values.tileFilter?.tileId === id) {
+                actions.setTileFilter(null)
+            }
+        },
+        resetTiles: () => {
+            if (values.tileFilter) {
+                actions.setTileFilter(null)
+            }
+        },
+        refreshTileValues: () => actions.loadTileValues(undefined),
+        refreshAccounts: () => actions.loadTileValues(undefined),
+        toggleTileSelection: ({ tile }) => {
+            const expression = tileToRowFilter(tile)
+            if (!expression) {
+                return
+            }
+            if (values.tileFilter?.tileId === tile.id) {
+                actions.setTileFilter(null)
+            } else {
+                actions.setTileFilter({ tileId: tile.id, expression })
+            }
+        },
+    })),
+    // Single source of truth for "when do we re-fetch tile values" — any input
+    // to `overviewQuery` changing (filters, tile config, or the schema arriving
+    // and unlocking previously-reconciled-out tiles) lands here.
+    subscriptions(({ actions }) => ({
+        overviewQuery: (next: AccountsQuery | null, previous: AccountsQuery | null) => {
+            if (JSON.stringify(next) !== JSON.stringify(previous)) {
+                actions.loadTileValues(undefined)
+            }
+        },
+    })),
 ])
