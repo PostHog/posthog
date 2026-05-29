@@ -4203,6 +4203,12 @@ class RecordingPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class HideViewedRecordings(Enum):
+    CURRENT_USER = "current-user"
+    ANY_USER = "any-user"
+    NONE_TYPE_NONE = None
+
+
 class RedditAdsDefaultSources(StrEnum):
     REDDIT = "reddit"
 
@@ -22816,6 +22822,14 @@ class RecordingsQuery(BaseModel):
         ]
         | None
     ) = None
+    hide_viewed_recordings: HideViewedRecordings | None = Field(
+        default=None,
+        description=(
+            "Exclude recordings already viewed by the current user ('current-user'), by"
+            " any team member ('any-user'), or none (default). Applied server-side so"
+            " pagination and the result cursor operate on the filtered set."
+        ),
+    )
     kind: Literal["RecordingsQuery"] = "RecordingsQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

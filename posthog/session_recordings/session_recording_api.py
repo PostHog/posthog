@@ -46,6 +46,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
+    HideViewedRecordings,
     MatchedRecordingEvent,
     MatchingEventsResponse,
     ProductIntentContext,
@@ -1988,11 +1989,22 @@ def list_recordings_from_query(
 
             query_for_list = query.model_copy(update=query_updates)
 
+            # Resolve the "hide viewed recordings" filter into a server-side exclusion set, so pagination
+            # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
+            # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
+            session_ids_to_exclude: list[str] = []
+            if not query_for_list.session_ids:
+                with timer("load_viewed_recordings_to_exclude"):
+                    session_ids_to_exclude = _viewed_session_ids_to_exclude(
+                        query_for_list.hide_viewed_recordings, user, team
+                    )
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
+                session_ids_to_exclude=session_ids_to_exclude,
             ).run()
             ch_session_recordings = query_result.results
 
@@ -2091,6 +2103,30 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
         .values_list("session_id", flat=True)
     )
     return viewed_session_recordings
+
+
+def _viewed_session_ids_to_exclude(
+    hide_viewed_recordings: HideViewedRecordings | None, user: User | None, team: Team
+) -> list[str]:
+    """
+    Resolve the "hide viewed recordings" filter into the set of session_ids to exclude server-side,
+    so pagination and the result cursor operate on the already-filtered set.
+
+    - 'current-user': recordings this user has viewed (empty when there is no user, e.g. Celery callers)
+    - 'any-user': recordings any team member has viewed
+
+    Not bounded by date: SessionRecordingViewed only stores the view time (created_at), which does not
+    correspond to the recording's start_time, so a date bound would exclude/include the wrong rows.
+    """
+    if hide_viewed_recordings == HideViewedRecordings.CURRENT_USER:
+        if not user:
+            return []
+        return list(SessionRecordingViewed.objects.filter(team=team, user=user).values_list("session_id", flat=True))
+
+    if hide_viewed_recordings == HideViewedRecordings.ANY_USER:
+        return list(SessionRecordingViewed.objects.filter(team=team).values_list("session_id", flat=True).distinct())
+
+    return []
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:

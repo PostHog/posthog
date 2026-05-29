@@ -603,6 +603,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+    hide_viewed_recordings?: 'current-user' | 'any-user' | null
     /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
     session_recording_id?: string
     person_uuid?: string

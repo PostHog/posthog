@@ -675,6 +675,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         limit: convertedQuery.limit ?? RECORDINGS_LIMIT,
                         // If a recording is selected from URL, ensure it's always included in results
                         session_recording_id: values.selectedRecordingId ?? undefined,
+                        // Hide viewed recordings is filtered server-side so pagination operates on the
+                        // filtered set; the client-side otherRecordings filter remains as a backstop.
+                        hide_viewed_recordings: values.hideViewedRecordings || undefined,
                     }
 
                     if (values.allowEventPropertyExpansion) {
@@ -1172,7 +1175,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
 
         setHideViewedRecordings: () => {
-            actions.maybeLoadSessionRecordings('older')
+            // Filtering happens server-side, so toggling the filter changes the result set entirely.
+            // Reset and refetch from the first page rather than paginating onto the stale cursor.
+            actions.loadSessionRecordings()
         },
         handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
             await lemonToast.promise(
