@@ -33,6 +33,8 @@ export interface OverviewItem {
     isIncreaseBad?: boolean
     warning?: string
     warningLink?: string
+    /** Optional human-readable description rendered under the value. Only shown when no trend is present. */
+    caption?: string
 }
 
 export interface SamplingRate {
@@ -242,6 +244,13 @@ const OverviewItemCell = ({
                         </div>
                     ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
                         <div className="text-muted">-</div>
+                    ) : item.caption ? (
+                        <div
+                            className={clsx('text-secondary truncate max-w-full', compact ? 'text-[10px]' : 'text-xs')}
+                            title={item.caption}
+                        >
+                            {item.caption}
+                        </div>
                     ) : (
                         <div />
                     )}

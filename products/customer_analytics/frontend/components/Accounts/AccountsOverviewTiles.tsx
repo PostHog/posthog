@@ -8,11 +8,28 @@ import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/Overvie
 import { AccountsOverviewTilesEditor } from './AccountsOverviewTilesEditor'
 import { accountsOverviewTilesLogic, AccountsOverviewTile } from './accountsOverviewTilesLogic'
 
+// Surfaces the aggregation behind the tile value so users can tell at a glance
+// what the number means, e.g. `health_score < 6` under an "AT RISK" tile.
+function tileCaption(tile: AccountsOverviewTile): string | undefined {
+    const { metric } = tile
+    switch (metric.type) {
+        case 'count':
+            return undefined
+        case 'sum':
+            return `sum of ${metric.columnLabel}`
+        case 'avg':
+            return `avg of ${metric.columnLabel}`
+        case 'count_threshold':
+            return `${metric.columnLabel} ${metric.operator} ${metric.value}`
+    }
+}
+
 function tileToOverviewItem(tile: AccountsOverviewTile, value: number | null): OverviewItem {
     return {
         key: tile.id,
         value: value ?? undefined,
         kind: 'unit',
+        caption: tileCaption(tile),
     }
 }
 
