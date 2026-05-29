@@ -757,7 +757,6 @@ mod tests {
         );
     }
 
-
     /// The weigher must include JSON-valued `PropertyFilter.value` bytes so
     /// large cohort-in-flag filters don't push the cache over its capacity.
     #[test]
