@@ -739,6 +739,14 @@ export class ApiRequest {
         return this.metrics(projectId).addPathComponent('has_metrics')
     }
 
+    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('query')
+    }
+
+    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('values')
+    }
+
     // # Tracing
     public tracingSpans(): ApiRequest {
         return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
@@ -2800,6 +2808,34 @@ const api = {
                 .metricsHasMetrics()
                 .get()
                 .then((response) => Boolean(response.hasMetrics))
+        },
+        async query({
+            query,
+            signal,
+        }: {
+            query: {
+                metricName: string
+                aggregation: 'sum' | 'avg' | 'count' | 'p95'
+                dateFrom: string
+                dateTo?: string
+            }
+            signal?: AbortSignal
+        }): Promise<{ results: { time: string; value: number }[] }> {
+            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
+        },
+        async values({
+            search,
+            limit,
+            signal,
+        }: {
+            search?: string
+            limit?: number
+            signal?: AbortSignal
+        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
+            return new ApiRequest()
+                .metricsValues()
+                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
+                .get({ signal })
         },
     },
 

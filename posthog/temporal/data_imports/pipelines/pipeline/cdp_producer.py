@@ -15,10 +15,10 @@ from posthog.hogql.database.database import get_data_warehouse_table_name
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_scope
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
-from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
+from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 

@@ -1,9 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { replayScannerLogic } from './replayScannerLogic'
+import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
@@ -34,6 +36,19 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
                 sampling_rate: 1,
+            })
+        })
+
+        it('new scanner pre-fills from ?template= search param', async () => {
+            const template = defaultScannerTemplates.find((t) => t.key === 'dead_end')!
+            router.actions.push('/replay-vision/new', { template: template.key })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    name: template.scanner_name,
+                    description: template.scanner_description,
+                    scanner_type: template.scanner_type,
+                    scanner_config: template.scanner_config,
+                }),
             })
         })
     })

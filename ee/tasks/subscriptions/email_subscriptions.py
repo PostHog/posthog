@@ -39,7 +39,7 @@ def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
 
     return {
         "error": False,
-        "image_url": asset.get_public_content_url(),
+        "image_url": asset.get_subscription_delivery_content_url(),
     }
 
 

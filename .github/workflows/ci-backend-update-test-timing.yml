@@ -1,9 +1,6 @@
 name: Backend & Dagster CI - Update test timing
 
 on:
-    pull_request:
-        paths:
-            - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
         inputs:
             backend_run_id:
@@ -150,6 +147,15 @@ jobs:
                       --pattern "timing_data-Products-*" \
                       --dir timing_artifacts
 
+                  # JUnit artifacts power precise per-shard carrier detection.
+                  # Without these, optimize_test_durations.py silently takes the
+                  # statistical fallback and the JUnit-arg becomes a no-op.
+                  gh run download "$BACKEND_RUN_ID" \
+                      --pattern "junit-results-backend-core-*" \
+                      --pattern "junit-results-backend-temporal-*" \
+                      --dir junit_artifacts || \
+                      echo "::warning::No JUnit artifacts found — falling back to statistical carrier detection"
+
                   # Download dagster timing artifacts if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
                       gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
@@ -162,11 +168,13 @@ jobs:
               env:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
-                  # Process each segment separately, then merge
+                  # Process each segment separately with migration tax correction, then merge.
+                  # Core/Temporal use JUnit for precise carrier detection.
+                  # Products lack JUnit artifacts, so use statistical detection (--shard-count).
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --segment Core
+                      --segment Core --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --segment Temporal
+                      --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products
 
@@ -177,19 +185,12 @@ jobs:
                       echo "Processed Dagster timing data"
                   fi
 
-                  # Merge into single file (Core → Temporal → Products → Dagster, later segments overwrite overlaps)
-                  python3 -c "
-                  import json
-                  durations = {}
-                  for path in ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations', '/tmp/dagster_durations']:
-                      try:
-                          with open(path) as f: durations.update(json.load(f))
-                      except FileNotFoundError: pass
-                  with open('.test_durations', 'w') as f:
-                      json.dump(durations, f, indent=4, sort_keys=True)
-                      f.write('\n')
-                  print(f'Merged {len(durations)} tests')
-                  "
+                  # Outlier-merge across per-segment outputs. Single implementation
+                  # in optimize_test_durations.py (outlier_merge_durations) is shared
+                  # with per-segment artifact processing and covered by tests next
+                  # to the script — see test_optimize_test_durations.py.
+                  uv run .github/scripts/optimize_test_durations.py .test_durations \
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
                   rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
 
             - name: Check for changes
