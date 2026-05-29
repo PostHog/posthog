@@ -33,7 +33,8 @@ postHogCapture({
             secret: false,
             hidden: false,
             default: '{event.distinct_id}',
-            description: 'The distinct ID associated with the Person.',
+            description:
+                'The distinct ID of the person to update. The default `{event.distinct_id}` works for both event-triggered and batch workflows. Do not use `{person.id}` — it would create a new person profile instead of updating the existing one.',
         },
         {
             type: 'dictionary',
