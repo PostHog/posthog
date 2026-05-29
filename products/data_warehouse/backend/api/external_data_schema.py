@@ -424,6 +424,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # discovery already stored; refuse the switch when neither is set.
             new_pk = data.get("primary_key_columns")
             if new_pk:
+                old_pk = payload.get("primary_key_columns")
+                # Same rule as incremental: the PK is the merge key, so it can't change once data
+                # has synced (`instance.table` exists). Delete the synced data to change it.
+                if new_pk != old_pk and instance.table is not None:
+                    raise ValidationError(
+                        "Primary key cannot be changed after data has been synced. "
+                        "Delete the synced data first, then change the primary key."
+                    )
                 payload["primary_key_columns"] = new_pk
             elif not payload.get("primary_key_columns"):
                 raise ValidationError(

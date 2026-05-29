@@ -405,6 +405,41 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config["primary_key_columns"] == expected_pk_columns
             assert schema.sync_type_config["cdc_mode"] == "snapshot"
 
+    def test_update_cdc_schema_rejects_primary_key_change_with_existing_data(self):
+        # CDC uses the PK as the UPDATE/DELETE merge key, so — same as incremental — it can't be
+        # changed once data has synced (the schema has a materialized table).
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming", "primary_key_columns": ["id"]},
+            table=table,
+        )
+
+        with mock.patch(
+            "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "cdc", "primary_key_columns": ["order_key"]},
+            )
+
+        assert response.status_code == 400
+        assert "primary key cannot be changed" in str(response.json()).lower()
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
