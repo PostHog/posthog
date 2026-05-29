@@ -202,8 +202,9 @@ impl Cli {
             if let Some((sub_name, sub_matches)) = matches.subcommand() {
                 if crate::agent::command::is_category(m, sub_name) {
                     let host = matches.get_one::<String>("host").cloned();
+                    let env_file = matches.get_one::<PathBuf>("env_file").cloned();
                     let result = (|| -> Result<(), CapturedError> {
-                        init_context(host, false, None)?;
+                        init_context(host, false, None, env_file)?;
                         crate::agent::command::dispatch_category(m, sub_name, sub_matches)?;
                         if INVOCATION_CONTEXT.get().is_some() {
                             context().finish();

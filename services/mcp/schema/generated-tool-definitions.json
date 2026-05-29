@@ -951,7 +951,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -1887,6 +1887,21 @@
         "summary": "Check Postgres CDC prerequisites",
         "title": "Check Postgres CDC prerequisites",
         "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-connections-list": {
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List direct-query connections",
+        "title": "List direct-query connections",
+        "required_scopes": ["external_data_source:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

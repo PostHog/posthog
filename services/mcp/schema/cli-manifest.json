@@ -2926,7 +2926,7 @@
             "mcp_name": "dashboard-reorder-tiles",
             "category": "dashboard",
             "verb": "reorder-tiles",
-            "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+            "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
             "method": "POST",
             "path": "/api/projects/{project_id}/dashboards/{id}/reorder_tiles/",
             "scopes": ["dashboard:write"],
@@ -5408,6 +5408,45 @@
                 "body": [
                     {
                         "name": "source_type"
+                    }
+                ]
+            }
+        },
+        "external-data-sources-connections-list": {
+            "mcp_name": "external-data-sources-connections-list",
+            "category": "data-warehouse",
+            "verb": "external-sources-connections-list",
+            "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+            "method": "GET",
+            "path": "/api/projects/{project_id}/external_data_sources/connections/",
+            "scopes": ["external_data_source:read"],
+            "annotations": {
+                "read_only": true,
+                "destructive": false,
+                "idempotent": true
+            },
+            "params": {
+                "query": [
+                    {
+                        "name": "limit",
+                        "type": "integer",
+                        "required": false,
+                        "description": "Number of results to return per page.",
+                        "flag_eligible": true
+                    },
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "required": false,
+                        "description": "The initial index from which to return the results.",
+                        "flag_eligible": true
+                    },
+                    {
+                        "name": "search",
+                        "type": "string",
+                        "required": false,
+                        "description": "A search term.",
+                        "flag_eligible": true
                     }
                 ]
             }
