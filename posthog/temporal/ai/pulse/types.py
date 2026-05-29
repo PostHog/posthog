@@ -45,7 +45,8 @@ class Finding(BaseModel):
     current_value: float
     baseline_value: float
     change_pct: float
-    z_score: float
+    impact: float
+    robust_z: float
 
 
 class EnrichedFinding(BaseModel):

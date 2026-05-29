@@ -1,10 +1,13 @@
+import math
+
 import pytest
 
 from parameterized import parameterized
 
 from posthog.temporal.ai.pulse.detection import (
     MIN_BASELINE_VALUE,
-    _compute_z_score,
+    _compute_impact,
+    _compute_robust_z,
     _evaluate_candidate,
     _extract_weekly_series,
 )
@@ -18,25 +21,38 @@ def _make_candidate() -> CandidateMetric:
     )
 
 
-class TestComputeZScore:
+class TestComputeRobustZ:
     @parameterized.expand(
         [
-            ("baseline_too_small_returns_zero", 5.0, [10.0], (0.0, 0.0)),
-            ("zero_variance_returns_zero_with_mean", 7.0, [5.0, 5.0, 5.0], (0.0, 5.0)),
+            ("baseline_too_small_returns_zero", 5.0, [10.0], 0.0),
+            ("zero_mad_returns_floor", 7.0, [5.0, 5.0, 5.0], 0.0),
         ]
     )
     def test_edge_cases(self, _name, current, baseline, expected):
-        assert _compute_z_score(current, baseline) == expected
+        assert _compute_robust_z(current, baseline) == expected
 
-    def test_positive_deviation(self):
-        z, mean = _compute_z_score(20.0, [10.0, 10.0, 10.0, 14.0])
-        assert mean == pytest.approx(11.0)
-        assert z > 3  # ~3.85 — clear positive outlier
+    def test_robust_z_uses_median_not_mean(self):
+        # median([10,10,10,10,90]) = 10; one outlier must not inflate the baseline.
+        z = _compute_robust_z(40.0, [10.0, 10.0, 10.0, 10.0, 90.0])
+        # MAD = median(|x-10|) = median([0,0,0,0,80]) = 0  -> floor 0.0
+        assert z == 0.0
 
-    def test_negative_deviation(self):
-        z, mean = _compute_z_score(2.0, [10.0, 10.0, 10.0, 14.0])
-        assert mean == pytest.approx(11.0)
-        assert z < -3
+    def test_robust_z_positive_for_clear_outlier(self):
+        # median=10, MAD=median([2,0,0,4])=1.0 ; robust_z = 0.6745*|25-10|/1.0
+        z = _compute_robust_z(25.0, [8.0, 10.0, 10.0, 14.0])
+        assert z == pytest.approx(0.6745 * 15.0 / 1.0)
+
+
+class TestComputeImpact:
+    @parameterized.expand(
+        [
+            ("zero_change", 0.0, 100.0, 0.0),
+            ("half_drop_baseline_100", -0.5, 100.0, 0.5 * 10.0),
+            ("double_baseline_64", 1.0, 64.0, 1.0 * 8.0),
+        ]
+    )
+    def test_impact(self, _name, change_pct, baseline_median, expected):
+        assert _compute_impact(change_pct, baseline_median) == pytest.approx(expected)
 
 
 class TestExtractWeeklySeries:
@@ -56,34 +72,44 @@ class TestExtractWeeklySeries:
 
 class TestEvaluateCandidate:
     def test_returns_none_when_series_too_short(self):
-        # Need at least MIN_BASELINE_WEEKS + 2 = 5 values
-        assert _evaluate_candidate(_make_candidate(), [10, 10, 10, 12], 2.0, 0.25) is None
+        assert _evaluate_candidate(_make_candidate(), [10, 10, 10, 12], 0.25, 3.5) is None
 
     def test_returns_none_when_baseline_too_low_volume(self):
-        # baseline mean is well below MIN_BASELINE_VALUE
         below = MIN_BASELINE_VALUE - 1
         series = [below, below, below, below, below, 999]
-        assert _evaluate_candidate(_make_candidate(), series, 2.0, 0.25) is None
+        assert _evaluate_candidate(_make_candidate(), series, 0.25, 3.5) is None
+
+    def test_uses_median_baseline_robust_to_one_bad_week(self):
+        # One spiked baseline week must not move the baseline (median=100, mean would be 280).
+        series = [100.0, 100.0, 1000.0, 100.0, 50.0, 999.0]
+        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        assert finding is not None
+        assert finding.baseline_value == pytest.approx(100.0)
+        assert finding.current_value == 50.0
+
+    def test_impact_set_on_finding(self):
+        series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
+        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        assert finding is not None
+        assert finding.impact == pytest.approx(0.5 * math.sqrt(100.0))
+
+    def test_change_pct_is_primary_gate_z_alone_does_not_fire(self):
+        # ~5% change but a large robust_z: must NOT fire (change_pct below min, z is secondary).
+        series = [98.0, 100.0, 102.0, 100.0, 105.0, 999.0]
+        assert _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=0.1) is None
 
     def test_returns_finding_on_relative_change(self):
-        # current week (5 weeks of stable, then a clear drop, last is in-progress and dropped)
         series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
-        finding = _evaluate_candidate(_make_candidate(), series, z_threshold=10.0, min_change_pct=0.25)
+        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
         assert finding is not None
         assert finding.current_value == 50.0
         assert finding.change_pct < 0
         assert finding.baseline_value == pytest.approx(100.0)
+        assert finding.robust_z >= 0.0
 
-    def test_returns_finding_on_z_score(self):
-        series = [10.0, 10.0, 10.0, 10.0, 25.0, 999.0]  # z-score >> 2
-        finding = _evaluate_candidate(_make_candidate(), series, z_threshold=2.0, min_change_pct=10.0)
-        assert finding is not None
-        assert finding.current_value == 25.0
-        assert finding.z_score > 2.0
-
-    def test_returns_none_when_below_thresholds(self):
-        series = [100.0, 102.0, 98.0, 101.0, 103.0, 999.0]  # quiet, ~3% change
-        assert _evaluate_candidate(_make_candidate(), series, z_threshold=2.0, min_change_pct=0.25) is None
+    def test_returns_none_when_change_below_min(self):
+        series = [100.0, 102.0, 98.0, 101.0, 103.0, 999.0]  # ~3% change
+        assert _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5) is None
 
 
 class TestPickTopContributor:
