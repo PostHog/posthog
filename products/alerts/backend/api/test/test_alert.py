@@ -11,12 +11,12 @@ from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):

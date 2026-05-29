@@ -167,6 +167,7 @@ export function VirtualizedLogsList({
         selectLogRange,
         togglePrettifyLog,
         setFocused,
+        setVisibleRowRange,
     } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
 
@@ -242,9 +243,13 @@ export function VirtualizedLogsList({
         }
     }, [disableCursor, scrollToCursorRequest, cursorIndex, listRef])
 
+    // Tracks the last range we dispatched so we don't fire setVisibleRowRange on
+    // every overscan tick when nothing actually changed.
+    const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
+
     const handleRowsRendered = useCallback(
         (
-            _visibleRows: { startIndex: number; stopIndex: number },
+            visibleRows: { startIndex: number; stopIndex: number },
             allRows: { startIndex: number; stopIndex: number }
         ): void => {
             if (
@@ -253,8 +258,22 @@ export function VirtualizedLogsList({
             ) {
                 onLoadMore?.()
             }
+
+            const prev = lastVisibleRangeRef.current
+            if (!prev || prev.startIndex !== visibleRows.startIndex || prev.stopIndex !== visibleRows.stopIndex) {
+                lastVisibleRangeRef.current = { startIndex: visibleRows.startIndex, stopIndex: visibleRows.stopIndex }
+                setVisibleRowRange(visibleRows.startIndex, visibleRows.stopIndex)
+            }
         },
-        [disableInfiniteScroll, shouldLoadMore, dataSource.length, hasMoreLogsToLoad, loading, onLoadMore]
+        [
+            disableInfiniteScroll,
+            shouldLoadMore,
+            dataSource.length,
+            hasMoreLogsToLoad,
+            loading,
+            onLoadMore,
+            setVisibleRowRange,
+        ]
     )
 
     const handleLogRowClick = useCallback(
