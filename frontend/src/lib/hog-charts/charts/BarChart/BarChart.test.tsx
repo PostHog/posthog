@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { renderHogChart } from '../../testing'
+import { getHogChartTooltip, renderHogChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -338,6 +338,34 @@ describe('BarChart', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
             expect(tooltipEl?.textContent ?? '').toBe('')
+        })
+
+        it('stacked horizontal suppresses tooltip past the bar value extent', async () => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                />
+            )
+            // plotHeight/2 lands in the middle row (Tue), which stacks to 35 while the value axis
+            // runs to the global max (Wed = 55) — so the left of the plot is filled bar and the
+            // right is empty track.
+            const yMidRow = dimensions.plotTop + dimensions.plotHeight / 2
+            // Over the bar: tooltip shows.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + dimensions.plotWidth * 0.2,
+                clientY: yMidRow,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.element.textContent).toContain('Tue')
+            // Past the bar's value extent: tooltip must clear.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + dimensions.plotWidth * 0.95,
+                clientY: yMidRow,
+            })
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
         describe('sparse-stacked horizontal (overlap layout)', () => {

@@ -3,7 +3,7 @@ import React from 'react'
 import type { BarChartPrivate } from '../../core/bar-layout'
 import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
-import type { TooltipContext } from '../../core/types'
+import type { Series, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import {
     type BarLayout,
@@ -15,6 +15,9 @@ import {
 export interface BarTooltipProps<Meta> {
     ctx: TooltipContext<Meta>
     userTooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
+    /** Every drawn series, including those hidden from the tooltip — the visible-segment
+     *  hit-test must see the full stack, not just the tooltip-visible subset. */
+    allSeries: Series<Meta>[]
     stackedData: Map<string, StackedBand> | undefined
     topStackedKeyByAxis: Map<string, string>
     layout: BarLayout
@@ -24,6 +27,7 @@ export interface BarTooltipProps<Meta> {
 export function BarTooltip<Meta>({
     ctx,
     userTooltip,
+    allSeries,
     stackedData,
     topStackedKeyByAxis,
     layout,
@@ -39,7 +43,8 @@ export function BarTooltip<Meta>({
             isHorizontal,
             stackedData,
             topStackedKeyByAxis,
-            labels
+            labels,
+            allSeries
         )
         if (!narrowed) {
             return null
@@ -58,7 +63,8 @@ function narrowSeriesByCursor<Meta>(
     isHorizontal: boolean,
     stackedData: Map<string, StackedBand> | undefined,
     topStackedKeyByAxis: Map<string, string>,
-    labels: string[]
+    labels: string[],
+    allSeries: Series<Meta>[]
 ): TooltipContext<Meta> | null {
     const cursor = ctx.hoverPosition
     if (!cursor) {
@@ -83,7 +89,7 @@ function narrowSeriesByCursor<Meta>(
     let visibleDataIndex: number | null = null
     if (isStackedLayout(layout)) {
         const visible = findVisibleStackedSegment({
-            series: seriesList,
+            series: allSeries,
             labels,
             hoveredLabel: ctx.label,
             cursor,
@@ -93,10 +99,13 @@ function narrowSeriesByCursor<Meta>(
             stackedData,
             topStackedKeyByAxis,
         })
-        if (visible) {
-            visibleKey = visible.series.key
-            visibleDataIndex = visible.dataIndex
+        // No filled segment under the cursor — it's in the empty track past the bar's value
+        // extent (e.g. right of the longest horizontal bar). Suppress rather than show a tooltip.
+        if (!visible) {
+            return null
         }
+        visibleKey = visible.series.key
+        visibleDataIndex = visible.dataIndex
     }
     let filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
     if (isStackedLayout(layout) && filtered.length > 1 && visibleKey) {

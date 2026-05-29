@@ -530,6 +530,7 @@ function BarChartInner<Meta = unknown>({
                 <BarTooltip<Meta>
                     ctx={ctx}
                     userTooltip={tooltip}
+                    allSeries={series}
                     stackedData={stackedData}
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
