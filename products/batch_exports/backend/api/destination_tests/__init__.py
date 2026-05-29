@@ -11,23 +11,31 @@ def get_destination_test(
     SDKs off the API import path — only the requested destination's SDK loads.
     """
     if destination == "S3":
-        from products.batch_exports.backend.api.destination_tests.s3 import S3DestinationTest
+        from products.batch_exports.backend.api.destination_tests.s3 import S3DestinationTest  # noqa: PLC0415
 
         return S3DestinationTest()
     elif destination == "BigQuery":
-        from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryDestinationTest
+        from products.batch_exports.backend.api.destination_tests.bigquery import (  # noqa: PLC0415
+            BigQueryDestinationTest,
+        )
 
         return BigQueryDestinationTest()
     elif destination == "Snowflake":
-        from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeDestinationTest
+        from products.batch_exports.backend.api.destination_tests.snowflake import (  # noqa: PLC0415
+            SnowflakeDestinationTest,
+        )
 
         return SnowflakeDestinationTest()
     elif destination == "Databricks":
-        from products.batch_exports.backend.api.destination_tests.databricks import DatabricksDestinationTest
+        from products.batch_exports.backend.api.destination_tests.databricks import (  # noqa: PLC0415
+            DatabricksDestinationTest,
+        )
 
         return DatabricksDestinationTest()
     elif destination == "AzureBlob":
-        from products.batch_exports.backend.api.destination_tests.azure_blob import AzureBlobDestinationTest
+        from products.batch_exports.backend.api.destination_tests.azure_blob import (  # noqa: PLC0415
+            AzureBlobDestinationTest,
+        )
 
         return AzureBlobDestinationTest()
     else:

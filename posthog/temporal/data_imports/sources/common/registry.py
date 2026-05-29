@@ -20,7 +20,7 @@ class SourceRegistry:
         if cls._loaded:
             return
         cls._loaded = True
-        from posthog.temporal.data_imports.sources import load_all_sources
+        from posthog.temporal.data_imports.sources import load_all_sources  # noqa: PLC0415
 
         load_all_sources()
 

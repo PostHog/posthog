@@ -13,7 +13,7 @@ def load_all_sources() -> None:
     source module's ``@SourceRegistry.register`` decorator. Idempotent — re-imports are
     cheap dict lookups in ``sys.modules``.
     """
-    from . import _load_all  # noqa: F401
+    from . import _load_all  # noqa: F401, PLC0415
 
 
 def __getattr__(name: str) -> Any:
@@ -24,7 +24,7 @@ def __getattr__(name: str) -> Any:
     if name.startswith("_"):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-    from . import _load_all
+    from . import _load_all  # noqa: PLC0415
 
     try:
         return getattr(_load_all, name)

@@ -919,7 +919,7 @@ class OauthIntegration:
         # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
         if kind == "stripe" and integration_id:
             try:
-                from stripe import StripeClient
+                from stripe import StripeClient  # noqa: PLC0415
 
                 stripe_client = StripeClient(oauth_config.client_secret)
                 account = stripe_client.accounts.retrieve(str(integration_id))
@@ -2963,7 +2963,7 @@ class AnthropicIntegrationError(Exception):
 def _build_anthropic_client(api_key: str) -> "Anthropic":
     # Tight timeouts and no SDK-side retries: we don't want a slow upstream to
     # multiply request time by 3 (default `max_retries=2`) inside a Django worker.
-    from anthropic import Anthropic
+    from anthropic import Anthropic  # noqa: PLC0415
 
     return Anthropic(api_key=api_key, timeout=ANTHROPIC_CLIENT_TIMEOUT_SECONDS, max_retries=0)
 
@@ -2988,7 +2988,12 @@ class AnthropicIntegration:
     def validate_key(api_key: str) -> None:
         # Validate by hitting the actual managed-agents surface so a key without
         # beta access fails at create time instead of silently failing later.
-        from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
 
         try:
             client = _build_anthropic_client(api_key)
@@ -3334,7 +3339,7 @@ class StripeIntegration:
         # Apps Secret Store and account-scoped API calls must authenticate with the matching
         # developer secret. Returns None when the required env vars are missing so callers
         # can skip Stripe API calls without raising past their per-secret error handling.
-        from stripe import StripeClient
+        from stripe import StripeClient  # noqa: PLC0415
 
         try:
             oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
