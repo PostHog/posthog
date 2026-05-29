@@ -13,6 +13,8 @@ dict round-trip the mutation builder relies on.
 
 import uuid
 
+import pytest
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.dmat_slot_assignments.sql import (
     DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME,
@@ -20,6 +22,8 @@ from posthog.models.dmat_slot_assignments.sql import (
     RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
     TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL,
 )
+
+pytestmark = pytest.mark.django_db
 
 
 def _populate(rows: list[tuple[int, int, str]]) -> None:
