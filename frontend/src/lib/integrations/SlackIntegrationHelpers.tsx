@@ -129,13 +129,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // Workspaces with hundreds of channels can have the saved channel beyond the first page that
     // /channels returns. Without a direct lookup the bare ID never resolves to a name on initial
     // load — the picker just shows the ID. Fetch the saved channel by id so it merges into the
-    // slackChannels selector regardless of where it falls in the bulk list.
+    // slackChannels selector regardless of where it falls in the bulk list. Skip composite values
+    // ("id|#name") — modifiedValue short-circuits resolution for those, so the lookup result would
+    // never be consumed.
     useEffect(() => {
-        if (!disabled && value) {
-            const channelId = value.split('|')[0]
-            if (channelId) {
-                loadSlackChannelById(channelId)
-            }
+        if (!disabled && value && value.split('|').length === 1) {
+            loadSlackChannelById(value)
         }
     }, [loadSlackChannelById, value, disabled])
 

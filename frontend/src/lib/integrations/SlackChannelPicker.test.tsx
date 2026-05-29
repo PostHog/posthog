@@ -151,7 +151,10 @@ describe('SlackChannelPicker', () => {
         )
     })
 
-    it('extracts the channel id from a composite "id|#name" value for the direct lookup', async () => {
+    it('skips the direct lookup when the saved value is already in composite "id|#name" form', async () => {
+        // Composite values already carry the name; modifiedValue short-circuits resolution for
+        // them and the picker has nothing to do with a by-id response, so the fetch would be a
+        // wasted round-trip on every mount of a previously-saved picker.
         render(
             <Provider>
                 <SlackChannelPicker
@@ -162,15 +165,12 @@ describe('SlackChannelPicker', () => {
             </Provider>
         )
 
-        // The direct lookup must use just the id portion — sending the composite would 404 against
-        // Slack's conversations.info and fail to resolve the name.
-        await waitFor(
-            () => {
-                expect(channelIdLookups).toContain('COFFPAGE9XX')
-            },
-            { timeout: 2000 }
-        )
-        expect(channelIdLookups).not.toContain('COFFPAGE9XX|#off-page-channel')
+        // Wait for the bulk load and any debounced by-id call to settle.
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+        await new Promise((resolve) => setTimeout(resolve, 800))
+        expect(channelIdLookups).toEqual([])
     })
 
     it('does not fire a direct lookup when there is no saved value', async () => {
