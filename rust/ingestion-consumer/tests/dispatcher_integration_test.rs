@@ -51,7 +51,9 @@ struct FakeWorker {
 impl FakeWorker {
     async fn start() -> Self {
         let is_healthy = Arc::new(AtomicBool::new(true));
-        let ctrl = WorkerCtrl { is_healthy: Arc::clone(&is_healthy) };
+        let ctrl = WorkerCtrl {
+            is_healthy: Arc::clone(&is_healthy),
+        };
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -62,7 +64,9 @@ impl FakeWorker {
             .with_state(ctrl);
 
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("fake worker server error");
+            axum::serve(listener, app)
+                .await
+                .expect("fake worker server error");
         });
 
         Self {
@@ -298,7 +302,11 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
         make_msg("t", "key-b"),
         make_msg("t", "key-c"),
     ]);
-    assert_eq!(first.len(), 3, "3 keys across 3 workers must yield 3 sub-batches");
+    assert_eq!(
+        first.len(),
+        3,
+        "3 keys across 3 workers must yield 3 sub-batches"
+    );
     let workers_covered: std::collections::HashSet<usize> =
         first.iter().map(|b| b.worker_idx).collect();
     assert_eq!(workers_covered.len(), 3, "all 3 workers must receive a pin");
@@ -333,7 +341,11 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     // The pin was evicted by drop_dead_pins during the fresh-keys assign above.
     let (_, distinct_id) = w1_key.split_once(':').unwrap();
     let rerouted = dispatcher.assign(vec![make_msg("t", distinct_id)]);
-    assert_eq!(rerouted.len(), 1, "rerouted key must produce exactly one sub-batch");
+    assert_eq!(
+        rerouted.len(),
+        1,
+        "rerouted key must produce exactly one sub-batch"
+    );
     assert_ne!(
         rerouted[0].worker_idx, 1,
         "key previously pinned to w1 must reroute to a live worker, not w1"
