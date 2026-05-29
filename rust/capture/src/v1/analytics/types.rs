@@ -53,7 +53,7 @@ pub struct Batch {
     pub batch: Vec<Event>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
@@ -73,6 +73,7 @@ pub struct Event {
     pub timestamp: String,
     pub session_id: Option<String>,
     pub window_id: Option<String>,
+    #[serde(default)]
     pub options: Options,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
@@ -640,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_event_missing_options_fails() {
+    fn parse_event_missing_options_defaults() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
@@ -650,7 +651,12 @@ mod tests {
                 "timestamp": "2026-03-19T14:29:58.123Z"
             }]
         }"#;
-        assert!(serde_json::from_str::<Batch>(json).is_err());
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        let event = &batch.batch[0];
+        assert_eq!(event.options.cookieless_mode, None);
+        assert_eq!(event.options.disable_skew_correction, None);
+        assert_eq!(event.options.product_tour_id, None);
+        assert_eq!(event.options.process_person_profile, None);
     }
 
     #[test]
