@@ -14,8 +14,12 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from ..facade import api
-from .serializers import PRLifecycleSerializer, TimeToMergeSerializer, WorkflowReportSerializer
+from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.presentation.serializers import (
+    PRLifecycleSerializer,
+    TimeToMergeSerializer,
+    WorkflowReportSerializer,
+)
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
 
@@ -130,9 +134,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @action(detail=False, methods=["get"], pagination_class=None)
     def pr_lifecycle(self, request: Request, **kwargs) -> Response:
         raw_pr_number = request.query_params.get("pr_number")
+        if raw_pr_number is None:
+            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             pr_number = int(raw_pr_number)
-        except (TypeError, ValueError):
+        except ValueError:
             return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
 
         result = api.get_pr_lifecycle(

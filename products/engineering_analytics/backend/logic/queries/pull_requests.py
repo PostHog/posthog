@@ -2,9 +2,9 @@
 
 Nested GitHub objects (``user``, ``head``) are stored as JSON strings on the
 warehouse table, so author handle and head SHA are read with
-``JSONExtractString``. Bot detection lives here (the query / mapping layer) per
-SPEC.md section 7: a handle is a bot if it ends in ``[bot]`` (every GitHub App
-gets that suffix) or is in the small hardcoded allowlist below.
+``JSONExtractString``. Bot detection lives here (the query / mapping layer): a
+handle is a bot if it ends in ``[bot]`` (every GitHub App gets that suffix) or is
+in the small hardcoded allowlist below.
 """
 
 from datetime import datetime
@@ -15,7 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
-from ...facade.contracts import (
+from products.engineering_analytics.backend.facade.contracts import (
     Author,
     BucketKind,
     PRLifecycle,
@@ -28,7 +28,7 @@ from ...facade.contracts import (
 )
 
 # Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix. Kept
-# deliberately small; per-team configuration is deferred (SPEC.md section 7).
+# deliberately small; per-team configuration is deferred.
 KNOWN_BOT_HANDLES: frozenset[str] = frozenset(
     {
         "posthog-bot",
@@ -81,7 +81,7 @@ def query_time_to_merge(
     date_to: datetime,
     group_by_author: bool,
 ) -> list[TimeToMergeRow]:
-    placeholders = {
+    placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "date_to": ast.Constant(value=date_to),
         "bot_handles": ast.Constant(value=sorted(KNOWN_BOT_HANDLES)),
