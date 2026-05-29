@@ -28,7 +28,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
-    const { alertsSortedByState, alertsLoading } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, pagination } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
 
@@ -125,7 +125,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsSortedByState.length === 0 && !alertsLoading
+    const isEmpty = alertsSortedByState.length === 0 && !alertsResponseLoading
     // TODO: add info here to sign up for alerts early access
     return (
         <>
@@ -164,13 +164,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
 
             {isEmpty ? null : (
                 <LemonTable
-                    loading={alertsLoading}
+                    loading={alertsResponseLoading}
                     columns={columns}
                     dataSource={alertsSortedByState}
                     noSortingCancellation
                     rowKey="id"
                     loadingSkeletonRows={5}
                     nouns={['alert', 'alerts']}
+                    pagination={pagination}
                     rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
                 />
             )}
