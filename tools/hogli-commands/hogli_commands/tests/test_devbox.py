@@ -1680,10 +1680,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "Updating" in result.output
         assert captured["name"] == "devbox-test-user"
-        assert captured["parameters"] == {
-            "dotfiles_uri": "https://github.com/user/dotfiles",
-            "workspace_region": coder.DEFAULT_REGION,
-        }
+        assert captured["parameters"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2173,7 +2170,6 @@ class TestStartExistingWorkspace:
                 "git_name": "PostHog Engineer",
                 "git_email": "test-user@example.com",
                 "dotfiles_uri": "https://github.com/user/dotfiles",
-                "workspace_region": coder.DEFAULT_REGION,
             },
         }
 
@@ -2198,14 +2194,13 @@ class TestStartExistingWorkspace:
 
         assert calls == ["start"]
 
-    def test_sync_pins_workspace_region_from_metadata_to_suppress_picker(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When a `coder update` actually fires, pin the current region.
+    def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The pre-start sync must omit `workspace_region`.
 
-        Coder re-prompts for any parameter whose template-declared option set
-        changed since workspace creation. Forwarding the workspace's current
-        region as `--parameter workspace_region=<value>` short-circuits that
-        picker -- the prompt is otherwise unanswerable from environments that
-        can't deliver stdin (e.g. an IDE's read-only output channel).
+        It is immutable; Coder carries it forward on its own and rejects any
+        explicit value on `coder update` with "parameter is immutable and
+        cannot be updated", which would break every resume of a region-aware
+        box. Even for an eu-central-1 workspace, the region must not appear.
         """
         captured: dict[str, object] = {}
         monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
@@ -2230,10 +2225,8 @@ class TestStartExistingWorkspace:
         }
         devbox_cli._start_existing_workspace("devbox-test-user", workspace, verbose=False)
 
-        assert captured["params"] == {
-            "dotfiles_uri": "https://github.com/user/dotfiles",
-            "workspace_region": "eu-central-1",
-        }
+        assert captured["params"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
+        assert coder.WORKSPACE_REGION_PARAMETER not in captured["params"]
 
     def test_skips_sync_for_running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
