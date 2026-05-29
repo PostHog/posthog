@@ -98,6 +98,39 @@ export const NewBAA: Story = {
 }
 
 /**
+ * New-document page for a BAA when the org is on an active addon trial. The
+ * billing payload includes a top-level `trial` block targeting `boost`, so the
+ * paywall banner swaps to the trial-specific copy that instructs the user to
+ * cancel the trial and subscribe before generating the BAA.
+ */
+export const NewBAATrial: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('BAA'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/billing/': {
+                    products: [
+                        {
+                            type: 'platform_and_support',
+                            addons: [{ type: 'boost', subscribed: false }],
+                        },
+                    ],
+                    trial: {
+                        type: 'standard',
+                        status: 'active',
+                        target: 'boost',
+                        expires_at: '2026-06-15T00:00:00Z',
+                    },
+                    has_active_subscription: false,
+                },
+            },
+        }),
+    ],
+}
+
+/**
  * New-document page for a DPA in the default "pretty" mode (legally binding,
  * rendered with a color PostHog logo at the top).
  */

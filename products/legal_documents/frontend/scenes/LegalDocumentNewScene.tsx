@@ -74,6 +74,7 @@ export function LegalDocumentNewScene(): JSX.Element {
         legalDocumentHasErrors,
         isLegalDocumentSubmitting,
         hasQualifyingBaaAddon,
+        isOnQualifyingAddonTrial,
         isDpaModeSubmittable,
         existingDocumentOfCurrentType,
         existingDocumentTypes,
@@ -198,9 +199,19 @@ export function LegalDocumentNewScene(): JSX.Element {
 
                         {baaBlocked && (
                             <LemonBanner type="warning">
-                                A BAA requires an active{' '}
-                                <Link to={urls.organizationBilling()}>Boost, Scale, or Enterprise add-on</Link>.
-                                Subscribe first, then come back here to generate your BAA.
+                                {isOnQualifyingAddonTrial ? (
+                                    <>
+                                        A BAA requires an active paid subscription. Cancel your trial and subscribe on
+                                        your <Link to={urls.organizationBilling()}>billing page</Link>, then come back
+                                        here to generate your BAA.
+                                    </>
+                                ) : (
+                                    <>
+                                        A BAA requires an active{' '}
+                                        <Link to={urls.organizationBilling()}>Boost, Scale, or Enterprise add-on</Link>.
+                                        Subscribe first, then come back here to generate your BAA.
+                                    </>
+                                )}
                             </LemonBanner>
                         )}
 
