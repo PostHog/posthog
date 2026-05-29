@@ -11,6 +11,7 @@ import { z } from 'zod'
 
 import { SessionQueue } from '@posthog/agent-shared'
 
+import { principalDisplay } from '../enqueue/acl'
 import { authorize, AuthProvider, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
@@ -59,17 +60,29 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             }
             const externalKeyHeader = req.headers['x-external-key']
             const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-            const { sessionId, isResume } = await enqueueOrResume(
+            const sessionPrincipal = principalToSession(auth.principal)
+            const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
                     seed: { role: 'user', content: JSON.stringify(parsed.data), timestamp: Date.now() },
-                    principal: principalToSession(auth.principal),
+                    principal: sessionPrincipal,
+                    trigger: 'webhook',
+                    requesterDisplay: principalDisplay(sessionPrincipal),
                 }
             )
-            res.json({ ok: true, session_id: sessionId, resumed: isResume })
+            if (outcome.kind === 'elevation_required') {
+                res.status(403).json({
+                    error: 'elevation_required',
+                    elevation_request_id: outcome.elevationRequestId,
+                    session_id: outcome.sessionId,
+                    owner_display: outcome.existingPrincipalDisplay,
+                })
+                return
+            }
+            res.json({ ok: true, session_id: outcome.sessionId, resumed: outcome.isResume })
         })
     )
     return r

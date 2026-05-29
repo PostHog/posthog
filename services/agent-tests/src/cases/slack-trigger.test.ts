@@ -10,8 +10,8 @@
  *   - url_verification challenge round-trip
  *   - thread_ts dedupe: second mention in same thread resumes
  *   - distinct threads → distinct sessions
- *   - different user in same thread → handled (v2: same session — identity is
- *     follow-up)
+ *   - different user in same thread → elevation_required (B.1 v0 security fix
+ *     — Slack thread replies must not advance a session opened by another user)
  *   - completed thread → fresh session
  *   - bot_id events ignored (no echo loop)
  *   - signature verification: missing, stale, wrong, valid
@@ -95,6 +95,41 @@ describe('slack trigger: real e2e', () => {
         // and then drained by the next turn.
         const userMsgs = session!.conversation.filter((m) => m.role === 'user')
         expect(userMsgs.length).toBe(2)
+    })
+
+    it('different user in same thread → elevation_required, session is NOT advanced', async () => {
+        // The Slack security gap (B.1 v0): before this fix, any Slack user
+        // who could post in a thread could resume someone else's session by
+        // virtue of thread_ts/externalKey matching. Now the second user's
+        // message is rejected, recorded as a PendingElevationRequest, and
+        // the session stays parked until the owner grants elevation.
+        c.setScript([fauxText('first reply')])
+        await c.deployAgent({ slug: 'gated', spec: {} })
+        const first = await request(c.ingress)
+            .post('/agents/gated/slack/events')
+            .send(slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }))
+        expect(first.body.resumed).toBe(false)
+        await c.drain()
+
+        const second = await request(c.ingress)
+            .post('/agents/gated/slack/events')
+            .send(slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }))
+        // Slack expects 200 on events; the elevation is signalled in the body.
+        expect(second.status).toBe(200)
+        expect(second.body.elevation_required).toBe(true)
+        expect(second.body.session_id).toBe(first.body.session_id)
+        expect(second.body.resumed).toBe(false)
+        expect(second.body.elevation_request_id).toMatch(/.+/)
+
+        const session = await c.queue.get(first.body.session_id)
+        // Bob's message must NOT be visible to the runner.
+        expect(session!.pending_inputs).toHaveLength(0)
+        const userMsgs = session!.conversation.filter((m) => m.role === 'user')
+        expect(userMsgs.map((m) => m.content)).toEqual(['alice opens'])
+        // It IS preserved on the elevation request so a future grant can replay.
+        expect(session!.pending_elevation_requests).toHaveLength(1)
+        expect(session!.pending_elevation_requests[0].state).toBe('pending')
+        expect(session!.pending_elevation_requests[0].trigger).toBe('slack')
     })
 
     it('distinct threads create distinct sessions', async () => {

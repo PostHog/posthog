@@ -94,7 +94,7 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 team_id: resolved.application.team_id,
                 id: agentUserId,
             }
-            const { sessionId, isResume } = await enqueueOrResume(
+            const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {
                     application: resolved.application,
@@ -102,9 +102,27 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     externalKey,
                     seed: { role: 'user', content: event.text ?? '', timestamp: Date.now() },
                     principal: slackPrincipal,
+                    trigger: 'slack',
+                    requesterDisplay: `slack:${workspaceId}:${event.user}`,
                 }
             )
-            res.json({ ok: true, session_id: sessionId, resumed: isResume })
+            if (outcome.kind === 'elevation_required') {
+                // Slack expects 200 on the events callback — retrying with the
+                // same payload would just re-record the elevation request. The
+                // v1 elevation message (Slack blocks + interactivity handler)
+                // lands here; for now we just acknowledge and let the audit
+                // trail on the session row carry the rejection.
+                res.json({
+                    ok: true,
+                    session_id: outcome.sessionId,
+                    resumed: false,
+                    elevation_required: true,
+                    elevation_request_id: outcome.elevationRequestId,
+                    owner_display: outcome.existingPrincipalDisplay,
+                })
+                return
+            }
+            res.json({ ok: true, session_id: outcome.sessionId, resumed: outcome.isResume })
         })
     )
     return r

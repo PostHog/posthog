@@ -4,7 +4,7 @@
  * in-memory impl below.
  */
 
-import { AgentSession, ConversationMessage } from '../spec/spec'
+import { AgentSession, ConversationMessage, PendingElevationRequest } from '../spec/spec'
 
 export interface ListSessionsOpts {
     limit?: number
@@ -32,6 +32,12 @@ export interface SessionQueue {
     appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void>
     /** Append directly into `conversation` (runner-side use only). */
     appendConversation(sessionId: string, msg: ConversationMessage): Promise<void>
+    /**
+     * Append a pending elevation request to the session. Used by ingress when
+     * `requireAclAccess` rejects an incoming principal — the rejected message
+     * is preserved so a future grant can replay it.
+     */
+    appendPendingElevationRequest(sessionId: string, req: PendingElevationRequest): Promise<void>
     get(sessionId: string): Promise<AgentSession | null>
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
@@ -110,6 +116,15 @@ export class MemorySessionQueue implements SessionQueue {
             return
         }
         s.conversation.push(msg)
+        s.updated_at = new Date().toISOString()
+    }
+
+    async appendPendingElevationRequest(sessionId: string, req: PendingElevationRequest): Promise<void> {
+        const s = this.sessions.get(sessionId)
+        if (!s) {
+            return
+        }
+        s.pending_elevation_requests.push(req)
         s.updated_at = new Date().toISOString()
     }
 

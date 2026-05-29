@@ -1,6 +1,6 @@
 # Design — per-session access elevation
 
-**Status:** draft / open questions. **Owner:** ben.
+**Status:** v0 shipped (security patch + storage + check). v1 (UI surfaces + activity log) pending. **Owner:** dylan.
 
 This is `_TODO.md` item #5. By default a session is private to its
 initiating principal. When a second user tries to interact, the platform
@@ -403,18 +403,43 @@ catches everything.
 This is additive — disabled by default per agent? No, it's a security
 fix and should be enabled platform-wide. Phases:
 
-**v0** (foundation — security fix):
+**v0** (foundation — security fix) — **✅ shipped**:
 
-- Extract `requireAclAccess(session, incoming)` and apply uniformly
-  in `chat`, `webhook`, and **`slack`** triggers. Close the Slack gap
-  immediately.
-- Add `acl` + `pending_elevation_requests` to `AgentSession`
-  (TypeScript interface + DB migration; both nullable, default `[]`).
-- Add `agent_session_acl_audit` table + Django model.
-- Wire activity-log calls for `elevation_requested` only — no UI yet.
-- Behavior: rejected senders get 403 with `error:
-'elevation_required'` and the deep-link URL. Sessions don't advance.
-  This is the security improvement; subsequent phases add the UX.
+- Extracted `requireAclAccess(session, incoming)` into
+  `services/agent-ingress/src/enqueue/acl.ts` and applied uniformly in
+  `chat /run` + `/send`, `webhook`, `slack`, and `mcp tools/call ask`
+  (continuation + fresh-session). Closed the Slack thread-resume bypass.
+- Tightened `principalsMatch` to require `id` equality for
+  identity-bearing kinds (`slack`, etc.) — the prior "kind equality is
+  the contract" fallthrough matched two different Slack users as the
+  same principal.
+- Added `acl` + `pending_elevation_requests` JSONB columns to
+  `agent_session` (migration
+  `services/agent-migrations/migrations/1780071167943_session_acl.sql`,
+  default `[]`).
+- Threaded the new fields through `AgentSession`, `MemorySessionQueue`,
+  `PgSessionQueue`, and `enqueueOrResume`. `enqueueOrResume` now
+  returns a discriminated `EnqueueOutcome` (`created` | `resumed` |
+  `elevation_required`).
+- On denial: a `PendingElevationRequest` is recorded on the session
+  (capped at 5 active pending entries; older ones expire). The trigger
+  responds with 403 + `{ error: 'elevation_required',
+elevation_request_id, session_id, owner_display }` for HTTP triggers,
+  or 200 + `elevation_required: true` for Slack (events callback expects
+  200).
+- e2e coverage: extended `slack-trigger.test.ts` ("different user in
+  same thread → elevation_required") and `strict-principal.test.ts`
+  ("/send with a different PAT → 403 elevation_required").
+
+Deferred from v0 (rolled into v1):
+
+- `agent_session_acl_audit` table + Django model. The PendingElevationRequest
+  row on the session is sufficient v0 audit; the cross-session denormalized
+  table lands with v1's UI.
+- Activity-log integration. Lands with v1 alongside the rest of the
+  cross-service activity-log helper.
+- `elevation_url` in the response — no UI to point at yet; the
+  v1 surface will populate it.
 
 **v1** (UX):
 

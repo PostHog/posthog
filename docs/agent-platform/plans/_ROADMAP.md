@@ -106,6 +106,11 @@ any UX work.
 It also introduces the **activity-log integration** for the agent
 platform — a shared dependency the next two plans rely on.
 
+**v0 (security patch + storage + check) ✅ shipped; v1 (Slack
+elevation message + chat panel + per-session ACL scene + activity-log
+helper) pending; v2 (delegation + org-admin override + MCP grant tool)
+pending.**
+
 ### B.2 [`approval-gated-tools.md`](approval-gated-tools.md) — **v0 shipped**
 
 Per-tool `requires_approval` flag on `AgentSpec`; runner intercepts

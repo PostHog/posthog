@@ -1,4 +1,4 @@
-import { AgentSpecSchema, MemorySessionQueue } from '@posthog/agent-shared'
+import { AgentSpecSchema, MemorySessionQueue, SessionPrincipal } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 
 import { enqueueOrResume } from './enqueue'
@@ -28,11 +28,14 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
     return { app, rev }
 }
 
+const ALICE: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-alice' }
+const BOB: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-bob' }
+
 describe('enqueueOrResume', () => {
     it('creates a fresh session without externalKey', async () => {
         const queue = new MemorySessionQueue()
         const { app, rev } = makePair()
-        const { isResume } = await enqueueOrResume(
+        const out = await enqueueOrResume(
             { queue, teamId: 1 },
             {
                 application: app,
@@ -41,10 +44,11 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'hi', timestamp: Date.now() },
             }
         )
-        expect(isResume).toBe(false)
+        expect(out.kind).toBe('created')
+        expect(out.isResume).toBe(false)
     })
 
-    it('resumes an existing session matching externalKey', async () => {
+    it('resumes an existing session matching externalKey + same principal', async () => {
         const queue = new MemorySessionQueue()
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
@@ -54,6 +58,7 @@ describe('enqueueOrResume', () => {
                 revision: rev,
                 externalKey: 'slack:C01:thread1',
                 seed: { role: 'user', content: 'first', timestamp: Date.now() },
+                principal: ALICE,
             }
         )
         const second = await enqueueOrResume(
@@ -63,9 +68,10 @@ describe('enqueueOrResume', () => {
                 revision: rev,
                 externalKey: 'slack:C01:thread1',
                 seed: { role: 'user', content: 'follow-up', timestamp: Date.now() },
+                principal: ALICE,
             }
         )
-        expect(second.isResume).toBe(true)
+        expect(second.kind).toBe('resumed')
         expect(second.sessionId).toBe(first.sessionId)
         const session = await queue.get(first.sessionId)
         // Initial seed in conversation; follow-up lands in pending_inputs so
@@ -87,6 +93,7 @@ describe('enqueueOrResume', () => {
                 revision: rev,
                 externalKey: 'slack:C01:thread2',
                 seed: { role: 'user', content: 'first', timestamp: Date.now() },
+                principal: ALICE,
             }
         )
         await queue.update(first.sessionId, { state: 'completed' })
@@ -97,9 +104,10 @@ describe('enqueueOrResume', () => {
                 revision: rev,
                 externalKey: 'slack:C01:thread2',
                 seed: { role: 'user', content: 'second', timestamp: Date.now() },
+                principal: ALICE,
             }
         )
-        expect(second.isResume).toBe(true)
+        expect(second.kind).toBe('resumed')
         expect(second.sessionId).toBe(first.sessionId)
     })
 
@@ -113,6 +121,7 @@ describe('enqueueOrResume', () => {
                 revision: rev,
                 externalKey: 'slack:C01:thread3',
                 seed: { role: 'user', content: 'first', timestamp: Date.now() },
+                principal: ALICE,
             }
         )
         await queue.update(first.sessionId, { state: 'closed' })
@@ -123,9 +132,98 @@ describe('enqueueOrResume', () => {
                 revision: rev,
                 externalKey: 'slack:C01:thread3',
                 seed: { role: 'user', content: 'second', timestamp: Date.now() },
+                principal: ALICE,
             }
         )
-        expect(second.isResume).toBe(false)
+        expect(second.kind).toBe('created')
         expect(second.sessionId).not.toBe(first.sessionId)
+    })
+
+    it('denies a resume when the incoming principal does not match', async () => {
+        // The Slack-thread security gap: previously a second user could
+        // resume someone else's thread because principals weren't checked on
+        // the externalKey resume path. Now we record a pending elevation
+        // request and surface elevation_required to the trigger instead.
+        const queue = new MemorySessionQueue()
+        const { app, rev } = makePair()
+        const first = await enqueueOrResume(
+            { queue, teamId: 1 },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread4',
+                seed: { role: 'user', content: 'alice opens thread', timestamp: Date.now() },
+                principal: ALICE,
+                trigger: 'slack',
+            }
+        )
+        const second = await enqueueOrResume(
+            { queue, teamId: 1 },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread4',
+                seed: { role: 'user', content: 'bob replies', timestamp: Date.now() },
+                principal: BOB,
+                trigger: 'slack',
+            }
+        )
+        expect(second.kind).toBe('elevation_required')
+        if (second.kind !== 'elevation_required') {
+            return
+        }
+        expect(second.sessionId).toBe(first.sessionId)
+        expect(second.elevationRequestId).toMatch(/.+/)
+
+        const session = await queue.get(first.sessionId)
+        // The rejected message is NOT appended to pending_inputs — the
+        // runner must not see it.
+        expect(session!.pending_inputs).toHaveLength(0)
+        // It IS preserved on the elevation request for replay-on-grant.
+        expect(session!.pending_elevation_requests).toHaveLength(1)
+        const req = session!.pending_elevation_requests[0]
+        expect(req.state).toBe('pending')
+        expect(req.requester.id).toBe('user-bob')
+        const proposed = req.proposed_message
+        expect(proposed.role).toBe('user')
+        if (proposed.role === 'user') {
+            expect(proposed.content).toBe('bob replies')
+        }
+    })
+
+    it('expires the oldest pending elevation request once the cap is exceeded', async () => {
+        const queue = new MemorySessionQueue()
+        const { app, rev } = makePair()
+        await enqueueOrResume(
+            { queue, teamId: 1 },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread5',
+                seed: { role: 'user', content: 'alice opens', timestamp: Date.now() },
+                principal: ALICE,
+                trigger: 'slack',
+            }
+        )
+        // Six denials — the seventh would also fit if we ever lift the cap,
+        // but here we just exercise the rollover from 5 → 5.
+        for (let i = 0; i < 6; i++) {
+            await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: 'slack:C01:thread5',
+                    seed: { role: 'user', content: `bob #${i}`, timestamp: Date.now() + i },
+                    principal: { ...BOB, id: `bob-${i}` },
+                    trigger: 'slack',
+                }
+            )
+        }
+        const session = await queue.get((await queue.findByExternalKey(app.id, 'slack:C01:thread5'))!.id)
+        const pendings = session!.pending_elevation_requests.filter((r) => r.state === 'pending')
+        expect(pendings).toHaveLength(5)
+        const expired = session!.pending_elevation_requests.filter((r) => r.state === 'expired')
+        expect(expired).toHaveLength(1)
     })
 })

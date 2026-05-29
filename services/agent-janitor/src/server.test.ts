@@ -24,6 +24,8 @@ function session(id: string): AgentSession {
         principal: null,
         retry_count: 0,
         usage_total: { ...EMPTY_USAGE_TOTAL },
+        acl: [],
+        pending_elevation_requests: [],
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }

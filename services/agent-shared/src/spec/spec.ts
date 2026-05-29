@@ -260,6 +260,51 @@ export interface SessionPrincipal {
     id?: string
 }
 
+/**
+ * One slot in a session's ACL allowlist. Exactly one of `principal` or
+ * `scope` is populated. `scope` is the "anyone matching this rule" form;
+ * v0 ships the storage and the matcher but no UI populates it yet.
+ */
+export type SessionAclScope =
+    | { kind: 'team_members'; team_id: number }
+    | { kind: 'org_admins'; org_id: string }
+    | { kind: 'slack_channel'; channel_id: string; workspace_id: string }
+
+export interface SessionAclEntry {
+    principal?: SessionPrincipal
+    scope?: SessionAclScope
+    granted_by: SessionPrincipal
+    granted_at: string
+    /** ISO timestamp; null means no expiry. */
+    expires_at: string | null
+    reason: string | null
+    state: 'active' | 'revoked'
+    revoked_by?: SessionPrincipal
+    revoked_at?: string
+    revoked_reason?: string
+    /** v2: whether this grantee can grant further elevation. Default false. */
+    can_delegate?: boolean
+}
+
+/**
+ * A record of a rejected attempt to advance a session. Populated by the
+ * ingress when `requireAclAccess` denies an incoming principal. v1 surfaces
+ * these in the chat UI / Slack elevation message and lets the session owner
+ * grant access (which moves the entry to `granted` and re-queues the
+ * proposed message into `pending_inputs`).
+ */
+export interface PendingElevationRequest {
+    id: string
+    requester: SessionPrincipal
+    requester_display: string
+    trigger: 'chat' | 'webhook' | 'slack' | 'mcp'
+    proposed_message: ConversationMessage
+    created_at: string
+    state: 'pending' | 'granted' | 'declined' | 'expired'
+    decision_at?: string
+    decision_by?: SessionPrincipal
+}
+
 export interface SessionUsageTotal {
     tokens_in: number
     tokens_out: number
@@ -340,6 +385,18 @@ export interface AgentSession {
      * sessions created before this column existed.
      */
     usage_total: SessionUsageTotal
+    /**
+     * Allowlist of additional principals (or scopes) on top of `principal`.
+     * Empty by default. Consulted by `requireAclAccess` on every resume / send.
+     * v0 has no UI to populate this; v1 adds the grant surface.
+     */
+    acl: SessionAclEntry[]
+    /**
+     * Rejected attempts to advance this session. Each entry preserves the
+     * proposed message so a grant can replay it. v0 records these; v1
+     * surfaces them in the chat UI / Slack thread.
+     */
+    pending_elevation_requests: PendingElevationRequest[]
     created_at: string
     updated_at: string
 }

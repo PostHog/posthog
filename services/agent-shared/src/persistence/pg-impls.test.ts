@@ -137,6 +137,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
                 principal: null,
                 retry_count: 0,
                 usage_total: { ...EMPTY_USAGE_TOTAL },
+                acl: [],
+                pending_elevation_requests: [],
                 created_at: new Date(Date.now() + i).toISOString(),
                 updated_at: new Date(Date.now() + i).toISOString(),
             })
@@ -177,6 +179,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -216,6 +220,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -252,6 +258,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -346,6 +354,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
@@ -428,6 +438,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         })
