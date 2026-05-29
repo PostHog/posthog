@@ -1,5 +1,5 @@
-# TODO(andrew): add s3 cleanup on failure
 import uuid
+import queue
 import typing
 import asyncio
 import dataclasses
@@ -10,6 +10,7 @@ import pyarrow as pa
 import deltalake
 import asyncstdlib
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -234,6 +235,25 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
+    """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
+    is still queryable.
+    """
+    buf = pa.BufferOutputStream()
+    pq.write_table(schema.empty_table(), buf)
+    parquet_bytes = buf.getvalue().to_pybytes()
+    file_uri = f"{table_uri}/empty_{uuid.uuid4().hex}.parquet"
+    s3 = get_s3_client()
+
+    def _upload() -> None:
+        with s3.open(file_uri, "wb") as f:
+            f.write(parquet_bytes)
+
+    await asyncio.to_thread(_upload)
+    await logger.ainfo(f"Wrote empty parquet for zero-row materialization: uri={file_uri} bytes={len(parquet_bytes)}")
+    return file_uri
+
+
 async def get_query_row_count(
     query: str, team: Team, logger: FilteringBoundLogger, view_name: str | None = None
 ) -> int:
@@ -279,6 +299,20 @@ async def get_query_row_count(
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
+
+
+async def _read_arrow_schema_from_query(client, query: str, query_parameters: dict) -> pa.Schema:
+    """Fetch just the Arrow schema for a query that returned zero rows.
+
+    The streaming reader hides the schema when there are no batches, so we re-issue the
+    same query and read the schema message that ClickHouse always sends in ArrowStream
+    format. The response for a zero-row result is just the schema + EOS, so reading the
+    full body is cheap.
+    """
+    async with client.apost_query(query=query, query_parameters=query_parameters, query_id=str(uuid.uuid4())) as resp:
+        data = await resp.content.read()
+    reader = pa.ipc.open_stream(pa.BufferReader(data))
+    return reader.schema
 
 
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view_name: str | None = None):
@@ -401,25 +435,34 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     ):
         batches = []
         batches_size = 0
+        yielded_results = False
+        ch_typings_pairs = [(column_name, column_type) for column_name, column_type, _ in query_typings]
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
             batches_size = batches_size + batch.nbytes
             batches.append(batch)
 
             if batches_size >= MB_100_IN_BYTES:
                 await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-                yield (
-                    _combine_batches(batches),
-                    [(column_name, column_type) for column_name, column_type, _ in query_typings],
-                )
+                yield (_combine_batches(batches), ch_typings_pairs)
+                yielded_results = True
                 batches_size = 0
                 batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-            yield (
-                _combine_batches(batches),
-                [(column_name, column_type) for column_name, column_type, _ in query_typings],
+            yield (_combine_batches(batches), ch_typings_pairs)
+            yielded_results = True
+
+        if not yielded_results:
+            # zero-row result. yield a single empty batch carrying the query's schema so
+            # downstream can still write a delta table (and an empty queryable parquet)
+            # instead of leaving the model with no DataWarehouseTable at all.
+            await logger.adebug(
+                "Query returned zero batches; yielding empty batch with schema for queryable empty table"
             )
+            schema = await _read_arrow_schema_from_query(client, arrow_printed, context.values)
+            empty_batch = pa.RecordBatch.from_arrays([pa.array([], type=field.type) for field in schema], schema=schema)
+            yield (empty_batch, ch_typings_pairs)
 
 
 @database_sync_to_async
@@ -485,41 +528,87 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         row_count = 0
         storage_options = _get_aws_storage_options()
         delta_table: deltalake.DeltaTable | None = None
-        async for index, res in asyncstdlib.enumerate(
-            hogql_table(hogql_query, team, logger, view_name=saved_query.name)
-        ):
-            batch, ch_types = res
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            if index == 0:
+        # cache the schema of the first written batch so we can synthesize an empty
+        # parquet for zero-row results without going through delta-rs (whose Schema
+        # is arro3, not pyarrow).
+        pa_schema: pa.Schema | None = None
+
+        # we stream every batch through a single deltalake write transaction.
+        # writing per-batch with mode="append" routes through delta-rs's
+        # DataFusion-backed writer, which lowercases identifiers and breaks
+        # columns with uppercase characters (`personId`, `Event`, ...) with
+        # errors like "Generic DeltaTable error: Schema error: No field named
+        # personid. ... Did you mean 'personId'?".
+        SENTINEL: typing.Any = object()
+        batch_queue: queue.Queue[pa.RecordBatch] = queue.Queue(maxsize=2)
+        producer_error: list[BaseException] = []
+
+        # a producer error is recorded in producer_error and then signalled to the
+        # consumer as a SENTINEL — i.e. the same clean end-of-stream as success. the
+        # consumer therefore commits whatever batches it received (a partial overwrite)
+        # before we re-raise below. that partial commit is harmless: the activity raises,
+        # Temporal retries, and the retry's delete-first wipes table_uri before rewriting.
+        async def _produce_batches() -> None:
+            nonlocal row_count
+            try:
+                async for _, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+                    batch, ch_types = res
+                    batch = _transform_unsupported_decimals(batch)
+                    batch = _transform_date_and_datetimes(batch, ch_types)
+                    num_rows = batch.num_rows
+                    await asyncio.to_thread(batch_queue.put, batch)
+                    # local reference dropped immediately; the queue (and later
+                    # the consumer) holds the only remaining reference.
+                    del batch, ch_types
+                    row_count = row_count + num_rows
+                    job.rows_materialized = row_count
+                    await database_sync_to_async(job.save)()
+            except BaseException as e:
+                producer_error.append(e)
+            finally:
+                await asyncio.to_thread(batch_queue.put, SENTINEL)
+
+        producer_task = asyncio.create_task(_produce_batches())
+        try:
+            first_batch = await asyncio.to_thread(batch_queue.get)
+            if first_batch is not SENTINEL:
+                pa_schema = first_batch.schema
+
+                def _batch_iter() -> typing.Iterator[pa.RecordBatch]:
+                    yield first_batch
+                    while True:
+                        item = batch_queue.get()
+                        if item is SENTINEL:
+                            return
+                        yield item
+
+                reader = pa.RecordBatchReader.from_batches(pa_schema, _batch_iter())
                 await logger.adebug(
-                    f"Writing batch to delta table: index={index} mode=overwrite schema_mode=overwrite batch_row_count={batch.num_rows}"
+                    f"Writing batches to delta table in a single transaction: mode=overwrite schema_mode=overwrite first_batch_rows={first_batch.num_rows}"
                 )
                 await asyncio.to_thread(
                     deltalake.write_deltalake,
                     table_or_uri=table_uri,
-                    data=batch,
+                    data=reader,
                     mode="overwrite",
                     schema_mode="overwrite",
                     storage_options=storage_options,
                 )
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-            else:
-                await logger.adebug(
-                    f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
-                )
-                await asyncio.to_thread(
-                    deltalake.write_deltalake,  # type: ignore[arg-type]
-                    table_or_uri=delta_table,
-                    data=batch,
-                    mode="append",
-                    storage_options=storage_options,
-                )
-            row_count = row_count + batch.num_rows
-            job.rows_materialized = row_count
-            await database_sync_to_async(job.save)()
-            # explicitly delete batch to free memory after writing
-            del batch, ch_types
+        finally:
+            # if the write aborted partway through, drain the queue so a
+            # producer blocked on batch_queue.put can finalize and we can
+            # surface its error rather than leak the task.
+            while not producer_task.done():
+                try:
+                    batch_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+            await producer_task
+
+        if producer_error:
+            raise producer_error[0]
+
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         # row count validation warning
         if job.rows_expected is not None:
@@ -541,6 +630,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 dry_run=False,
             )
             file_uris = delta_table.file_uris()
+            if not file_uris and row_count == 0 and pa_schema is not None:
+                # delta-rs writes no parquet for an empty batch. emit one so the
+                # queryable folder has a file with a schema attached that's queryable
+                empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
+                file_uris = [empty_parquet_uri]
         await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
     return MaterializeViewResult(
         node_id=node.id,
