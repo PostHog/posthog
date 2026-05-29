@@ -9,6 +9,15 @@ feature: agent_stack
 url_prefix: /agent_applications
 ui_apps: {}
 tools:
+    agent-applications-approvals-decide:
+        operation: agent_applications_approvals_decide
+        enabled: false
+    agent-applications-approvals-list:
+        operation: agent_applications_approvals_list
+        enabled: false
+    agent-applications-approvals-retrieve:
+        operation: agent_applications_approvals_retrieve
+        enabled: false
     agent-applications-create:
         operation: agent_applications_create
         enabled: true
