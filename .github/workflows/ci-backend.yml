@@ -800,6 +800,17 @@ jobs:
                         continue
                       fi
 
+                      # Skip generated squash files (nextgensquash trial). They
+                      # have giant `replaces=` lists that make sqlmigrate's
+                      # state replay take ~30s per file; on a PR with one
+                      # squash per app the analyzer can't finish in 20min.
+                      if [[ $migration_number =~ ^[0-9]+_squashed_(stub|initial)$ || \
+                            $migration_number == "0002_finalize_fks" || \
+                            $migration_number == "0003_schema_addons" ]]; then
+                        echo "Skipping $file (generated squash artifact)"
+                        continue
+                      fi
+
                       HAS_NEW_MIGRATIONS=true
                       echo "Checking migration $migration_number for app $app_name"
 
