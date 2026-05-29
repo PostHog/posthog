@@ -226,6 +226,11 @@ export interface BarChartConfig extends ChartConfig {
     bandPadding?: number
     /** Drop shadow under each bar so it reads as layered over a `barTrack`. */
     barShadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush
+     *  into an unreadable strip, the chart expands its container height so each row has at
+     *  least this much vertical space (label height + breathing room). Defaults to `24`.
+     *  Pass `0` to opt out. */
+    minBandSize?: number
 }
 
 export interface LineChartConfig extends ChartConfig {

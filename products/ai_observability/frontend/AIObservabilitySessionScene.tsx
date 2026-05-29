@@ -267,7 +267,10 @@ function SessionTurnView({
     const traceUrl = combineUrl(urls.aiObservabilityTrace(trace.id), baseTraceParams).url
     const summaryUrl = combineUrl(urls.aiObservabilityTrace(trace.id), { ...baseTraceParams, tab: 'summary' }).url
 
-    const canShowSteps = turn.isLoaded && turn.userVisibleTurn
+    const hasTranscript = turn.isLoaded && !!turn.userVisibleTurn
+    // Auto-show the Steps panel for span-only turns — they have no transcript to fall
+    // back to, so the span tree IS the conversation.
+    const showStepsPanel = (hasTranscript && stepsShown) || (turn.isLoaded && !turn.userVisibleTurn)
 
     return (
         <div className="flex flex-col">
@@ -321,7 +324,7 @@ function SessionTurnView({
                         </div>
                     )}
 
-                    {canShowSteps && stepsShown && (
+                    {showStepsPanel && (
                         <StepsPanel
                             traceId={trace.id}
                             fullTrace={fullTrace}
@@ -334,7 +337,7 @@ function SessionTurnView({
                 <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
                     {showSentiment && <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />}
                     <div className="flex flex-col gap-1 items-start">
-                        {canShowSteps && (
+                        {hasTranscript && (
                             <LemonButton size="xsmall" type="tertiary" onClick={() => toggleSteps(trace.id)}>
                                 {stepsShown ? 'Hide steps' : 'Show steps'}
                             </LemonButton>
@@ -380,7 +383,7 @@ function TurnBody({
     turn: SessionTurn
     isLoading: boolean
     onLoad: () => void
-}): JSX.Element {
+}): JSX.Element | null {
     if (isLoading) {
         return (
             <div className="flex items-center gap-2 text-muted text-sm py-2">
@@ -399,7 +402,8 @@ function TurnBody({
         )
     }
     if (!turn.userVisibleTurn) {
-        return <div className="text-muted text-sm py-2">No conversational turn to render in this trace.</div>
+        // No chat to render — the parent renders `StepsPanel` inline below as the substitute.
+        return null
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
     return <TranscriptBubbleStream inputs={turn.newInputs} outputs={turn.outputs} />
