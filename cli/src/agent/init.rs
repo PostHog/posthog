@@ -1,18 +1,42 @@
-//! `posthog-cli init` — write (or refresh) the agent steering block into an
-//! agent-instructions file (default `AGENTS.md`). Idempotent: the block is
-//! delimited by `posthog:cli` markers, so re-running replaces it in place rather
-//! than appending a duplicate.
+//! `posthog-cli init` — project setup for the PostHog CLI.
+//!
+//! When `--agent` is passed, writes the coding-agent steering block into the
+//! target file (default `AGENTS.md`) without prompting. Without it, asks
+//! interactively whether the user is using a coding agent and only writes the
+//! block if they say yes.
+//!
+//! The block is delimited by `posthog:cli` markers, so re-running replaces it
+//! in place rather than appending a duplicate.
 
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-/// The canonical steering block (markers included) — single source of truth.
 const STEERING_BLOCK: &str = include_str!("steering.md");
 const START_MARKER: &str = "<!-- posthog:cli:start -->";
 const END_MARKER: &str = "<!-- posthog:cli:end -->";
 
-pub fn run(path: &str) -> Result<()> {
+pub fn run(path: &str, agent: bool) -> Result<()> {
+    let install_steering = if agent {
+        true
+    } else {
+        inquire::Confirm::new("Are you using a coding agent (e.g. Claude Code, Cursor, Copilot)?")
+            .with_default(true)
+            .with_help_message("If yes, we'll add a steering block to your AGENTS.md so your agent can discover and use the CLI")
+            .prompt()
+            .context("Failed to read response")?
+    };
+
+    if install_steering {
+        write_steering(path)?;
+    } else {
+        println!("Skipped agent steering block. You can add it later with `posthog-cli init --agent`.");
+    }
+
+    Ok(())
+}
+
+fn write_steering(path: &str) -> Result<()> {
     let block = STEERING_BLOCK.trim_end_matches('\n');
     let existing = fs::read_to_string(path).unwrap_or_default();
 
@@ -46,7 +70,6 @@ fn merge(existing: &str, block: &str) -> (String, &'static str) {
     if existing.trim().is_empty() {
         return (format!("{block}\n"), "created");
     }
-    // Append, keeping exactly one blank line before our block.
     let separator = if existing.ends_with('\n') {
         "\n"
     } else {
@@ -78,13 +101,11 @@ mod tests {
         assert_eq!(action, "added");
         assert!(content.starts_with("# My project rules"));
         assert!(content.contains(START_MARKER));
-        // exactly one blank line between existing content and the block
         assert!(content.contains("Do the thing.\n\n<!-- posthog:cli:start -->"));
     }
 
     #[test]
     fn replaces_between_markers_idempotently() {
-        // First write into a file with surrounding content.
         let existing = "# Top\n\n<!-- posthog:cli:start -->\nOLD CONTENT\n<!-- posthog:cli:end -->\n\n# Bottom\n";
         let (once, action) = merge(existing, block());
         assert_eq!(action, "updated");
@@ -93,7 +114,6 @@ mod tests {
         assert!(!once.contains("OLD CONTENT"));
         assert_eq!(once.matches(START_MARKER).count(), 1);
 
-        // Running again is a no-op on the content (idempotent).
         let (twice, _) = merge(&once, block());
         assert_eq!(once, twice);
         assert_eq!(twice.matches(START_MARKER).count(), 1);

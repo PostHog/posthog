@@ -52,11 +52,15 @@ pub enum Commands {
         cmd: ExpCommand,
     },
 
-    /// Write the PostHog CLI steering block into an agent instructions file (default AGENTS.md)
+    /// Set up PostHog CLI in this project
     Init {
-        /// Target file to write the steering block into
+        /// Target file for the agent steering block
         #[arg(long, default_value = "AGENTS.md")]
         path: String,
+
+        /// Install the coding-agent steering block without prompting
+        #[arg(long, default_value = "false")]
+        agent: bool,
     },
 
     #[command(about = "Upload a directory of bundled chunks to PostHog")]
@@ -239,8 +243,8 @@ impl Cli {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
             }
-            Commands::Init { path } => {
-                crate::agent::init::run(&path)?;
+            Commands::Init { path, agent } => {
+                crate::agent::init::run(&path, agent)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
