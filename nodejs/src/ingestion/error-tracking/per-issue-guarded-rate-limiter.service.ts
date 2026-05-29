@@ -13,6 +13,8 @@ export type GuardedStatus = 'allowed' | 'limited' | 'tripped' | 'cooldown'
 
 const STATUS_BY_CODE: GuardedStatus[] = ['allowed', 'limited', 'tripped', 'cooldown']
 
+type ValidatedRequest = KeyedRateLimitRequest & { teamId: number; bucketSize: number; refillRate: number }
+
 export interface PerIssueGuardedRateLimiterConfig {
     /** Logical name; produces `@posthog/<name>/tokens|sigcount|sigcooldown/...` keys (`@posthog-test/...` under NODE_ENV=test). */
     name: string
@@ -84,12 +86,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
             }
         }
 
-        const items = [...grouped.values()]
-
-        const teamIds: number[] = []
-        const bucketSizes: number[] = []
-        const refillRates: number[] = []
-        for (const req of items) {
+        const items = [...grouped.values()].map((req): ValidatedRequest => {
             if (req.teamId == null) {
                 throw new Error(
                     `PerIssueGuardedRateLimiterService(${this.config.name}): request for id "${req.id}" is missing teamId — the step must populate it`
@@ -105,25 +102,22 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                     `PerIssueGuardedRateLimiterService(${this.config.name}): missing refillRate for ${req.id}`
                 )
             }
-            teamIds.push(req.teamId)
-            bucketSizes.push(req.bucketSize)
-            refillRates.push(req.refillRate)
-        }
+            return req as ValidatedRequest
+        })
 
         const res = await this.redis.usePipeline(
             { name: `per-issue-guarded:${this.config.name}`, failOpen: true },
             (pipeline) => {
-                items.forEach((req, i) => {
-                    const teamId = teamIds[i]
+                items.forEach((req) => {
                     const now = req.now ?? Math.round(Date.now() / 1000)
                     pipeline.checkGuardedRateLimit(
-                        this.cooldownKey(teamId),
-                        this.counterKey(teamId, now),
+                        this.cooldownKey(req.teamId),
+                        this.counterKey(req.teamId, now),
                         `${this.prefixes.bucket}/${req.id}`,
                         now,
                         req.cost,
-                        bucketSizes[i],
-                        refillRates[i],
+                        req.bucketSize,
+                        req.refillRate,
                         req.ttlSeconds ?? this.config.bucketTtlSeconds,
                         this.config.threshold,
                         this.config.windowTtlSeconds,
@@ -138,7 +132,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
                 throw new Error(`PerIssueGuardedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
             }
             guardOutcomeCounter.inc({ outcome: 'allowed' }, requests.length)
-            const bucketSizeById = new Map(items.map((req, i) => [req.id, bucketSizes[i]]))
+            const bucketSizeById = new Map(items.map((req) => [req.id, req.bucketSize]))
             return requests.map((req) => {
                 const bucketSize = bucketSizeById.get(req.id) ?? 0
                 return [req.id, { tokensBefore: bucketSize, tokens: bucketSize, isRateLimited: false }]
@@ -150,7 +144,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
         items.forEach((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             const raw = tokenRes?.[1] as [unknown, unknown, unknown] | undefined
-            const tokensBefore = raw ? Number(raw[0]) : bucketSizes[index]
+            const tokensBefore = raw ? Number(raw[0]) : req.bucketSize
             const statusCode = raw ? Number(raw[2]) : 0
             const status = STATUS_BY_CODE[statusCode] ?? 'allowed'
             budgetById.set(req.id, tokensBefore)
