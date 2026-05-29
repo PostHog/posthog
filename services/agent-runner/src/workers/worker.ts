@@ -4,9 +4,12 @@
  *
  * Concurrency model — agents are largely I/O-bound (LLM HTTP, tool HTTP,
  * sandbox round-trips), so one worker process keeps up to `maxConcurrency`
- * sessions in flight at once. Whenever a slot frees, the next session is
- * claimed. The PG queue's SELECT FOR UPDATE SKIP LOCKED protects against
- * any worker (in this process or any other) double-claiming.
+ * sessions in flight at once. The loop awaits `Promise.race` on the
+ * inflight set when at capacity, so a single finishing session
+ * immediately frees one slot and the next claim fires — steady-state,
+ * not a fill-and-drain wave. The PG queue's SELECT FOR UPDATE SKIP
+ * LOCKED protects against any worker (in this process or any other)
+ * double-claiming.
  *
  * Shutdown semantics — `stop()` aborts the shared `shutdownController`:
  *   - in-flight pi-ai calls receive the AbortSignal and cancel cleanly
@@ -143,11 +146,15 @@ export class Worker {
         let claimed = 0
 
         while (this.running && claimed < targetClaims && !this.shutdownController.signal.aborted) {
-            // Wait for an open slot. allSettled (not race) so one in-flight
-            // session rejecting doesn't propagate out — runOne owns its own
-            // try/catch and the rejection is informational here.
+            // Wait for ONE open slot so we maintain steady-state concurrency.
+            // Each promise in `inflight` is chained with `.catch()` below, so
+            // it can only resolve — never reject — making Promise.race safe
+            // without the all-settled drain that used to wedge utilization
+            // into a wave pattern (fill to N → wait for slowest → fill again).
+            // The winning promise's `.finally` has already removed it from
+            // the map by the time we resume here, so size has decremented.
             while (this.inflight.size >= this.maxConcurrency) {
-                await Promise.allSettled(this.inflight.values())
+                await Promise.race(this.inflight.values())
             }
             if (!this.running || this.shutdownController.signal.aborted || claimed >= targetClaims) {
                 break
