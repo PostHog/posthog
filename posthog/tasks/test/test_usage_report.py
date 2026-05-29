@@ -27,6 +27,7 @@ from django.utils.timezone import now
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
+from parameterized import parameterized
 
 from posthog.schema import EventsQuery
 
@@ -1712,44 +1713,40 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
 
 
 class TestTrimOversizeUsageReportPayload(TestCase):
-    def test_returns_dict_unchanged_when_under_limit(self) -> None:
-        from posthog.tasks.usage_report import _trim_oversize_usage_report_payload
-
-        small_report = {
-            "team_count": 2,
-            "event_count_in_period": 100,
-            "teams": {"1": {"event_count_in_period": 60}, "2": {"event_count_in_period": 40}},
-        }
-
-        result = _trim_oversize_usage_report_payload(small_report)
-
-        assert result is small_report
-
-    def test_drops_teams_and_sets_marker_when_over_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("under_limit", 2, False),
+            ("over_limit", 600, True),
+        ]
+    )
+    def test_trims_teams_only_when_over_limit(self, _name: str, team_count: int, expect_trimmed: bool) -> None:
         from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, _trim_oversize_usage_report_payload
 
-        # Build a payload whose `teams` dict alone pushes us past the limit, while
-        # the org-level totals stay realistic.
+        # `team_count` drives the serialized size across the threshold; the org-level totals stay realistic.
         per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
-        teams = {str(team_id): per_team_counters for team_id in range(600)}
-        oversize_report = {
-            "team_count": len(teams),
+        teams = {str(team_id): per_team_counters for team_id in range(team_count)}
+        report = {
+            "team_count": team_count,
             "event_count_in_period": 7_777,
             "organization_name": "Big Customer",
             "teams": teams,
         }
-        assert len(json.dumps(oversize_report)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
+        assert (len(json.dumps(report, default=str)) > MAX_USAGE_REPORT_PAYLOAD_BYTES) is expect_trimmed
 
-        result = _trim_oversize_usage_report_payload(oversize_report)
+        result = _trim_oversize_usage_report_payload(report)
 
-        assert result is not oversize_report  # Original kept intact for the SQS path.
-        assert oversize_report["teams"] == teams
+        if not expect_trimmed:
+            assert result is report
+            return
+
+        assert result is not report  # Original kept intact for the SQS path.
+        assert report["teams"] == teams
         assert result["teams"] == {}
         assert result["teams_omitted_due_to_size"] is True
-        assert result["team_count"] == len(teams)
+        assert result["team_count"] == team_count
         assert result["event_count_in_period"] == 7_777
         assert result["organization_name"] == "Big Customer"
-        assert len(json.dumps(result)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
+        assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -1774,7 +1771,7 @@ class TestCaptureReportTrimsOversizePayload(TestCase):
             "survey_count": 0,
             "teams": teams,
         }
-        assert len(json.dumps(full_report_dict)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
+        assert len(json.dumps(full_report_dict, default=str)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
 
         capture_report(organization_id=str(org.id), full_report_dict=full_report_dict)
 
