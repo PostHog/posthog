@@ -9,7 +9,16 @@ use crate::aggregator::Aggregator;
 use crate::config::Config;
 use crate::metrics_consts::*;
 use crate::producer::Producer;
+use crate::seen_cache::SeenCache;
 use crate::types::{IngestableEvent, PropertyType, TupleKey};
+
+/// Per-worker reduction settings. Events and groups run with these disabled
+/// (`Default`); only the merger applies the top-K cap and the seen cache.
+#[derive(Clone, Copy, Default)]
+pub struct ReductionConfig {
+    pub max_values_per_key: usize,
+    pub seen_cache_capacity: usize,
+}
 
 /// One worker loop. Each pod runs one worker per input topic.
 ///
@@ -25,7 +34,7 @@ pub async fn worker_loop<E, P, F>(
     handle: lifecycle::Handle,
     fan_out_fn: F,
     worker: &'static str,
-    max_values_per_key: usize,
+    reduction: ReductionConfig,
 ) where
     E: IngestableEvent,
     P: Producer,
@@ -34,6 +43,11 @@ pub async fn worker_loop<E, P, F>(
     let _guard = handle.process_scope();
 
     let mut aggregator = Aggregator::new();
+    // Emit-once dedup, merger only (capacity 0 = disabled). Bounded by capacity,
+    // not cardinality; a forgotten or evicted tuple is re-emitted and the
+    // AggregatingMergeTree absorbs the duplicate.
+    let seen_cache = (reduction.seen_cache_capacity > 0)
+        .then(|| SeenCache::new(reduction.seen_cache_capacity, worker));
     // One Offset handle per partition: the latest message we've consumed.
     // On successful flush we call .store() on each, which advances the
     // consumer's stored offset; auto-commit ships it to the broker.
@@ -47,7 +61,7 @@ pub async fn worker_loop<E, P, F>(
         tokio::select! {
             _ = handle.shutdown_recv() => {
                 info!("worker received shutdown; draining final flush");
-                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_SHUTDOWN, worker, max_values_per_key).await;
+                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_SHUTDOWN, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
                 if let Err(e) = consumer.commit() {
                     warn!(error = %e, "kafka sync commit at shutdown failed; falling back to broker auto-commit");
                 }
@@ -55,7 +69,7 @@ pub async fn worker_loop<E, P, F>(
             }
             _ = flush_timer.tick() => {
                 handle.report_healthy();
-                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, max_values_per_key).await;
+                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
             }
             recv = consumer.json_recv::<E>() => {
                 handle.report_healthy();
@@ -82,7 +96,8 @@ pub async fn worker_loop<E, P, F>(
                                 &producer,
                                 FLUSH_REASON_BACKPRESSURE,
                                 worker,
-                                max_values_per_key,
+                                reduction.max_values_per_key,
+                                seen_cache.as_ref(),
                             ).await;
                         }
                     }
@@ -110,6 +125,7 @@ pub(crate) async fn flush<P: Producer>(
     reason: &'static str,
     worker: &'static str,
     max_values_per_key: usize,
+    seen_cache: Option<&SeenCache>,
 ) {
     if aggregator.is_empty() && pending_offsets.is_empty() {
         return;
@@ -120,20 +136,38 @@ pub(crate) async fn flush<P: Producer>(
         snapshot = cap_top_k(snapshot, max_values_per_key, worker);
     }
 
-    metrics::counter!(FLUSH_TOTAL, "reason" => reason, "worker" => worker).increment(1);
-    metrics::histogram!(FLUSH_TUPLES, "worker" => worker).record(snapshot.len() as f64);
+    // Emit-once: drop tuples already in the seen cache, keep and remember the
+    // rest. The kept set is exactly what we insert, so a produce failure can
+    // forget those entries and re-emit them on the next flush.
+    let to_emit: Vec<(TupleKey, u64)> = match seen_cache {
+        Some(cache) => snapshot
+            .into_iter()
+            .filter(|(tuple, _)| !cache.seen_or_insert(tuple))
+            .collect(),
+        None => snapshot,
+    };
 
-    for (_, count) in &snapshot {
+    metrics::counter!(FLUSH_TOTAL, "reason" => reason, "worker" => worker).increment(1);
+    metrics::histogram!(FLUSH_TUPLES, "worker" => worker).record(to_emit.len() as f64);
+
+    for (_, count) in &to_emit {
         metrics::histogram!(FLUSH_TUPLE_COUNT, "worker" => worker).record(*count as f64);
     }
 
-    if let Err(e) = producer.produce(snapshot.clone()).await {
-        metrics::counter!(PRODUCER_FLUSH_FAILED, "worker" => worker).increment(1);
-        error!(error = %e, "produce failed; restoring counts, retrying next flush");
-        for (tuple, count) in snapshot {
-            aggregator.add(tuple, count);
+    if !to_emit.is_empty() {
+        if let Err(e) = producer.produce(to_emit.clone()).await {
+            metrics::counter!(PRODUCER_FLUSH_FAILED, "worker" => worker).increment(1);
+            error!(error = %e, "produce failed; restoring counts, retrying next flush");
+            if let Some(cache) = seen_cache {
+                for (tuple, _) in &to_emit {
+                    cache.forget(tuple);
+                }
+            }
+            for (tuple, count) in to_emit {
+                aggregator.add(tuple, count);
+            }
+            return;
         }
-        return;
     }
 
     // Produce succeeded; advance the stored offset for each partition we
@@ -329,6 +363,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
 
@@ -351,6 +386,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
 
@@ -376,6 +412,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
         assert!(!agg.is_empty());
@@ -387,6 +424,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
         assert!(agg.is_empty());
@@ -405,6 +443,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
         assert_eq!(producer.call_count(), 0);
@@ -424,6 +463,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
 
@@ -436,6 +476,7 @@ mod tests {
             FLUSH_REASON_TIMER,
             "test",
             0,
+            None,
         )
         .await;
 
@@ -460,12 +501,139 @@ mod tests {
                 FLUSH_REASON_TIMER,
                 "test",
                 0,
+                None,
             )
             .await;
         }
 
         assert_eq!(agg.len(), 1);
         assert_eq!(producer.call_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn seen_cache_suppresses_already_emitted_tuples() {
+        let cache = SeenCache::new(1000, "test");
+        let mut pending: HashMap<i32, Offset> = HashMap::new();
+        let producer = MockProducer::new();
+
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "k", "v"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(producer.last_items().len(), 1, "first sight is emitted");
+
+        agg.add(tuple(2, "k", "v"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(
+            producer.call_count(),
+            1,
+            "an already-cached tuple is suppressed, so there is no second produce"
+        );
+        assert!(
+            agg.is_empty(),
+            "suppressed tuples still drain the aggregator"
+        );
+    }
+
+    #[tokio::test]
+    async fn seen_cache_reemits_after_produce_failure() {
+        let cache = SeenCache::new(1000, "test");
+        let mut pending: HashMap<i32, Offset> = HashMap::new();
+        let producer = MockProducer::new().fail_on(1);
+
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "k", "v"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(agg.len(), 1, "failed produce restores the tuple for retry");
+
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(producer.call_count(), 2);
+        assert_eq!(
+            producer.last_items().len(),
+            1,
+            "a tuple forgotten on produce failure is re-emitted, not lost to the cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn seen_cache_emits_new_values_and_suppresses_repeats() {
+        let cache = SeenCache::new(1000, "test");
+        let mut pending: HashMap<i32, Offset> = HashMap::new();
+        let producer = MockProducer::new();
+
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "k", "a"), 1);
+        agg.add(tuple(2, "k", "b"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(
+            producer.last_items().len(),
+            2,
+            "distinct new tuples all emit"
+        );
+
+        agg.add(tuple(2, "k", "a"), 1); // already seen
+        agg.add(tuple(2, "k", "c"), 1); // new
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        let batch = producer.last_items();
+        assert_eq!(
+            batch.len(),
+            1,
+            "only the new value emits; the repeat is suppressed"
+        );
+        assert_eq!(batch[0].0.property_value, "c");
     }
 
     fn arb_property_type() -> impl Strategy<Value = PropertyType> {
@@ -536,6 +704,7 @@ mod tests {
                             FLUSH_REASON_TIMER,
                             "test",
                             0,
+                            None,
                         ));
                     }
                 }

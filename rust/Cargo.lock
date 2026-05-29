@@ -7364,6 +7364,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "proptest",
+ "quick_cache",
  "rdkafka",
  "serde",
  "serde_json",
