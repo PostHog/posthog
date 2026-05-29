@@ -199,6 +199,9 @@ class UsageReportCounters:
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
 
+    # Signals Billing Credits (Signals product usage — same cost math as ai_credits, scoped to ai_product='signals')
+    signals_credits_used_in_period: int
+
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
@@ -1089,14 +1092,21 @@ CLOUD_REGION_TO_URL = {
 }
 
 
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_ai_credits_used_in_period(
+SIGNALS_AI_PRODUCT = "signals"
+
+AiProductFilter = Literal["exclude_signals", "only_signals"]
+
+
+def _get_teams_with_ai_credits_for_product(
     begin: datetime,
     end: datetime,
+    *,
+    ai_product_filter: AiProductFilter,
+    usage_report_tag: str,
 ) -> list[tuple[int, int]]:
     """
-    Calculate AI credits used in the period for billable AI generations.
+    Shared implementation for AI billing credit aggregation, parameterized on
+    the `ai_product` event property.
 
     Billing is performed at the trace level. Traces are billable only if they contain
     tool calls that include at least one non-excluded tool. Free (non-billable) traces:
@@ -1130,11 +1140,25 @@ def get_teams_with_ai_credits_used_in_period(
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
+    # Max AI generations always emit a paired $ai_trace and are billed only when that trace is
+    # flagged billable — this preserves existing PostHog AI billing exactly. Signals generations
+    # never emit a $ai_trace, so the LEFT JOIN never matches; we bill them on the empty-trace
+    # fallback instead (ClickHouse join_use_nulls=0 yields '' — not NULL — for the unmatched
+    # trace_id column, so check empty(), not IS NULL). Scoping the fallback to signals avoids
+    # retroactively changing what counts toward existing PostHog AI credits.
+    if ai_product_filter == "only_signals":
+        ai_product_clause = "AND JSONExtractString(properties, 'ai_product') = %(ai_product)s"
+        billable_clause = "t.is_billable = 1 OR empty(t.trace_id)"
+    else:
+        ai_product_clause = "AND JSONExtractString(properties, 'ai_product') != %(ai_product)s"
+        billable_clause = "t.is_billable = 1"
+
     with tags_context(
-        product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report="ai_credits", kind="usage_report"
+        product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
+        # nosemgrep: clickhouse-fstring-param-audit - ai_product_clause/billable_clause are hardcoded SQL fragments selected by the internal AiProductFilter literal; the ai_product value is bound via the %(ai_product)s parameter, not interpolated
         results = sync_execute(
-            """
+            f"""
             WITH trace_analysis AS (
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
@@ -1213,6 +1237,7 @@ def get_teams_with_ai_credits_used_in_period(
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
+                        {ai_product_clause}
                 )
                 WHERE
                     ai_billable = 1
@@ -1228,8 +1253,7 @@ def get_teams_with_ai_credits_used_in_period(
             FROM costs c
             LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
             WHERE
-                -- keep rows that are billable OR have no trace metadata
-                t.is_billable = 1 OR t.trace_id IS NULL
+                {billable_clause}
             GROUP BY
                 c.customer_team_id
             HAVING
@@ -1244,6 +1268,7 @@ def get_teams_with_ai_credits_used_in_period(
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+                "ai_product": SIGNALS_AI_PRODUCT,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
@@ -1251,6 +1276,36 @@ def get_teams_with_ai_credits_used_in_period(
         )
 
     return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_ai_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """PostHog AI (Max) billing credits — excludes events tagged with ai_product='signals'."""
+    return _get_teams_with_ai_credits_for_product(
+        begin,
+        end,
+        ai_product_filter="exclude_signals",
+        usage_report_tag="ai_credits",
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_signals_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """Signals billing credits — only events tagged with ai_product='signals'."""
+    return _get_teams_with_ai_credits_for_product(
+        begin,
+        end,
+        ai_product_filter="only_signals",
+        usage_report_tag="signals_credits",
+    )
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
@@ -1916,6 +1971,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
+        or report.signals_credits_used_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2171,6 +2227,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
+        "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
+            period_start, period_end
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2335,6 +2394,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
+        signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0
