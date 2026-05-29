@@ -90,14 +90,12 @@ impl CredentialProvider for EnvVarProvider {
                 return Ok(t);
             }
             anyhow::bail!(
-                "Couldn't find POSTHOG_CLI_API_KEY (or POSTHOG_CLI_TOKEN) and \
-                 POSTHOG_CLI_PROJECT_ID (or POSTHOG_CLI_ENV_ID) in process env or {}",
+                "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
                 path.display()
             )
         }
         anyhow::bail!(
-            "Couldn't find POSTHOG_CLI_API_KEY (or POSTHOG_CLI_TOKEN) and \
-             POSTHOG_CLI_PROJECT_ID (or POSTHOG_CLI_ENV_ID) in process env"
+            "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env"
         )
     }
 
