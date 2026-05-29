@@ -12,55 +12,41 @@ runners) to provide maximum flexibility during development. This allows usage in
 - Trends and other query runners when filtering/grouping by traffic type
 - Any future features that leverage HogQL expressions
 
-Bot definitions (patterns, categories, names) live in
-products.web_analytics.backend.hogql_queries.bot_definitions so that changes to
-bot data do not require a HogQL review.
+Bot patterns live in a ClickHouse REGEXP_TREE dictionary (web_bot_definition_dict)
+backed by the web_bot_definition table. This allows the pattern list to scale beyond
+what can be inlined in SQL, and lets patterns be updated without code deploys.
+
+The source of truth for initial data is
+products.web_analytics.backend.hogql_queries.bot_definitions. Changes there require a
+new ClickHouse migration to update the web_bot_definition table and reload the dict.
 """
+
+from django.conf import settings
 
 from posthog.hogql import ast
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from posthog.models.bot_definition.sql import BOT_DEFINITION_DICTIONARY_NAME
 
 
-def _build_bot_array_lookup(
-    user_agent_expr: ast.Expr,
-    attr: str,  # "name", "category", or "traffic_type"
-    default: str = "",
-    empty_ua_value: str = "",
-) -> ast.Expr:
-    """Build a multiMatchAnyIndex + array lookup expression for efficient bot detection.
+def _bot_dict() -> str:
+    """Fully-qualified dictionary name, evaluated at call time for test-DB compatibility."""
+    return f"{settings.CLICKHOUSE_DATABASE}.{BOT_DEFINITION_DICTIONARY_NAME}"
 
-    Uses multiMatchAnyIndex which evaluates the user_agent expression once and checks
-    all patterns, then uses array indexing to get the corresponding label.
 
-    NULL user agents are coalesced to empty string so they match the ^$ pattern
-    and get classified as empty_ua_value instead of falling through to default.
-    """
-    # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
-    safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
+def _safe_ua(user_agent_expr: ast.Expr) -> ast.Expr:
+    """Wrap expression in ifNull(..., '') so NULL user agents match the ^$ pattern."""
+    return ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    # Build patterns array (all bot patterns + empty UA pattern)
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
-    patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
-    # Build labels array (corresponding labels + empty UA label)
-    labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
-    labels.append(empty_ua_value)
-    labels_array = ast.Array(exprs=[ast.Constant(value=label) for label in labels])
-
-    # multiMatchAnyIndex(user_agent, patterns) -> returns 0 if no match, else 1-based index
-    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-
-    # labels[index] - array access (1-based in ClickHouse)
-    label_lookup = ast.ArrayAccess(array=labels_array, property=index_call, nullish=False)
-
-    # if(index = 0, default, labels[index])
+def _dict_get(user_agent_expr: ast.Expr, attribute: str, default: str) -> ast.Expr:
+    """Build dictGetOrDefault(<dict>, <attribute>, ifNull(ua, ''), <default>) AST."""
     return ast.Call(
-        name="if",
+        name="dictGetOrDefault",
         args=[
-            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
+            ast.Constant(value=_bot_dict()),
+            ast.Constant(value=attribute),
+            _safe_ua(user_agent_expr),
             ast.Constant(value=default),
-            label_lookup,
         ],
     )
 
@@ -73,7 +59,7 @@ def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "name", default="", empty_ua_value="")
+    return _dict_get(args[0], "name", "")
 
 
 def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -84,7 +70,7 @@ def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "operator", default="", empty_ua_value="")
+    return _dict_get(args[0], "operator", "")
 
 
 def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -95,7 +81,7 @@ def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     Returns one of: 'AI Agent', 'Bot', 'Automation', 'Regular'
     """
-    return _build_bot_array_lookup(args[0], "traffic_type", default="Regular", empty_ua_value="Automation")
+    return _dict_get(args[0], "traffic_type", "Regular")
 
 
 def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -107,7 +93,7 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Returns subcategory: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', etc.
     For regular traffic, returns 'regular'.
     """
-    return _build_bot_array_lookup(args[0], "category", default="regular", empty_ua_value="no_user_agent")
+    return _dict_get(args[0], "category", "regular")
 
 
 def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -117,23 +103,12 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     EXPERIMENTAL: This function may change without notice.
 
     Returns true if the user agent matches bot/automation patterns, false otherwise.
-    NULL user agents are treated as bots (empty UA is considered automation).
-
-    Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.).
+    NULL user agents are treated as bots (empty UA is classified as Automation via the ^$ pattern).
     """
-    user_agent_expr = args[0]
-
-    safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
-
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
-    patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
-
-    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotEq,
-        left=index_call,
-        right=ast.Constant(value=0),
+        left=_dict_get(args[0], "traffic_type", "Regular"),
+        right=ast.Constant(value="Regular"),
     )
 
 
@@ -147,4 +122,4 @@ def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',
                 'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
     """
-    return _build_bot_array_lookup(args[0], "category", default="", empty_ua_value="no_user_agent")
+    return _dict_get(args[0], "category", "")
