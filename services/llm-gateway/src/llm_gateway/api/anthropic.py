@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
@@ -297,16 +298,21 @@ async def _handle_count_tokens(
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     if provider == "cloudflare":
-        # Cloudflare has no token-counting endpoint; falling back to Anthropic would silently use the wrong tokenizer.
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": {
-                    "message": "count_tokens is not supported for the cloudflare provider",
-                    "type": "invalid_request_error",
-                }
-            },
-        )
+        ensure_cloudflare_model_allowed(body.model)
+        # CF Workers AI has no count_tokens endpoint. Approximate with litellm's
+        # tokenizer on the serialised payload — a slight over-count is safe for
+        # the Claude Agent SDK / posthog-code callers, which use this for
+        # context-window budgeting (under-count overflows, over-count just trims).
+        aliased_model = f"openai/{body.model}"
+        try:
+            count = litellm.token_counter(model=aliased_model, text=json.dumps(data))
+        except Exception as exc:
+            logger.exception("cloudflare_count_tokens_failed", model=body.model)
+            raise HTTPException(
+                status_code=502,
+                detail={"error": {"message": "Failed to count tokens", "type": "internal_error"}},
+            ) from exc
+        return {"input_tokens": count}
 
     if provider == "bedrock":
         return await _bedrock_count_tokens_impl(data, body.model, user, product)

@@ -1024,20 +1024,41 @@ class TestAnthropicCountTokensEndpoint:
         assert response.json()["error"]["type"] == "invalid_request_error"
         assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
 
-    def test_cloudflare_provider_rejected(
+    def test_cloudflare_provider_approximates_count(
         self,
         authenticated_client: TestClient,
-        valid_request_body: dict,
     ) -> None:
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
-            json=valid_request_body,
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 200
+        # Don't lock the exact value — litellm's tokenizer is the source of truth.
+        # Just assert it's a positive integer so the Claude Agent SDK gets a usable budget.
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/meta/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
         )
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "cloudflare" in response.json()["error"]["message"]
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
