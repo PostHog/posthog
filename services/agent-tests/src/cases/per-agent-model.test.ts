@@ -14,7 +14,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { Pool } from 'pg'
 
-import { FauxPiClient, InvokeOpts, Worker } from '@posthog/agent-runner'
+import { FauxPiClient, InvokeOpts, StreamDelta, Worker } from '@posthog/agent-runner'
 import {
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
@@ -39,16 +39,30 @@ class RecordingPi extends FauxPiClient {
     constructor() {
         super([])
     }
+    override stream(model: Model<string>, _context: Context, _opts?: InvokeOpts): AsyncIterable<StreamDelta> {
+        // Runner consumes stream() in v1; we record from here so the
+        // assertion below sees both agents' models. The stream emits a
+        // single terminal `end` event — no deltas — since the test only
+        // cares about which model id was invoked.
+        this.modelsCalled.push(model.id)
+        const assistantMessage: AssistantMessage = this.buildResponse(model.id)
+        return (async function* () {
+            yield { type: 'end', assistantMessage }
+        })()
+    }
     override async invoke(model: Model<string>, _context: Context, _opts?: InvokeOpts): Promise<AssistantMessage> {
         this.modelsCalled.push(model.id)
+        return this.buildResponse(model.id)
+    }
+    private buildResponse(modelId: string): AssistantMessage {
         return {
             role: 'assistant',
-            content: [{ type: 'text', text: `from ${model.id}` }],
+            content: [{ type: 'text', text: `from ${modelId}` }],
             stopReason: 'stop',
             timestamp: Date.now(),
             api: 'faux',
             provider: 'stub',
-            model: model.id,
+            model: modelId,
             usage: {
                 input: 0,
                 output: 0,

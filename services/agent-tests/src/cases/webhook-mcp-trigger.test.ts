@@ -78,17 +78,17 @@ describe('per-agent MCP transport: real e2e', () => {
         expect(res.body.result.protocolVersion).not.toBeUndefined()
     })
 
-    it("tools/list returns the agent's chat tool", async () => {
+    it("tools/list returns the agent's ask tool", async () => {
         await c.deployAgent({ slug: 'lst' })
         const res = await request(c.ingress)
             .post('/agents/lst/mcp')
             .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
         expect(res.body.result.tools).toHaveLength(1)
-        expect(res.body.result.tools[0].name).toBe('chat')
+        expect(res.body.result.tools[0].name).toBe('ask')
         expect(res.body.result.tools[0].inputSchema.required).toContain('message')
     })
 
-    it('tools/call name=chat enqueues a session and returns its id', async () => {
+    it('tools/call name=ask enqueues a session and returns its id', async () => {
         c.setScript([fauxText('mcp ack')])
         await c.deployAgent({ slug: 'callee', spec: {} })
         const res = await request(c.ingress)
@@ -97,7 +97,7 @@ describe('per-agent MCP transport: real e2e', () => {
                 jsonrpc: '2.0',
                 id: 2,
                 method: 'tools/call',
-                params: { name: 'chat', arguments: { message: 'via mcp' } },
+                params: { name: 'ask', arguments: { message: 'via mcp' } },
             })
         const text = res.body.result.content[0].text
         const parsed = JSON.parse(text) as { session_id: string }

@@ -312,7 +312,7 @@ describe('runSession', () => {
         expect(out.state).toBe('suspended')
     })
 
-    it('forwards spec.reasoning to PiClient.invoke()', async () => {
+    it('forwards spec.reasoning to PiClient.stream()', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const pi = new FauxPiClient([endTurn('ok')])
@@ -326,8 +326,10 @@ describe('runSession', () => {
             integrations: {},
             secrets: {},
         })
-        expect(pi.calls).toHaveLength(1)
-        expect(pi.calls[0].opts?.reasoning).toBe('high')
+        // The runner switched from invoke() to stream() in v1 — assertions
+        // moved to streamCalls[] accordingly.
+        expect(pi.streamCalls).toHaveLength(1)
+        expect(pi.streamCalls[0].opts?.reasoning).toBe('high')
     })
 
     it('omits reasoning when spec.reasoning is not set (provider default)', async () => {
@@ -344,7 +346,7 @@ describe('runSession', () => {
             integrations: {},
             secrets: {},
         })
-        expect(pi.calls[0].opts?.reasoning).toBeUndefined()
+        expect(pi.streamCalls[0].opts?.reasoning).toBeUndefined()
     })
 
     it('accumulates session.usage_total across turns', async () => {
@@ -510,6 +512,32 @@ describe('runSession', () => {
         expect(gen.input_tokens).toBe(100)
         expect(gen.output_tokens).toBe(20)
         expect(gen.cost_usd).toBeUndefined()
+    })
+
+    it('emits assistant_text_delta events through the SSE bus during streaming turns', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([endTurn('streamed reply text')])
+        const { MemorySessionEventBus } = await import('@posthog/agent-shared')
+        const bus = new MemorySessionEventBus()
+        const session = makeSession()
+        const received: { kind: string; data: Record<string, unknown> }[] = []
+        const unsub = bus.subscribe(session.id, (e) => received.push({ kind: e.kind, data: e.data }))
+        await runSession(makeRev(), session, {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+            bus,
+        })
+        unsub()
+        const deltaTexts = received.filter((e) => e.kind === 'assistant_text_delta').map((e) => e.data.text as string)
+        expect(deltaTexts).toEqual(['streamed', 'reply', 'text'])
+        // The full-text `assistant_text` still fires at turn end for non-
+        // streaming consumers.
+        expect(received.some((e) => e.kind === 'assistant_text')).toBe(true)
     })
 
     it('records a failed $ai_generation when pi.invoke throws', async () => {

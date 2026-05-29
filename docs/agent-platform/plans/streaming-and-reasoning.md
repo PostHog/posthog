@@ -1,6 +1,6 @@
 # Design — streaming deltas + unified reasoning knob
 
-**Status:** v0a (reasoning knob) + v0b (PiClient.stream surface) shipped; v1 (runner consumes stream) + v2 (delta filtering on /listen) not yet built. **Owner:** ben.
+**Status:** v0a (reasoning knob) + v0b (PiClient.stream surface) + v1 (runner consumes stream, emits delta events) shipped; v2 (opt-in delta filtering on /listen) not yet built. **Owner:** ben.
 
 Two pi-ai surfaces today, treated as one design here because they touch
 the same code paths in the runner and the same `Model` selection layer.
@@ -302,13 +302,26 @@ needing a real provider.
 - Backward compatible: existing `invoke()` keeps working; the runner
   defaults to `invoke()` until v1 wires the loop over.
 
-**v1 — runner switches to `stream()`.** Not yet built.
+**v1 — runner switches to `stream()`.** ✅ shipped.
 
-- `run-turn.ts` consumes the stream, emits delta events.
-- New event kinds wired into `SessionEventBus`, `KafkaLogSink`
-  excludes deltas.
-- e2e case: `tier-2/streaming-turn.test.ts` asserts the delta sequence
-  for a scripted faux provider.
+- `run-turn.ts` consumes `pi.stream()`; the terminal `end` event
+  carries the materialised `AssistantMessage` that the rest of the
+  turn loop (persistence, cost accumulation, analytics, tool
+  dispatch) operates on. Backward-compatible: persistence, billing,
+  analytics, dispatch all unchanged.
+- New `SessionEventKind` variants added in `agent-shared/runtime/bus.ts`:
+  `assistant_text_delta`, `assistant_thinking_delta`, `tool_call_start`,
+  `tool_call_args_delta`. The existing full-text `assistant_text` +
+  full-args `tool_call` events still fire at turn end for consumers
+  that don't subscribe to deltas.
+- Delta-kind filter (`isDeltaEventKind`) gates the log-sink mirror in
+  `emit()` — deltas publish through the SSE bus but are dropped from
+  the structured log sink, otherwise `log_entries` would balloon to
+  hundreds of rows per turn. Same trade-off §5 calls out.
+- e2e case in
+  [services/agent-tests/src/cases/listen-sse.test.ts](../../../services/agent-tests/src/cases/listen-sse.test.ts)
+  asserts the delta sequence reconstructs the full text in order
+  while the full-text `assistant_text` event still fires at turn end.
 
 **v2 — opt-in delta filtering on /listen.** Not yet built.
 

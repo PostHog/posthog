@@ -12,11 +12,34 @@ export type SessionEventKind =
     | 'session_started'
     | 'turn_started'
     | 'assistant_text'
+    | 'assistant_text_delta'
+    | 'assistant_thinking_delta'
     | 'tool_call'
+    | 'tool_call_start'
+    | 'tool_call_args_delta'
     | 'tool_result'
     | 'completed'
     | 'waiting'
     | 'failed'
+
+/**
+ * High-cardinality delta events that fire many times per turn. Filtered out
+ * of the structured log sink (otherwise log_entries becomes unusable for
+ * grep / debug) but still publish through the SSE bus for live UIs. The
+ * full-text `assistant_text` + full-args `tool_call` events also fire at
+ * turn end for consumers (KafkaLogSink, activity log) that want one event
+ * per turn-of-event-kind.
+ */
+export const DELTA_EVENT_KINDS: ReadonlySet<SessionEventKind> = new Set([
+    'assistant_text_delta',
+    'assistant_thinking_delta',
+    'tool_call_start',
+    'tool_call_args_delta',
+])
+
+export function isDeltaEventKind(kind: SessionEventKind): boolean {
+    return DELTA_EVENT_KINDS.has(kind)
+}
 
 export interface SessionEvent {
     session_id: string

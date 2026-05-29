@@ -47,6 +47,34 @@ describe('listen SSE: real e2e', () => {
         expect(kinds[kinds.length - 1]).toBe('completed')
     })
 
+    it('publishes assistant_text_delta events as the model streams', async () => {
+        // v1 of streaming-and-reasoning.md — the runner consumes pi.stream()
+        // and fans out per-token deltas to the SSE bus alongside the
+        // existing full-text `assistant_text` event. The faux pi-ai client
+        // emits one delta per word; consumers see them in order.
+        c.setScript([fauxText('streaming reply text')])
+        await c.deployAgent({ slug: 'ssee-stream' })
+        const events: SessionEvent[] = []
+
+        const run = await request(c.ingress).post('/agents/ssee-stream/run').send({ message: 'hi' })
+        const sid = run.body.session_id
+        const unsubscribe = c.bus.subscribe(sid, (e) => events.push(e))
+        await c.drain()
+        unsubscribe()
+
+        const deltaTexts = events.filter((e) => e.kind === 'assistant_text_delta').map((e) => e.data.text as string)
+        // pi-ai's faux provider chunks text on its own boundaries (not
+        // necessarily word-aligned). The contract we assert is the contract
+        // consumers actually need: at least one delta fires, and they
+        // reconstruct the full text in order.
+        expect(deltaTexts.length).toBeGreaterThan(0)
+        expect(deltaTexts.join('')).toBe('streaming reply text')
+        // The full-text assistant_text still fires at turn end — consumers
+        // that don't care about deltas (KafkaLogSink, activity log) get one
+        // event per turn the same as before.
+        expect(events.some((e) => e.kind === 'assistant_text')).toBe(true)
+    })
+
     it('publishes tool_call + tool_result events when the model invokes a tool', async () => {
         c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
         await c.deployAgent({
@@ -87,9 +115,11 @@ describe('listen SSE: real e2e', () => {
         await c.deployAgent({ slug: 'ssee-4' })
         // Don't actually consume the stream — just verify the endpoint accepts
         // the request and replies with the SSE content-type. Force-disconnect
-        // after a short delay so the test doesn't hang.
+        // after a short delay so the test doesn't hang. `session_id` must be a
+        // UUID for the zod-validated query schema; the value doesn't have to
+        // match a real session — /listen just subscribes to the bus.
         const res = await request(c.ingress)
-            .get('/agents/ssee-4/listen?session_id=some-id')
+            .get('/agents/ssee-4/listen?session_id=00000000-0000-4000-8000-000000000001')
             .buffer(false)
             .parse((response, callback) => {
                 response.on('data', () => {

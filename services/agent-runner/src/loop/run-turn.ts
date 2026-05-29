@@ -27,6 +27,7 @@ import {
     createLogger,
     generationSpanId,
     IntegrationCredentials,
+    isDeltaEventKind,
     LogLevel,
     LogSink,
     NoopAnalyticsSink,
@@ -133,8 +134,16 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     const emit = async (kind: SessionEventKind, data: Record<string, unknown> = {}): Promise<void> => {
         const ts = new Date().toISOString()
         await bus.publish({ session_id: session.id, kind, data, ts } satisfies SessionEvent)
-        // Mirror lifecycle events into the structured log sink. Levels:
-        // failed → error; waiting → info; everything else → info.
+        // Mirror lifecycle events into the structured log sink. Drop the
+        // high-cardinality delta events — log_entries would balloon to
+        // hundreds of rows per turn and become unusable for grep / debug.
+        // The full-text `assistant_text` + full-args `tool_call` events
+        // still fire at turn end so log consumers see one row per turn-of-
+        // event-kind. Same trade-off the plan §5 calls out.
+        if (isDeltaEventKind(kind)) {
+            return
+        }
+        // Levels: failed → error; everything else → info.
         const level: LogLevel = kind === 'failed' ? 'error' : 'info'
         await logs.write([
             {
@@ -173,12 +182,16 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             messages: session.conversation as unknown as Context['messages'],
             tools,
         }
-        runLog.debug({ turn: turns, messages: context.messages.length, tools: tools.length }, 'pi.invoke.begin')
-        let result: AssistantMessage
+        runLog.debug({ turn: turns, messages: context.messages.length, tools: tools.length }, 'pi.stream.begin')
+        let result: AssistantMessage | undefined
         const piStart = Date.now()
         const generationSpan = generationSpanId(session.id, turns)
         try {
-            result = await deps.pi.invoke(deps.model, context, {
+            // Stream the turn. Deltas fan out to the SSE bus for live UIs;
+            // the terminal `end` event carries the materialised
+            // AssistantMessage that the rest of the turn loop operates on
+            // (persistence, cost accumulation, analytics, tool dispatch).
+            const stream = deps.pi.stream(deps.model, context, {
                 apiKey: deps.apiKey,
                 maxTokens: 4096,
                 signal: deps.shutdownSignal,
@@ -187,10 +200,42 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // models, so we can forward unconditionally.
                 reasoning: rev.spec.reasoning,
             })
+            for await (const delta of stream) {
+                switch (delta.type) {
+                    case 'text_delta':
+                        await emit('assistant_text_delta', { turn: turns, text: delta.text })
+                        continue
+                    case 'thinking_delta':
+                        await emit('assistant_thinking_delta', { turn: turns, thinking: delta.thinking })
+                        continue
+                    case 'toolcall_start':
+                        await emit('tool_call_start', { turn: turns, id: delta.id, name: delta.name })
+                        continue
+                    case 'toolcall_delta':
+                        await emit('tool_call_args_delta', { turn: turns, id: delta.id, argsDelta: delta.argsDelta })
+                        continue
+                    case 'toolcall_end':
+                        // Dispatch waits for the full `tool_call` event we
+                        // emit at turn-end (see below) — we don't fire
+                        // anything here because the per-tool `tool_call`
+                        // event is the dispatcher's source of truth.
+                        continue
+                    case 'end':
+                        result = delta.assistantMessage
+                        continue
+                }
+            }
+            if (!result) {
+                // pi-ai's contract is that `end` always fires unless the
+                // stream is aborted (handled in the catch). If we get here
+                // the stream terminated without `end` — treat as failed.
+                runLog.error({ turn: turns }, 'pi.stream.no_end_event')
+                return { state: 'failed', reason: 'pi-ai_stream_no_end', turns }
+            }
         } catch (err) {
             const e = err as Error & { name?: string }
             if (e.name === 'AbortError' || deps.shutdownSignal?.aborted) {
-                runLog.debug({ turn: turns }, 'pi.invoke.aborted')
+                runLog.debug({ turn: turns }, 'pi.stream.aborted')
                 return { state: 'suspended', reason: 'shutdown', turns }
             }
             // Best-effort analytics emission for the failed call so error rate
@@ -218,7 +263,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     error: e.message ?? 'pi-ai_error',
                 },
             ])
-            runLog.error({ turn: turns, err: e.message }, 'pi.invoke.failed')
+            runLog.error({ turn: turns, err: e.message }, 'pi.stream.failed')
             return { state: 'failed', reason: e.message ?? 'pi-ai_error', turns }
         }
         runLog.debug(
@@ -230,7 +275,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 tokensOut: result.usage?.output,
                 contentBlocks: result.content.length,
             },
-            'pi.invoke.ok'
+            'pi.stream.ok'
         )
 
         // Persist the assistant message into the conversation. We store the
