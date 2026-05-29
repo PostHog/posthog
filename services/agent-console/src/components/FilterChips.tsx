@@ -26,7 +26,7 @@ export function FilterChips<T extends string>({
     return (
         <div
             className={
-                'inline-flex overflow-hidden rounded-md border border-border bg-background' +
+                'inline-flex overflow-hidden rounded-md border border-border bg-card' +
                 (className ? ` ${className}` : '')
             }
             role="group"

@@ -31,7 +31,7 @@ export function ApplicationSettings({ agent, referenceRevision }: ApplicationSet
     const declaredSecrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
 
     return (
-        <div className="grid grid-cols-1 gap-0 divide-y divide-border overflow-hidden rounded-md border border-border bg-background sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <div className="grid grid-cols-1 gap-0 divide-y divide-border overflow-hidden rounded-md border border-border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             <SettingRow icon={<KeyIcon className="h-3 w-3" />} label="Secrets">
                 <SecretsValue declared={declaredSecrets.length} />
             </SettingRow>

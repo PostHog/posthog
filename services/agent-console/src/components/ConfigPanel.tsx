@@ -136,8 +136,7 @@ function Row({
     return (
         <div
             className={
-                'rounded-md border bg-background' +
-                (highlighted ? ' border-info ring-1 ring-info/30' : ' border-border')
+                'rounded-md border bg-card' + (highlighted ? ' border-info ring-1 ring-info/30' : ' border-border')
             }
         >
             <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 px-3 py-2.5">
@@ -155,7 +154,7 @@ function Chip({ children, kind = 'default' }: { children: ReactNode; kind?: 'def
     const className =
         kind === 'muted'
             ? 'inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[0.6875rem] text-muted-foreground'
-            : 'inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 font-mono text-[0.6875rem] text-foreground'
+            : 'inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-0.5 font-mono text-[0.6875rem] text-foreground'
     return <span className={className}>{children}</span>
 }
 
@@ -242,7 +241,7 @@ export function UnstructuredFields({
         return null
     }
     return (
-        <div className="rounded-md border border-border bg-background">
+        <div className="rounded-md border border-border bg-card">
             <div className="px-3 py-2 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
                 Other spec fields
             </div>

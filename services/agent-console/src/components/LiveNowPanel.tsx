@@ -61,7 +61,7 @@ export function LiveNowPanel({
                 ) : null}
             </div>
 
-            <div className="flex flex-1 flex-col overflow-hidden rounded-md border border-border bg-background">
+            <div className="flex flex-1 flex-col overflow-hidden rounded-md border border-border bg-card">
                 {sorted.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-xs text-muted-foreground">
                         Nothing running.

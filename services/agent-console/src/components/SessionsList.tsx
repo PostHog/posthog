@@ -72,7 +72,7 @@ export function SessionsList({ sessions, onOpenSession }: SessionsListProps): Re
                     No sessions match this filter.
                 </div>
             ) : (
-                <ul className="divide-y divide-border rounded-md border border-border bg-background">
+                <ul className="divide-y divide-border rounded-md border border-border bg-card">
                     {filtered.map((s) => (
                         <li key={s.id}>
                             <SessionRow session={s} onClick={() => onOpenSession?.(s.id)} />
@@ -107,7 +107,7 @@ function SessionRow({ session, onClick }: { session: ChatSession; onClick?: () =
                     {session.error ? (
                         <>
                             <span>·</span>
-                            <span className="truncate text-destructive">{session.error}</span>
+                            <span className="truncate text-destructive-foreground">{session.error}</span>
                         </>
                     ) : null}
                 </div>

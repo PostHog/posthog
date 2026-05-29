@@ -52,7 +52,7 @@ export function ConfirmDialog({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                {error ? <div className="text-sm text-destructive">{error}</div> : null}
+                {error ? <div className="text-sm text-destructive-foreground">{error}</div> : null}
                 <DialogFooter>
                     <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
                     <Button

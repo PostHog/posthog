@@ -42,7 +42,7 @@ export function RevisionsList({ agent, revisions, onOpenInConfig }: RevisionsLis
                     {sorted.length} revision{sorted.length === 1 ? '' : 's'} — live is pinned at top.
                 </p>
             </div>
-            <ul className="divide-y divide-border rounded-md border border-border bg-background">
+            <ul className="divide-y divide-border rounded-md border border-border bg-card">
                 {sorted.map((r) => {
                     const isLive = r.id === agent.live_revision
                     return (

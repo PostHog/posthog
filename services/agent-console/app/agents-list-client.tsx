@@ -46,7 +46,7 @@ export function AgentsListClient(): React.ReactElement {
     const error = agents.error ?? fleet.error ?? live.error
 
     if (error) {
-        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {error.message}</div>
+        return <div className="px-6 py-6 text-sm text-destructive-foreground">Failed to load: {error.message}</div>
     }
     // Stale-while-revalidate: only block on the first load, not on
     // refetches triggered by bumpReload (otherwise lifecycle actions
