@@ -12,9 +12,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -2456,11 +2456,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         openUnsavedQuery: ({ record }) => {
             if (record.insight) {
-                sceneLogic.actions.newTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
+                newInternalTab(urls.sqlEditor({ insightShortId: record.insight.short_id }))
             } else if (record.view) {
-                sceneLogic.actions.newTab(urls.sqlEditor({ view_id: record.view.id }))
+                newInternalTab(urls.sqlEditor({ view_id: record.view.id }))
             } else {
-                sceneLogic.actions.newTab(urls.sqlEditor({ query: record.query }))
+                newInternalTab(urls.sqlEditor({ query: record.query }))
             }
         },
     })),
