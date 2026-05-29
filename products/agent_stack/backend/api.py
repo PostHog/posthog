@@ -23,6 +23,7 @@ import json
 import logging
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -801,27 +802,22 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(application=self.get_application())
 
-    def _filter_queryset_by_parents_lookups(self, queryset: QuerySet) -> QuerySet:
+    @cached_property
+    def parents_query_dict(self) -> dict[str, Any]:
         # The mixin auto-filters by every parent URL kwarg as a literal value
         # (e.g. `application_id="hello"`). Our parent supports slug-or-UUID
         # via `_resolve_application`, so a slug in the URL otherwise blows up
-        # with "'hello' is not a valid UUID". Resolve once here and let super
-        # filter by the real PK.
-        raw = self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id")
-        if raw is not None:
-            try:
-                UUID(str(raw))
-            except (ValueError, TypeError):
-                resolved = self.get_application()
-                kwargs_copy = dict(self.kwargs)
-                if "parent_lookup_application_id" in kwargs_copy:
-                    kwargs_copy["parent_lookup_application_id"] = str(resolved.id)
-                if "application_id" in kwargs_copy:
-                    kwargs_copy["application_id"] = str(resolved.id)
-                # `self.kwargs` is what drf-extensions reads — substitute the
-                # resolved id so the parent filter sees a valid UUID.
-                self.kwargs = kwargs_copy
-        return super()._filter_queryset_by_parents_lookups(queryset)
+        # with "'hello' is not a valid UUID". Override the cached lookup dict
+        # to substitute the resolved PK before super filters.
+        result = super().parents_query_dict
+        raw = result.get("application_id")
+        if raw is None:
+            return result
+        try:
+            UUID(str(raw))
+            return result
+        except (ValueError, TypeError):
+            return {**result, "application_id": str(self.get_application().id)}
 
     def perform_create(self, serializer: AgentRevisionSerializer) -> None:
         application = self.get_application()
