@@ -1242,11 +1242,15 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
+        "products.data_warehouse.backend.api.external_data_source.bulk_delete_external_data_schedules",
+        return_value=[("schema-id", Exception("Schema schedule delete failed"))],
+    )
+    @patch(
         "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
         side_effect=Exception("External delete failed"),
     )
     def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
-        self, _mock_delete_schedule, mock_capture_exception
+        self, _mock_delete_schedule, _mock_bulk_delete, mock_capture_exception
     ):
         source = self._create_external_data_source()
         table = DataWarehouseTable.objects.create(
