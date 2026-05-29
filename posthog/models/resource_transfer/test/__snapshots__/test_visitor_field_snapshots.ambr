@@ -610,6 +610,7 @@
     '__doc__',
     '__module__',
     '_meta',
+    'all_teams',
     'created_by_id',
     'dashboard_tiles',
     'get_next_by_last_modified_at',
@@ -617,7 +618,6 @@
     'id',
     'last_modified_at',
     'last_modified_by_id',
-    'objects',
     'team_id',
   ])
 # ---
