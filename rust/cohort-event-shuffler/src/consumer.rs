@@ -23,28 +23,33 @@ use crate::observability::metrics::{
 use crate::producer::CohortStreamProducer;
 
 /// Outcome of the per-event gate (TDD §2.2, steps 2–3). An explicit enum — rather than a bool —
-/// so the consumer can emit a distinct metric per drop reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// so the consumer can emit a distinct metric per drop reason. `Forward` carries the extracted
+/// `person_id` so the forward path needs neither a clone nor a second `Option` check.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardDecision {
-    /// Forward: the event has a `person_id` and its team has ≥1 realtime cohort.
-    Forward,
+    /// Forward: the event has a `person_id` (carried here) and its team has ≥1 realtime cohort.
+    Forward { person_id: String },
     /// Drop: no `person_id` — the re-key has no routing key (`consumer.ts:187-194`).
     DropNoPersonId,
     /// Skip: the team has no realtime cohorts (`realtime-supported-filter-manager-cdp.ts:219-222`).
     SkipTeamGate,
 }
 
-/// Classify an event against the gate. Pure: depends only on the event and the team snapshot,
-/// so it is exhaustively unit-testable without Kafka or Postgres. `person_id` is checked first
-/// because a missing routing key disqualifies the event regardless of the team gate.
-pub fn classify(event: &ClickHouseEvent, team_index: &TeamIndex) -> ForwardDecision {
-    if event.person_id.is_none() {
+/// Classify an event against the gate, extracting the routing key on the forward path. Takes
+/// `&mut` so the `person_id` can be *moved* out of the event into [`ForwardDecision::Forward`]
+/// (no clone) when both gates pass. The `take()` runs before the team check, but a non-forwarded
+/// event is discarded by the caller, so the mutation is unobservable. Depends only on the event
+/// and the team snapshot, so it stays exhaustively unit-testable without Kafka or Postgres.
+/// `person_id` is checked first because a missing routing key disqualifies the event regardless
+/// of the team gate.
+pub fn classify(event: &mut ClickHouseEvent, team_index: &TeamIndex) -> ForwardDecision {
+    let Some(person_id) = event.person_id.take() else {
         return ForwardDecision::DropNoPersonId;
-    }
+    };
     if !team_index.contains(event.team_id) {
         return ForwardDecision::SkipTeamGate;
     }
-    ForwardDecision::Forward
+    ForwardDecision::Forward { person_id }
 }
 
 /// The stateless consume → filter → re-key → produce worker.
@@ -126,7 +131,7 @@ impl EventShuffler {
         let mut offsets = Vec::with_capacity(results.len());
 
         for result in results {
-            let (event, offset) = match result {
+            let (mut event, offset) = match result {
                 Ok(pair) => pair,
                 Err(err) => {
                     // Poison pills (empty/undeserializable) are auto-stored by the consumer.
@@ -139,13 +144,14 @@ impl EventShuffler {
             let source_partition = offset.partition();
             let source_offset = offset.get_value();
 
-            match classify(&event, &self.team_index) {
-                ForwardDecision::Forward => {
-                    if let Some(envelope) =
-                        CohortStreamEvent::from_clickhouse(&event, source_partition, source_offset)
-                    {
-                        forwardable.push(envelope);
-                    }
+            match classify(&mut event, &self.team_index) {
+                ForwardDecision::Forward { person_id } => {
+                    forwardable.push(CohortStreamEvent::from_clickhouse(
+                        event,
+                        person_id,
+                        source_partition,
+                        source_offset,
+                    ))
                 }
                 ForwardDecision::DropNoPersonId => dropped += 1,
                 ForwardDecision::SkipTeamGate => skipped += 1,
@@ -163,9 +169,16 @@ impl EventShuffler {
         }
 
         // At-least-once ordering (key design point 2): produce and await acks BEFORE storing the
-        // source offsets. On a produce failure, record it and bail without committing — a restart
-        // then replays from the last committed offset and re-forwards. Stage 1 dedups the replay
-        // via per-key offset tracking (PR 1.5), keyed on source_offset/source_partition.
+        // source offsets. On a produce failure we record it and bail without committing this
+        // batch; `process()` then logs, backs off, and continues. Because `recv()` has already
+        // advanced the fetch position past the failed offsets, the bailed batch is NOT redelivered
+        // in-process — only a failure persistent enough to trip the liveness stall (deadline 60s ×
+        // stall_threshold 3 ≈ 180s of consecutive failing batches, main.rs:51-57) forces the
+        // restart that replays from the last committed offset. A transient failure that recovers
+        // sooner can be committed over by a later successful batch, so those events are not
+        // re-forwarded. This is the accepted codebase-wide at-least-once tradeoff (mirrors
+        // ingestion-consumer); downstream Stage 1 dedups any replayed duplicates via per-key
+        // offset tracking (PR 1.5), keyed on source_offset/source_partition.
         let forward_count = forwardable.len();
         if forward_count > 0 {
             let produce_results = self.producer.forward(forwardable).await;
@@ -217,7 +230,15 @@ mod tests {
     #[test]
     fn classify_covers_every_gate_outcome() {
         let cases = [
-            ("forward", Some("p"), 2, vec![2], ForwardDecision::Forward),
+            (
+                "forward",
+                Some("p"),
+                2,
+                vec![2],
+                ForwardDecision::Forward {
+                    person_id: "p".to_string(),
+                },
+            ),
             (
                 "no person",
                 None,
@@ -251,9 +272,9 @@ mod tests {
         ];
 
         for (name, person_id, team_id, teams, expected) in cases {
-            let event = sample_clickhouse_event(team_id, person_id);
+            let mut event = sample_clickhouse_event(team_id, person_id);
             let index = index_with(&teams);
-            assert_eq!(classify(&event, &index), expected, "case: {name}");
+            assert_eq!(classify(&mut event, &index), expected, "case: {name}");
         }
     }
 
@@ -261,7 +282,7 @@ mod tests {
     fn unloaded_index_forwards_nothing() {
         // Before the first refresh the index is empty, so the gate skips everything.
         let index = TeamIndex::new();
-        let event = sample_clickhouse_event(2, Some("p"));
-        assert_eq!(classify(&event, &index), ForwardDecision::SkipTeamGate);
+        let mut event = sample_clickhouse_event(2, Some("p"));
+        assert_eq!(classify(&mut event, &index), ForwardDecision::SkipTeamGate);
     }
 }

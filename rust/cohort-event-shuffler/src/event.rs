@@ -44,29 +44,30 @@ pub struct CohortStreamEvent {
 impl CohortStreamEvent {
     /// Build the forwarded envelope from a source event and its Kafka coordinates.
     ///
-    /// Returns `None` when the event has no `person_id` — the envelope's `person_id` is the
-    /// routing key and cannot be synthesized. The consumer gates on this case before calling
-    /// (see [`crate::consumer::classify`]); the `Option` keeps this mapping total and
-    /// panic-free rather than depending on the caller's gate.
+    /// Infallible: [`crate::consumer::classify`] has already proved the event carries a
+    /// `person_id` and moved it out, handing it back here — so there is no `Option` to re-check.
+    /// Takes `event` by value and *moves* every owned field out of it; the caller drops the
+    /// source event immediately after, so the bytes — including the unbounded `properties` /
+    /// `person_properties` JSON payloads — are moved rather than cloned.
     pub fn from_clickhouse(
-        event: &ClickHouseEvent,
+        event: ClickHouseEvent,
+        person_id: String,
         source_partition: i32,
         source_offset: i64,
-    ) -> Option<Self> {
-        let person_id = event.person_id.clone()?;
-        Some(Self {
+    ) -> Self {
+        Self {
             team_id: event.team_id,
             person_id,
-            distinct_id: event.distinct_id.clone(),
+            distinct_id: event.distinct_id,
             uuid: event.uuid.to_string(),
-            event: event.event.clone(),
-            timestamp: event.timestamp.clone(),
-            properties: event.properties.clone(),
-            person_properties: event.person_properties.clone(),
-            elements_chain: event.elements_chain.clone(),
+            event: event.event,
+            timestamp: event.timestamp,
+            properties: event.properties,
+            person_properties: event.person_properties,
+            elements_chain: event.elements_chain,
             source_offset,
             source_partition,
-        })
+        }
     }
 
     /// The Kafka message key for this envelope: [`partition_key`] over its own
@@ -136,13 +137,19 @@ mod tests {
     #[test]
     fn from_clickhouse_maps_every_field() {
         let event = sample_event(42, Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
-        let envelope = CohortStreamEvent::from_clickhouse(&event, 17, 12345)
-            .expect("event with person_id must produce an envelope");
+        // from_clickhouse consumes the event, so capture the uuid string first.
+        let expected_uuid = event.uuid.to_string();
+        let envelope = CohortStreamEvent::from_clickhouse(
+            event,
+            "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+            17,
+            12345,
+        );
 
         assert_eq!(envelope.team_id, 42);
         assert_eq!(envelope.person_id, "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         assert_eq!(envelope.distinct_id, "user@example.com");
-        assert_eq!(envelope.uuid, event.uuid.to_string());
+        assert_eq!(envelope.uuid, expected_uuid);
         assert_eq!(envelope.event, "$pageview");
         assert_eq!(envelope.timestamp, "2026-05-26 12:34:56.789000");
         assert_eq!(
@@ -165,22 +172,16 @@ mod tests {
         event.person_properties = None;
         event.elements_chain = None;
 
-        let envelope = CohortStreamEvent::from_clickhouse(&event, 0, 0).unwrap();
+        let envelope = CohortStreamEvent::from_clickhouse(event, "p".to_string(), 0, 0);
         assert!(envelope.properties.is_none());
         assert!(envelope.person_properties.is_none());
         assert!(envelope.elements_chain.is_none());
     }
 
     #[test]
-    fn from_clickhouse_returns_none_without_person_id() {
-        let event = sample_event(42, None);
-        assert!(CohortStreamEvent::from_clickhouse(&event, 0, 0).is_none());
-    }
-
-    #[test]
     fn envelope_partition_key_matches_free_function() {
         let event = sample_event(99, Some("xyz"));
-        let envelope = CohortStreamEvent::from_clickhouse(&event, 3, 9).unwrap();
+        let envelope = CohortStreamEvent::from_clickhouse(event, "xyz".to_string(), 3, 9);
         assert_eq!(envelope.partition_key(), "99:xyz");
         assert_eq!(envelope.partition_key(), partition_key(99, "xyz"));
     }
@@ -188,7 +189,7 @@ mod tests {
     #[test]
     fn serialized_envelope_has_tdd_4_3_keys() {
         let event = sample_event(42, Some("p1"));
-        let envelope = CohortStreamEvent::from_clickhouse(&event, 17, 12345).unwrap();
+        let envelope = CohortStreamEvent::from_clickhouse(event, "p1".to_string(), 17, 12345);
         let value: serde_json::Value = serde_json::to_value(&envelope).unwrap();
         let obj = value.as_object().unwrap();
 
@@ -215,7 +216,7 @@ mod tests {
     #[test]
     fn envelope_round_trips_through_json() {
         let event = sample_event(42, Some("p1"));
-        let envelope = CohortStreamEvent::from_clickhouse(&event, 17, 12345).unwrap();
+        let envelope = CohortStreamEvent::from_clickhouse(event, "p1".to_string(), 17, 12345);
         let json = serde_json::to_string(&envelope).unwrap();
         let decoded: CohortStreamEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(envelope, decoded);
