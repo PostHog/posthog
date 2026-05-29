@@ -146,7 +146,7 @@ impl RawProxyInner {
             );
         }
 
-        let method = method_name.to_string();
+        let method: Arc<str> = Arc::from(method_name);
         let client = current_client_name();
         let caller_tag = current_caller_tag();
         let start = Instant::now();
@@ -167,12 +167,13 @@ impl RawProxyInner {
                 if is_strong {
                     (self.handle_get_person_strong(req).await, "leader", None)
                 } else {
-                    let (resp, call_ms) = self.raw_proxy_to_replica(req, method_name).await;
+                    let (resp, call_ms) =
+                        self.raw_proxy_to_replica(req, method.clone()).await;
                     (resp, "replica", call_ms)
                 }
             }
             _ => {
-                let (resp, call_ms) = self.raw_proxy_to_replica(req, method_name).await;
+                let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                 (resp, "replica", call_ms)
             }
         };
@@ -252,7 +253,7 @@ impl RawProxyInner {
     async fn raw_proxy_to_replica(
         &self,
         req: http::Request<BoxBody>,
-        method: &str,
+        method: Arc<str>,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let (parts, body) = req.into_parts();
 
@@ -264,8 +265,8 @@ impl RawProxyInner {
         let client = current_client_name();
         histogram!(
             "personhog_router_body_collect_ms",
-            "method" => method.to_string(),
-            "client" => client.to_string(),
+            "method" => method.clone(),
+            "client" => client.clone(),
         )
         .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
@@ -281,13 +282,13 @@ impl RawProxyInner {
         parts: &http::request::Parts,
         body_bytes: &Bytes,
         new_path: &str,
-        method: &str,
+        method: Arc<str>,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
         let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
-            let mut channel = self.replica.next_raw_channel_for(method);
+            let mut channel = self.replica.next_raw_channel_for(&method);
 
             let ready_start = Instant::now();
             let ready_channel = match channel.ready().await {
@@ -295,8 +296,8 @@ impl RawProxyInner {
                 Err(e) => {
                     histogram!(
                         "personhog_router_channel_ready_wait_ms",
-                        "method" => method.to_string(),
-                        "client" => client.to_string(),
+                        "method" => method.clone(),
+                        "client" => client.clone(),
                         "outcome" => "error",
                     )
                     .record(ready_start.elapsed().as_secs_f64() * 1000.0);
@@ -314,7 +315,7 @@ impl RawProxyInner {
 
                     counter!(
                         "personhog_router_backend_retries_total",
-                        "method" => method.to_string(),
+                        "method" => method.clone(),
                         "status_code" => "unavailable",
                         "client" => client.clone(),
                     )
@@ -329,8 +330,8 @@ impl RawProxyInner {
             };
             histogram!(
                 "personhog_router_channel_ready_wait_ms",
-                "method" => method.to_string(),
-                "client" => client.to_string(),
+                "method" => method.clone(),
+                "client" => client.clone(),
                 "outcome" => "ok",
             )
             .record(ready_start.elapsed().as_secs_f64() * 1000.0);
@@ -352,8 +353,8 @@ impl RawProxyInner {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
                     histogram!(
                         "personhog_router_channel_call_ms",
-                        "method" => method.to_string(),
-                        "client" => client.to_string(),
+                        "method" => method.clone(),
+                        "client" => client.clone(),
                         "outcome" => "ok",
                     )
                     .record(channel_call_ms);
@@ -362,8 +363,8 @@ impl RawProxyInner {
                 Err(e) => {
                     histogram!(
                         "personhog_router_channel_call_ms",
-                        "method" => method.to_string(),
-                        "client" => client.to_string(),
+                        "method" => method.clone(),
+                        "client" => client.clone(),
                         "outcome" => "error",
                     )
                     .record(call_start.elapsed().as_secs_f64() * 1000.0);
@@ -381,7 +382,7 @@ impl RawProxyInner {
 
                     counter!(
                         "personhog_router_backend_retries_total",
-                        "method" => method.to_string(),
+                        "method" => method.clone(),
                         "status_code" => "unavailable",
                         "client" => client.clone(),
                     )
@@ -585,7 +586,7 @@ fn percent_encode_grpc(s: &str) -> String {
 struct ByteCountedBody {
     inner: BoxBody,
     bytes_counted: usize,
-    method: String,
+    method: Arc<str>,
     backend: &'static str,
     client: Arc<str>,
     caller_tag: Arc<str>,
@@ -595,7 +596,7 @@ struct ByteCountedBody {
 impl ByteCountedBody {
     fn new(
         inner: BoxBody,
-        method: String,
+        method: Arc<str>,
         backend: &'static str,
         client: Arc<str>,
         caller_tag: Arc<str>,

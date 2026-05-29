@@ -16,6 +16,7 @@ use std::fmt;
 use std::future::Future;
 use std::io::Write;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -154,14 +155,15 @@ where
                 .and_then(|v| v.to_str().ok())
                 .is_some_and(|v| v.split(',').any(|e| e.trim() == "gzip"));
 
-        let method = request
-            .uri()
-            .path()
-            .rsplit_once('/')
-            .map(|(_, m)| m)
-            .filter(|m| !m.is_empty())
-            .unwrap_or("unknown")
-            .to_string();
+        let method: Arc<str> = Arc::from(
+            request
+                .uri()
+                .path()
+                .rsplit_once('/')
+                .map(|(_, m)| m)
+                .filter(|m| !m.is_empty())
+                .unwrap_or("unknown"),
+        );
 
         let config = self.config.clone();
         let mut inner = self.inner.clone();
@@ -248,7 +250,7 @@ where
             {
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough", "method" => method.clone()).increment(1);
                 let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
-                set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
+                set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
                 let data = concat_chunks(&chunks);
                 let boxed: ResponseBody = Box::pin(PrecomputedBody::new(data, trailers));
                 return Ok(Response::from_parts(parts, boxed));
@@ -282,7 +284,7 @@ where
                         .insert(GRPC_ENCODING, HeaderValue::from_static("gzip"));
 
                     let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
-                    set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
+                    set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
 
                     let boxed: ResponseBody =
                         Box::pin(PrecomputedBody::new(frame.freeze(), trailers));
@@ -293,7 +295,7 @@ where
                     counter!("grpc_gzip_responses_total", "outcome" => "compress_error", "method" => method.clone())
                         .increment(1);
                     let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
-                    set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
+                    set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
@@ -301,7 +303,7 @@ where
                     warn!(error = %e, "spawn_blocking panicked, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "spawn_error", "method" => method.clone()).increment(1);
                     let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
-                    set_gzip_overhead_header(&mut parts, &method, gzip_overhead_ms);
+                    set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
@@ -368,8 +370,8 @@ impl Body for PrecomputedBody {
 // Compression helpers
 // ============================================================
 
-fn set_gzip_overhead_header(parts: &mut http::response::Parts, method: &str, overhead_ms: f64) {
-    histogram!("grpc_gzip_total_overhead_ms", "method" => method.to_string()).record(overhead_ms);
+fn set_gzip_overhead_header(parts: &mut http::response::Parts, method: Arc<str>, overhead_ms: f64) {
+    histogram!("grpc_gzip_total_overhead_ms", "method" => method).record(overhead_ms);
     if let Ok(hv) = HeaderValue::from_str(&format!("{overhead_ms:.3}")) {
         parts.headers.insert(GZIP_OVERHEAD_HEADER, hv);
     }
