@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\", properties::text as \"properties!\",\n                           properties_last_updated_at::text as \"properties_last_updated_at?\",\n                           properties_last_operation::text as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND id = ANY($2)\n                    ",
+  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND id = ANY($2)\n                    ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "properties!",
+        "name": "properties?",
         "type_info": "Text"
       },
       {
@@ -62,7 +62,8 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Int8Array"
+        "Int8Array",
+        "Bool"
       ]
     },
     "nullable": [
@@ -79,5 +80,5 @@
       true
     ]
   },
-  "hash": "93a691c94a59ef7bb53626ab7bc5b5c1c0f419e4719b9d6b5cf6a77a8e021f59"
+  "hash": "b6d62a371a12a86e28487c9cbdaefee50ed10f15e6fadb3b791efe7c26282cca"
 }

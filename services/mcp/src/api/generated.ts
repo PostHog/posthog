@@ -38632,6 +38632,18 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface _MetricName {
+      /** Metric name as it appears in the team's data. */
+      name: string;
+      /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
+      metric_type: string;
+    }
+
+    export interface _MetricNamesResponse {
+      /** Distinct metric names ordered by recent activity. */
+      results: _MetricName[];
+    }
+
     export interface _MetricQueryBody {
       /**
          * Exact metric name to query (e.g. 'http.server.duration').
@@ -40860,6 +40872,17 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsMetricsHasMetricsRetrieve200 = { [key: string]: unknown };
+
+    export type EnvironmentsMetricsValuesRetrieveParams = {
+    /**
+     * Max number of names to return. Defaults to 100, capped at 1000.
+     */
+    limit?: number;
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     */
+    value?: string;
+    };
 
     export type EnvironmentsPersistedFolderListParams = {
     /**
@@ -46333,6 +46356,17 @@ export namespace Schemas {
     } as const;
 
     export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown };
+
+    export type MetricsValuesRetrieveParams = {
+    /**
+     * Max number of names to return. Defaults to 100, capped at 1000.
+     */
+    limit?: number;
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     */
+    value?: string;
+    };
 
     export type NotebooksListParams = {
     /**
