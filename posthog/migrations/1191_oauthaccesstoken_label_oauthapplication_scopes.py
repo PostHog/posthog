@@ -5,9 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1189_file_system_shortcut_order_index"),
-    ]
+    dependencies = [("posthog", "1190_team_llm_gateway_metadata")]
 
     operations = [
         migrations.AddField(

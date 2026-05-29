@@ -27,6 +27,7 @@ class BaseScannerOutput(BaseModel, frozen=True):
 class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `prompt_template`, and `llm_response_schema`."""
 
+    prompt: str
     emits_signals: bool = False
 
     # Per-scanner-type Jinja2 template under `prompts/`. Subclasses set this.
@@ -69,8 +70,7 @@ class BaseScanner(BaseModel, frozen=True):
         return render_prompt(
             self.prompt_template,
             team_name=team_name,
-            # `prompt` lives on the four scanners that accept it; the indexer doesn't declare one.
-            user_prompt=getattr(self, "prompt", None),
+            user_prompt=self.prompt,
             events=events,
             url_mapping=url_mapping or {},
             window_mapping=window_mapping or {},
