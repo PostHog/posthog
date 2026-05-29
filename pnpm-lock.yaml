@@ -90,6 +90,9 @@ catalogs:
     use-debounce:
       specifier: ^9.0.3
       version: 9.0.3
+    yaml:
+      specifier: ^2.8.2
+      version: 2.9.0
 
 overrides:
   axios: ^1.15.0
@@ -2153,6 +2156,9 @@ importers:
       use-debounce:
         specifier: '*'
         version: 9.0.3(react@18.3.1)
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
@@ -23008,8 +23014,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.413.0:
-    resolution: {integrity: sha512-Q0C6foEYHkcy3isXILmvey4XHHwvfC4BurDKKfvIF8bkfLNMzN+0NT/cGWkE9gnNzcDm6QOf71fLXkLdy9Rqog==}
+  unlayer-types@1.414.0:
+    resolution: {integrity: sha512-fFQ1O06CPO5T0bnvI3ug+wT7xoQ4XX9ELcjgZV2/ySQKmCAi+IVj6LmMtIrrSMyX5Ad3GQTEPop86d0uuXSLPw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -46955,7 +46961,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.413.0
+      unlayer-types: 1.414.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -49440,7 +49446,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.413.0: {}
+  unlayer-types@1.414.0: {}
 
   unpipe@1.0.0: {}
 

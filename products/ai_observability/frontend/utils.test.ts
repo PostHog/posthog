@@ -1,5 +1,6 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { RecipeNormalizer } from './normalizer'
 import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
 import {
     asString,
@@ -19,15 +20,29 @@ import {
     isTextContentItem,
     isToolStepItem,
     looksLikeXml,
-    normalizeMessage,
-    normalizeMessages,
     parseOpenAIToolCalls,
     parsePartialJSON,
     parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
+import * as legacy from './utils'
 
-describe('AI observability utils', () => {
+// Parameterized suite: the canonical `normalizeMessage`/`normalizeMessages`
+// in `./utils` stays untouched and is the production code path; the
+// recipe-based wrapper in `./normalizer` exposes the same shape and we run
+// the entire suite against it too. Any divergence shows up as a failure on
+// only one column.
+const recipe = new RecipeNormalizer()
+const IMPLS = [
+    { name: 'legacy', normalizeMessage: legacy.normalizeMessage, normalizeMessages: legacy.normalizeMessages },
+    {
+        name: 'recipe',
+        normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d),
+        normalizeMessages: (m: unknown, d: string, t?: unknown) => recipe.normalizeMessages(m, d, t),
+    },
+] as const
+
+describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, normalizeMessages }) => {
     beforeEach(() => {
         console.warn = jest.fn()
     })
@@ -1609,6 +1624,10 @@ describe('AI observability utils', () => {
                 const result = normalizeMessages(emptyResponse, 'assistant')
 
                 expect(result).toHaveLength(0)
+            })
+
+            it('returns no messages for undefined input', () => {
+                expect(normalizeMessages(undefined, 'assistant')).toEqual([])
             })
         })
 
