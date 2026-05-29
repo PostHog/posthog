@@ -20962,8 +20962,8 @@ export namespace Schemas {
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-         * @minimum 1
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * @minimum 0
          */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -21134,7 +21134,7 @@ export namespace Schemas {
       filters: LogsAlertFilters;
       /**
          * Threshold count to evaluate against.
-         * @minimum 1
+         * @minimum 0
          */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -29055,8 +29055,8 @@ export namespace Schemas {
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-         * @minimum 1
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * @minimum 0
          */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.

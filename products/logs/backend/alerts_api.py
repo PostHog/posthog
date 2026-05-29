@@ -154,9 +154,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         default=100,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.",
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
     )
     first_enabled_at = serializers.DateTimeField(
         read_only=True,
@@ -580,7 +580,7 @@ class LogsAlertSimulateBucketSerializer(serializers.Serializer):
 class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     filters = LogsAlertFiltersField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         help_text="Threshold count to evaluate against.",
     )
     threshold_operator = serializers.ChoiceField(
