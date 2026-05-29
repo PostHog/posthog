@@ -760,3 +760,17 @@ expose = [
 from = [
     "products.wizard",
 ]
+
+[[modules]]
+path = "products.engineering_analytics"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.engineering_analytics",
+]

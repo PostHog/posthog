@@ -645,6 +645,9 @@ importers:
       '@posthog/products-endpoints':
         specifier: workspace:*
         version: link:../products/endpoints
+      '@posthog/products-engineering-analytics':
+        specifier: workspace:*
+        version: link:../products/engineering_analytics
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../products/error_tracking
@@ -2553,6 +2556,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/engineering_analytics: {}
 
   products/error_tracking:
     dependencies:
