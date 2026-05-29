@@ -14,6 +14,7 @@
         "@earendil-works/pi-ai": "^0.76.0",
         "@posthog/agent-ingress": "workspace:*",
         "@posthog/agent-janitor": "workspace:*",
+        "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-runner": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",

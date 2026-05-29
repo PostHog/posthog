@@ -19,6 +19,7 @@
         "start:dev": "tsx watch src/index.ts"
     },
     "dependencies": {
+        "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",
         "express": "^4.21.1",

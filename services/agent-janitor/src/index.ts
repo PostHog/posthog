@@ -18,13 +18,13 @@ import { mkdir } from 'node:fs/promises'
 import pg from 'pg'
 const { Pool } = pg
 
+import { migrate } from '@posthog/agent-migrations'
 import {
     createLogger,
     FsBundleStore,
     installProcessHandlers,
     PgRevisionStore,
     PgSessionQueue,
-    SCHEMA_SQL,
 } from '@posthog/agent-shared'
 
 import { loadAgentJanitorConfig } from './config'
@@ -40,7 +40,10 @@ async function main(): Promise<void> {
 
     const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
     const agentDb = new Pool({ connectionString: config.agentDbUrl })
-    await agentDb.query(SCHEMA_SQL)
+    // Belt-and-braces in dev; in prod this is also run as a one-shot
+    // job before the service starts (bin/migrate --scope=agent_runtime).
+    // Idempotent — no-op when everything is already applied.
+    await migrate({ databaseUrl: config.agentDbUrl })
 
     const queue = new PgSessionQueue(agentDb)
     const revisions = new PgRevisionStore(posthogDb)

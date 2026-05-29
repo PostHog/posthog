@@ -57,12 +57,18 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
         fi
     fi
 
-    if run_scope "agent_runtime"; then
-        bash $SCRIPT_DIR/../rust/bin/migrate-agent-runtime-queue
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-agent-runtime-queue, exiting."
-            exit 1
-        fi
+fi
+
+if run_scope "agent_runtime"; then
+    # v2 agent platform schema lives in services/agent-migrations.
+    # Honour the existing env var name used by deploy scripts.
+    AGENT_RUNTIME_QUEUE_DATABASE_NAME=${AGENT_RUNTIME_QUEUE_DATABASE_NAME:-agent_runtime_queue}
+    AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$AGENT_RUNTIME_QUEUE_DATABASE_NAME}
+    echo "Performing agent-runtime migrations for $AGENT_RUNTIME_QUEUE_DATABASE_URL"
+    AGENT_DB_URL="$AGENT_RUNTIME_QUEUE_DATABASE_URL" pnpm --silent --filter @posthog/agent-migrations migrate
+    if [ $? -ne 0 ]; then
+        echo "Error in agent-migrations migrate, exiting."
+        exit 1
     fi
 fi
 

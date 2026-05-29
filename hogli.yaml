@@ -989,9 +989,6 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    seed:agent:session:
-        bin_script: seed-agent-session
-        description: 'Insert a sample available session into agent_runtime_queue.agent_sessions so the local agent-runner picks it up'
     run:agent:
         bin_script: run-agent
         description: 'POST a demo /run to local agent-ingress and tail /listen SSE events — exercises the full ingress → queue → runner path'

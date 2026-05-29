@@ -1,0 +1,37 @@
+{
+    "name": "@posthog/agent-migrations",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Single source of truth for the v2 agent platform's Postgres schema. Plain SQL migrations + a tiny runner on top of node-pg-migrate.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "bin": {
+        "agent-migrate": "./src/bin.ts"
+    },
+    "type": "module",
+    "main": "./src/lib.ts",
+    "types": "./src/lib.ts",
+    "exports": {
+        ".": "./src/lib.ts"
+    },
+    "scripts": {
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "vitest run",
+        "migrate": "tsx src/bin.ts up",
+        "migrate:down": "tsx src/bin.ts down"
+    },
+    "dependencies": {
+        "node-pg-migrate": "^7.6.0",
+        "pg": "^8.6.0",
+        "tsx": "^4.7.0"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/pg": "^8.6.0",
+        "typescript": "catalog:",
+        "vitest": "^2.1.9"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

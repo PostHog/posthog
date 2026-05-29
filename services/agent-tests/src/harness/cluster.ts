@@ -25,6 +25,7 @@ import { Pool } from 'pg'
 
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
+import { reset } from '@posthog/agent-migrations'
 import { PiAiClient, Worker } from '@posthog/agent-runner'
 import type { IdentityStore } from '@posthog/agent-shared'
 import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
@@ -32,15 +33,12 @@ import {
     AgentApplication,
     AgentRevision,
     AgentSpecSchema,
-    AUTHORING_DROP_SQL,
-    AUTHORING_SCHEMA_SQL,
-    DROP_SQL,
     FsBundleStore,
     InProcessSandboxPool,
+    PgApprovalStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
-    SCHEMA_SQL,
     SecretBroker,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
@@ -133,14 +131,12 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const teamId = opts.teamId ?? 1
     const pool = await getPool()
 
-    // The cluster harness uses a single test DB for both the authoring tables
-    // (App, Revision — owned by Django in prod) and the runtime tables
-    // (Session, User, SandboxInstance — owned by the worker). Apply both
-    // schemas; the production split happens at deploy time via two pool URLs.
-    await pool.query(DROP_SQL)
-    await pool.query(AUTHORING_DROP_SQL)
-    await pool.query(AUTHORING_SCHEMA_SQL)
-    await pool.query(SCHEMA_SQL)
+    // Single test DB holds both authoring (App, Revision — owned by Django
+    // in prod) and runtime tables (Session, User, SandboxInstance — owned
+    // by the worker). The production split happens at deploy time via two
+    // pool URLs. reset() drops the public schema and reapplies every
+    // migration from @posthog/agent-migrations — single source of truth.
+    await reset({ databaseUrl: TEST_DB_URL })
 
     const bundleRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'v2-bundle-'))
     const bundle = new FsBundleStore(bundleRoot)
@@ -151,6 +147,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const logs = new InMemoryLogSink()
     const sandboxes = new InProcessSandboxPool()
     const sandboxInstances = new PgSandboxInstanceStore(pool)
+    const approvals = new PgApprovalStore(pool)
     const broker = new SecretBroker()
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
@@ -183,6 +180,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
+        approvals,
+        buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
@@ -201,7 +200,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
 
     const janitor = buildJanitorApp({
         queue,
-        sweep: { queue, stuckRunningThresholdMs: 60_000 },
+        approvals,
+        sweep: { queue, approvals, stuckRunningThresholdMs: 60_000 },
     })
 
     return {

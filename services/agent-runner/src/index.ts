@@ -6,8 +6,9 @@
  *     runner reads from these via `PgRevisionStore`; never writes.
  *
  *   - agentDb (AGENT_DB_URL): the queue / runtime database, owns
- *     agent_session, agent_user, agent_sandbox_instance. The worker owns
- *     this schema and bootstraps it via SCHEMA_SQL on boot.
+ *     agent_session, agent_user, agent_sandbox_instance. Schema is
+ *     managed by @posthog/agent-migrations; this entry applies any
+ *     pending migrations on boot (idempotent).
  *
  * In dev / CI both env vars can point at the same Postgres; production
  * deploys them separately so high-churn runtime writes don't pressure the
@@ -20,6 +21,7 @@ import { mkdir } from 'node:fs/promises'
 import pg from 'pg'
 const { Pool } = pg
 
+import { migrate } from '@posthog/agent-migrations'
 import {
     AnalyticsSink,
     CaptureAnalyticsSink,
@@ -33,7 +35,6 @@ import {
     PgSandboxInstanceStore,
     PgSessionQueue,
     RedisSessionEventBus,
-    SCHEMA_SQL,
     SecretBroker,
     selectSandboxPool,
     SessionEventBus,
@@ -57,9 +58,9 @@ async function main(): Promise<void> {
 
     const posthogDb = new Pool({ connectionString: config.posthogDbUrl })
     const agentDb = new Pool({ connectionString: config.agentDbUrl })
-    // Only the queue DB schema is the runner's responsibility — Django owns
-    // the authoring tables (agent_application, agent_revision) in posthogDb.
-    await agentDb.query(SCHEMA_SQL)
+    // Belt-and-braces in dev; prod also runs `bin/migrate --scope=agent_runtime`
+    // as a one-shot job before the service starts. Idempotent.
+    await migrate({ databaseUrl: config.agentDbUrl })
 
     const defaultApiKey = defaultApiKeyFromConfig(config)
     const revisions = new PgRevisionStore(posthogDb)

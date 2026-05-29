@@ -22,7 +22,6 @@ export * from './storage/fs-bundle-store'
 export * from './persistence/queue'
 export * from './persistence/revision-store'
 export * from './persistence/identity-store'
-export * from './persistence/pg-schema'
 export * from './persistence/pg-queue'
 export * from './persistence/pg-revision-store'
 

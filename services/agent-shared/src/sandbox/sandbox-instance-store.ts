@@ -8,7 +8,7 @@
  *
  * Two impls:
  *   - `MemorySandboxInstanceStore` — tests / local dev.
- *   - `PgSandboxInstanceStore` — production, backed by the table in pg-schema.
+ *   - `PgSandboxInstanceStore` — production, backed by the table created by @posthog/agent-migrations.
  *
  * Lifecycle: `provisioning → ready → terminated` (or `→ failed` on a
  * provisioning error). `touch()` refreshes `last_used_at` so the staleness

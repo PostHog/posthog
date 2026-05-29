@@ -190,24 +190,10 @@ run_flags_read_store_migrations() {
     fi
 }
 
-run_agent_runtime_queue_migrations() {
-    local db_type="agent-runtime-queue"
-    AGENT_RUNTIME_QUEUE_DATABASE_NAME=${AGENT_RUNTIME_QUEUE_DATABASE_NAME:-agent_runtime_queue}
-    AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$AGENT_RUNTIME_QUEUE_DATABASE_NAME}
-
-    log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$AGENT_RUNTIME_QUEUE_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
-
-    if [ "$FRESH_MODE" = true ]; then
-        sqlx database reset -y -D "$AGENT_RUNTIME_QUEUE_DATABASE_URL" --source "$MIGRATIONS_BASE/agent_runtime_queue_migrations/"
-        log_json "info" "Database reset and migrations completed" "completed" "$db_type"
-    else
-        sqlx database create -D "$AGENT_RUNTIME_QUEUE_DATABASE_URL"
-        log_json "info" "Database created or already exists" "running" "$db_type"
-
-        sqlx migrate run -D "$AGENT_RUNTIME_QUEUE_DATABASE_URL" --source "$MIGRATIONS_BASE/agent_runtime_queue_migrations/"
-        log_json "info" "Migrations completed successfully" "completed" "$db_type"
-    fi
-}
+# NOTE: agent-runtime-queue migrations moved to services/agent-migrations
+# (node-pg-migrate). The k8s migration job for the v2 agent platform now
+# runs `pnpm --filter @posthog/agent-migrations migrate` from a node image
+# instead of going through this sqlx entrypoint.
 
 case "$MIGRATION_TYPE" in
     persons)
@@ -225,15 +211,11 @@ case "$MIGRATION_TYPE" in
     flags-read-store)
         run_flags_read_store_migrations
         ;;
-    agent-runtime-queue)
-        run_agent_runtime_queue_migrations
-        ;;
     all)
         run_persons_migrations
         run_cyclotron_migrations
         run_cyclotron_node_migrations
         run_behavioral_cohorts_migrations
-        run_agent_runtime_queue_migrations
         ;;
     *)
         log_json "error" "Invalid migration type specified" "failed" "$MIGRATION_TYPE"

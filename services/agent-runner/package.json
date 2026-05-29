@@ -20,6 +20,7 @@
     },
     "dependencies": {
         "@earendil-works/pi-ai": "^0.76.0",
+        "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",
         "pg": "^8.6.0",

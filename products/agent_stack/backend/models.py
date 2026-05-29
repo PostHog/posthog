@@ -7,10 +7,9 @@ Only the **definition** of an agent lives in the main Django/Postgres DB:
 
 Everything the agent *creates at runtime* (sessions, identities of external
 users it talks to, sandbox instances) lives in a separate node-managed
-queue DB under `agent_stack_*` tables, bootstrapped via SCHEMA_SQL in
-`services/agent-shared/src/persistence/pg-schema.ts`. Those tables are
-high-churn — keeping them out of the main DB shields the rest of the
-product from agent-runtime write load.
+queue DB whose schema is owned by `services/agent-migrations/`. Those
+tables are high-churn — keeping them out of the main DB shields the
+rest of the product from agent-runtime write load.
 
 Reads from the runtime DB happen through node-side HTTP (the janitor's
 `/sessions/:id`, the ingress `/listen` SSE stream).

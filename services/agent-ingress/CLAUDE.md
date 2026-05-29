@@ -14,7 +14,7 @@ for the wider dev flow before non-trivial changes.
 - [src/routing/](src/routing/) — slug + domain resolution against the
   application table.
 - [src/enqueue/](src/enqueue/) — the path from "validated request"
-  → row in `agent_sessions`.
+  → row in `agent_session`.
 - [src/index.ts](src/index.ts) — prod bin entry. Reads env, wires
   real PG pools + `RedisSessionEventBus`, starts the listener.
 - [src/lib.ts](src/lib.ts) — library entry (`buildApp`, the auth and
@@ -22,7 +22,7 @@ for the wider dev flow before non-trivial changes.
 
 ## Rules of engagement
 
-1. **Ingress writes only to `agent_sessions` (+ `agent_user`).** It
+1. **Ingress writes only to `agent_session` (+ `agent_user`).** It
    never touches `agent_application` / `agent_revision` except to
    read for routing. Authoring writes go through Django →
    janitor — not through here.

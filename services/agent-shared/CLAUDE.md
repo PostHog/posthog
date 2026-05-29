@@ -13,8 +13,9 @@ for the wider dev flow.
   truth** for the `revision.spec` JSONB shape. The Django side
   validates loosely and passes through; this schema is authoritative.
 - [src/persistence/](src/persistence/) — `PgSessionQueue`,
-  `PgRevisionStore`, `PgSandboxInstanceStore`, the `SCHEMA_SQL` /
-  `AUTHORING_SCHEMA_SQL` constants.
+  `PgRevisionStore`, `PgSandboxInstanceStore`, `PgApprovalStore`. SQL
+  schema lives in [@posthog/agent-migrations](../agent-migrations/),
+  not here.
 - [src/storage/](src/storage/) — `BundleStore` interface +
   `FsBundleStore` impl.
 - [src/sandbox/](src/sandbox/) — `SandboxImpl` interface +
@@ -42,11 +43,11 @@ for the wider dev flow.
    can't handle. Mirror janitor `validate-spec.ts` whenever you
    touch this.
 
-4. **Schema SQL changes are migrations.** `SCHEMA_SQL` is dropped +
-   recreated per harness test, but in prod it bootstraps a fresh DB
-   only on first boot. Real schema changes need an entry in the
-   migration scope (`bin/migrate --scope=agent_runtime`), not just
-   an edit to the constant.
+4. **Schema lives in `@posthog/agent-migrations`.** This package no
+   longer carries inline SQL constants. New tables or columns go in a
+   new migration file there. Test harness pulls `reset()` from the
+   migrations package; production runs `bin/migrate --scope=agent_runtime`
+   before service boot.
 
 ## Pointers
 

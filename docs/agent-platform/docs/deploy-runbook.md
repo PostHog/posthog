@@ -11,8 +11,9 @@ All three services read / write two Postgres databases:
 - **`POSTHOG_DB_URL`** — main posthog DB (Django-owned). Tables:
   `agent_application`, `agent_revision`.
 - **`AGENT_DB_URL`** — runtime queue DB. Tables: `agent_session`,
-  `agent_user`, `agent_sandbox_instance`. The worker bootstraps this
-  schema on boot via `SCHEMA_SQL`.
+  `agent_user`, `agent_sandbox_instance`, `agent_tool_approval_request`.
+  Schema is owned by `@posthog/agent-migrations` and applied via
+  `bin/migrate --scope=agent_runtime` before service boot.
 
 Both can point at the same Postgres in dev. In prod, give the agent DB its
 own physical instance — high write churn on sessions / sandbox instances
@@ -25,7 +26,7 @@ shouldn't pressure the product DB.
 | Var                                                                | Required                           | Default                        | Notes                                                                                                                                                |
 | ------------------------------------------------------------------ | ---------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POSTHOG_DB_URL`                                                   | yes (prod)                         | localhost posthog              | Reads applications + revisions.                                                                                                                      |
-| `AGENT_DB_URL`                                                     | yes (prod)                         | localhost agent_runtime_queue  | Owns the queue schema; bootstraps SCHEMA_SQL on boot.                                                                                                |
+| `AGENT_DB_URL`                                                     | yes (prod)                         | localhost agent_runtime_queue  | Queue schema lives in @posthog/agent-migrations; runner applies pending migrations on boot (idempotent).                                             |
 | `AGENT_BUNDLE_ROOT`                                                | yes                                | `/var/lib/agent-bundles`       | FS bundle root. Mount a persistent volume here.                                                                                                      |
 | `ENCRYPTION_SALT_KEYS`                                             | yes (when agents have env secrets) | unset                          | Comma-separated UTF-8 Fernet keys, matches Django's `EncryptedTextField`. When unset, `resolveSecrets` is a noop.                                    |
 | `REDIS_URL`                                                        | yes (cross-host)                   | unset                          | When set, lifecycle events publish to `RedisSessionEventBus` for cross-host `/listen` SSE.                                                           |

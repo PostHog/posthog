@@ -33,7 +33,7 @@ in prod). This doc is dev-mode only.
 │   /agents/<slug>/run · /send · /listen (SSE) · /webhook · MCP       │
 │   resolves slug → application + live revision → enqueues session    │
 └─────────────────────────────────────────────────────────────────────┘
-                              │ enqueues to AGENT_DB.agent_sessions
+                              │ enqueues to AGENT_DB.agent_session
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ services/agent-runner            (no inbound HTTP)                  │
@@ -53,8 +53,9 @@ etc.) live in [services/agent-tools](../../../services/agent-tools/).
 - **POSTHOG_DB** — Django-owned. Tables: `agent_application`,
   `agent_revision`. Written by Django; read by ingress + runner.
 - **AGENT_DB** — node-owned. Tables: `agent_session`, `agent_user`,
-  `agent_sandbox_instance`. Bootstrapped by the runner from `SCHEMA_SQL`
-  on boot.
+  `agent_sandbox_instance`, `agent_tool_approval_request`. Schema is
+  managed by [@posthog/agent-migrations](../../../services/agent-migrations/);
+  the runner applies pending migrations on boot (idempotent).
 
 In dev they're the same Postgres (`postgres://posthog:posthog@localhost:5432`),
 just two databases: `posthog` and `agent_runtime_queue`. In prod they're
@@ -109,16 +110,7 @@ Validates the full ingress → queue → runner → bus → SSE path with one
 command. Reach for this first when anything changes in any of the three
 services.
 
-### 2. `bin/seed-agent-session` — runner-only
-
-Inserts a row directly into `agent_sessions`. Bypasses ingress; useful
-when you're iterating on the worker loop and don't care about routing:
-
-```bash
-bin/seed-agent-session --count=5
-```
-
-### 3. Local MCP — end-to-end via an MCP client
+### 2. Local MCP — end-to-end via an MCP client
 
 The `agent_stack` Django endpoints (`/api/projects/<team>/agent_applications/...`)
 are exposed as MCP tools, generated from the OpenAPI schema into

@@ -1,20 +1,24 @@
 /**
  * Real Postgres tests against agent_runtime_queue_test. Schema is recreated
- * per suite via SCHEMA_SQL/DROP_SQL — no migrations, no shared state across
- * suites.
+ * per test via @posthog/agent-migrations `reset()` — single source of
+ * truth for the v2 platform schema.
  *
  * The test database is provided by the local hogli dev stack
  * (see services/agent-tests/.. for setup). We probe and skip the suite if
  * the database isn't reachable.
  */
 
+import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
+import { reset } from '@posthog/agent-migrations'
+
 import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'
-import { AgentSpecSchema, EMPTY_USAGE_TOTAL } from '../spec/spec'
+import { AgentSpecSchema, AssistantMessageRecord, EMPTY_USAGE_TOTAL } from '../spec/spec'
+import { hashCanonicalArgs } from './approval-store'
+import { PgApprovalStore } from './pg-approval-store'
 import { PgSessionQueue } from './pg-queue'
 import { PgRevisionStore } from './pg-revision-store'
-import { AUTHORING_DROP_SQL, AUTHORING_SCHEMA_SQL, DROP_SQL, SCHEMA_SQL } from './pg-schema'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
@@ -51,16 +55,11 @@ maybeDescribe('Postgres impls (real PG)', () => {
         if (!reachable) {
             return
         }
-        await pool.query(DROP_SQL)
-        await pool.query(AUTHORING_DROP_SQL)
-        await pool.query(AUTHORING_SCHEMA_SQL)
-        await pool.query(SCHEMA_SQL)
+        await reset({ databaseUrl: TEST_DB_URL })
     })
 
     afterAll(async () => {
         if (pool) {
-            await pool.query(DROP_SQL).catch(() => undefined)
-            await pool.query(AUTHORING_DROP_SQL).catch(() => undefined)
             await pool.end()
         }
     })
@@ -317,5 +316,174 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(after!.terminated_at).not.toBeNull()
         // findStale now ignores it — terminated is out of the alive set.
         expect(await store.findStale(60_000)).toHaveLength(0)
+    })
+
+    it('PgApprovalStore: dedupes queued rows by canonical args hash; new row after rejection', async () => {
+        if (!reachable) {
+            return
+        }
+        // Need a real session (FK target). Mint application + revision + session.
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'ap', name: 'Ap', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const sessionId = randomUUID()
+        await queue.enqueue({
+            id: sessionId,
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            state: 'running',
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+
+        const store = new PgApprovalStore(pool)
+        const asstMsg: AssistantMessageRecord = {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'about to delete' }],
+            timestamp: Date.now(),
+        }
+        const baseInput = {
+            session_id: sessionId,
+            application_id: app.id,
+            team_id: 1,
+            revision_id: rev.id,
+            turn: 1,
+            tool_call_id: 'tc_1',
+            tool_name: '@posthog/team-delete',
+            proposed_args: { team_id: 42, dry_run: false },
+            assistant_message: asstMsg,
+            approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }
+
+        const first = await store.upsertQueued({ id: randomUUID(), ...baseInput })
+        expect(first.deduped).toBe(false)
+
+        // Reordered args → same hash → deduped to the same row.
+        const second = await store.upsertQueued({
+            id: randomUUID(),
+            ...baseInput,
+            proposed_args: { dry_run: false, team_id: 42 },
+        })
+        expect(second.deduped).toBe(true)
+        expect(second.request.id).toBe(first.request.id)
+
+        // Reject the first, then re-issue → fresh row.
+        await store.markRejected(first.request.id, {
+            decided_by: randomUUID(),
+            decided_at: new Date().toISOString(),
+            reason: 'too risky',
+        })
+        const third = await store.upsertQueued({ id: randomUUID(), ...baseInput })
+        expect(third.deduped).toBe(false)
+        expect(third.request.id).not.toBe(first.request.id)
+
+        // Lookup by canonical hash returns the most recent.
+        const latest = await store.findLatestByArgs(
+            sessionId,
+            '@posthog/team-delete',
+            hashCanonicalArgs(baseInput.proposed_args)
+        )
+        expect(latest!.id).toBe(third.request.id)
+    })
+
+    it('PgApprovalStore: decision lifecycle + expireQueued sweep', async () => {
+        if (!reachable) {
+            return
+        }
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'lc', name: 'Lc', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const sessionId = randomUUID()
+        await queue.enqueue({
+            id: sessionId,
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            state: 'running',
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+
+        const store = new PgApprovalStore(pool)
+        const asstMsg: AssistantMessageRecord = {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'deciding' }],
+            timestamp: Date.now(),
+        }
+        const baseInput = {
+            session_id: sessionId,
+            application_id: app.id,
+            team_id: 1,
+            revision_id: rev.id,
+            turn: 1,
+            tool_call_id: 'tc_x',
+            tool_name: 'tool.dispatch',
+            assistant_message: asstMsg,
+            approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }
+
+        // Approve → dispatch success path.
+        const okReq = await store.upsertQueued({ id: randomUUID(), ...baseInput, proposed_args: { v: 1 } })
+        const approving = await store.markApproving(okReq.request.id, {
+            decided_by: randomUUID(),
+            decided_at: new Date().toISOString(),
+        })
+        expect(approving!.state).toBe('approving')
+        const dispatched = await store.markDispatched(okReq.request.id, { result: { ok: true } })
+        expect(dispatched!.state).toBe('dispatched')
+        expect(dispatched!.dispatch_outcome).toEqual({ result: { ok: true } })
+
+        // Approve → dispatch failure path.
+        const failReq = await store.upsertQueued({ id: randomUUID(), ...baseInput, proposed_args: { v: 2 } })
+        await store.markApproving(failReq.request.id, {
+            decided_by: randomUUID(),
+            decided_at: new Date().toISOString(),
+        })
+        const failed = await store.markDispatched(failReq.request.id, { error: 'boom' })
+        expect(failed!.state).toBe('dispatched_failed')
+
+        // expireQueued only flips queued rows past expires_at.
+        const ttlReq = await store.upsertQueued({
+            id: randomUUID(),
+            ...baseInput,
+            proposed_args: { v: 3 },
+            expires_at: new Date(Date.now() - 1000).toISOString(),
+        })
+        const expired = await store.expireQueued(new Date().toISOString())
+        expect(expired.map((r) => r.id)).toContain(ttlReq.request.id)
+        expect((await store.get(ttlReq.request.id))!.state).toBe('expired')
+
+        // Listing by session returns all rows, newest first.
+        const all = await store.listBySession(sessionId)
+        expect(all.length).toBeGreaterThanOrEqual(3)
     })
 })

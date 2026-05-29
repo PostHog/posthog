@@ -14,6 +14,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { Pool } from 'pg'
 
+import { reset } from '@posthog/agent-migrations'
 import { FauxPiClient, InvokeOpts, StreamDelta, Worker } from '@posthog/agent-runner'
 import {
     AgentSpecSchema,
@@ -23,8 +24,6 @@ import {
     PgRevisionStore,
     PgSessionQueue,
     SecretBroker,
-    DROP_SQL,
-    SCHEMA_SQL,
 } from '@posthog/agent-shared'
 
 const TEST_DB_URL =
@@ -84,8 +83,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
     })
 
     beforeEach(async () => {
-        await pool.query(DROP_SQL)
-        await pool.query(SCHEMA_SQL)
+        await reset({ databaseUrl: TEST_DB_URL })
         bundleRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'permodel-'))
     })
 
