@@ -5,8 +5,6 @@ updates:
       schedule:
           interval: weekly
       open-pull-requests-limit: 0
-      cooldown:
-          default-days: 7
 
     # Configured to only update from root to support pnpm workspaces
     # Without this, automatic security updates may try to update from subdirectories
@@ -16,8 +14,6 @@ updates:
       schedule:
           interval: weekly
       open-pull-requests-limit: 0
-      cooldown:
-          default-days: 7
 
     # Python dependencies for main PostHog application
     # uv updates both pyproject.toml and uv.lock
