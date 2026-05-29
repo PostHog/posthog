@@ -16,6 +16,7 @@ import {
     ExternalDataSchemasResyncCreateBody,
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
+    ExternalDataSourcesConnectionsListQueryParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
     ExternalDataSourcesCreateWebhookCreateParams,
@@ -388,6 +389,29 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const ExternalDataSourcesConnectionsListSchema = ExternalDataSourcesConnectionsListQueryParams
+
+const externalDataSourcesConnectionsList = (): ToolBase<
+    typeof ExternalDataSourcesConnectionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExternalDataSourceConnectionOptionList>
+> => ({
+    name: 'external-data-sources-connections-list',
+    schema: ExternalDataSourcesConnectionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExternalDataSourceConnectionOptionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connections/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -1112,6 +1136,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
+    'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,
