@@ -12,7 +12,7 @@ import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
 // AI observability
-import getLLMCosts from './llmAnalytics/getLLMCosts'
+import getLLMCosts from './aiObservability/getLLMCosts'
 // Notebooks (edit tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import createNotebookFromMarkdown from './notebooks/createFromMarkdown'
 import editNotebook from './notebooks/edit'

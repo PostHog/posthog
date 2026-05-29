@@ -310,9 +310,9 @@ export function createExecTool(
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `undefined` bypasses the coding-agent suppression in
+                                // Passing `false` bypasses coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.
-                                clientName: undefined,
+                                suppressStructuredContentForFormattedResults: false,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

@@ -3,10 +3,10 @@ import { useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 import type { LemonBannerProps } from '@posthog/lemon-ui'
 
-import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
-import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HealthMenu/healthMenuLogic'
-import { INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
 import { HeartHog, SleepingHog, WarningHog } from 'lib/components/hedgehogs'
+import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
+import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
+import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HelpMenu/posthogStatusLogic'
 
 const STATUS_CONFIG: Record<
     PostHogStatusBadgeStatus,
@@ -28,7 +28,7 @@ const STATUS_LABELS: Record<PostHogStatusType, string> = {
 }
 
 export const PlatformStatusBanner = (): JSX.Element => {
-    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatus } = useValues(healthMenuLogic)
+    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatus } = useValues(posthogStatusLogic)
     const { bannerType, Hog } = STATUS_CONFIG[postHogStatusBadgeStatus]
     const statusLabel = STATUS_LABELS[postHogStatus]
     const statusMessage = postHogStatusTooltip ?? 'Checking for active incidents...'
@@ -40,7 +40,7 @@ export const PlatformStatusBanner = (): JSX.Element => {
             hideIcon={false}
             action={{
                 children: 'View status page',
-                to: INCIDENT_IO_STATUS_PAGE_BASE,
+                to: STATUS_PAGE_BASE,
                 targetBlank: true,
             }}
         >
