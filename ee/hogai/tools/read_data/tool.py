@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, create_model
 from posthog.schema import (
     ArtifactContentType,
     AssistantToolCallMessage,
+    DatabaseSchemaField,
     LLMTrace,
     NotebookArtifactContent,
     TraceQuery,
@@ -21,6 +22,7 @@ from posthog.schema import (
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import FieldOrTable
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
@@ -408,8 +410,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         system_table_lines: list[str] = []
         for table_name, table in serialized.items():
             system_table_lines.append(f"## Table `{table_name}`")
+            raw_fields = database.get_table(table_name).fields
             for field in table.fields.values():
-                system_table_lines.append(f"- {field.name} ({field.type})")
+                system_table_lines.append(self._format_schema_field(field, raw_fields.get(field.name)))
             system_table_lines.append("")
 
         warehouse_tables = database.get_warehouse_table_names()
@@ -457,10 +460,20 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         table = serialized[table_name]
         lines = [f"Table `{table_name}` with fields:"]
+        raw_fields = database.get_table(table_name).fields
         for field in table.fields.values():
-            lines.append(f"- {field.name} ({field.type})")
+            lines.append(self._format_schema_field(field, raw_fields.get(field.name)))
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_schema_field(field: DatabaseSchemaField, raw_field: FieldOrTable | None) -> str:
+        source_name = getattr(raw_field, "name", None)
+        alias_suffix = ""
+        if isinstance(source_name, str) and source_name and source_name != field.name:
+            alias_suffix = f", aliased from {source_name}"
+
+        return f"- {field.name} ({field.type}{alias_suffix})"
 
     async def _read_dashboard(self, dashboard_id: str, execute: bool) -> tuple[str, ToolMessagesArtifact | None]:
         try:

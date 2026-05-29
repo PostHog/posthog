@@ -20,11 +20,17 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
+from ee.hogai.chat_agent.taxonomy.event_property_definitions import (
+    event_property_is_string_like,
+    get_event_property_definition_type,
+    get_virtual_event_property_definition,
+    get_virtual_event_property_sample_values,
+)
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,
     retrieve_action_properties,
@@ -242,12 +248,14 @@ class TaxonomyAgentToolkit:
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
         property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
-        props = [
-            (item.property, property_to_type.get(item.property))
-            for item in response.results
-            # Exclude properties that exist in the taxonomy, but don't have a type.
-            if item.property in property_to_type
-        ]
+        props: list[tuple[str, str | None]] = []
+        for item in response.results:
+            property_type = property_to_type.get(item.property)
+            if property_type is None and (virtual_definition := get_virtual_event_property_definition(item.property)):
+                property_type = get_event_property_definition_type(virtual_definition)
+            if property_type is None:
+                continue
+            props.append((item.property, property_type))
 
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
@@ -291,22 +299,44 @@ class TaxonomyAgentToolkit:
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
-            return f"The property {property_name} does not exist in the taxonomy."
+            property_definition = get_virtual_event_property_definition(property_name)
+            if property_definition is None:
+                return f"The property {property_name} does not exist in the taxonomy."
 
         response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The {verbose_name} does not exist in the taxonomy."
         if not response.results:
+            if virtual_definition := get_virtual_event_property_definition(property_name):
+                return self._format_virtual_event_property_values(property_name, virtual_definition)
             return f"Property values for {property_name} do not exist in the taxonomy for the {verbose_name}."
 
         prop = next((item for item in response.results if item.property == property_name), None)
         if not prop:
+            if virtual_definition := get_virtual_event_property_definition(property_name):
+                return self._format_virtual_event_property_values(property_name, virtual_definition)
             return f"The property {property_name} does not exist in the taxonomy for the {verbose_name}."
 
         return self._format_property_values(
             prop.sample_values,
             prop.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+            format_as_string=event_property_is_string_like(property_definition),
+        )
+
+    def _format_virtual_event_property_values(
+        self, property_name: str, property_definition: CoreFilterDefinition
+    ) -> str:
+        sample_values, sample_count = get_virtual_event_property_sample_values(property_definition)
+        if sample_values:
+            return self._format_property_values(
+                sample_values,
+                sample_count,
+                format_as_string=event_property_is_string_like(property_definition),
+            )
+
+        return (
+            f"The property {property_name} is a virtual event property computed at query time, "
+            "so the taxonomy may not have stored sample values."
         )
 
     def _retrieve_session_properties(self, property_name: str) -> str:

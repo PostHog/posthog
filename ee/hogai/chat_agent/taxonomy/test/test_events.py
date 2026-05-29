@@ -1,3 +1,7 @@
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
+
+from posthog.schema import CachedEventTaxonomyQueryResponse
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from posthog.models.group_type_mapping import invalidate_group_types_cache
@@ -104,6 +108,26 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "No values found for property no_values on entity event event1" in "\n".join(
             property_vals.get("event1", [])
         )
+
+    async def test_events_property_values_virtual_property_without_property_definition(self):
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        response = CachedEventTaxonomyQueryResponse(
+            cache_key="virtual-event-property",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
+
+        with patch.object(
+            DummyToolkit,
+            "_retrieve_event_or_action_taxonomy",
+            AsyncMock(return_value=(response, "event event1")),
+        ):
+            property_vals = await self.toolkit.retrieve_event_or_action_property_values({"event1": ["$virt_is_bot"]})
+
+        assert property_vals == {"event1": ["true, false"]}
 
     async def test_events_property_values_action_values_not_found(self):
         result = await self.toolkit._get_entity_names()

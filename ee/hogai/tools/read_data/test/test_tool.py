@@ -514,6 +514,8 @@ class TestReadDataTool(BaseTest):
         assert "## Table `persons`" in result
         assert "## Table `sessions`" in result
         assert "## Table `groups`" in result
+        assert "- index (integer, aliased from group_type_index)" in result
+        assert "- key (string, aliased from group_key)" in result
         assert artifact is None
 
     async def test_list_tables_includes_warehouse_tables(self):
@@ -732,6 +734,25 @@ class TestReadDataTool(BaseTest):
         assert "Table `events` with fields:" in result
         assert "- event (string)" in result
         assert "- timestamp (datetime)" in result
+
+    async def test_table_schema_returns_posthog_field_aliases(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "groups"})
+
+        assert "Table `groups` with fields:" in result
+        assert "- index (integer, aliased from group_type_index)" in result
+        assert "- key (string, aliased from group_key)" in result
 
     async def test_table_schema_returns_error_when_table_not_found(self):
         """Test that data_warehouse_table returns an error message for unknown tables."""

@@ -1,7 +1,9 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from textwrap import dedent
+from unittest.mock import patch
 
 from freezegun import freeze_time
+from posthog.schema import CachedEventTaxonomyQueryResponse
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 from posthog.models.group.util import create_group
@@ -272,6 +274,24 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
             )
+
+    @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
+    def test_retrieve_event_or_action_property_values_accepts_virtual_event_properties(self, mock_retrieve):
+        toolkit = DummyToolkit(self.team)
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_retrieve.return_value = (
+            CachedEventTaxonomyQueryResponse(
+                cache_key="virtual-event-property",
+                is_cached=True,
+                last_refresh=now,
+                next_allowed_client_refresh=now,
+                results=[],
+                timezone="UTC",
+            ),
+            "event event1",
+        )
+
+        assert toolkit.retrieve_event_or_action_property_values("event1", "$virt_is_bot") == "true, false"
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
         toolkit = DummyToolkit(self.team)
