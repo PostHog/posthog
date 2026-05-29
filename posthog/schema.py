@@ -2974,6 +2974,44 @@ class LogValueResult(BaseModel):
     name: str
 
 
+class Action1(StrEnum):
+    FIRING = "firing"
+    BROKEN = "broken"
+
+
+class ThresholdOperator(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class LogsAlertStateChangeSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Action1
+    alert_id: str
+    alert_name: str
+    consecutive_failures: float
+    filters: dict[str, Any]
+    result_count: float | None = None
+    threshold_count: float
+    threshold_operator: ThresholdOperator
+    url: str
+    window_minutes: float
+
+
+class LogsAlertStateChangeSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LogsAlertStateChangeSignalExtra
+    source_id: str
+    source_product: Literal["logs"] = "logs"
+    source_type: Literal["alert_state_change"] = "alert_state_change"
+    weight: float
+
+
 class LogsOrderBy(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
@@ -4621,6 +4659,7 @@ class SignalSourceProduct(StrEnum):
     ENDPOINTS = "endpoints"
     PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
+    LOGS = "logs"
 
 
 class SignalSourceType(StrEnum):
@@ -4635,6 +4674,7 @@ class SignalSourceType(StrEnum):
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
     CROSS_SOURCE_ISSUE = "cross_source_issue"
+    ALERT_STATE_CHANGE = "alert_state_change"
 
 
 class SignalsScoutEvidenceEntry(BaseModel):
@@ -8813,6 +8853,7 @@ class SignalInput(
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
+        | LogsAlertStateChangeSignalInput
     ]
 ):
     root: (
@@ -8827,6 +8868,7 @@ class SignalInput(
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
+        | LogsAlertStateChangeSignalInput
     )
 
 

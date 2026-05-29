@@ -349,6 +349,7 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.cdp",
+    "products.signals",
 ]
 layer = "modules"
 
