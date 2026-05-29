@@ -16,7 +16,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { ACCOUNTS_HOGQL_PINNED_SELECT, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 20
@@ -280,7 +280,7 @@ export const accountsLogic = kea<accountsLogicType>([
             ): DataTableNode => {
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
-                    select: [...ACCOUNTS_HOGQL_PINNED_SELECT, ...selectColumns],
+                    select: selectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
                 }
                 const trimmed = searchQuery.trim()
