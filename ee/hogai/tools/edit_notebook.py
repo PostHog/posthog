@@ -527,27 +527,27 @@ def replace_strings_in_value(value: Any, find: str, replacement: str, all_occurr
 
     if isinstance(value, list):
         count = 0
-        next_value: list[Any] = []
+        next_list_value: list[Any] = []
         for item in value:
             if not all_occurrences and count > 0:
-                next_value.append(item)
+                next_list_value.append(item)
                 continue
             replacement_value, replacement_count = replace_strings_in_value(item, find, replacement, all_occurrences)
             count += replacement_count
-            next_value.append(replacement_value)
-        return next_value, count
+            next_list_value.append(replacement_value)
+        return next_list_value, count
 
     if isinstance(value, dict):
         count = 0
-        next_value: dict[str, Any] = {}
+        next_dict_value: dict[str, Any] = {}
         for key, item in value.items():
             if not all_occurrences and count > 0:
-                next_value[key] = item
+                next_dict_value[key] = item
                 continue
             replacement_value, replacement_count = replace_strings_in_value(item, find, replacement, all_occurrences)
             count += replacement_count
-            next_value[key] = replacement_value
-        return next_value, count
+            next_dict_value[key] = replacement_value
+        return next_dict_value, count
 
     return value, 0
 
@@ -738,9 +738,11 @@ def apply_replace_text_edit(
             raise MaxToolRetryableError(f'Could not find text "{anchor}" in the notebook.')
 
         start_index, end_index = block_range_for_anchor(doc, anchor_index)
-        steps = apply_replacements_in_block_range(doc, start_index, end_index, find, replacement, all_occurrences)
-        if steps:
-            return steps
+        anchored_steps = apply_replacements_in_block_range(
+            doc, start_index, end_index, find, replacement, all_occurrences
+        )
+        if anchored_steps:
+            return anchored_steps
 
         raise MaxToolRetryableError(
             f'Could not find text "{find}" inside notebook block or section anchored by "{anchor}".'
@@ -996,7 +998,7 @@ class EditNotebookTool(MaxTool):
                 None,
             )
 
-        for attempt in range(max_retries + 1):
+        for _attempt in range(max_retries + 1):
             notebook = await self._get_notebook(target_short_id)
             plan = build_edit_plan(
                 notebook.content,
@@ -1011,15 +1013,14 @@ class EditNotebookTool(MaxTool):
                 updated = await self._update_title_only(notebook, title)
                 return f"Updated notebook {updated.short_id}.", {"short_id": updated.short_id}
 
-            updated = await self._save_plan(notebook, plan, title)
-            if updated is not None:
-                return (
-                    f"Updated notebook {updated.short_id} with {len(edits)} edit{'s' if len(edits) != 1 else ''}.",
-                    {"short_id": updated.short_id, "applied_edits": len(edits)},
-                )
+            saved_notebook = await self._save_plan(notebook, plan, title)
+            if saved_notebook is None:
+                continue
 
-            if attempt == max_retries:
-                break
+            return (
+                f"Updated notebook {saved_notebook.short_id} with {len(edits)} edit{'s' if len(edits) != 1 else ''}.",
+                {"short_id": saved_notebook.short_id, "applied_edits": len(edits)},
+            )
 
         raise MaxToolRetryableError(
             f"Could not apply notebook edit after {max_retries + 1} attempts because the notebook kept changing."

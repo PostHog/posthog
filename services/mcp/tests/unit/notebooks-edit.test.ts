@@ -692,8 +692,8 @@ describe('notebooks-edit', () => {
             steps: [
                 {
                     stepType: 'replace',
-                    from: 57,
-                    to: 58,
+                    from: 70,
+                    to: 71,
                     slice: { content: [queryNode(newQuery, 'Device type by segment')] },
                 },
             ],
