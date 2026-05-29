@@ -97,7 +97,7 @@ type StreamItem =
     | { kind: 'bubble'; message: CompatMessage; text: string; nonText: boolean }
     | { kind: 'scaffold-group'; messages: CompatMessage[]; tagNames: string[]; role: string }
 
-interface ClassifiedMessage {
+interface SessionEntry {
     kind: 'bubble' | 'scaffold'
     message: CompatMessage
     text: string
@@ -105,8 +105,8 @@ interface ClassifiedMessage {
     scaffoldTag: string | undefined
 }
 
-function classifyMessages(messages: CompatMessage[]): ClassifiedMessage[] {
-    const result: ClassifiedMessage[] = []
+function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
+    const result: SessionEntry[] = []
     for (const message of messages) {
         if (HIDDEN_ROLES.has(message.role)) {
             continue
@@ -126,9 +126,9 @@ function classifyMessages(messages: CompatMessage[]): ClassifiedMessage[] {
     return result
 }
 
-function groupScaffolds(classified: ClassifiedMessage[]): StreamItem[] {
+function groupScaffolds(classified: SessionEntry[]): StreamItem[] {
     const result: StreamItem[] = []
-    let pendingScaffolds: ClassifiedMessage[] = []
+    let pendingScaffolds: SessionEntry[] = []
     const makeGroup = (): void => {
         if (pendingScaffolds.length === 0) {
             return
