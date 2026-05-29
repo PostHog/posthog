@@ -328,6 +328,8 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
                 columns: contextColumns,
                 expandable,
                 dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                emptyStateHeading: 'There are no matching accounts for this query',
+                emptyStateDetail: 'Try adjusting the filters or refreshing',
             }}
             readOnly
         />
