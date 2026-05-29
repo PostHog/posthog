@@ -885,7 +885,11 @@ class HogQLQueryExecutor:
                 if prepared_execution.engine == "direct_postgres":
                     self._execute_direct_postgres_query()
                 elif self.clickhouse_sql is not None:
-                    self._execute_clickhouse_query()
+                    if self.clickhouse_sql == "":
+                        if self.error is None:
+                            self.error = "Unknown error"
+                    else:
+                        self._execute_clickhouse_query()
         finally:
             # Side-channel: push collected warnings to the query-runner-level accumulator even on
             # failure. The warning is often the actual explanation for the query error (e.g. a
