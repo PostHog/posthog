@@ -465,6 +465,27 @@ class ExperimentService:
             )
 
     @staticmethod
+    def _variant_keys(variants: list | None) -> list[str]:
+        """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
+        return [variant["key"] for variant in (variants or []) if isinstance(variant, dict)]
+
+    @classmethod
+    def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
+        """Variant keys the experiment will have after this update.
+
+        Prefer the variants the PATCH sets; otherwise fall back to the experiment's
+        current variants (its parameters first, then the linked flag's multivariate set).
+        """
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if update_variants is None:
+            update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
+                experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
+                if experiment.feature_flag
+                else []
+            )
+        return cls._variant_keys(update_variants)
+
+    @staticmethod
     def validate_no_duplicate_metric_uuids(*metric_lists: list | None) -> None:
         """Reject metrics with duplicate UUIDs across all provided metric lists."""
         seen: set[str] = set()
@@ -709,7 +730,7 @@ class ExperimentService:
         # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
         # raw parameters payload may omit. This runs inside the @transaction.atomic
         # create, so a raise rolls back the just-created flag.
-        used_variant_keys = [variant["key"] for variant in used_variants if isinstance(variant, dict)]
+        used_variant_keys = self._variant_keys(used_variants)
         self.validate_stats_config(stats_config, used_variant_keys)
 
         team_config = self._get_team_experiments_config()
@@ -1916,15 +1937,9 @@ class ExperimentService:
         # must not leave a dangling baseline_variant_key behind.
         update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
         if "stats_config" in update_data or update_variants is not None:
-            if update_variants is None:
-                update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
-                    experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
-                    if experiment.feature_flag
-                    else []
-                )
-            update_variant_keys = [variant["key"] for variant in (update_variants or []) if isinstance(variant, dict)]
+            variant_keys = self._resolved_variant_keys(experiment, update_data)
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
-            self.validate_stats_config(effective_stats_config, update_variant_keys)
+            self.validate_stats_config(effective_stats_config, variant_keys)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists

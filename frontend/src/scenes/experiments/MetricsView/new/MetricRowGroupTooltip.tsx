@@ -21,7 +21,7 @@ import {
 export const renderTooltipContent = (
     variantResult: ExperimentVariantResult,
     metric: ExperimentMetric,
-    baselineKey?: string
+    baselineKey: string
 ): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
