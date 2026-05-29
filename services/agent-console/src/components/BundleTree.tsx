@@ -49,7 +49,7 @@ export interface BundleTreeProps {
      * moves and focus mode is on. Optional — stories that don't pipe an
      * application id still render correctly, just without flair.
      */
-    applicationId?: string
+    agentSlug?: string
 }
 
 export function BundleTree({
@@ -57,7 +57,7 @@ export function BundleTree({
     initialPath,
     focusedPath,
     focusedPathTick,
-    applicationId,
+    agentSlug,
 }: BundleTreeProps): React.ReactElement {
     // `agent.md` is the most important file in a bundle — open it by default
     // when it exists, fall back to the first file otherwise.
@@ -85,16 +85,10 @@ export function BundleTree({
     return (
         <div className="grid grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-background">
             <div className="overflow-y-auto border-r border-border bg-muted/20 py-1.5">
-                <TreeView
-                    node={tree}
-                    selected={selected}
-                    onSelect={setSelected}
-                    depth={0}
-                    applicationId={applicationId}
-                />
+                <TreeView node={tree} selected={selected} onSelect={setSelected} depth={0} agentSlug={agentSlug} />
             </div>
             <div className="min-w-0">
-                {selectedFile ? <FileViewer file={selectedFile} applicationId={applicationId} /> : <EmptyViewer />}
+                {selectedFile ? <FileViewer file={selectedFile} agentSlug={agentSlug} /> : <EmptyViewer />}
             </div>
         </div>
     )
@@ -172,10 +166,10 @@ interface TreeViewProps {
     selected: string
     onSelect: (path: string) => void
     depth: number
-    applicationId?: string
+    agentSlug?: string
 }
 
-function TreeView({ node, selected, onSelect, depth, applicationId }: TreeViewProps): React.ReactElement {
+function TreeView({ node, selected, onSelect, depth, agentSlug }: TreeViewProps): React.ReactElement {
     return (
         <ul className="text-xs">
             {node.children.map((child) =>
@@ -186,7 +180,7 @@ function TreeView({ node, selected, onSelect, depth, applicationId }: TreeViewPr
                         selected={selected}
                         onSelect={onSelect}
                         depth={depth}
-                        applicationId={applicationId}
+                        agentSlug={agentSlug}
                     />
                 ) : (
                     <FileRow
@@ -195,7 +189,7 @@ function TreeView({ node, selected, onSelect, depth, applicationId }: TreeViewPr
                         selected={selected === child.path}
                         onSelect={onSelect}
                         depth={depth}
-                        applicationId={applicationId}
+                        agentSlug={agentSlug}
                     />
                 )
             )}
@@ -208,13 +202,13 @@ function DirRow({
     selected,
     onSelect,
     depth,
-    applicationId,
+    agentSlug,
 }: {
     dir: DirNode
     selected: string
     onSelect: (path: string) => void
     depth: number
-    applicationId?: string
+    agentSlug?: string
 }): React.ReactElement {
     const [open, setOpen] = useState(true)
     return (
@@ -230,13 +224,7 @@ function DirRow({
                 <span>{dir.name}</span>
             </button>
             {open ? (
-                <TreeView
-                    node={dir}
-                    selected={selected}
-                    onSelect={onSelect}
-                    depth={depth + 1}
-                    applicationId={applicationId}
-                />
+                <TreeView node={dir} selected={selected} onSelect={onSelect} depth={depth + 1} agentSlug={agentSlug} />
             ) : null}
         </li>
     )
@@ -247,15 +235,15 @@ function FileRow({
     selected,
     onSelect,
     depth,
-    applicationId,
+    agentSlug,
 }: {
     file: FileNode
     selected: boolean
     onSelect: (path: string) => void
     depth: number
-    applicationId?: string
+    agentSlug?: string
 }): React.ReactElement {
-    const entityKey = applicationId ? `bundle-file:${applicationId}:${file.path}` : null
+    const entityKey = agentSlug ? `bundle-file:${agentSlug}:${file.path}` : null
     const { flair } = useMutationFlair(entityKey)
     return (
         <li>
@@ -291,8 +279,8 @@ function FileIconFor({ language }: { language: BundleFileLanguage }): React.Reac
 
 /* ── Right pane: file viewer ─────────────────────────────────────── */
 
-function FileViewer({ file, applicationId }: { file: BundleFile; applicationId?: string }): React.ReactElement {
-    const entityKey = applicationId ? `bundle-file:${applicationId}:${file.path}` : null
+function FileViewer({ file, agentSlug }: { file: BundleFile; agentSlug?: string }): React.ReactElement {
+    const entityKey = agentSlug ? `bundle-file:${agentSlug}:${file.path}` : null
     const { flair } = useMutationFlair(entityKey)
     return (
         <div className="flex h-full flex-col">

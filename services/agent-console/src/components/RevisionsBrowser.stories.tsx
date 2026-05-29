@@ -6,7 +6,7 @@ import { weeklyDigest, weeklyDigestBundle, weeklyDigestRevisions } from '@postho
 import { RevisionsBrowser } from './RevisionsBrowser'
 
 const meta: Meta<typeof RevisionsBrowser> = {
-    title: 'Console/RevisionsBrowser',
+    title: 'Agent console components/RevisionsBrowser',
     component: RevisionsBrowser,
     parameters: { layout: 'fullscreen' },
     decorators: [

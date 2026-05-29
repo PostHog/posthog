@@ -756,6 +756,73 @@ on:
 Stories from Phase 1 stay as snapshot tests throughout Phase 2 —
 they prove no visual regressions slipped in during the rewire.
 
+### 12.2.5 Network seam — MSW lives in Storybook only
+
+The app code never imports fixtures or mock helpers. Reads and writes
+go through a typed `apiClient` (`src/lib/apiClient.ts`) that issues
+real `fetch` requests against the v0 REST contract — `/api/projects/
+:projectId/agent_applications/...`, `.../agent_revisions/...`,
+`.../agent_sessions/...`, `.../agent_fleet/...`. Mutation events are
+delivered over an SSE stream (`.../agent_events/stream/`) and
+subscribed via a `MutationStreamProvider` mounted in the app shell.
+
+Storybook is the only surface that runs MSW: `.storybook/mocks/`
+houses the handlers (REST + SSE) and the store (overlays + event
+emitter). `.storybook/preview.tsx` boots the worker via
+`setupWorker` from `msw/browser`; `.storybook/main.ts` serves
+`mockServiceWorker.js` from `.storybook/public/`. The Next.js app
+surface stays unaware of MSW — `npm run dev` against no backend just
+shows error/loading states, which is intentional: design + behavior
+iteration happens in Storybook until the real backend lands.
+
+Wire diagram:
+
+```text
+                    ┌──────────────────────────────────┐
+                    │  App code (src/, app/)           │
+                    │  ─────────────────────────────   │
+                    │  pages → useResource → apiClient │
+                    │  hooks → MutationStreamProvider  │
+                    │             │           │        │
+                    │             ▼           ▼        │
+                    │           fetch     EventSource  │
+                    └────────────┼───────────┼─────────┘
+                                 ▼           ▼
+       ┌────────────────────────────────────────────┐
+       │  Storybook only: MSW intercepts            │
+       │  .storybook/mocks/handlers.ts              │
+       │    GET /agent_applications/...             │
+       │    PUT /agent_applications/.../bundle/...  │
+       │    PATCH /agent_revisions/.../spec/        │
+       │    GET /agent_events/stream/  (SSE)        │
+       │  ─────────────                             │
+       │  .storybook/mocks/store.ts                 │
+       │    fixtures + overlays + event emitter     │
+       └────────────────────────────────────────────┘
+                                 │
+                                 ▼  (when v0.1 lands)
+       ┌────────────────────────────────────────────┐
+       │  Real PostHog / agent-ingress endpoints    │
+       │  ─────────────                             │
+       │  (delete .storybook/mocks/, point          │
+       │  NEXT_PUBLIC_API_BASE at the real host)    │
+       └────────────────────────────────────────────┘
+```
+
+Entity-key convention used by both the SSE events and the runner's
+`mutations[]` protocol:
+
+| Kind          | Entity key                                               | Cascade parent     |
+| ------------- | -------------------------------------------------------- | ------------------ |
+| Bundle file   | `bundle-file:<slug>:<path>`                              | `bundle:<slug>`    |
+| Revision spec | `revision-spec:<slug>:<revisionId>`                      | `revisions:<slug>` |
+| Session       | _(reserved — added when streaming session events ships)_ | `sessions:<slug>`  |
+
+All keys are slug-scoped (not internal application id) so consumers
+can subscribe with whatever identifier they have at hand. The runner
+emits the same shape, so the v0.3 protocol swap is a no-op on the
+console side.
+
 ### 12.3 Why this split
 
 - **Design review is faster than backend integration.** Iterating

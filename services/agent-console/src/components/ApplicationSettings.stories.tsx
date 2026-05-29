@@ -5,7 +5,7 @@ import { weeklyDigest, weeklyDigestDraftRevision, weeklyDigestLiveRevision } fro
 import { ApplicationSettings } from './ApplicationSettings'
 
 const meta: Meta<typeof ApplicationSettings> = {
-    title: 'Console/ApplicationSettings',
+    title: 'Agent console components/ApplicationSettings',
     component: ApplicationSettings,
     parameters: { layout: 'centered' },
     decorators: [

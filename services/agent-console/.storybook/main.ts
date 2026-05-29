@@ -24,6 +24,10 @@ const config: StorybookConfig = {
         '../../../packages/agent-chat/src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
     ],
     addons: ['@storybook/addon-docs', 'storybook-dark-mode'],
+    // `mockServiceWorker.js` is served at `/` so MSW can register the
+    // worker. Storybook is the only environment that boots MSW — the
+    // Next.js app surface stays MSW-free.
+    staticDirs: ['./public'],
     framework: {
         name: '@storybook/react-vite',
         options: {},

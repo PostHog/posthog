@@ -20,26 +20,29 @@ import { Dock } from './Dock'
 import { DockContextProvider } from './dock-context'
 import { FocusContextProvider } from './focus-context'
 import { FocusModeBanner } from './FocusModeBanner'
+import { MutationStreamProvider } from './mutation-stream'
 import { PostHogMark } from './PostHogMark'
 
 const DOCK_WIDTH = 360
 
 export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
     return (
-        <DockContextProvider>
-            <FocusContextProvider>
-                <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-                    <Sidebar />
-                    <main className="flex-1 overflow-y-auto">
-                        <FocusModeBanner />
-                        {children}
-                    </main>
-                    <aside className="shrink-0 border-l border-border" style={{ width: DOCK_WIDTH }}>
-                        <Dock />
-                    </aside>
-                </div>
-            </FocusContextProvider>
-        </DockContextProvider>
+        <MutationStreamProvider>
+            <DockContextProvider>
+                <FocusContextProvider>
+                    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+                        <Sidebar />
+                        <main className="flex-1 overflow-y-auto">
+                            <FocusModeBanner />
+                            {children}
+                        </main>
+                        <aside className="shrink-0 border-l border-border" style={{ width: DOCK_WIDTH }}>
+                            <Dock />
+                        </aside>
+                    </div>
+                </FocusContextProvider>
+            </DockContextProvider>
+        </MutationStreamProvider>
     )
 }
 

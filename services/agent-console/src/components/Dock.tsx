@@ -7,9 +7,11 @@
  *     pushes a target into `focus-context` and navigates the route
  *     when needed, so the dock actually drives the read panel
  *
- * Throwaway scaffolding flagged by `useFakeRunner` — when v0.2 ships
- * real session transport, this component swaps the hook for a real
- * runner client and keeps the same prop surface.
+ * When the script's tool calls declare `mutations[]`, the dock POSTs
+ * the patches against the real REST surface (via `apiClient`). The
+ * downstream effect — overlay update + SSE event — flows through the
+ * same network seam regardless of whether the runner is the fake
+ * in-process one (v0) or the real agent runner (v0.2+).
  */
 
 'use client'
@@ -27,7 +29,7 @@ import {
     waitingSession,
 } from '@posthog/agent-chat/fixtures'
 
-import { applyBundleFilePatch, applyRevisionSpecPatch, recordMutation } from '@/lib/mockApi'
+import { patchRevisionSpec, writeBundleFile } from '@/lib/apiClient'
 
 import { useDockStore } from './dock-context'
 import { useFocusStore, type FocusTarget } from './focus-context'
@@ -49,6 +51,27 @@ function isSpecPatchPayload(payload: unknown): payload is { patch: Record<string
         typeof (payload as { patch: unknown }).patch === 'object' &&
         (payload as { patch: unknown }).patch !== null
     )
+}
+
+async function applyMutation(m: ResolvedMutation): Promise<void> {
+    if (m.entityKey.startsWith('bundle-file:') && isBundleFilePayload(m.payload)) {
+        const [, slug, ...rest] = m.entityKey.split(':')
+        const path = rest.join(':')
+        await writeBundleFile(slug, path, { newContent: m.payload.newContent, mutationId: m.mutationId })
+        return
+    }
+    if (m.entityKey.startsWith('revision-spec:') && isSpecPatchPayload(m.payload)) {
+        const [, slug, revisionId] = m.entityKey.split(':')
+        await patchRevisionSpec(revisionId, {
+            applicationSlug: slug,
+            patch: m.payload.patch,
+            mutationId: m.mutationId,
+        })
+        return
+    }
+    // Unknown entity kind / missing payload — swallow so playback keeps going.
+    // eslint-disable-next-line no-console
+    console.warn('[dock] ignoring unsupported tool mutation', m.entityKey)
 }
 
 export function Dock(): React.ReactElement {
@@ -150,18 +173,13 @@ export function Dock(): React.ReactElement {
     const handleToolMutate = useMemo(
         () =>
             (mutations: ResolvedMutation[]): void => {
+                // Fire-and-forget — runner doesn't block on side effects.
+                // Errors get logged inside `applyMutation`.
                 for (const m of mutations) {
-                    // Apply the patch first so a later refetch driven by the
-                    // recordMutation listener sees the new content.
-                    if (m.entityKey.startsWith('bundle-file:') && isBundleFilePayload(m.payload)) {
-                        const [, applicationId, ...rest] = m.entityKey.split(':')
-                        const path = rest.join(':')
-                        applyBundleFilePatch(applicationId, path, m.payload.newContent)
-                    } else if (m.entityKey.startsWith('revision-spec:') && isSpecPatchPayload(m.payload)) {
-                        const [, , revisionId] = m.entityKey.split(':')
-                        applyRevisionSpecPatch(revisionId, m.payload.patch)
-                    }
-                    recordMutation(m.entityKey, m.mutationId)
+                    void applyMutation(m).catch((err) => {
+                        // eslint-disable-next-line no-console
+                        console.error('[dock] tool mutation failed', m.entityKey, err)
+                    })
                 }
             },
         []

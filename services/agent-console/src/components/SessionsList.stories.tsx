@@ -5,7 +5,7 @@ import { listSessionsForAgentFixture, weeklyDigest } from '@posthog/agent-chat/f
 import { SessionsList } from './SessionsList'
 
 const meta: Meta<typeof SessionsList> = {
-    title: 'Console/SessionsList',
+    title: 'Agent console components/SessionsList',
     component: SessionsList,
     parameters: { layout: 'centered' },
     decorators: [

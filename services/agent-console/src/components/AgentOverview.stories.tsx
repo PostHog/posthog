@@ -10,7 +10,7 @@ import {
 import { AgentOverview } from './AgentOverview'
 
 const meta: Meta<typeof AgentOverview> = {
-    title: 'Console/AgentOverview',
+    title: 'Agent console components/AgentOverview',
     component: AgentOverview,
     parameters: { layout: 'centered' },
     decorators: [

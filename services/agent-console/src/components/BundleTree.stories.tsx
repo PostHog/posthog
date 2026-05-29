@@ -5,7 +5,7 @@ import { weeklyDigestBundle } from '@posthog/agent-chat/fixtures'
 import { BundleTree } from './BundleTree'
 
 const meta: Meta<typeof BundleTree> = {
-    title: 'Console/BundleTree',
+    title: 'Agent console components/BundleTree',
     component: BundleTree,
     parameters: { layout: 'fullscreen' },
     decorators: [

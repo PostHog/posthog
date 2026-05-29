@@ -10,7 +10,7 @@ import {
 import { SessionPlayback } from './SessionPlayback'
 
 const meta: Meta<typeof SessionPlayback> = {
-    title: 'Console/SessionPlayback',
+    title: 'Agent console components/SessionPlayback',
     component: SessionPlayback,
     parameters: { layout: 'centered' },
     decorators: [

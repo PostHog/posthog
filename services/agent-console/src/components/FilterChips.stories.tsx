@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { FilterChips } from './FilterChips'
 
 const meta: Meta<typeof FilterChips> = {
-    title: 'Console/FilterChips',
+    title: 'Agent console components/FilterChips',
     component: FilterChips,
     parameters: { layout: 'centered' },
 }

@@ -100,7 +100,7 @@ export function RevisionsBrowser({
                                 <>
                                     <ConfigPanel
                                         spec={selected.spec as Record<string, unknown>}
-                                        entityKey={`revision-spec:${agent.id}:${selected.id}`}
+                                        entityKey={`revision-spec:${agent.slug}:${selected.id}`}
                                     />
                                     <UnstructuredFields
                                         spec={selected.spec as Record<string, unknown>}
@@ -118,7 +118,7 @@ export function RevisionsBrowser({
                                     files={bundle}
                                     focusedPath={focusedBundlePath ?? null}
                                     focusedPathTick={focusedBundleTick}
-                                    applicationId={agent.id}
+                                    agentSlug={agent.slug}
                                 />
                             </div>
                         </Section>

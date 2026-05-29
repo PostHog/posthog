@@ -1,20 +1,15 @@
 /**
- * `useMutatingBundle` — subscribes to the bundle-level entity revision
- * for an application and re-reads the bundle (with mockApi's overlay
- * applied) whenever any file in it mutates. Returns the current
- * `BundleFile[]` plus the bundle's `lastMutationId` for correlation
- * with focus events.
+ * `useMutatingBundle` — fetches the bundle for an agent via the API
+ * client and refetches when a `bundle:<applicationId>` mutation event
+ * arrives. Returns the current `BundleFile[]` plus the bundle's
+ * `lastMutationId` for correlation with focus events.
  *
- * Server-rendered initial state is passed in via `initialBundle` so the
- * first paint matches what Next.js streamed; subsequent updates come
- * from the client-side overlay.
- *
- * **Artificial refetch delay** (`REFETCH_DELAY_MS`): the registry bump
- * fires `useMutationFlair` immediately so the flair animation can start,
- * then the data swap waits a beat so the new value visibly lands
- * *inside* the pulse rather than at the same instant. Mirrors what
- * real-world latency between "mutation acknowledged" and "GET returns
- * new state" would look like.
+ * Artificial refetch delay (`REFETCH_DELAY_MS`): the mutation event
+ * fires `useMutationFlair` immediately so the flair animation can
+ * start, then the data swap waits a beat so the new value visibly
+ * lands *inside* the pulse rather than at the same instant. Mirrors
+ * what real-world latency between "mutation acknowledged" and
+ * "GET returns new state" would look like.
  */
 
 'use client'
@@ -23,57 +18,75 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { BundleFile } from '@posthog/agent-chat/fixtures'
 
-import { getBundleForApplicationSync, getMutationRecord, subscribeMutation } from '@/lib/mockApi'
+import { getBundle } from '@/lib/apiClient'
+
+import { useMutationStream } from './mutation-stream'
 
 const REFETCH_DELAY_MS = 500
 
 interface MutatingBundle {
     bundle: BundleFile[]
-    revision: number
     lastMutationId: string | null
+    loading: boolean
+    error: Error | null
 }
 
-export function useMutatingBundle(applicationId: string, initialBundle: BundleFile[]): MutatingBundle {
-    const entityKey = `bundle:${applicationId}`
-    const [state, setState] = useState<MutatingBundle>(() => {
-        const rec = getMutationRecord(entityKey)
-        // If the registry already knows about a mutation (e.g. user navigated
-        // away and back), prefer the overlay-merged read over the server
-        // snapshot to avoid showing stale content. On-mount path is never
-        // delayed — only live notifications get the artificial latency.
-        if (rec) {
-            return {
-                bundle: getBundleForApplicationSync(applicationId),
-                revision: rec.revision,
-                lastMutationId: rec.mutationId,
-            }
-        }
-        return { bundle: initialBundle, revision: 0, lastMutationId: null }
+export function useMutatingBundle(agentSlug: string, applicationId: string): MutatingBundle {
+    const stream = useMutationStream()
+    const [state, setState] = useState<MutatingBundle>({
+        bundle: [],
+        lastMutationId: null,
+        loading: true,
+        error: null,
     })
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const reqIdRef = useRef(0)
+
+    const refetch = (mutationId: string | null): void => {
+        const myReqId = ++reqIdRef.current
+        getBundle(agentSlug)
+            .then((bundle) => {
+                if (myReqId !== reqIdRef.current) {
+                    return
+                }
+                setState({ bundle, lastMutationId: mutationId, loading: false, error: null })
+            })
+            .catch((err: unknown) => {
+                if (myReqId !== reqIdRef.current) {
+                    return
+                }
+                setState((prev) => ({
+                    ...prev,
+                    loading: false,
+                    error: err instanceof Error ? err : new Error(String(err)),
+                }))
+            })
+    }
 
     useEffect(() => {
-        return subscribeMutation(entityKey, (rec) => {
+        setState((prev) => ({ ...prev, loading: true }))
+        refetch(null)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [agentSlug])
+
+    useEffect(() => {
+        const entityKey = `bundle:${applicationId}`
+        const unsubscribe = stream.subscribe(entityKey, (event) => {
             if (timerRef.current) {
                 clearTimeout(timerRef.current)
             }
             timerRef.current = setTimeout(() => {
-                setState({
-                    bundle: getBundleForApplicationSync(applicationId),
-                    revision: rec.revision,
-                    lastMutationId: rec.mutationId,
-                })
+                refetch(event.mutationId)
             }, REFETCH_DELAY_MS)
         })
-    }, [applicationId, entityKey])
-
-    useEffect(() => {
         return () => {
+            unsubscribe()
             if (timerRef.current) {
                 clearTimeout(timerRef.current)
             }
         }
-    }, [])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [applicationId, stream])
 
     return state
 }

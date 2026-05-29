@@ -5,7 +5,7 @@ import { weeklyDigestDraftRevision, weeklyDigestLiveRevision } from '@posthog/ag
 import { ConfigPanel } from './ConfigPanel'
 
 const meta: Meta<typeof ConfigPanel> = {
-    title: 'Console/ConfigPanel',
+    title: 'Agent console components/ConfigPanel',
     component: ConfigPanel,
     parameters: { layout: 'centered' },
     decorators: [

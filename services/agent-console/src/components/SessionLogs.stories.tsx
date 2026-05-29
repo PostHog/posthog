@@ -5,7 +5,7 @@ import { listLogsForSessionFixture } from '@posthog/agent-chat/fixtures'
 import { SessionLogs } from './SessionLogs'
 
 const meta: Meta<typeof SessionLogs> = {
-    title: 'Console/SessionLogs',
+    title: 'Agent console components/SessionLogs',
     component: SessionLogs,
     parameters: { layout: 'centered' },
     decorators: [

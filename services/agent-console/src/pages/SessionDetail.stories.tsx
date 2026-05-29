@@ -10,7 +10,7 @@ import {
 import { SessionDetail } from './SessionDetail'
 
 const meta: Meta<typeof SessionDetail> = {
-    title: 'Console/Pages/Session Detail',
+    title: 'Agent console components/Pages/Session Detail',
     component: SessionDetail,
     parameters: { layout: 'fullscreen' },
     decorators: [

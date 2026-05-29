@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { StatStrip } from './StatStrip'
 
 const meta: Meta<typeof StatStrip> = {
-    title: 'Console/StatStrip',
+    title: 'Agent console components/StatStrip',
     component: StatStrip,
     parameters: { layout: 'centered' },
     decorators: [

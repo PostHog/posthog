@@ -34,6 +34,7 @@
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^4.3.4",
+        "msw": "^2.12.14",
         "storybook": "^7.6.21",
         "storybook-dark-mode": "3.0.3",
         "tailwindcss": "^4.1.17",
@@ -42,5 +43,10 @@
     },
     "engines": {
         "node": ">=20"
+    },
+    "msw": {
+        "workerDirectory": [
+            ".storybook/public"
+        ]
     }
 }

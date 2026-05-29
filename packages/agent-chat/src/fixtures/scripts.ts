@@ -135,7 +135,7 @@ export const conciergeAgentMoveCron: Script = {
             pendingMs: 600,
             mutations: [
                 {
-                    entityKey: `revision-spec:${weeklyDigest.id}:${weeklyDigestLiveRevision.id}`,
+                    entityKey: `revision-spec:${weeklyDigest.slug}:${weeklyDigestLiveRevision.id}`,
                     mutationId: moveCronMutationId,
                     payload: {
                         patch: {

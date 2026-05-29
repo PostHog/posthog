@@ -5,7 +5,7 @@ import { fleetLiveSessions } from '@posthog/agent-chat/fixtures'
 import { LiveNowPanel } from './LiveNowPanel'
 
 const meta: Meta<typeof LiveNowPanel> = {
-    title: 'Console/LiveNowPanel',
+    title: 'Agent console components/LiveNowPanel',
     component: LiveNowPanel,
     parameters: { layout: 'centered' },
     decorators: [

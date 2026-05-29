@@ -1,54 +1,77 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { notFound, useRouter } from 'next/navigation'
 
-import type { ChatSession } from '@posthog/agent-chat'
-import type {
-    AgentApplicationFixture,
-    AgentRevisionFixture,
-    AgentStats,
-    BundleFile,
-} from '@posthog/agent-chat/fixtures'
-
-import { useDockStore, useSetDockPage } from '@/components/dock-context'
+import { useSetDockPage, useDockStore } from '@/components/dock-context'
 import { useMutatingBundle } from '@/components/use-mutating-bundle'
 import { useMutatingRevisions } from '@/components/use-mutating-revisions'
+import { ApiError, getAgent, getAgentStats, listSessionsForAgent } from '@/lib/apiClient'
+import { useResource } from '@/lib/useResource'
 import { AgentDetail } from '@/pages/AgentDetail'
 
-export function AgentDetailClient({
+export function AgentDetailClient({ slug }: { slug: string }): React.ReactElement {
+    const router = useRouter()
+
+    const agent = useResource(() => getAgent(slug), [slug])
+
+    if (agent.error instanceof ApiError && agent.error.status === 404) {
+        notFound()
+    }
+    if (agent.error) {
+        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {agent.error.message}</div>
+    }
+    if (!agent.data) {
+        return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
+    }
+    return (
+        <AgentDetailInner
+            slug={slug}
+            agent={agent.data}
+            onBackToList={() => router.push('/')}
+            onOpenSession={(sessionId) => router.push(`/agents/${slug}/sessions/${sessionId}`)}
+        />
+    )
+}
+
+function AgentDetailInner({
+    slug,
     agent,
-    revisions,
-    bundle,
-    stats,
-    sessions,
+    onBackToList,
+    onOpenSession,
 }: {
-    agent: AgentApplicationFixture
-    revisions: AgentRevisionFixture[]
-    bundle: BundleFile[]
-    stats: AgentStats
-    sessions: ChatSession[]
+    slug: string
+    agent: Awaited<ReturnType<typeof getAgent>>
+    onBackToList: () => void
+    onOpenSession: (sessionId: string) => void
 }): React.ReactElement {
     const agentRef = { id: agent.id, slug: agent.slug, name: agent.name }
     useSetDockPage({ kind: 'agent', agent: agentRef })
 
     const { enterPlayground } = useDockStore()
-    const router = useRouter()
 
-    // The server-rendered snapshots are the starting point; subsequent
-    // mutations driven by the runner re-read from mockApi's overlay.
-    const { bundle: liveBundle } = useMutatingBundle(agent.id, bundle)
-    const { revisions: liveRevisions } = useMutatingRevisions(agent.id, revisions)
+    const stats = useResource(() => getAgentStats(slug), [slug])
+    const sessions = useResource(() => listSessionsForAgent(slug), [slug])
+    const { revisions, loading: revisionsLoading } = useMutatingRevisions(slug, agent.id)
+    const { bundle, loading: bundleLoading } = useMutatingBundle(slug, agent.id)
+
+    if (stats.error ?? sessions.error) {
+        const message = (stats.error ?? sessions.error)?.message ?? 'Unknown error'
+        return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {message}</div>
+    }
+    if (stats.loading || sessions.loading || revisionsLoading || bundleLoading || !stats.data || !sessions.data) {
+        return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
+    }
 
     return (
         <AgentDetail
             agent={agent}
-            revisions={liveRevisions}
-            bundle={liveBundle}
-            stats={stats}
-            sessions={sessions}
+            revisions={revisions}
+            bundle={bundle}
+            stats={stats.data}
+            sessions={sessions.data}
             onTryAgent={() => enterPlayground(agentRef)}
-            onBackToList={() => router.push('/')}
-            onOpenSession={(sessionId) => router.push(`/agents/${agent.slug}/sessions/${sessionId}`)}
+            onBackToList={onBackToList}
+            onOpenSession={onOpenSession}
         />
     )
 }

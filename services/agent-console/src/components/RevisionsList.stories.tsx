@@ -5,7 +5,7 @@ import { weeklyDigest, weeklyDigestRevisions } from '@posthog/agent-chat/fixture
 import { RevisionsList } from './RevisionsList'
 
 const meta: Meta<typeof RevisionsList> = {
-    title: 'Console/RevisionsList',
+    title: 'Agent console components/RevisionsList',
     component: RevisionsList,
     parameters: { layout: 'centered' },
     decorators: [

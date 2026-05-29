@@ -11,7 +11,7 @@ import {
 import { AgentDetail } from './AgentDetail'
 
 const meta: Meta<typeof AgentDetail> = {
-    title: 'Console/Pages/Agent Detail',
+    title: 'Agent console components/Pages/Agent Detail',
     component: AgentDetail,
     parameters: {
         layout: 'fullscreen',
