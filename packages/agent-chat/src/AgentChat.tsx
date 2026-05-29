@@ -17,7 +17,7 @@
  * with an internal controller against the real ingress.
  */
 
-import { ArrowUpIcon, XIcon } from 'lucide-react'
+import { ArrowUpIcon, SquareIcon, XIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApprovalCard } from './components/ApprovalCard'
 import { DockHeader } from './components/DockHeader'
@@ -44,12 +44,27 @@ export interface AgentChatProps {
     /** Notified when the user toggles focus mode from the dock header. */
     onFollowingChange?: (next: boolean) => void
     onSend?: (text: string) => void
+    /**
+     * Called when the user clicks Stop mid-stream. The host should
+     * halt local streaming (close SSE, finalize the active turn)
+     * without destroying the session — sending again should keep
+     * the same conversation.
+     */
+    onStop?: () => void
     onApprove?: (callId: string) => void
     onDeny?: (callId: string) => void
     onReconnect?: () => void
     onExitPlayground?: () => void
     /** Concierge-mode reset — clear the chat back to waiting state. */
     onNewSession?: () => void
+    /**
+     * Open the underlying session detail (logs / transcript / playback)
+     * for the in-flight session. The dock surfaces a small "open in
+     * session view" affordance in the header when the session has a
+     * real id (not the placeholder `pending`). Host provides the
+     * navigation — usually `router.push(`/agents/<slug>/sessions/<id>`)`.
+     */
+    onOpenSession?: (sessionId: string) => void
     /**
      * Transport-level error from the underlying runner (e.g. a failed
      * `/run` request, ingress 5xx, lost SSE connection). Distinct from
@@ -99,11 +114,13 @@ export function AgentChat({
     followingEnabled,
     onFollowingChange,
     onSend,
+    onStop,
     onApprove,
     onDeny,
     onReconnect,
     onExitPlayground,
     onNewSession,
+    onOpenSession,
     transportError,
     onDismissTransportError,
     reconnectAttempt,
@@ -199,6 +216,8 @@ export function AgentChat({
                 reconnectAttempt={reconnectAttempt}
                 renderMarkdown={renderMarkdown}
                 onRenderMarkdownChange={onRenderMarkdownChange}
+                sessionId={session.id !== 'pending' ? session.id : undefined}
+                onOpenSession={onOpenSession}
             />
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto">
@@ -232,6 +251,7 @@ export function AgentChat({
                 usage={session.usage}
                 onChange={setDraft}
                 onSubmit={() => send(draft)}
+                onStop={onStop}
             />
         </div>
     )
@@ -360,6 +380,7 @@ function Footer({
     usage,
     onChange,
     onSubmit,
+    onStop,
 }: {
     draft: string
     inputId: string
@@ -369,7 +390,9 @@ function Footer({
     usage: ChatSession['usage']
     onChange: (next: string) => void
     onSubmit: () => void
+    onStop?: () => void
 }): React.ReactElement {
+    const showStop = sending && onStop !== undefined
     return (
         <div className="border-t border-border bg-background">
             <form
@@ -393,10 +416,26 @@ function Footer({
                         if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault()
                             onSubmit()
+                            return
+                        }
+                        if (e.key === 'Escape' && showStop) {
+                            e.preventDefault()
+                            onStop?.()
                         }
                     }}
                     disabled={disabled}
                 />
+                {showStop ? (
+                    <button
+                        type="button"
+                        aria-label="Stop generating"
+                        title="Stop generating"
+                        onClick={() => onStop?.()}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-accent"
+                    >
+                        <SquareIcon className="h-3 w-3 fill-current" />
+                    </button>
+                ) : null}
                 <button
                     type="submit"
                     aria-label="Send"
@@ -407,7 +446,13 @@ function Footer({
                 </button>
             </form>
             <div className="flex items-center justify-between px-3 pb-1.5 text-[0.6875rem] text-muted-foreground">
-                <span>{sending ? 'streaming · Enter to queue' : 'Enter to send · Shift+Enter for newline'}</span>
+                <span>
+                    {sending
+                        ? showStop
+                            ? 'streaming · Enter to queue · Esc to stop'
+                            : 'streaming · Enter to queue'
+                        : 'Enter to send · Shift+Enter for newline'}
+                </span>
                 <span>${usage.costUsd.toFixed(3)}</span>
             </div>
         </div>

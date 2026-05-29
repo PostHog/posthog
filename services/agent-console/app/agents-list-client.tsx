@@ -41,7 +41,15 @@ export function AgentsListClient(): React.ReactElement {
     // Fleet endpoints are Phase C — tolerate 404 so the agents list still
     // renders against bare Django.
     const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId])
-    const live = useResource(() => tolerateMissing(listLiveSessions(teamId), [] as ChatSession[]), [teamId])
+    // The fleet live-sessions endpoint returns `application_id` only —
+    // we have to enrich each row with the agent's slug + name so the
+    // LiveNowPanel can render and navigate. Sequence on agents so the
+    // lookup is ready when the mapper runs.
+    const live = useResource(async (): Promise<ChatSession[]> => {
+        const agentList = await listAgents(teamId)
+        const agentsById = new Map(agentList.map((a) => [a.id, { id: a.id, name: a.name, slug: a.slug }]))
+        return tolerateMissing(listLiveSessions(teamId, agentsById), [])
+    }, [teamId])
 
     const error = agents.error ?? fleet.error ?? live.error
 

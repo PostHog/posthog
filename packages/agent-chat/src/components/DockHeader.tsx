@@ -9,7 +9,7 @@
  * user enters / exits playground or toggles focus mode.
  */
 
-import { EyeIcon, EyeOffIcon, RotateCcwIcon, SettingsIcon, XIcon } from 'lucide-react'
+import { ExternalLinkIcon, EyeIcon, EyeOffIcon, RotateCcwIcon, SettingsIcon, XIcon } from 'lucide-react'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -44,6 +44,15 @@ interface DockHeaderProps {
     renderMarkdown?: boolean
     /** Called when the user toggles the markdown setting in the gear menu. */
     onRenderMarkdownChange?: (next: boolean) => void
+    /**
+     * Id of the live session. When set together with `onOpenSession` the
+     * header renders a small "open in session view" button that the
+     * host wires to its router. Omit (or pass undefined) before the
+     * first /run lands.
+     */
+    sessionId?: string
+    /** Called when the user clicks the open-session button. */
+    onOpenSession?: (sessionId: string) => void
 }
 
 export function DockHeader({
@@ -56,6 +65,8 @@ export function DockHeader({
     reconnectAttempt,
     renderMarkdown,
     onRenderMarkdownChange,
+    sessionId,
+    onOpenSession,
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
@@ -126,6 +137,19 @@ export function DockHeader({
                 the dock is talking *to* the agent, not navigating the console). */}
             {!isPlayground && onFollowingChange ? (
                 <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
+            ) : null}
+
+            {sessionId && onOpenSession ? (
+                <button
+                    type="button"
+                    onClick={() => onOpenSession(sessionId)}
+                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label="Open this session in the session view"
+                    title="Open this session in the session view"
+                >
+                    <ExternalLinkIcon className="h-3 w-3" />
+                    Session
+                </button>
             ) : null}
 
             {onRenderMarkdownChange ? (

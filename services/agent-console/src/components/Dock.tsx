@@ -193,6 +193,7 @@ function PlaygroundDock({
     const focus = useFocusStore()
     const { info } = useSession()
     const handlers = useDockHandlers(context)
+    const router = useRouter()
 
     const principal: SessionPrincipal = useMemo(() => {
         const profile = (info?.profile ?? null) as { email?: string; first_name?: string; uuid?: string } | null
@@ -236,6 +237,8 @@ function PlaygroundDock({
             }}
             onNewSession={() => void runner.reset()}
             onSend={(text) => void runner.send(text)}
+            onStop={runner.stop}
+            onOpenSession={(sessionId) => router.push(`/agents/${agentRef.slug}/sessions/${sessionId}`)}
             transportError={transportError}
             onDismissTransportError={runner.clearError}
             reconnectAttempt={runner.reconnectAttempt}

@@ -41,11 +41,70 @@ interface PlaygroundState {
     previewRevisionId?: string
 }
 
+/**
+ * Playground state survives reloads — without this, the dock would
+ * restore to concierge mode and the playground's persisted session id
+ * would never get picked up.
+ */
+const PLAYGROUND_STORAGE_KEY = 'agent-console:playground-state'
+
+function readStoredPlayground(): PlaygroundState | null {
+    if (typeof window === 'undefined') {
+        return null
+    }
+    const raw = window.localStorage.getItem(PLAYGROUND_STORAGE_KEY)
+    if (!raw) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(raw) as Partial<PlaygroundState>
+        if (
+            parsed &&
+            typeof parsed === 'object' &&
+            parsed.agent &&
+            typeof parsed.agent === 'object' &&
+            typeof parsed.agent.slug === 'string' &&
+            typeof parsed.agent.id === 'string' &&
+            typeof parsed.agent.name === 'string'
+        ) {
+            return {
+                agent: parsed.agent,
+                previewRevisionId: typeof parsed.previewRevisionId === 'string' ? parsed.previewRevisionId : undefined,
+            }
+        }
+    } catch {
+        // Corrupt entry — fall through and clear it below.
+    }
+    window.localStorage.removeItem(PLAYGROUND_STORAGE_KEY)
+    return null
+}
+
+function writeStoredPlayground(state: PlaygroundState | null): void {
+    if (typeof window === 'undefined') {
+        return
+    }
+    if (state === null) {
+        window.localStorage.removeItem(PLAYGROUND_STORAGE_KEY)
+        return
+    }
+    window.localStorage.setItem(PLAYGROUND_STORAGE_KEY, JSON.stringify(state))
+}
+
 export function DockContextProvider({ children }: { children: React.ReactNode }): React.ReactElement {
     // `currentPage` is what the active route reports; `playgroundState` is
     // an orthogonal sticky overlay. The effective context derives from both.
     const [currentPage, setCurrentPage] = useState<ConciergePageContext>({ kind: 'unknown' })
     const [playgroundState, setPlaygroundState] = useState<PlaygroundState | null>(null)
+
+    // Restore the playground overlay on mount so a reload doesn't drop
+    // the user back into concierge (which would also bypass the
+    // playground's persisted session resume).
+    useEffect(() => {
+        const stored = readStoredPlayground()
+        if (stored) {
+            setPlaygroundState(stored)
+        }
+    }, [])
 
     const context: ChatContext = useMemo(
         () =>
@@ -64,12 +123,15 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     // `setPage` every time `context` updates, which makes `useSetDockPage`'s
     // useEffect re-fire and loop.
     const setPage = useCallback((page: ConciergePageContext): void => setCurrentPage(page), [])
-    const enterPlayground = useCallback(
-        (agent: AgentApplicationRef, opts?: PlaygroundOpts): void =>
-            setPlaygroundState({ agent, previewRevisionId: opts?.previewRevisionId }),
-        []
-    )
-    const exitPlayground = useCallback((): void => setPlaygroundState(null), [])
+    const enterPlayground = useCallback((agent: AgentApplicationRef, opts?: PlaygroundOpts): void => {
+        const next: PlaygroundState = { agent, previewRevisionId: opts?.previewRevisionId }
+        setPlaygroundState(next)
+        writeStoredPlayground(next)
+    }, [])
+    const exitPlayground = useCallback((): void => {
+        setPlaygroundState(null)
+        writeStoredPlayground(null)
+    }, [])
 
     const value: DockStore = useMemo(
         () => ({ context, setPage, enterPlayground, exitPlayground }),

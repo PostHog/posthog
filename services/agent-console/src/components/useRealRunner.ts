@@ -63,6 +63,20 @@ export interface RealRunnerControls {
     session: ChatSession
     send: (text: string) => Promise<void>
     reset: () => Promise<void>
+    /**
+     * Stop the in-flight turn locally. Closes the SSE listener and
+     * marks any streaming assistant turn as finalized so the UI stops
+     * updating. The session id is preserved — the next `send()` keeps
+     * the conversation going. Does NOT call the server's `/cancel`
+     * endpoint because that's terminal (the session becomes
+     * `cancelled` and rejects further `/send`s).
+     *
+     * Trade-off: the server-side turn continues running until the
+     * model naturally finishes (we just stop showing it). A proper
+     * server-side per-turn cancel would solve the cost-waste angle
+     * but needs a backend change.
+     */
+    stop: () => void
     playing: boolean
     /** Surfaces transport errors (network, 4xx, 5xx) to the UI. */
     error: Error | null
@@ -162,8 +176,16 @@ export function useRealRunner({
     // session detail endpoint, and re-open the SSE listener so any
     // events that landed during the reload window arrive. Skipped when
     // we have no teamId (the dock can mount before SessionGate
-    // resolves), when there's no stored id, or for terminal sessions
-    // (the stored id is stale — clear it).
+    // resolves), when there's no stored id, or for hard-terminal
+    // sessions.
+    //
+    // Note on `completed`: under the session-restart redesign,
+    // `completed` is the OPEN end-of-turn state — the user can keep
+    // chatting and we should resume. The apiClient unfortunately maps
+    // both raw `completed` (open) and raw `closed` (terminal) to
+    // ChatSession state `completed`, so we can't distinguish them
+    // here. Resume anyway and rely on the 410 fall-through in `send`
+    // to clear stored ids that turn out to be sealed.
     useEffect(() => {
         if (teamId == null) {
             return
@@ -179,10 +201,10 @@ export function useRealRunner({
                 if (cancelled) {
                     return
                 }
-                // Stale: the session has reached a terminal state since the
-                // last reload — drop the stored id so we don't try to
-                // resume it again.
-                if (restored.state === 'failed' || restored.state === 'cancelled' || restored.ended_at !== undefined) {
+                // Hard-terminal: never resume. `closed` is ambiguous
+                // (the API can't tell us whether `allow_restart` is set
+                // on the chat trigger) so we let the user try.
+                if (restored.state === 'failed' || restored.state === 'cancelled') {
                     clearStoredSessionId(agentSlug, previewRevisionId)
                     return
                 }
@@ -367,7 +389,24 @@ export function useRealRunner({
         }
     }, [agentSlug, agentRef, principal, ensurePreview, previewRevisionId])
 
+    const stop = useCallback((): void => {
+        closeListenRef.current?.()
+        closeListenRef.current = null
+        setPlaying(false)
+        setReconnectAttempt(0)
+        setSession((prev) => {
+            // Finalize any streaming assistant turn so the streaming
+            // dots stop animating; transition state back to idle so the
+            // composer's "streaming · Enter to queue" hint flips back
+            // to the normal send copy.
+            const turns = prev.turns.map((t) =>
+                t.kind === 'assistant' && t.streaming ? { ...t, streaming: false } : t
+            )
+            return { ...prev, state: 'idle', turns }
+        })
+    }, [])
+
     const clearError = useCallback(() => setError(null), [])
 
-    return { session, send, reset, playing, error, clearError, reconnectAttempt }
+    return { session, send, reset, stop, playing, error, clearError, reconnectAttempt }
 }

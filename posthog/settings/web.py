@@ -827,7 +827,8 @@ AGENT_JANITOR_BASE_URL = os.getenv("AGENT_JANITOR_BASE_URL", "http://localhost:3
 AGENT_JANITOR_SHARED_KEY = os.getenv("AGENT_INTERNAL_API_SHARED_KEY", "dev-shared-key")
 
 # ai-gateway billing read plane — Django proxies wallet + ledger reads to this URL.
-# Empty secret disables the proxy endpoints (503), so devs not on the agent
-# platform aren't broken by the new routes.
-AI_GATEWAY_BILLING_URL = os.getenv("AI_GATEWAY_BILLING_URL", "http://localhost:8081")
-AI_GATEWAY_BILLING_INTERNAL_SECRET = os.getenv("AI_GATEWAY_BILLING_INTERNAL_SECRET", "")
+# Defaults to the well-known dev secret baked into ai-gateway/bin/start so
+# `/billing` works out of the box. Prod MUST override both via env. Mismatched
+# secret → billing returns 401 → Django surfaces 502 to the caller.
+AI_GATEWAY_BILLING_URL = os.getenv("AI_GATEWAY_BILLING_URL", "http://localhost:8089")
+AI_GATEWAY_BILLING_INTERNAL_SECRET = os.getenv("AI_GATEWAY_BILLING_INTERNAL_SECRET", "dev-local-only-secret-change-me")

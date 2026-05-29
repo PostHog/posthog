@@ -34,6 +34,8 @@ import type {
     AgentApplicationSessionsListResponseApi,
     AgentApplicationSessionsRetrieveResponseApi,
     AgentConversationMessageApi,
+    AgentFleetLiveSessionsResponseApi,
+    AgentFleetLiveSessionSummaryApi,
     AgentSessionPrincipalApi,
     AgentSessionStateEnumApi,
     AgentSessionSummaryApi,
@@ -615,9 +617,64 @@ export async function getFleetStats(teamId: number): Promise<FleetStats> {
     }
 }
 
-export async function listLiveSessions(teamId: number): Promise<ChatSession[]> {
-    const { results } = await getJson<{ results: ChatSession[] }>(posthogUrl(teamId, `/agent_fleet/live_sessions/`))
-    return results
+/**
+ * Fleet-wide live sessions. The wire shape carries `application_id`
+ * (UUID) only — no slug / name — so callers must supply an `agentsById`
+ * lookup built from the agents list to enrich each row into a proper
+ * `ChatSession` with `application: { id, slug, name }`. Sessions whose
+ * `application_id` isn't in the lookup (e.g. agent archived between
+ * fetches) are dropped — the alternative is rendering "unknown" rows
+ * that the rest of the UI can't navigate to.
+ */
+export async function listLiveSessions(
+    teamId: number,
+    agentsById: ReadonlyMap<string, { id: string; name: string; slug: string }>
+): Promise<ChatSession[]> {
+    const { results } = await getJson<AgentFleetLiveSessionsResponseApi>(
+        posthogUrl(teamId, `/agent_fleet/live_sessions/`)
+    )
+    const sessions: ChatSession[] = []
+    for (const s of results) {
+        const agent = agentsById.get(s.application_id)
+        if (!agent) {
+            continue
+        }
+        sessions.push(fleetSummaryToChatSession(s, agent))
+    }
+    return sessions
+}
+
+function fleetSummaryToChatSession(
+    s: AgentFleetLiveSessionSummaryApi,
+    agent: { id: string; name: string; slug: string }
+): ChatSession {
+    return {
+        id: s.id,
+        application: { id: agent.id, name: agent.name, slug: agent.slug },
+        principal: principalToFrontend(s.principal),
+        // The fleet summary doesn't carry the full transcript — surface
+        // the last assistant text (`preview`) as a synthetic turn so the
+        // LiveNowPanel row shows something meaningful.
+        turns: s.preview
+            ? [
+                  {
+                      kind: 'assistant',
+                      id: `preview:${s.id}`,
+                      timestamp: s.updated_at,
+                      parts: [{ kind: 'text', text: s.preview }],
+                  },
+              ]
+            : [],
+        state: mapSessionState(s.state),
+        pendingApprovals: [],
+        usage: {
+            inputTokens: s.usage_total.tokens_in,
+            outputTokens: s.usage_total.tokens_out,
+            costUsd: s.usage_total.cost_total,
+        },
+        started_at: s.created_at,
+        ended_at: isTerminalState(s.state) ? s.updated_at : undefined,
+    }
 }
 
 /* ── AI gateway (billing read plane) ─────────────────────────────── */
