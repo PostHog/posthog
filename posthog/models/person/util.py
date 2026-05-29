@@ -45,6 +45,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    ReadOptions,
 )
 from posthog.settings import TEST
 
@@ -70,12 +71,16 @@ def _batched_get_persons_by_uuids(
     team_id: int,
     uuids: list[str],
     operation: str,
+    read_options: ReadOptions | None = None,
 ) -> list[person_pb2.Person]:
     client = _get_client()
     valid_persons: list[person_pb2.Person] = []
     for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE):
         batch = uuids[i : i + PERSONHOG_BATCH_SIZE]
-        resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=batch))
+        request = GetPersonsByUuidsRequest(team_id=team_id, uuids=batch)
+        if read_options is not None:
+            request.read_options.CopyFrom(read_options)
+        resp = client.get_persons_by_uuids(request)
 
         present_persons = [p for p in resp.persons if p.id]
         batch_valid = [p for p in present_persons if p.team_id == team_id]
@@ -95,6 +100,7 @@ def _batched_get_persons_by_distinct_ids(
     distinct_ids: list[str],
     operation: str,
     deduplicate_by_person: bool = True,
+    read_options: ReadOptions | None = None,
 ) -> list[person_pb2.PersonWithDistinctIds]:
     client = _get_client()
     seen_person_ids: set[int] = set()
@@ -102,9 +108,10 @@ def _batched_get_persons_by_distinct_ids(
 
     for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
         batch = distinct_ids[i : i + PERSONHOG_BATCH_SIZE]
-        resp = client.get_persons_by_distinct_ids_in_team(
-            GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=batch)
-        )
+        request = GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=batch)
+        if read_options is not None:
+            request.read_options.CopyFrom(read_options)
+        resp = client.get_persons_by_distinct_ids_in_team(request)
 
         present_results = [r for r in resp.results if r.person and r.person.id]
         batch_valid = [r for r in present_results if r.person.team_id == team_id]
@@ -310,9 +317,15 @@ def create_person_distinct_id(
 
 
 def _fetch_persons_by_distinct_ids_via_personhog(
-    team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
+    team_id: int,
+    distinct_ids: list[str],
+    *,
+    distinct_id_limit: int | None = None,
+    read_options: ReadOptions | None = None,
 ) -> list[Person]:
-    valid_results = _batched_get_persons_by_distinct_ids(team_id, distinct_ids, "get_persons_by_distinct_ids")
+    valid_results = _batched_get_persons_by_distinct_ids(
+        team_id, distinct_ids, "get_persons_by_distinct_ids", read_options=read_options
+    )
 
     person_ids = [r.person.id for r in valid_results]
     if not person_ids:
@@ -367,18 +380,27 @@ def get_persons_by_distinct_ids(
     *,
     operation: str = "get_persons_by_distinct_ids",
     distinct_id_limit: int | None = None,
+    include_properties: bool = True,
 ) -> list[Person]:
+    read_options: ReadOptions | None = None
+    if not include_properties:
+        from posthog.personhog_client import READ_OPTIONS_WITHOUT_PROPERTIES
+
+        read_options = READ_OPTIONS_WITHOUT_PROPERTIES
+
     def orm_fn() -> list[Person]:
         did_queryset = PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id).order_by("id")
 
+        qs = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+            team_id=team_id,
+            persondistinctid__team_id=team_id,
+            persondistinctid__distinct_id__in=distinct_ids,
+        )
+        if not include_properties:
+            qs = qs.defer("properties")
+
         persons = list(
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(
-                team_id=team_id,
-                persondistinctid__team_id=team_id,
-                persondistinctid__distinct_id__in=distinct_ids,
-            )
-            .prefetch_related(
+            qs.prefetch_related(
                 Prefetch(
                     "persondistinctid_set",
                     queryset=did_queryset,
@@ -396,7 +418,7 @@ def get_persons_by_distinct_ids(
     return _personhog_routed(
         operation,
         lambda: _fetch_persons_by_distinct_ids_via_personhog(
-            team_id, distinct_ids, distinct_id_limit=distinct_id_limit
+            team_id, distinct_ids, distinct_id_limit=distinct_id_limit, read_options=read_options
         ),
         orm_fn,
         team_id=team_id,
@@ -447,8 +469,12 @@ def get_persons_mapped_by_distinct_id(
     )
 
 
-def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
-    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
+def _fetch_persons_by_uuids_via_personhog(
+    team_id: int,
+    uuids: list[str],
+    read_options: ReadOptions | None = None,
+) -> list[Person]:
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids", read_options=read_options)
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
@@ -459,11 +485,28 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
-    orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team_id, uuid__in=uuids
+def get_persons_by_uuids(
+    team_id: int,
+    uuids: list[str],
+    *,
+    include_properties: bool = True,
+) -> QuerySet | list[Person]:
+    read_options: ReadOptions | None = None
+    if not include_properties:
+        from posthog.personhog_client import READ_OPTIONS_WITHOUT_PROPERTIES
+
+        read_options = READ_OPTIONS_WITHOUT_PROPERTIES
+
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(
+        team_id, uuids, read_options=read_options
     )
+
+    def orm_fn() -> QuerySet | list[Person]:
+        qs = Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id, uuid__in=uuids)
+        if not include_properties:
+            qs = qs.defer("properties")
+        return qs
+
     return _personhog_routed(
         "get_persons_by_uuids",
         personhog_fn,
@@ -586,9 +629,13 @@ def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
 
 
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
+    from posthog.personhog_client import READ_OPTIONS_WITHOUT_PROPERTIES
+
     # _batched_get_persons_by_uuids also filters out persons with id == 0 (server "not found" sentinel),
     # which the previous single-RPC implementation did not do. This is intentionally more correct.
-    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "validate_person_uuids_exist")
+    valid_persons = _batched_get_persons_by_uuids(
+        team_id, uuids, "validate_person_uuids_exist", read_options=READ_OPTIONS_WITHOUT_PROPERTIES
+    )
     return [p.uuid for p in valid_persons]
 
 

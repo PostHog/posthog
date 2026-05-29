@@ -324,7 +324,7 @@ class TestGetPersonsByUuidsRouting(SimpleTestCase):
 
         if personhog_data is not None and gate_on:
             assert result == personhog_data
-            mock_fetch_personhog.assert_called_once_with(team_id, uuids)
+            mock_fetch_personhog.assert_called_once_with(team_id, uuids, read_options=None)
             mock_objects.db_manager.assert_not_called()
         else:
             assert result == mock_qs

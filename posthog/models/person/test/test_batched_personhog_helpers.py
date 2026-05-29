@@ -101,6 +101,28 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
             assert len(result) == 1
             assert result[0].uuid == "uuid-1"
 
+    def test_read_options_forwarded_to_request(self):
+        from posthog.personhog_client import READ_OPTIONS_WITHOUT_PROPERTIES
+
+        mock_client = MagicMock()
+        mock_client.get_persons_by_uuids.return_value = person_pb2.PersonsResponse(persons=[])
+
+        with patch("posthog.models.person.util._get_client", return_value=mock_client):
+            _batched_get_persons_by_uuids(1, ["uuid-1"], "test", read_options=READ_OPTIONS_WITHOUT_PROPERTIES)
+
+        request = mock_client.get_persons_by_uuids.call_args[0][0]
+        assert list(request.read_options.field_mask) == list(READ_OPTIONS_WITHOUT_PROPERTIES.field_mask)
+
+    def test_read_options_none_leaves_default(self):
+        mock_client = MagicMock()
+        mock_client.get_persons_by_uuids.return_value = person_pb2.PersonsResponse(persons=[])
+
+        with patch("posthog.models.person.util._get_client", return_value=mock_client):
+            _batched_get_persons_by_uuids(1, ["uuid-1"], "test")
+
+        request = mock_client.get_persons_by_uuids.call_args[0][0]
+        assert list(request.read_options.field_mask) == []
+
 
 class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
     @parameterized.expand(
@@ -179,6 +201,20 @@ class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
             result = _batched_get_persons_by_distinct_ids(1, ["did-1", "did-missing"], "test")
 
             assert len(result) == 1
+
+    def test_read_options_forwarded_to_request(self):
+        from posthog.personhog_client import READ_OPTIONS_WITHOUT_PROPERTIES
+
+        mock_client = MagicMock()
+        mock_client.get_persons_by_distinct_ids_in_team.return_value = person_pb2.PersonsByDistinctIdsInTeamResponse(
+            results=[]
+        )
+
+        with patch("posthog.models.person.util._get_client", return_value=mock_client):
+            _batched_get_persons_by_distinct_ids(1, ["did-1"], "test", read_options=READ_OPTIONS_WITHOUT_PROPERTIES)
+
+        request = mock_client.get_persons_by_distinct_ids_in_team.call_args[0][0]
+        assert list(request.read_options.field_mask) == list(READ_OPTIONS_WITHOUT_PROPERTIES.field_mask)
 
 
 class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):

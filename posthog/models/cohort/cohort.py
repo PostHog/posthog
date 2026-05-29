@@ -438,7 +438,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.personhog_client.gate import use_personhog
 
         if use_personhog():
-            persons = get_persons_by_distinct_ids(team_id, list(distinct_ids))
+            persons = get_persons_by_distinct_ids(team_id, list(distinct_ids), include_properties=False)
             return [str(person.uuid) for person in persons]
 
         # ORM path: lightweight values_list queries — no full model instantiation
@@ -823,7 +823,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
         from posthog.models.person.util import get_persons_by_uuids
 
-        persons = get_persons_by_uuids(team_id, batch)
+        persons = get_persons_by_uuids(team_id, batch, include_properties=False)
         if not persons:
             return
 
