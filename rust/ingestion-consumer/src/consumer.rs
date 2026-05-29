@@ -31,6 +31,30 @@ pub struct IngestionConsumer {
 }
 
 impl IngestionConsumer {
+    /// Constructs a consumer from pre-built parts. Useful in integration tests
+    /// where the Kafka consumer is created and subscribed externally.
+    pub fn from_parts(
+        consumer: StreamConsumer,
+        dispatcher: Arc<Dispatcher>,
+        registry: Arc<WorkerRegistry>,
+        transport: Arc<HttpTransport>,
+        worker_urls: Vec<String>,
+        batch_size: usize,
+        batch_timeout: Duration,
+        handle: Handle,
+    ) -> Self {
+        Self {
+            consumer,
+            dispatcher,
+            registry,
+            transport,
+            worker_urls,
+            batch_size,
+            batch_timeout,
+            handle,
+        }
+    }
+
     pub fn new(
         config: &Config,
         dispatcher: Arc<Dispatcher>,
