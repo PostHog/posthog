@@ -60,7 +60,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_POSTHOG_TOKEN=<ph_project_token>
+                                    VITE_POSTHOG_PROJECT_TOKEN=<ph_project_token>
                                     VITE_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
@@ -97,7 +97,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
 
                                     createRoot(document.getElementById('root')).render(
                                       <StrictMode>
-                                        <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_TOKEN} options={options}>
+                                        <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
                                           <App />
                                         </PostHogProvider>
                                       </StrictMode>

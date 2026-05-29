@@ -15414,6 +15414,12 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     name: str
     row_count: float | None = None
     schema_: DatabaseSchemaSchema | None = Field(default=None, alias="schema")
+    search_aliases: list[str] | None = Field(
+        default=None,
+        description=(
+            "Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`."
+        ),
+    )
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str
