@@ -133,11 +133,31 @@ const ReplaceBlockEditSchema = z
 const ReplaceTextEditSchema = z
     .object({
         type: z.literal('replace_text'),
-        find: z.string().min(1).describe('Exact text to find inside a single text node.'),
+        find: z
+            .string()
+            .min(1)
+            .describe(
+                'Exact text to find. This can match normal notebook text and SQL inside query, HogQL, or DuckDB nodes.'
+            ),
         replace: z.string().describe('Replacement text. Use an empty string to delete the matching text.'),
         all_occurrences: z.boolean().default(false).describe('Replace every exact match instead of only the first.'),
+        anchor: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+                'Optional exact text anchor for a top-level block. When set, only that block is searched, which is the safest way to edit a specific query node.'
+            ),
+        occurrence: z
+            .number()
+            .int()
+            .min(1)
+            .default(1)
+            .describe('Which matching anchor block to use when anchor appears more than once.'),
     })
-    .describe('Replace exact plain text in notebook text nodes.')
+    .describe(
+        'Replace exact text in notebook text or inside query/code node attributes. For small SQL changes, prefer this over replacing the whole query block.'
+    )
 
 const NotebookEditSchema = z.object({
     short_id: z.string().describe('Short ID of the notebook to edit.'),
@@ -796,6 +816,155 @@ function applyReplaceBlockEdit(
     return replaceStep(from, to, insertedNodes)
 }
 
+type StringReplacementResult<T> = {
+    value: T
+    count: number
+}
+
+function replaceInString(
+    value: string,
+    find: string,
+    replacement: string,
+    allOccurrences: boolean
+): StringReplacementResult<string> {
+    if (!value.includes(find)) {
+        return { value, count: 0 }
+    }
+
+    if (!allOccurrences) {
+        return { value: value.replace(find, replacement), count: 1 }
+    }
+
+    return {
+        value: value.split(find).join(replacement),
+        count: value.split(find).length - 1,
+    }
+}
+
+function replaceStringsInValue<T>(
+    value: T,
+    find: string,
+    replacement: string,
+    allOccurrences: boolean
+): StringReplacementResult<T> {
+    if (typeof value === 'string') {
+        return replaceInString(value, find, replacement, allOccurrences) as StringReplacementResult<T>
+    }
+
+    if (Array.isArray(value)) {
+        let count = 0
+        const nextValue: unknown[] = []
+        for (const item of value) {
+            if (!allOccurrences && count > 0) {
+                nextValue.push(item)
+                continue
+            }
+            const result = replaceStringsInValue(item, find, replacement, allOccurrences)
+            count += result.count
+            nextValue.push(result.value)
+        }
+        return { value: nextValue as T, count }
+    }
+
+    if (isRecord(value)) {
+        let count = 0
+        const nextValue: Record<string, unknown> = {}
+        for (const [key, item] of Object.entries(value)) {
+            if (!allOccurrences && count > 0) {
+                nextValue[key] = item
+                continue
+            }
+            const result = replaceStringsInValue(item, find, replacement, allOccurrences)
+            count += result.count
+            nextValue[key] = result.value
+        }
+        return { value: nextValue as T, count }
+    }
+
+    return { value, count: 0 }
+}
+
+function replaceStringsInNodeAttrs(
+    node: ProseMirrorNode,
+    find: string,
+    replacement: string,
+    allOccurrences: boolean
+): StringReplacementResult<ProseMirrorNode> {
+    if (!isRecord(node.attrs)) {
+        return { value: node, count: 0 }
+    }
+
+    const attrsResult = replaceStringsInValue(node.attrs, find, replacement, allOccurrences)
+    if (attrsResult.count === 0) {
+        return { value: node, count: 0 }
+    }
+
+    return {
+        value: {
+            ...node,
+            attrs: attrsResult.value,
+        },
+        count: attrsResult.count,
+    }
+}
+
+function applyAttributeReplacementInBlock(
+    doc: ProseMirrorDoc,
+    index: number,
+    find: string,
+    replacement: string,
+    allOccurrences: boolean
+): ReplaceStep[] {
+    const node = doc.content[index]
+    if (!node) {
+        return []
+    }
+
+    const result = replaceStringsInNodeAttrs(node, find, replacement, allOccurrences)
+    if (result.count === 0) {
+        return []
+    }
+
+    const from = topLevelPositionBefore(doc, index)
+    const to = topLevelPositionAfter(doc, index)
+    const insertedNode = cloneJson(result.value)
+    doc.content.splice(index, 1, insertedNode)
+    return [replaceStep(from, to, [insertedNode])]
+}
+
+function findAttributeReplacementBlockIndex(doc: ProseMirrorDoc, find: string, startIndex: number = 0): number | null {
+    for (let index = startIndex; index < doc.content.length; index++) {
+        const node = doc.content[index]
+        if (!node || !textContent(node).includes(find)) {
+            continue
+        }
+        if (replaceStringsInNodeAttrs(node, find, find, false).count > 0) {
+            return index
+        }
+    }
+
+    return null
+}
+
+function applyTextReplacementInBlock(
+    doc: ProseMirrorDoc,
+    index: number,
+    find: string,
+    replacement: string
+): ReplaceStep | null {
+    const node = doc.content[index]
+    if (!node) {
+        return null
+    }
+
+    const match = findTextMatch(node, find, topLevelPositionBefore(doc, index))
+    if (!match) {
+        return null
+    }
+
+    return applyTextMatchReplacement(match, find, replacement)
+}
+
 function findTextMatch(
     node: ProseMirrorNode | ProseMirrorDoc,
     find: string,
@@ -851,12 +1020,7 @@ function replacementTextNodes(match: TextMatch, replacement: string): ProseMirro
     return [node]
 }
 
-function applyTextReplacement(doc: ProseMirrorDoc, find: string, replacement: string): ReplaceStep | null {
-    const match = findTextMatch(doc, find, 0)
-    if (!match) {
-        return null
-    }
-
+function applyTextMatchReplacement(match: TextMatch, find: string, replacement: string): ReplaceStep {
     const text = typeof match.node.text === 'string' ? match.node.text : ''
     match.node.text = `${text.slice(0, match.startIndex)}${replacement}${text.slice(match.startIndex + find.length)}`
 
@@ -872,31 +1036,85 @@ function applyTextReplacement(doc: ProseMirrorDoc, find: string, replacement: st
     return replaceStep(match.from, match.to, replacementTextNodes(match, replacement))
 }
 
+function applyTextReplacement(doc: ProseMirrorDoc, find: string, replacement: string): ReplaceStep | null {
+    const match = findTextMatch(doc, find, 0)
+    if (!match) {
+        return null
+    }
+
+    return applyTextMatchReplacement(match, find, replacement)
+}
+
+function assertReplacementLimit(find: string, replacementCount: number): void {
+    if (replacementCount > MAX_TEXT_REPLACEMENTS) {
+        throw new Error(`Stopped after ${MAX_TEXT_REPLACEMENTS} replacements for "${find}". Narrow the edit target.`)
+    }
+}
+
 function applyReplaceTextEdit(
     doc: ProseMirrorDoc,
     find: string,
     replacement: string,
-    allOccurrences: boolean
+    allOccurrences: boolean,
+    anchor?: string,
+    occurrence: number = 1
 ): ReplaceStep[] {
-    const steps: ReplaceStep[] = []
-
-    while (true) {
-        const step = applyTextReplacement(doc, find, replacement)
-        if (!step) {
-            break
+    if (anchor) {
+        const index = findTopLevelAnchorIndex(doc, anchor, occurrence)
+        if (index === null) {
+            throw new Error(`Could not find text "${anchor}" in the notebook.`)
         }
 
-        steps.push(step)
+        const attributeSteps = applyAttributeReplacementInBlock(doc, index, find, replacement, allOccurrences)
+        if (attributeSteps.length > 0) {
+            return attributeSteps
+        }
+
+        const textSteps: ReplaceStep[] = []
+        while (true) {
+            const textStep = applyTextReplacementInBlock(doc, index, find, replacement)
+            if (!textStep) {
+                break
+            }
+            textSteps.push(textStep)
+
+            if (!allOccurrences) {
+                break
+            }
+
+            assertReplacementLimit(find, textSteps.length)
+        }
+
+        if (textSteps.length > 0) {
+            return textSteps
+        }
+
+        throw new Error(`Could not find text "${find}" inside notebook block anchored by "${anchor}".`)
+    }
+
+    const steps: ReplaceStep[] = []
+    let replacements = 0
+
+    while (true) {
+        const attributeIndex = findAttributeReplacementBlockIndex(doc, find)
+        if (attributeIndex !== null) {
+            const attributeSteps = applyAttributeReplacementInBlock(doc, attributeIndex, find, replacement, false)
+            steps.push(...attributeSteps)
+            replacements += attributeSteps.length
+        } else {
+            const step = applyTextReplacement(doc, find, replacement)
+            if (!step) {
+                break
+            }
+            steps.push(step)
+            replacements += 1
+        }
 
         if (!allOccurrences) {
             break
         }
 
-        if (steps.length >= MAX_TEXT_REPLACEMENTS) {
-            throw new Error(
-                `Stopped after ${MAX_TEXT_REPLACEMENTS} replacements for "${find}". Narrow the edit target.`
-            )
-        }
+        assertReplacementLimit(find, replacements)
     }
 
     if (steps.length === 0) {
@@ -937,7 +1155,14 @@ function applyNotebookEdit(doc: ProseMirrorDoc, edit: NotebookEdit): ReplaceStep
         case 'replace_block':
             return [applyReplaceBlockEdit(doc, edit.anchor, edit.occurrence ?? 1, resolveInsertNodes(edit.type, edit))]
         case 'replace_text':
-            return applyReplaceTextEdit(doc, edit.find, edit.replace, edit.all_occurrences ?? false)
+            return applyReplaceTextEdit(
+                doc,
+                edit.find,
+                edit.replace,
+                edit.all_occurrences ?? false,
+                edit.anchor,
+                edit.occurrence ?? 1
+            )
     }
 }
 

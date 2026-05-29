@@ -78,6 +78,16 @@ function pythonNode(code: string, title?: string): ProseMirrorTestNode {
     }
 }
 
+function queryNode(query: Record<string, unknown>, title?: string): ProseMirrorTestNode {
+    return {
+        type: 'ph-query',
+        attrs: {
+            query,
+            ...(title ? { title } : {}),
+        },
+    }
+}
+
 function doc(...content: ProseMirrorTestNode[]): Record<string, unknown> {
     return { type: 'doc', content }
 }
@@ -599,6 +609,114 @@ describe('notebooks-edit', () => {
                     from: 11,
                     to: 31,
                     slice: { content: [hogqlNode('SELECT 1')] },
+                },
+            ],
+        })
+    })
+
+    it('replaces text inside a query node by title anchor without rebuilding the whole block', async () => {
+        const oldQuery = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'SELECT event\nFROM events\nLIMIT 40' },
+            display: 'ActionsTable',
+        }
+        const newQuery = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'SELECT event\nFROM events\nLIMIT 100' },
+            display: 'ActionsTable',
+        }
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(queryNode(oldQuery, 'Event retention lift (sorted by lift desc)'), paragraph('Keep')),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(queryNode(newQuery, 'Event retention lift (sorted by lift desc)'), paragraph('Keep')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [
+                {
+                    type: 'replace_text',
+                    anchor: 'Event retention lift (sorted by lift desc)',
+                    find: 'LIMIT 40',
+                    replace: 'LIMIT 100',
+                },
+            ],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            text_content:
+                '<query title="Event retention lift (sorted by lift desc)">\n' +
+                JSON.stringify(newQuery) +
+                '\n</query>\nKeep',
+            content: doc(queryNode(newQuery, 'Event retention lift (sorted by lift desc)'), paragraph('Keep')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 0,
+                    to: 1,
+                    slice: { content: [queryNode(newQuery, 'Event retention lift (sorted by lift desc)')] },
+                },
+            ],
+        })
+    })
+
+    it('replaces text inside an executable SQL cell by title anchor', async () => {
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(hogqlNode('SELECT * FROM events LIMIT 40', 'events_df', 'Recent events')),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(hogqlNode('SELECT * FROM events LIMIT 100', 'events_df', 'Recent events')),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [
+                {
+                    type: 'replace_text',
+                    anchor: 'Recent events',
+                    find: 'LIMIT 40',
+                    replace: 'LIMIT 100',
+                },
+            ],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            text_content:
+                '<hogql title="Recent events" return_variable="events_df">\nSELECT * FROM events LIMIT 100\n</hogql>',
+            content: doc(hogqlNode('SELECT * FROM events LIMIT 100', 'events_df', 'Recent events')),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 0,
+                    to: 1,
+                    slice: { content: [hogqlNode('SELECT * FROM events LIMIT 100', 'events_df', 'Recent events')] },
                 },
             ],
         })
