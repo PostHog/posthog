@@ -39,14 +39,17 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
         [currentPage, playgroundAgent]
     )
 
+    // Stable setters — they only call the React-stable `setState`s, so the
+    // references never need to change. Without this, `value` re-creates
+    // `setPage` every time `context` updates, which makes `useSetDockPage`'s
+    // useEffect re-fire and loop.
+    const setPage = useCallback((page: ConciergePageContext): void => setCurrentPage(page), [])
+    const enterPlayground = useCallback((agent: AgentApplicationRef): void => setPlaygroundAgent(agent), [])
+    const exitPlayground = useCallback((): void => setPlaygroundAgent(null), [])
+
     const value: DockStore = useMemo(
-        () => ({
-            context,
-            setPage: (page) => setCurrentPage(page),
-            enterPlayground: (agent) => setPlaygroundAgent(agent),
-            exitPlayground: () => setPlaygroundAgent(null),
-        }),
-        [context]
+        () => ({ context, setPage, enterPlayground, exitPlayground }),
+        [context, setPage, enterPlayground, exitPlayground]
     )
 
     return <DockCtx.Provider value={value}>{children}</DockCtx.Provider>

@@ -3,17 +3,23 @@
 import { useRouter } from 'next/navigation'
 
 import { useSetDockPage } from '@/components/dock-context'
+import { useSessionTeamId } from '@/components/session-context'
 import { getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 import { AgentsList } from '@/pages/AgentsList'
 
 export function AgentsListClient(): React.ReactElement {
     const router = useRouter()
+    const teamId = useSessionTeamId()
     useSetDockPage({ kind: 'agent-list' })
 
-    const agents = useResource(() => listAgents())
-    const fleet = useResource(() => getFleetStats())
-    const live = useResource(() => listLiveSessions())
+    const agents = useResource(() => (teamId == null ? skip<never>() : listAgents(teamId)), [teamId])
+    const fleet = useResource(() => (teamId == null ? skip<never>() : getFleetStats(teamId)), [teamId])
+    const live = useResource(() => (teamId == null ? skip<never>() : listLiveSessions(teamId)), [teamId])
+
+    if (teamId == null) {
+        return <div className="px-6 py-6 text-sm text-muted-foreground">Resolving project…</div>
+    }
 
     const loading = agents.loading || fleet.loading || live.loading
     const error = agents.error ?? fleet.error ?? live.error
@@ -56,4 +62,9 @@ export function AgentsListClient(): React.ReactElement {
             }}
         />
     )
+}
+
+/** Pending promise that never resolves — keeps useResource in `loading` until deps change. */
+function skip<T>(): Promise<T> {
+    return new Promise<T>(() => undefined)
 }

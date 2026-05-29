@@ -27,6 +27,13 @@ export interface SessionPayload {
     scope: string
     /** OIDC `sub` claim, when present — purely informational for the UI. */
     sub?: string
+    /**
+     * The user's "current team" (project) id, fetched at callback time
+     * from `/api/users/@me/`. All `/api/projects/<id>/agent_*` calls
+     * scope to this. v0.1: surface a project picker in the UI and let
+     * the user switch; this is the initial default.
+     */
+    teamId?: number
 }
 
 export async function getSession(): Promise<SessionPayload | null> {

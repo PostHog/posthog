@@ -3,6 +3,7 @@
 import { notFound, useRouter, useSearchParams } from 'next/navigation'
 
 import { useSetDockPage, useDockStore } from '@/components/dock-context'
+import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getAgent, getAgentStats, listRevisions, listSessionsForAgent } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 import { AgentDetail, parseUrlState, type AgentDetailUrlState } from '@/pages/AgentDetail'
@@ -10,9 +11,13 @@ import { AgentDetail, parseUrlState, type AgentDetailUrlState } from '@/pages/Ag
 export function AgentDetailClient({ slug }: { slug: string }): React.ReactElement {
     const router = useRouter()
     const searchParams = useSearchParams()
+    const teamId = useSessionTeamId()
 
-    const agent = useResource(() => getAgent(slug), [slug])
+    const agent = useResource(() => (teamId == null ? pending() : getAgent(teamId, slug)), [teamId, slug])
 
+    if (teamId == null) {
+        return <div className="px-6 py-6 text-sm text-muted-foreground">Resolving project…</div>
+    }
     if (agent.error instanceof ApiError && agent.error.status === 404) {
         notFound()
     }
@@ -47,6 +52,7 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
     return (
         <AgentDetailInner
             slug={slug}
+            teamId={teamId}
             agent={agent.data}
             urlState={urlState}
             onChangeUrlState={onChangeUrlState}
@@ -58,6 +64,7 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
 
 function AgentDetailInner({
     slug,
+    teamId,
     agent,
     urlState,
     onChangeUrlState,
@@ -65,6 +72,7 @@ function AgentDetailInner({
     onOpenSession,
 }: {
     slug: string
+    teamId: number
     agent: Awaited<ReturnType<typeof getAgent>>
     urlState: AgentDetailUrlState
     onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
@@ -76,9 +84,9 @@ function AgentDetailInner({
 
     const { enterPlayground } = useDockStore()
 
-    const stats = useResource(() => getAgentStats(slug), [slug])
-    const sessions = useResource(() => listSessionsForAgent(slug), [slug])
-    const revisions = useResource(() => listRevisions(slug), [slug])
+    const stats = useResource(() => getAgentStats(teamId, slug), [teamId, slug])
+    const sessions = useResource(() => listSessionsForAgent(teamId, slug), [teamId, slug])
+    const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug])
 
     if (stats.error ?? sessions.error ?? revisions.error) {
         const message = (stats.error ?? sessions.error ?? revisions.error)?.message ?? 'Unknown error'
@@ -101,4 +109,9 @@ function AgentDetailInner({
             onOpenSession={onOpenSession}
         />
     )
+}
+
+/** Pending promise that never resolves — keeps useResource in `loading` until deps change. */
+function pending<T = never>(): Promise<T> {
+    return new Promise<T>(() => undefined)
 }

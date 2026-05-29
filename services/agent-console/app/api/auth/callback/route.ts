@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 
+import { posthogBaseUrl } from '@/lib/auth/config'
 import { consumeOAuthFlow, setSession } from '@/lib/auth/session'
 import { exchangeAuthorizationCode } from '@/lib/auth/tokens'
 
@@ -43,12 +44,32 @@ export async function GET(request: Request): Promise<Response> {
 
     try {
         const session = await exchangeAuthorizationCode({ code, codeVerifier: flow.codeVerifier })
-        await setSession(session)
+        // Resolve the user's current team so subsequent /api/projects/<id>/...
+        // calls have a real id to scope by. Best-effort — login still
+        // succeeds if this fails; the agents list will surface the
+        // "missing teamId" error to the user instead of silent confusion.
+        const teamId = await fetchCurrentTeamId(session.accessToken)
+        await setSession({ ...session, teamId })
     } catch (err) {
         return renderError(`Token exchange failed: ${err instanceof Error ? err.message : String(err)}`)
     }
 
     return NextResponse.redirect(new URL(flow.returnTo, url.origin).toString(), { status: 302 })
+}
+
+async function fetchCurrentTeamId(accessToken: string): Promise<number | undefined> {
+    try {
+        const res = await fetch(`${posthogBaseUrl()}/api/users/@me/`, {
+            headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+        })
+        if (!res.ok) {
+            return undefined
+        }
+        const body = (await res.json()) as { team?: { id?: number } | null }
+        return body.team?.id ?? undefined
+    } catch {
+        return undefined
+    }
 }
 
 function renderError(message: string): Response {

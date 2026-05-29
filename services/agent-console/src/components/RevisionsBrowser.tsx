@@ -25,6 +25,7 @@ import { useMemo, useState } from 'react'
 import { JsonView } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
 
+import { useSessionTeamId } from '@/components/session-context'
 import { getBundle } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 
@@ -66,14 +67,16 @@ export function RevisionsBrowser({
     }, [revisions, agent.live_revision])
 
     const selected = revisions.find((r) => r.id === selectedRevisionId) ?? sortedRevisions[0] ?? null
+    const teamId = useSessionTeamId()
 
-    // Bundle is per-revision — fetch lazily for whichever revision is selected.
+    // Bundle is per-revision — fetch lazily for whichever revision is
+    // selected. Waits for `teamId` to be available before issuing.
     const bundleRes = useResource(
-        () => (selected ? getBundle(agent.slug, selected.id) : Promise.resolve([])),
-        [agent.slug, selected?.id ?? '']
+        () => (selected && teamId != null ? getBundle(teamId, agent.slug, selected.id) : Promise.resolve([])),
+        [teamId, agent.slug, selected?.id ?? '']
     )
     const bundle = bundleRes.data ?? []
-    const bundleLoading = bundleRes.loading
+    const bundleLoading = bundleRes.loading || teamId == null
     const bundleError = bundleRes.error
 
     if (sortedRevisions.length === 0) {

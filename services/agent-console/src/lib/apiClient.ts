@@ -1,21 +1,20 @@
 /**
  * Typed REST client for the agent console.
  *
- * Every read the console does goes through here. Paths mirror the
- * real PostHog Django REST surface (see
- * `products/agent_stack/backend/api.py`). Storybook intercepts via
- * MSW; production Next.js proxies via `next.config.mjs → rewrites()`.
+ * Paths mirror the real PostHog Django REST surface (see
+ * `products/agent_stack/backend/api.py`). The browser hits
+ * same-origin `/api/projects/<teamId>/...` which the Next.js
+ * catch-all route forwards to Django with the user's OAuth token
+ * attached server-side.
  *
- * Same-origin to avoid CORS. Next.js rewrites `/api/projects/...` to
- * the PostHog Django REST surface. When chat send/listen lands later
- * it'll add a `posthogAgentsUrl()` helper for `/api/agents/v1/*` →
- * agent-ingress.
+ * Every call takes the team id explicitly — callers pull it from
+ * `useSessionTeamId()` (sourced from `/api/auth/me`). No module-level
+ * project state, so switching teams later doesn't require an app
+ * reload.
  *
- * The console is read-mostly. Writes are the agent runner's job; when
- * the user wants to change something they ask the concierge dock, the
- * agent POSTs to the same Django endpoints via MCP, the console
- * refetches on its next navigation. The agent navigates the console
- * via the `@posthog/ui/focus` tool — see `Dock.tsx` for the URL map.
+ * The console is read-mostly. Writes are the agent runner's job: the
+ * user asks the concierge dock, the agent POSTs to the same Django
+ * endpoints via MCP, the console refetches on its next navigation.
  */
 
 import type { ChatSession } from '@posthog/agent-chat'
@@ -29,11 +28,8 @@ import type {
     LogEntry,
 } from '@posthog/agent-chat/fixtures'
 
-// v0: hardcoded project. v0.1: read from the session / org context.
-const PROJECT_ID = 2
-
-function posthogUrl(suffix: string): string {
-    return `/api/projects/${PROJECT_ID}${suffix}`
+function posthogUrl(teamId: number, suffix: string): string {
+    return `/api/projects/${teamId}${suffix}`
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -64,21 +60,26 @@ export class ApiError extends Error {
 
 /* ── Applications ────────────────────────────────────────────────── */
 
-export async function listAgents(opts: { includeArchived?: boolean } = {}): Promise<AgentApplicationFixture[]> {
+export async function listAgents(
+    teamId: number,
+    opts: { includeArchived?: boolean } = {}
+): Promise<AgentApplicationFixture[]> {
     const qs = opts.includeArchived ? '?include_archived=true' : ''
-    const { results } = await getJson<{ results: AgentApplicationFixture[] }>(posthogUrl(`/agent_applications/${qs}`))
+    const { results } = await getJson<{ results: AgentApplicationFixture[] }>(
+        posthogUrl(teamId, `/agent_applications/${qs}`)
+    )
     return results
 }
 
-export async function getAgent(slug: string): Promise<AgentApplicationFixture> {
-    return getJson<AgentApplicationFixture>(posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/`))
+export async function getAgent(teamId: number, slug: string): Promise<AgentApplicationFixture> {
+    return getJson<AgentApplicationFixture>(posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/`))
 }
 
 /* ── Revisions ───────────────────────────────────────────────────── */
 
-export async function listRevisions(slug: string): Promise<AgentRevisionFixture[]> {
+export async function listRevisions(teamId: number, slug: string): Promise<AgentRevisionFixture[]> {
     const { results } = await getJson<{ results: AgentRevisionFixture[] }>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/revisions/`)
+        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/revisions/`)
     )
     return results
 }
@@ -88,9 +89,10 @@ export async function listRevisions(slug: string): Promise<AgentRevisionFixture[
  * content }, ... }`. Transformed here so consumers get the typed
  * `BundleFile[]` array.
  */
-export async function getBundle(slug: string, revisionId: string): Promise<BundleFile[]> {
+export async function getBundle(teamId: number, slug: string, revisionId: string): Promise<BundleFile[]> {
     const raw = await getJson<{ files: Record<string, string> }>(
         posthogUrl(
+            teamId,
             `/agent_applications/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}/bundle/`
         )
     )
@@ -116,37 +118,40 @@ function languageForPath(path: string): BundleFileLanguage {
 
 /* ── Sessions ────────────────────────────────────────────────────── */
 
-export async function listSessionsForAgent(slug: string): Promise<ChatSession[]> {
+export async function listSessionsForAgent(teamId: number, slug: string): Promise<ChatSession[]> {
     const { results } = await getJson<{ results: ChatSession[] }>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/sessions/`)
+        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/sessions/`)
     )
     return results
 }
 
-export async function getSession(slug: string, sessionId: string): Promise<ChatSession> {
+export async function getSession(teamId: number, slug: string, sessionId: string): Promise<ChatSession> {
     return getJson<ChatSession>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/sessions/${encodeURIComponent(sessionId)}/`)
+        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/sessions/${encodeURIComponent(sessionId)}/`)
     )
 }
 
-export async function listLogsForSession(slug: string, sessionId: string): Promise<LogEntry[]> {
+export async function listLogsForSession(teamId: number, slug: string, sessionId: string): Promise<LogEntry[]> {
     const { results } = await getJson<{ results: LogEntry[] }>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/sessions/${encodeURIComponent(sessionId)}/logs/`)
+        posthogUrl(
+            teamId,
+            `/agent_applications/${encodeURIComponent(slug)}/sessions/${encodeURIComponent(sessionId)}/logs/`
+        )
     )
     return results
 }
 
 /* ── Read endpoints not yet served by Django — Phase C ───────────── */
 
-export async function getAgentStats(slug: string): Promise<AgentStats> {
-    return getJson<AgentStats>(posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/stats/`))
+export async function getAgentStats(teamId: number, slug: string): Promise<AgentStats> {
+    return getJson<AgentStats>(posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/stats/`))
 }
 
-export async function getFleetStats(): Promise<FleetStats> {
-    return getJson<FleetStats>(posthogUrl(`/agent_fleet/stats/`))
+export async function getFleetStats(teamId: number): Promise<FleetStats> {
+    return getJson<FleetStats>(posthogUrl(teamId, `/agent_fleet/stats/`))
 }
 
-export async function listLiveSessions(): Promise<ChatSession[]> {
-    const { results } = await getJson<{ results: ChatSession[] }>(posthogUrl(`/agent_fleet/live_sessions/`))
+export async function listLiveSessions(teamId: number): Promise<ChatSession[]> {
+    const { results } = await getJson<{ results: ChatSession[] }>(posthogUrl(teamId, `/agent_fleet/live_sessions/`))
     return results
 }

@@ -21,8 +21,11 @@ export async function GET(): Promise<Response> {
         headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json' },
     })
     if (!res.ok) {
-        return NextResponse.json({ authenticated: false, error: `userinfo ${res.status}` }, { status: 200 })
+        return NextResponse.json(
+            { authenticated: false, error: `userinfo ${res.status}`, teamId: session.teamId ?? null },
+            { status: 200 }
+        )
     }
     const userinfo = await res.json()
-    return NextResponse.json({ authenticated: true, ...userinfo })
+    return NextResponse.json({ authenticated: true, teamId: session.teamId ?? null, ...userinfo })
 }
