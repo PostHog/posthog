@@ -26,17 +26,15 @@
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
-## Publish to changelog?
+## Automatic notifications
 
-<!-- For features only -->
-
-<!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will receive a follow-up PR comment or notification. -->
-
-<!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->
+- [ ] Publish to changelog?
+- [ ] Alert Sales and Marketing teams?
 
 ## Docs update
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
+<!-- Add the `skip-migration-service-check` label if every migration here is DB-noop (e.g. `SeparateDatabaseAndState` with empty `database_operations`, or pure `RunPython`) and it's safe to ship alongside service code. -->
 
 ## 🤖 Agent context
 

@@ -76,7 +76,6 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -126,6 +125,7 @@ from products.endpoints.backend.serializers import (
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 
 from common.hogvm.python.utils import HogVMException

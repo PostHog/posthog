@@ -274,9 +274,9 @@ export function Playlist({
                     className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
-                        <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
-                            <div className="flex flex-col gap-1">
-                                <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                        <div className="relative">
+                            <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
+                                <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
                                     <div className="flex items-center gap-0.5">
                                         <LemonButton
@@ -298,9 +298,9 @@ export function Playlist({
                                         />
                                     </div>
                                 </div>
-                                <LemonTableLoader loading={sessionRecordingsResponseLoading} />
-                            </div>
-                        </DraggableToNotebook>
+                            </DraggableToNotebook>
+                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
+                        </div>
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
