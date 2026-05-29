@@ -341,6 +341,7 @@ select = [
     "RUF019",
     "T100",
     "T2",
+    "TID253",
     "TRY201",
     "TRY400",
     "UP",
@@ -369,6 +370,13 @@ select = [
 "scripts/**" = ["PLC0415"]
 "services/stripe-mock/**" = ["PLC0415"]
 "tools/**" = ["PLC0415"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Heavy SDKs that noticeably slow startup. They must be imported lazily (inside the
+# function that uses them), not at module top, so they stay off the Django app-load path.
+# Only modules with a single, already-lazy call site are listed — vendor source/destination
+# leaf modules legitimately import their own SDK at module level and are loaded on demand.
+banned-module-level-imports = ["elevenlabs", "matplotlib", "trafilatura"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
