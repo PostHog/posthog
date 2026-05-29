@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -31,7 +31,8 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const template = hogFunctionTemplatesById[templateId]
@@ -130,14 +131,32 @@ export function HogFlowFunctionConfiguration({
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
             {isEmailStep && engagementEventsAvailable && !engagementEventsEnabled && (
-                <p className="text-xs text-muted-alt italic px-1">
-                    Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. To also capture
-                    these as PostHog events for use in insights and funnels,{' '}
-                    <Link to={urls.settings('environment-workflows', 'workflows-engagement-events')}>
-                        enable email engagement events
-                    </Link>
-                    .
-                </p>
+                <div className="flex flex-col gap-2 mt-2 text-xs text-muted-alt">
+                    <p className="m-0">
+                        Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. To also
+                        capture these as PostHog events for use in insights and funnels:
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={currentTeamLoading}
+                            onClick={() =>
+                                updateCurrentTeam({
+                                    workflows_config: {
+                                        ...currentTeam?.workflows_config,
+                                        capture_engagement_events: true,
+                                    },
+                                })
+                            }
+                        >
+                            Enable engagement events
+                        </LemonButton>
+                        <Link to={urls.settings('environment-workflows', 'workflows-engagement-events')}>
+                            Manage in settings
+                        </Link>
+                    </div>
+                </div>
             )}
             <HogFlowFunctionMappings
                 useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
