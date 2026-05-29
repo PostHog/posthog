@@ -9,29 +9,25 @@ import {
 } from '@/generated/engineering_analytics/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const WorkflowReportSchema = EngineeringAnalyticsWorkflowReportQueryParams.extend({
-    date_from: EngineeringAnalyticsWorkflowReportQueryParams.shape['date_from'].describe(
-        "Start of the window — a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'."
+const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams.extend({
+    pr_number: EngineeringAnalyticsPrLifecycleQueryParams.shape['pr_number'].describe(
+        'Pull request number to inspect.'
     ),
-    date_to: EngineeringAnalyticsWorkflowReportQueryParams.shape['date_to'].describe(
-        "End of the window — a relative string or ISO8601 timestamp. Omit for 'now'."
-    ),
-    repo: EngineeringAnalyticsWorkflowReportQueryParams.shape['repo'].describe(
-        "Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows."
+    repo: EngineeringAnalyticsPrLifecycleQueryParams.shape['repo'].describe(
+        "Optional 'owner/name' repository. In v1 this only labels the response."
     ),
 })
 
-const workflowReport = (): ToolBase<typeof WorkflowReportSchema, Schemas.WorkflowReport> => ({
-    name: 'workflow-report',
-    schema: WorkflowReportSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowReportSchema>) => {
+const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> => ({
+    name: 'pr-lifecycle',
+    schema: PrLifecycleSchema,
+    handler: async (context: Context, params: z.infer<typeof PrLifecycleSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WorkflowReport>({
+        const result = await context.api.request<Schemas.PRLifecycle>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_report/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pr_lifecycle/`,
             query: {
-                date_from: params.date_from,
-                date_to: params.date_to,
+                pr_number: params.pr_number,
                 repo: params.repo,
             },
         })
@@ -73,25 +69,29 @@ const timeToMerge = (): ToolBase<typeof TimeToMergeSchema, Schemas.TimeToMerge> 
     },
 })
 
-const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams.extend({
-    pr_number: EngineeringAnalyticsPrLifecycleQueryParams.shape['pr_number'].describe(
-        'Pull request number to inspect.'
+const WorkflowReportSchema = EngineeringAnalyticsWorkflowReportQueryParams.extend({
+    date_from: EngineeringAnalyticsWorkflowReportQueryParams.shape['date_from'].describe(
+        "Start of the window — a relative string like '-7d' or an ISO8601 timestamp. Defaults to '-7d'."
     ),
-    repo: EngineeringAnalyticsPrLifecycleQueryParams.shape['repo'].describe(
-        "Optional 'owner/name' repository. In v1 this only labels the response."
+    date_to: EngineeringAnalyticsWorkflowReportQueryParams.shape['date_to'].describe(
+        "End of the window — a relative string or ISO8601 timestamp. Omit for 'now'."
+    ),
+    repo: EngineeringAnalyticsWorkflowReportQueryParams.shape['repo'].describe(
+        "Optional 'owner/name' repository. In v1 this only labels the response; it does not filter rows."
     ),
 })
 
-const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> => ({
-    name: 'pr-lifecycle',
-    schema: PrLifecycleSchema,
-    handler: async (context: Context, params: z.infer<typeof PrLifecycleSchema>) => {
+const workflowReport = (): ToolBase<typeof WorkflowReportSchema, Schemas.WorkflowReport> => ({
+    name: 'workflow-report',
+    schema: WorkflowReportSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowReportSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PRLifecycle>({
+        const result = await context.api.request<Schemas.WorkflowReport>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pr_lifecycle/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_report/`,
             query: {
-                pr_number: params.pr_number,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 repo: params.repo,
             },
         })
@@ -100,7 +100,7 @@ const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> 
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'workflow-report': workflowReport,
-    'time-to-merge': timeToMerge,
     'pr-lifecycle': prLifecycle,
+    'time-to-merge': timeToMerge,
+    'workflow-report': workflowReport,
 }
