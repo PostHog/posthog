@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Collection
 from typing import cast
 
@@ -709,3 +710,61 @@ class TestMaterializeViewActivity:
             pyarrow_table = delta_table.to_pyarrow_table()
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}
+
+    async def test_aborted_write_releases_producer_parked_on_full_queue(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+    ):
+        # regression: when the consumer (write) aborts while the producer is still
+        # streaming, the producer must not be orphaned. its queue ops run in a thread
+        # via asyncio.to_thread (not cancellable), so a plain blocking put against the
+        # bounded queue would park that thread forever once the consumer stops draining,
+        # and the cleanup join (await producer_task) would hang with it. the producer's
+        # _put/_get poll a stop_event that cleanup sets, so the parked op returns and the
+        # task is reaped. we yield far more batches than the queue holds (maxsize=2) and
+        # make write_deltalake raise without draining, guaranteeing the producer parks;
+        # the activity must surface the write error promptly instead of hanging.
+        names = ["a", "b"]
+
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+
+            async def async_generator():
+                for i in range(8):
+                    batch = pa.RecordBatch.from_arrays(
+                        [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in names],
+                        names=names,
+                    )
+                    yield batch, [(name, "String") for name in names]
+
+            return async_generator()
+
+        def raising_write(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("boom")
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
+                return_value=16,
+            ),
+            unittest.mock.patch("deltalake.write_deltalake", side_effect=raising_write),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            # wait_for fails the test rather than hanging the suite if the producer is
+            # orphaned and the cleanup join blocks forever.
+            with pytest.raises(RuntimeError, match="boom"):
+                await asyncio.wait_for(activity_environment.run(materialize_view_activity, inputs), timeout=10)

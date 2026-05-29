@@ -2,6 +2,7 @@ import uuid
 import queue
 import typing
 import asyncio
+import threading
 import dataclasses
 
 from django.conf import settings
@@ -44,6 +45,10 @@ LOGGER = get_logger(__name__)
 MB_100_IN_BYTES = 100 * 1000 * 1000
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
+
+# how often the producer/consumer wake from a blocking queue op to re-check the
+# stop flag
+QUEUE_POLL_SECONDS = 1.0
 
 # Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
 # process with a single event loop — all async activities share it, so this
@@ -543,6 +548,33 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         batch_queue: queue.Queue[pa.RecordBatch] = queue.Queue(maxsize=2)
         producer_error: list[BaseException] = []
 
+        # the producer's queue ops run in a thread via asyncio.to_thread, which is not
+        # cancellable: once a blocking queue.put/get is in flight, cancelling the
+        # awaiting coroutine does nothing to the thread. a plain blocking put against a
+        # full queue would therefore park its thread forever if the consumer stops
+        # draining (e.g. the write aborts, or the activity is cancelled), orphaning the
+        # thread and the producer task. so every blocking queue op below is a bounded
+        # poll on stop_event instead — when stop is requested, the in-flight op returns
+        # within QUEUE_POLL_SECONDS no matter what. safety is a property of the queue
+        # primitives, not of how carefully cleanup is sequenced.
+        stop_event = threading.Event()
+
+        def _put(item: typing.Any) -> None:
+            while not stop_event.is_set():
+                try:
+                    batch_queue.put(item, timeout=QUEUE_POLL_SECONDS)
+                    return
+                except queue.Full:
+                    continue
+
+        def _get() -> typing.Any:
+            while not stop_event.is_set():
+                try:
+                    return batch_queue.get(timeout=QUEUE_POLL_SECONDS)
+                except queue.Empty:
+                    continue
+            return SENTINEL
+
         # a producer error is recorded in producer_error and then signalled to the
         # consumer as a SENTINEL — i.e. the same clean end-of-stream as success. the
         # consumer therefore commits whatever batches it received (a partial overwrite)
@@ -552,11 +584,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             nonlocal row_count
             try:
                 async for _, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+                    if stop_event.is_set():
+                        break
                     batch, ch_types = res
                     batch = _transform_unsupported_decimals(batch)
                     batch = _transform_date_and_datetimes(batch, ch_types)
                     num_rows = batch.num_rows
-                    await asyncio.to_thread(batch_queue.put, batch)
+                    await asyncio.to_thread(_put, batch)
                     # local reference dropped immediately; the queue (and later
                     # the consumer) holds the only remaining reference.
                     del batch, ch_types
@@ -566,18 +600,18 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             except BaseException as e:
                 producer_error.append(e)
             finally:
-                await asyncio.to_thread(batch_queue.put, SENTINEL)
+                await asyncio.to_thread(_put, SENTINEL)
 
         producer_task = asyncio.create_task(_produce_batches())
         try:
-            first_batch = await asyncio.to_thread(batch_queue.get)
+            first_batch = await asyncio.to_thread(_get)
             if first_batch is not SENTINEL:
                 pa_schema = first_batch.schema
 
                 def _batch_iter() -> typing.Iterator[pa.RecordBatch]:
                     yield first_batch
                     while True:
-                        item = batch_queue.get()
+                        item = _get()
                         if item is SENTINEL:
                             return
                         yield item
@@ -596,14 +630,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 )
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
         finally:
-            # if the write aborted partway through, drain the queue so a
-            # producer blocked on batch_queue.put can finalize and we can
-            # surface its error rather than leak the task.
-            while not producer_task.done():
-                try:
-                    batch_queue.get_nowait()
-                except queue.Empty:
-                    await asyncio.sleep(0.05)
+            # request the producer stop and reap it. stop_event is set synchronously,
+            # before any await, so even a cancellation delivered at the await below
+            # cannot leave the producer parked on a queue op — its bounded _put/_get
+            # observe the flag and return promptly, the producer breaks its loop, and
+            # the task completes on its own. awaiting it here simply joins that exit.
+            stop_event.set()
             await producer_task
 
         if producer_error:
