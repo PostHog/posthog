@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -14,14 +14,16 @@ from posthog.schema import (
 )
 
 from posthog.cloud_utils import is_cloud
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -46,7 +48,16 @@ class ManifestValidationError(ValueError):
 
 
 class _ManifestAuth(BaseModel):
+    # Only the non-secret auth fields are modelled, and extras are forbidden:
+    # a misspelled key (e.g. `header` instead of `name`) fails manifest
+    # validation here with a clear message instead of crashing the REST
+    # engine's `create_auth` with an unexpected-kwarg TypeError at sync time.
+    model_config = ConfigDict(extra="forbid")
+
     type: Literal["bearer", "api_key", "http_basic"]
+    name: str | None = None
+    location: Literal["header", "query", "param", "cookie"] | None = None
+    username: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -69,14 +80,28 @@ class _ManifestClient(BaseModel):
 
 class _ManifestEndpoint(BaseModel):
     path: str = Field(min_length=1)
-    # Read verbs only — write verbs (PUT/PATCH/DELETE) are excluded so a
-    # misconfigured manifest can't mutate or delete upstream data.
+    # GET and POST only. Data-warehouse syncs only ever read upstream data;
+    # POST is permitted because some read/query-style endpoints require it, but
+    # PUT/PATCH/DELETE are excluded so a misconfigured manifest can't mutate or
+    # delete upstream data.
     method: Literal["GET", "POST", "get", "post"] | None = None
+    # Query params and request body. Modelled only so a malformed `params`/`json`
+    # (e.g. a JSON array where an object is expected) is caught at manifest time;
+    # both still pass through untouched to the REST engine. `params` values may be
+    # plain scalars or the engine's incremental/resolver specs, so the type stays
+    # permissive. `json` is aliased because `json` shadows a `BaseModel` attribute.
+    params: dict[str, Any] | None = None
+    json_body: dict[str, Any] | None = Field(default=None, alias="json")
 
 
 class _ManifestResource(BaseModel):
     name: str = Field(min_length=1)
     endpoint: _ManifestEndpoint
+    # How the upstream API orders this resource's rows. Incremental syncs commit
+    # the high-watermark per batch for "asc"; for a source whose order is
+    # unknown or descending, declaring "desc" here avoids skipping rows on a
+    # resumed sync. Defaults to "asc" when omitted.
+    sort_mode: Literal["asc", "desc"] | None = None
 
 
 class _Manifest(BaseModel):
@@ -263,25 +288,22 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             return False, err
 
         # Probe every resource so we surface auth/connection errors at create-time
-        # rather than waiting for the first sync. Failure to reach any endpoint is
-        # treated as a credential failure with the underlying error message returned
-        # to the user. The auth/header setup comes from the shared client config, so
-        # it is built once and reused across the per-resource requests.
+        # rather than waiting for the first sync. The auth/header setup comes from
+        # the shared client config, so it is built once and reused across the
+        # per-resource requests.
         client = manifest["client"]
         base_url = client["base_url"]
 
         headers: dict[str, str] = dict(client.get("headers") or {})
-        auth: dict[str, Any] = dict(client.get("auth") or {})
-        auth_type = auth.get("type")
-        if auth_type == "bearer" and auth.get("token"):
-            headers.setdefault("Authorization", f"Bearer {auth['token']}")
-        elif auth_type == "api_key" and auth.get("api_key"):
-            if (auth.get("location") or "header") == "header":
-                headers[auth.get("name") or "Authorization"] = auth["api_key"]
-
-        basic_auth: tuple[str, str] | None = None
-        if auth_type == "http_basic":
-            basic_auth = (str(auth.get("username", "")), str(auth.get("password", "")))
+        # Build the probe's auth exactly the way the REST engine will at sync
+        # time (`create_auth`) instead of reconstructing it by hand — so the
+        # probe and the sync agree on which credential is sent and where
+        # (header / query / cookie), and a malformed auth config surfaces here
+        # as a clear error rather than crashing the first sync.
+        try:
+            probe_auth = create_auth(client.get("auth"))
+        except (ValueError, TypeError) as exc:
+            return False, f"Invalid auth configuration: {exc}"
 
         session = make_tracked_session(headers=headers)
 
@@ -290,14 +312,28 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
             url = path if path.startswith(("http://", "https://")) else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            # Replay the configured query params and request body so the probe
+            # matches what the sync sends — an endpoint that needs them shouldn't
+            # answer differently at probe vs sync time.
+            probe_params = _static_probe_params(endpoint.get("params"))
+            probe_json = endpoint.get("json")
             try:
-                response = session.request(method, url, auth=basic_auth, timeout=15)
+                response = session.request(
+                    method, url, params=probe_params or None, json=probe_json, auth=probe_auth, timeout=15
+                )
             except Exception as exc:
                 return False, f"Resource {resource['name']!r}: could not reach {url}: {exc}"
 
-            if response.status_code >= 400:
+            # Only an auth rejection (401/403) is a credential problem. Other
+            # statuses — 404 (resource not yet provisioned), 405, 429 (rate
+            # limited during the probe burst), 5xx — are not credential errors
+            # and must not block source creation; a real, persistent failure
+            # surfaces on the first sync instead.
+            if response.status_code in (401, 403):
                 return False, (
-                    f"Resource {resource['name']!r}: HTTP {response.status_code} from {url}: {response.text[:200]}"
+                    f"Resource {resource['name']!r}: the upstream API rejected the request with "
+                    f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
+                    f"{response.text[:200]}"
                 )
 
         return True, None
@@ -327,21 +363,29 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return schemas
 
     def source_for_pipeline(self, config: CustomSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        manifest = self._assemble_manifest(config)
-        ok, err = validate_manifest_urls(manifest, inputs.team_id)
-        if not ok:
-            raise ManifestValidationError(err or "Manifest URL validation failed")
+        try:
+            manifest = self._assemble_manifest(config)
+            ok, err = validate_manifest_urls(manifest, inputs.team_id)
+            if not ok:
+                raise ManifestValidationError(err or "Manifest URL validation failed")
 
-        chosen = next(
-            (r for r in manifest["resources"] if isinstance(r, dict) and r.get("name") == inputs.schema_name),
-            None,
-        )
-        if chosen is None:
-            raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
+            chosen = next(
+                (r for r in manifest["resources"] if isinstance(r, dict) and r.get("name") == inputs.schema_name),
+                None,
+            )
+            if chosen is None:
+                raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
+        except ValueError as exc:
+            # A malformed manifest or a missing resource is a permanent,
+            # deterministic failure — retrying the sync cannot fix it. Raise
+            # NonRetryableException (the only type Temporal treats as
+            # non-retryable for this activity) so the job fails fast instead of
+            # burning the whole retry budget on an error that will always recur.
+            raise NonRetryableException(str(exc)) from exc
 
         single_resource_manifest = cast(
             RESTAPIConfig,
-            {**manifest, "resources": [chosen]},
+            {**manifest, "resources": [_strip_engine_unsupported_incremental_keys(chosen)]},
         )
 
         resource = rest_api_resource(
@@ -362,6 +406,22 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         else:
             primary_keys = None
 
+        # The manifest declares the upstream's row ordering; default "asc" to
+        # match PostHog's other REST sources. An incorrect "asc" assumption on a
+        # non-ascending API can skip rows on a resumed incremental sync.
+        #
+        # "desc" only defers committing the high-watermark until the run finishes
+        # (so a partial run can't advance the cursor past rows it never reached on
+        # the next scheduled sync). It does NOT make a single run resumable: the
+        # generic REST engine has no earliest-value sweep, so an interrupted "desc"
+        # run restarts from the newest page rather than continuing older rows. This
+        # is deliberately non-resumable — duplicate work is collapsed by
+        # primary_keys, and the only failure mode is an endpoint too large to
+        # finish within one worker window. A proper fix would slice the cursor into
+        # windows with per-window state (cf. Airbyte's DatetimeBasedCursor), which
+        # the generic engine doesn't support today.
+        sort_mode: SortMode = "desc" if chosen.get("sort_mode") == "desc" else "asc"
+
         return SourceResponse(
             name=inputs.schema_name,
             items=lambda: resource,
@@ -369,7 +429,21 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             partition_count=1,
             partition_size=1,
             partition_mode="md5",
+            sort_mode=sort_mode,
         )
+
+
+def _static_probe_params(params: Any) -> dict[str, Any]:
+    """The literal query params safe to replay in the create-time probe.
+
+    A RESTAPIConfig ``params`` map can hold the engine's incremental / parent-
+    resolver specs (dict values) that are only resolved against cursor or parent
+    state at sync time — the probe has neither, so it forwards just the plain
+    (non-dict) values and lets the engine handle the rest on the first sync.
+    """
+    if not isinstance(params, dict):
+        return {}
+    return {key: value for key, value in params.items() if not isinstance(value, dict)}
 
 
 def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -> None:
@@ -395,6 +469,44 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
         auth["password"] = config.auth_password
 
 
+def _incremental_field_type(raw: Any) -> IncrementalFieldType:
+    """Map a manifest-declared cursor type to an :class:`IncrementalFieldType`.
+
+    Defaults to ``DateTime`` — the common case for REST cursors — but a manifest
+    can declare ``cursor_type`` (``integer``, ``date``, ``timestamp``, …) so an
+    integer or string cursor is stored and compared with the right type rather
+    than being misinterpreted as a timestamp.
+    """
+    if isinstance(raw, str):
+        try:
+            return IncrementalFieldType(raw.strip().lower())
+        except ValueError:
+            pass
+    return IncrementalFieldType.DateTime
+
+
+# Keys the Custom source understands on ``endpoint.incremental`` that the generic
+# REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
+# how the cursor is typed (see ``_incremental_field_type``) but must be removed
+# before the engine builds its incremental tracker, or it raises an unexpected
+# keyword-argument error at sync setup.
+_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type"})
+
+
+def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``resource`` with REST-engine-incompatible keys removed
+    from ``endpoint.incremental``. The input is left untouched so schema typing
+    can still read the full incremental config."""
+    endpoint = resource.get("endpoint")
+    if not isinstance(endpoint, dict):
+        return resource
+    incremental = endpoint.get("incremental")
+    if not isinstance(incremental, dict) or not _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS.intersection(incremental):
+        return resource
+    cleaned = {k: v for k, v in incremental.items() if k not in _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS}
+    return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
+
+
 def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:
     name = resource["name"]
     endpoint = resource.get("endpoint", {})
@@ -404,12 +516,13 @@ def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:
     if isinstance(incremental_cfg, dict):
         cursor_path = incremental_cfg.get("cursor_path")
         if isinstance(cursor_path, str) and cursor_path:
+            cursor_type = _incremental_field_type(incremental_cfg.get("cursor_type"))
             incremental_fields = [
                 IncrementalField(
                     label=cursor_path,
                     field=cursor_path,
-                    type=IncrementalFieldType.DateTime,
-                    field_type=IncrementalFieldType.DateTime,
+                    type=cursor_type,
+                    field_type=cursor_type,
                 )
             ]
 

@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
 from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
@@ -14,6 +15,9 @@ from posthog.temporal.data_imports.sources.custom.source import (
     validate_manifest_urls,
 )
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from posthog.temporal.data_imports.util import NonRetryableException
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _minimal_manifest(base_url: str = "https://api.example.com") -> dict:
@@ -82,6 +86,30 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert "method" in str(ctx.exception)
 
+    @parameterized.expand(["GET", "POST", "get", "post"])
+    def test_accepts_read_http_method(self, method):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["method"] = method
+        validate_manifest(manifest)
+
+    def test_accepts_endpoint_params_and_json_body(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"] = {
+            "path": "/search",
+            "method": "POST",
+            "params": {"limit": 100},
+            "json": {"query": "foo"},
+        }
+        validate_manifest(manifest)
+
+    @parameterized.expand([("json", ["not", "an", "object"]), ("params", ["nope"])])
+    def test_rejects_non_object_params_or_json(self, field, value):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"][field] = value
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert field in str(ctx.exception)
+
     @parameterized.expand(
         [
             ("token", {"type": "bearer", "token": "leaked"}),
@@ -126,6 +154,21 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok
         assert "users" in (err or "")
+
+    @parameterized.expand(
+        [
+            ("http_public", "http://api.example.com"),
+            ("http_private", "http://10.0.0.1/api"),
+            ("https_loopback", "https://127.0.0.1/api"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="")
+    def test_self_hosted_skips_host_check(self, _name: str, base_url: str):
+        # _is_host_safe is a no-op outside of cloud, and http:// is permitted.
+        # A self-hosted instance must be able to reach internal/private hosts.
+        manifest = _minimal_manifest(base_url=base_url)
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert ok, err
 
 
 class TestCustomSourceAssembleManifest(SimpleTestCase):
@@ -205,6 +248,26 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
         schemas = source.get_schemas(config, team_id=999, names=["nonexistent"])
         assert schemas == []
 
+    @parameterized.expand(
+        [
+            ("default_datetime", None, IncrementalFieldType.DateTime),
+            ("declared_integer", "integer", IncrementalFieldType.Integer),
+            ("unknown_falls_back", "bogus", IncrementalFieldType.DateTime),
+        ]
+    )
+    def test_incremental_cursor_type_from_manifest(self, _name, declared, expected):
+        manifest = _minimal_manifest()
+        incremental: dict = {"cursor_path": "cursor"}
+        if declared is not None:
+            incremental["cursor_type"] = declared
+        manifest["resources"][0]["endpoint"]["incremental"] = incremental
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        schema = source.get_schemas(config, team_id=999)[0]
+        assert schema.incremental_fields[0]["type"] == expected
+        assert schema.incremental_fields[0]["field_type"] == expected
+
 
 class TestCustomSourceValidateCredentials(SimpleTestCase):
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
@@ -218,25 +281,38 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         assert err is None
 
+    @parameterized.expand([401, 403])
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_returns_false_on_4xx(self, mock_session):
-        response = MagicMock(status_code=401, text="unauthorized")
+    def test_returns_false_on_auth_rejection(self, status_code, mock_session):
+        response = MagicMock(status_code=status_code, text="unauthorized")
         mock_session.return_value.request.return_value = response
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
-        assert "401" in (err or "")
+        assert str(status_code) in (err or "")
+
+    @parameterized.expand([404, 405, 429, 500])
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_non_auth_error_status_does_not_block_creation(self, status_code, mock_session):
+        # A 404/405/429/5xx is not a credential problem — it must not block
+        # source creation; the real sync surfaces it if it persists.
+        mock_session.return_value.request.return_value = MagicMock(status_code=status_code, text="nope")
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probes_every_resource(self, mock_session):
-        # The second resource fails — validation must catch it, not stop at the first.
+        # The second resource fails auth — validation must catch it, not stop at the first.
         manifest = _minimal_manifest()
         manifest["resources"].append({"name": "orders", "endpoint": {"path": "/orders"}})
         mock_session.return_value.request.side_effect = [
             MagicMock(status_code=200, text="{}"),
-            MagicMock(status_code=404, text="not found"),
+            MagicMock(status_code=403, text="forbidden"),
         ]
 
         source = CustomSource()
@@ -244,7 +320,141 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert "orders" in (err or "")
-        assert "404" in (err or "")
+        assert "403" in (err or "")
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_attaches_query_location_api_key(self, mock_session):
+        # An api_key with location 'query' must reach the probe request — the
+        # probe builds auth via create_auth, the same path the real sync uses.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "api_key", "name": "apikey", "location": "query"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_api_key="sk_test")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+        probe_auth = mock_session.return_value.request.call_args.kwargs["auth"]
+        assert isinstance(probe_auth, APIKeyAuth)
+        assert probe_auth.location == "query"
+        assert probe_auth.api_key == "sk_test"
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_replays_json_body(self, mock_session):
+        # A POST endpoint with a JSON body must send that body in the probe, so
+        # an endpoint that needs it doesn't answer differently at probe vs sync.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"] = {"path": "/search", "method": "POST", "json": {"query": "foo"}}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert mock_session.return_value.request.call_args.kwargs["json"] == {"query": "foo"}
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_replays_static_query_params(self, mock_session):
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["params"] = {"limit": 100, "order": "asc"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert mock_session.return_value.request.call_args.kwargs["params"] == {"limit": 100, "order": "asc"}
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_skips_incremental_param_specs(self, mock_session):
+        # Dict-valued params are the engine's incremental/resolver specs, resolved
+        # against cursor state at sync time — the probe has none, so it forwards
+        # only the plain scalar params and drops the spec.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["params"] = {
+            "limit": 100,
+            "since": {"type": "incremental", "cursor_path": "updated_at", "initial_value": "2020-01-01"},
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert mock_session.return_value.request.call_args.kwargs["params"] == {"limit": 100}
+
+    @parameterized.expand(
+        [
+            (
+                "bearer",
+                {"type": "bearer"},
+                {"auth_token": "ya29.secret"},
+                BearerTokenAuth,
+                {"token": "ya29.secret"},
+            ),
+            (
+                "api_key_header",
+                {"type": "api_key", "name": "X-API-Key", "location": "header"},
+                {"auth_api_key": "sk_h"},
+                APIKeyAuth,
+                {"api_key": "sk_h", "location": "header", "name": "X-API-Key"},
+            ),
+            (
+                "api_key_cookie",
+                {"type": "api_key", "name": "session", "location": "cookie"},
+                {"auth_api_key": "sk_c"},
+                APIKeyAuth,
+                {"api_key": "sk_c", "location": "cookie", "name": "session"},
+            ),
+            (
+                "api_key_param",
+                {"type": "api_key", "name": "key", "location": "param"},
+                {"auth_api_key": "sk_p"},
+                APIKeyAuth,
+                {"api_key": "sk_p", "location": "param", "name": "key"},
+            ),
+            (
+                "http_basic",
+                {"type": "http_basic", "username": "alice"},
+                {"auth_password": "hunter2"},
+                HttpBasicAuth,
+                {"username": "alice", "password": "hunter2"},
+            ),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_attaches_auth_for_each_type(
+        self, _name, auth_manifest, secret_kwargs, expected_cls, expected_attrs, mock_session
+    ):
+        # Every supported (auth type, location) combination must reach the probe
+        # request via create_auth — the same code path the real sync uses.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = auth_manifest
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), **secret_kwargs)
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+        probe_auth = mock_session.return_value.request.call_args.kwargs["auth"]
+        assert isinstance(probe_auth, expected_cls)
+        for attr, expected in expected_attrs.items():
+            assert getattr(probe_auth, attr) == expected, f"{attr} mismatch"
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_returns_false_on_network_error(self, mock_session):
+        # A connection-level failure (DNS, TLS, timeout) must surface as a
+        # credential validation error pointing at the offending resource.
+        mock_session.return_value.request.side_effect = ConnectionError("boom")
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "could not reach" in (err or "")
+        assert "users" in (err or "")
 
     def test_returns_false_on_invalid_manifest(self):
         source = CustomSource()
@@ -268,3 +478,125 @@ class TestIsCustomSourceAvailableForTeam(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_rejects_other_teams_even_on_us(self, team_id):
         assert is_custom_source_available_for_team(team_id) is False
+
+
+class TestCustomSourceSourceForPipeline(SimpleTestCase):
+    def test_invalid_manifest_raises_non_retryable(self):
+        # A permanent config error must fail fast, not burn the Temporal retry budget.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json="{not json}")
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, MagicMock(team_id=999))
+
+    def test_missing_resource_raises_non_retryable(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
+        inputs = MagicMock(team_id=999, schema_name="nonexistent")
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, inputs)
+
+    @parameterized.expand(
+        [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
+    )
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, _mock_resource):
+        manifest = _minimal_manifest()
+        if declared is not None:
+            manifest["resources"][0]["sort_mode"] = declared
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+        assert response.sort_mode == expected
+
+    @parameterized.expand(
+        [
+            ("opted_in", True, "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z"),
+            ("opted_out_drops_value", False, "2024-01-01T00:00:00Z", None),
+            ("opted_in_none", True, None, None),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_incremental_last_value_threaded_to_rest_engine(
+        self, _name, should_use_incremental, last_value, expected, mock_resource
+    ):
+        # The high-watermark must only reach the REST engine when the schema is
+        # configured for incremental sync — otherwise a full refresh would skip rows.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=should_use_incremental,
+            db_incremental_field_last_value=last_value,
+        )
+        source.source_for_pipeline(config, inputs)
+
+        assert mock_resource.call_args.kwargs["db_incremental_field_last_value"] == expected
+
+    @parameterized.expand(
+        [
+            ("auto", {"type": "auto"}),
+            ("single_page", {"type": "single_page"}),
+            ("json_response", {"type": "json_response", "next_url_path": "next"}),
+            ("header_link", {"type": "header_link"}),
+            ("cursor", {"type": "cursor", "cursor_path": "next_cursor", "cursor_param": "cursor"}),
+            ("offset", {"type": "offset", "limit": 100}),
+            ("page_number", {"type": "page_number", "page_param": "page"}),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_paginator_config_threaded_to_rest_engine(self, _name, paginator_config, mock_resource):
+        # Every PaginatorType the REST engine knows about must round-trip through
+        # the custom source — paginator config is passed through untouched and the
+        # REST engine selects the paginator at sync time.
+        manifest = _minimal_manifest()
+        manifest["client"]["paginator"] = paginator_config
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+
+        threaded_config = mock_resource.call_args.args[0]
+        assert threaded_config["client"]["paginator"] == paginator_config
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_cursor_type_stripped_before_rest_engine(self, mock_resource):
+        # cursor_type informs schema field typing but is not a valid kwarg for the
+        # engine's Incremental(**config) — it must be removed before the manifest
+        # reaches rest_api_resource, while the other incremental keys survive.
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+            "cursor_type": "integer",
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+
+        threaded_incremental = mock_resource.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
+        assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
