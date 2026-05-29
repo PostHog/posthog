@@ -155,6 +155,9 @@ export function HogFlowFunctionConfiguration({
                         <Link to={urls.settings('environment-workflows', 'workflows-engagement-events')}>
                             Manage in settings
                         </Link>
+                        <Link to="https://posthog.com/docs/workflows/engagement-events" target="_blank">
+                            Learn more
+                        </Link>
                     </div>
                 </div>
             )}
