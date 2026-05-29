@@ -5,8 +5,22 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { Logo } from 'lib/brand/Logo'
 import { RobotHog } from 'lib/components/hedgehogs'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { InterviewExportPayload } from '../types'
+
+// Vapi surfaces several normal-completion signals through its `error` channel because
+// the underlying Daily.co transport reports the local participant being evicted as
+// an error. Treat these as expected end-of-call events rather than failures.
+const BENIGN_END_OF_CALL_MESSAGES = [
+    'Meeting has ended',
+    'Meeting ended due to ejection',
+    'Worker has ended call',
+    'Call ended',
+]
+
+const isBenignEndOfCallError = (message: string): boolean =>
+    BENIGN_END_OF_CALL_MESSAGES.some((pattern) => message.includes(pattern))
 
 type CallState = 'already-replied' | 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
@@ -236,10 +250,17 @@ export default function ExporterInterviewScene({
     const agentTalkingRef = useRef<boolean>(false)
     const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 75, duration: 3000 })
 
     useEffect(() => {
         document.title = `Interview · ${interview.topic}`
     }, [interview.topic])
+
+    useEffect(() => {
+        if (state === 'ended') {
+            triggerHogfetti()
+        }
+    }, [state, triggerHogfetti])
 
     useEffect(() => {
         return () => {
@@ -285,8 +306,6 @@ export default function ExporterInterviewScene({
                 // error so the user gets the retry affordance.
                 const callEndedRef = { current: false }
                 const callConnectedRef = { current: false }
-                const isBenignEndOfCallError = (msg: string): boolean =>
-                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
                 vapi.on('call-end', () => {
                     callEndedRef.current = true
                     setState('ended')
@@ -364,6 +383,7 @@ export default function ExporterInterviewScene({
 
     return (
         <div className="max-w-2xl mx-auto px-4 py-12">
+            <HogfettiComponent />
             <div className="mb-8">
                 <Logo className="text-lg" />
             </div>
