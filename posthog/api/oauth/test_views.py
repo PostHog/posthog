@@ -2162,7 +2162,7 @@ class TestOAuthAPI(APIBaseTest):
         self.confidential_application.scopes = list(scopes)
         self.confidential_application.save()
 
-    def _authorize_post(self, scope: str) -> dict:
+    def _authorize_post(self, scope: str):
         body = {**self.base_authorization_post_body, "scope": scope}
         return self.client.post("/oauth/authorize/", body)
 
