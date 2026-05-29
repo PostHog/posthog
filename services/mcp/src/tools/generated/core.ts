@@ -584,6 +584,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.hide_mcp_hints !== undefined) {
             body['hide_mcp_hints'] = params.hide_mcp_hints
         }
+        if (params.pr_babysit_default !== undefined) {
+            body['pr_babysit_default'] = params.pr_babysit_default
+        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,

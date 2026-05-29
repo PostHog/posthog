@@ -3101,6 +3101,8 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this. */
+    pr_babysit_default?: boolean
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3203,6 +3205,8 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this. */
+    pr_babysit_default?: boolean
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null

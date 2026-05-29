@@ -278,6 +278,11 @@ export interface TaskApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /**
+     * Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference.
+     * @nullable
+     */
+    pr_babysit_enabled?: boolean | null
 }
 
 export interface PaginatedTaskListApi {
@@ -344,6 +349,11 @@ export interface PatchedTaskApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /**
+     * Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference.
+     * @nullable
+     */
+    pr_babysit_enabled?: boolean | null
 }
 
 /**
@@ -1344,6 +1354,11 @@ export interface TaskRunRelayMessageResponseApi {
 export interface PatchedTaskRunSetOutputRequestApi {
     /** Output data from the run. Validated against the task's json_schema if one is set. */
     output?: unknown
+}
+
+export interface TaskRunSetPrLoopRequestApi {
+    /** When true, arm the CI follow-up loop (PR babysitting) and reset the per-run CI repetition counter so up to MAX_CI_REPETITIONS more follow-ups can fire. When false, disable further CI follow-ups on this run. */
+    enabled: boolean
 }
 
 export interface TaskRunStartRequestApi {

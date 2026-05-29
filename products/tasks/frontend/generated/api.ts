@@ -44,6 +44,7 @@ import type {
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
+    TaskRunSetPrLoopRequestApi,
     TaskRunStartRequestApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
@@ -818,6 +819,29 @@ export const tasksRunsSetOutputPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
+    })
+}
+
+export const getTasksRunsSetPrLoopCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/set_pr_loop/`
+}
+
+/**
+ * Enable or disable the CI follow-up loop ('PR babysitting') on this run. Enabling always resets the per-run CI repetition counter so up to MAX_CI_REPETITIONS more follow-ups can fire — even if babysitting was already on.
+ * @summary Toggle PR babysitting
+ */
+export const tasksRunsSetPrLoopCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunSetPrLoopRequestApi: TaskRunSetPrLoopRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsSetPrLoopCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunSetPrLoopRequestApi),
     })
 }
 

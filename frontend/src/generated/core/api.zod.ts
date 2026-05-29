@@ -2948,6 +2948,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })
 
 /**
@@ -3033,6 +3039,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -3114,6 +3126,12 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
         ),
 })
 
@@ -3258,6 +3276,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })
 
 /**
@@ -3342,6 +3366,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
         ),
 })
 
@@ -3428,6 +3458,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -3509,6 +3545,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
         ),
 })
 
@@ -3592,6 +3634,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -3673,6 +3721,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
         ),
 })
 
@@ -3756,6 +3810,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -3837,5 +3897,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
         ),
 })

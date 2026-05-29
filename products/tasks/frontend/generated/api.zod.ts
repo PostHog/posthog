@@ -129,6 +129,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
         ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    pr_babysit_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference."
+        ),
 })
 
 /**
@@ -183,6 +189,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
         ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    pr_babysit_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference."
+        ),
 })
 
 /**
@@ -237,6 +249,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
         ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    pr_babysit_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference."
+        ),
 })
 
 /**
@@ -918,6 +936,18 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe("Output data from the run. Validated against the task's json_schema if one is set."),
+})
+
+/**
+ * Enable or disable the CI follow-up loop ('PR babysitting') on this run. Enabling always resets the per-run CI repetition counter so up to MAX_CI_REPETITIONS more follow-ups can fire — even if babysitting was already on.
+ * @summary Toggle PR babysitting
+ */
+export const TasksRunsSetPrLoopCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .describe(
+            'When true, arm the CI follow-up loop (PR babysitting) and reset the per-run CI repetition counter so up to MAX_CI_REPETITIONS more follow-ups can fire. When false, disable further CI follow-ups on this run.'
+        ),
 })
 
 /**

@@ -637,4 +637,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    pr_babysit_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this."
+        ),
 })

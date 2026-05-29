@@ -25651,6 +25651,11 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference.
+         * @nullable
+         */
+      pr_babysit_enabled?: boolean | null;
     }
 
     export interface PaginatedTaskList {
@@ -26407,6 +26412,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this. */
+      pr_babysit_default?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -31686,6 +31693,11 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference.
+         * @nullable
+         */
+      pr_babysit_enabled?: boolean | null;
     }
 
     export interface PatchedTaskAutomation {
@@ -32249,6 +32261,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this. */
+      pr_babysit_default?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -37612,6 +37626,11 @@ export namespace Schemas {
       status: string;
       /** Relay workflow ID when accepted */
       relay_id?: string;
+    }
+
+    export interface TaskRunSetPrLoopRequest {
+      /** When true, arm the CI follow-up loop (PR babysitting) and reset the per-run CI repetition counter so up to MAX_CI_REPETITIONS more follow-ups can fire. When false, disable further CI follow-ups on this run. */
+      enabled: boolean;
     }
 
     export interface TaskRunStartRequest {
