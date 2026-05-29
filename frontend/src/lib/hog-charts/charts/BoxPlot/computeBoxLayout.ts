@@ -1,14 +1,18 @@
-import type { BoxPlotDatum as SchemaBoxPlotDatum } from '~/queries/schema/schema-general'
-
 import type { BoxRect } from '../../core/canvas-renderer'
 import type { BarScaleSet } from '../../core/scales'
 
 export type { BoxRect }
 
-/** Six-number summary plus an opaque `day` identifier. Structurally compatible with the
- *  canonical `BoxPlotDatum` in `queries/schema-general.ts` (we only care about the six
- *  numbers; `day` is the consumer-side key for click handlers / persons-modal labels). */
-export type BoxPlotDatum = Pick<SchemaBoxPlotDatum, 'min' | 'p25' | 'median' | 'mean' | 'p75' | 'max'> & {
+/** Six-number summary plus an opaque `day` identifier. Defined independently of any app schema
+ *  so the library stays self-contained — app types (e.g. trends' `BoxPlotDatum`) structurally
+ *  satisfy this when they carry the same six numbers. */
+export interface BoxPlotDatum {
+    min: number
+    p25: number
+    median: number
+    mean: number
+    p75: number
+    max: number
     /** Optional identifier for this x position (e.g. ISO date). The chart treats it as opaque. */
     day?: string
 }
