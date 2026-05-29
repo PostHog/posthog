@@ -6,6 +6,7 @@ import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../tests/helpers/team'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
@@ -26,7 +27,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         event: baseEvent,
         team,
         headers: createTestEventHeaders(),
-        batchId: 0,
+        personsStoreForBatch: {} as PersonsStoreForBatch,
     }
 
     const normalizeStep = createNormalizeProcessPersonFlagStep()

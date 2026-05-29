@@ -9,6 +9,7 @@ import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
+import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
@@ -34,6 +35,13 @@ const existingPerson: InternalPerson = {
     version: 0,
     last_seen_at: null,
 }
+
+const mockPersonsStoreForBatch: jest.Mocked<PersonsStoreForBatch> = {
+    fetchForChecking: jest.fn().mockResolvedValue(null),
+    getPersonlessBatchResult: jest.fn().mockReturnValue(false),
+    fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
+    updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
+} as unknown as jest.Mocked<PersonsStoreForBatch>
 
 function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
     return createTestPluginEvent({
@@ -85,12 +93,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         hogTransformer: {
             transformEventAndProduceMessages: (event: PluginEvent) => Promise.resolve({ event, invocationResults: [] }),
         } as any,
-        personsStore: {
-            fetchForChecking: jest.fn().mockResolvedValue(null),
-            getPersonlessBatchResult: jest.fn().mockReturnValue(false),
-            fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
-            updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
-        } as any,
         groupStore: {} as any,
         splitAiEventsConfig: {
             enabled: false,
@@ -111,7 +113,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
 }
 
 function createInput(event: PluginEvent): AiEventSubpipelineInput {
-    return { message, event, team, headers, batchId: 0 }
+    return { message, event, team, headers, personsStoreForBatch: mockPersonsStoreForBatch }
 }
 
 type AiOutputs =

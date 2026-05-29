@@ -12,7 +12,7 @@ import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
-import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import {
     ClickHousePerson,
@@ -112,7 +112,7 @@ async function createPerson(
 
 async function flushPersonStoreToKafka(
     kafkaProducer: KafkaProducerWrapper,
-    personStore: PersonsStore,
+    personStore: PersonsStoreForBatch,
     kafkaAcks: Promise<void>
 ) {
     const kafkaMessages = await personStore.flush()
@@ -225,8 +225,7 @@ describe('PersonState.processEvent()', () => {
             0,
             createDefaultSyncMergeMode(),
             false,
-            false,
-            0
+            false
         )
         const processor = new PersonEventProcessor(
             context,
@@ -263,8 +262,7 @@ describe('PersonState.processEvent()', () => {
             0,
             createDefaultSyncMergeMode(),
             false,
-            false,
-            0
+            false
         )
         context.updateIsIdentified = updateIsIdentified
         return new PersonPropertyService(context)
@@ -277,7 +275,8 @@ describe('PersonState.processEvent()', () => {
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam,
-        mergeMode = createDefaultSyncMergeMode()
+        mergeMode = createDefaultSyncMergeMode(),
+        customPersonsStore?: BatchWritingPersonsStore
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -285,10 +284,13 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStore(
-            customPersonRepository ?? (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
-            createPersonOutputs(kafkaProducer)
-        )
+        const personsStore =
+            customPersonsStore ??
+            new BatchWritingPersonsStore(
+                customPersonRepository ??
+                    (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
+                createPersonOutputs(kafkaProducer)
+            )
 
         const context = new PersonContext(
             fullEvent as any,
@@ -301,8 +303,7 @@ describe('PersonState.processEvent()', () => {
             0,
             mergeMode,
             false,
-            false,
-            0
+            false
         )
         return new PersonMergeService(context)
     }
@@ -1371,8 +1372,7 @@ describe('PersonState.processEvent()', () => {
                     0,
                     createDefaultSyncMergeMode(),
                     false,
-                    false,
-                    0
+                    false
                 )
                 return new PersonEventProcessor(
                     context,
@@ -1546,8 +1546,7 @@ describe('PersonState.processEvent()', () => {
                     0,
                     createDefaultSyncMergeMode(),
                     false,
-                    false,
-                    0
+                    false
                 )
                 return new PersonEventProcessor(
                     context,
@@ -1660,8 +1659,7 @@ describe('PersonState.processEvent()', () => {
                     0,
                     createDefaultSyncMergeMode(),
                     false,
-                    false,
-                    0
+                    false
                 )
                 return new PersonEventProcessor(
                     context,
@@ -3406,16 +3404,20 @@ describe('PersonState.processEvent()', () => {
             })
 
             // Create a merge service with batch writing store for a $merge_dangerously event
+            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
             const mergeService: PersonMergeService = personMergeService(
                 {
                     event: '$merge_dangerously',
                     distinct_id: secondUserDistinctId,
                 },
-                hub
+                hub,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                batchStore
             )
-            const context = mergeService.getContext()
-
-            const batchStore = context.personStore as BatchWritingPersonsStore
 
             batchStore.setCachedPersonForUpdate(
                 teamId,
@@ -4316,10 +4318,7 @@ describe('PersonState.processEvent()', () => {
                         createPersonOutputs(kafkaProducer),
                         personsStore,
                         0,
-                        mergeMode,
-                        false,
-                        false,
-                        0
+                        mergeMode
                     )
                     const processor = new PersonEventProcessor(
                         context,

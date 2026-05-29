@@ -42,7 +42,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
         expect(result.value.batchContext.eventFiltersBatchAppMetrics).toBeInstanceOf(EventFiltersBatchAppMetrics)
     })
 
-    it('attaches the same batch metrics instance to each element', async () => {
+    it('attaches the same batch metrics instance to the batch context', async () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [
@@ -57,10 +57,8 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
             return
         }
 
-        const batchMetrics = result.value.batchContext.eventFiltersBatchAppMetrics
-        for (const element of result.value.elements) {
-            expect(element.result.value.eventFiltersBatchAppMetrics).toBe(batchMetrics)
-        }
+        expect(result.value.batchContext.eventFiltersBatchAppMetrics).toBeInstanceOf(EventFiltersBatchAppMetrics)
+        expect(result.value.elements).toHaveLength(2)
     })
 
     it('preserves existing element values and context', async () => {

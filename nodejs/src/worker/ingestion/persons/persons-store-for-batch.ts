@@ -5,7 +5,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { PersonMessage } from './person-message'
-import { PersonsStore } from './persons-store'
+import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
@@ -66,8 +66,8 @@ export interface PersonsStoreTransactionForBatch {
  * Created once per batch in the BeforeBatch hook and flows into element values
  * via batchContext, eliminating batchId? from individual step method signatures.
  *
- * Excludes flush/shutdown/releaseBatch — those are lifecycle operations on the
- * underlying singleton store, called from the AfterBatch flush step.
+ * Excludes releaseBatch (takes an explicit batchId — use the underlying store directly)
+ * but retains flush/shutdown so callers can flush buffered writes after processing.
  */
 export type PersonsStoreForBatch = Omit<
     PersonsStore,
@@ -79,8 +79,6 @@ export type PersonsStoreForBatch = Omit<
     | 'prefetchPersons'
     | 'processPersonlessDistinctIdsBatch'
     | 'releaseBatch'
-    | 'flush'
-    | 'shutdown'
     | 'inTransaction'
 > & {
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null>
@@ -355,5 +353,13 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
 
     getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
         return this.store.getPersonlessBatchResult(teamId, distinctId)
+    }
+
+    flush(): Promise<FlushResult[]> {
+        return this.store.flush()
+    }
+
+    shutdown(): Promise<void> {
+        return this.store.shutdown()
     }
 }

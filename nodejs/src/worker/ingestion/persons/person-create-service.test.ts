@@ -53,8 +53,7 @@ describe('PersonCreateService', () => {
             0,
             createDefaultSyncMergeMode(),
             false,
-            false,
-            0
+            false
         )
 
         personCreateService = new PersonCreateService(personContext)
