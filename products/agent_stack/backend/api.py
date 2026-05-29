@@ -48,6 +48,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.jwt import PosthogJwtAudience
+from posthog.models.organization import OrganizationMembership
 
 from .janitor_client import JanitorClient, JanitorClientError, default_client
 from .models import AgentApplication, AgentRevision
@@ -55,6 +56,7 @@ from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
     CloneFromRequestSerializer,
+    DecideApprovalRequestSerializer,
     NewDraftRevisionRequestSerializer,
     PromoteRevisionRequestSerializer,
     SetEnvRequestSerializer,
@@ -118,8 +120,23 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "agent_application"
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "set_env"]
-    scope_object_read_actions = ["list", "retrieve", "sessions_list", "sessions_retrieve", "preview_proxy"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "set_env",
+        "approvals_decide",
+    ]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "sessions_list",
+        "sessions_retrieve",
+        "preview_proxy",
+        "approvals_list",
+        "approvals_retrieve",
+    ]
     serializer_class = AgentApplicationSerializer
     queryset = AgentApplication.objects.all()
 
@@ -477,6 +494,245 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Session not found")
         return Response(payload)
 
+    # ──────────────────────────── approval-gated tools ────────────────────────
+    # See docs/agent-platform/plans/approval-gated-tools.md.
+    #
+    # AGENT_DB is node-owned (per CLAUDE.md rule #2 in products/agent_stack).
+    # Django never queries `agent_tool_approval_request` directly — these
+    # actions auth-check on the Django side, then proxy through
+    # janitor_client. The janitor owns the wake path (markApproving + write
+    # marker into pending_inputs); the runner picks up on its next claim.
+
+    _APPROVAL_RESPONSE_FIELDS = {
+        "id": drf_serializers.UUIDField(help_text="Approval request UUID — stable, used in /approvals/<id>/decide."),
+        "session_id": drf_serializers.UUIDField(help_text="UUID of the session that proposed the gated call."),
+        "application_id": drf_serializers.UUIDField(help_text="UUID of the parent agent application."),
+        "team_id": drf_serializers.IntegerField(help_text="Team that owns the agent."),
+        "revision_id": drf_serializers.UUIDField(help_text="Revision the gated call was proposed against."),
+        "turn": drf_serializers.IntegerField(help_text="Turn number within the session that emitted the call."),
+        "tool_call_id": drf_serializers.CharField(
+            help_text="pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result."
+        ),
+        "tool_name": drf_serializers.CharField(help_text="Tool id the model invoked (e.g. `@posthog/team-delete`)."),
+        "proposed_args": drf_serializers.DictField(
+            child=drf_serializers.JSONField(),
+            help_text="Arguments the model proposed. Frozen at intercept time.",
+        ),
+        "decided_args": drf_serializers.DictField(
+            child=drf_serializers.JSONField(),
+            allow_null=True,
+            help_text="Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.",
+        ),
+        "assistant_message": drf_serializers.DictField(
+            child=drf_serializers.JSONField(),
+            help_text="Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning.",
+        ),
+        "approver_scope": drf_serializers.DictField(
+            child=drf_serializers.JSONField(),
+            help_text="Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.",
+        ),
+        "state": drf_serializers.ChoiceField(
+            choices=[
+                "queued",
+                "approving",
+                "dispatched",
+                "dispatched_failed",
+                "rejected",
+                "expired",
+            ],
+            help_text="Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.",
+        ),
+        "decision_by": drf_serializers.CharField(
+            allow_null=True,
+            help_text="UUID of the user who decided. Null while queued or expired.",
+        ),
+        "decision_at": drf_serializers.DateTimeField(
+            allow_null=True,
+            help_text="ISO timestamp of the decision. Null while queued.",
+        ),
+        "decision_reason": drf_serializers.CharField(
+            allow_null=True,
+            help_text="Free-form reason supplied by the approver. Optional.",
+        ),
+        "dispatch_outcome": drf_serializers.DictField(
+            child=drf_serializers.JSONField(),
+            allow_null=True,
+            help_text='`{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.',
+        ),
+        "created_at": drf_serializers.DateTimeField(help_text="When the model proposed the gated call."),
+        "expires_at": drf_serializers.DateTimeField(
+            help_text="When the queued request auto-rejects if no decision arrives."
+        ),
+    }
+
+    def _require_team_admin(self) -> None:
+        """Approval decisions are an admin-only surface in v0 (plan §6.1).
+        Listing / retrieving approvals does the same check so non-admins
+        can't browse what they can't act on.
+        """
+        membership = OrganizationMembership.objects.filter(
+            user=self.request.user, organization_id=self.organization_id
+        ).first()
+        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+            raise NotFound("Application not found")
+
+    @extend_schema(
+        operation_id="agent_applications_approvals_list",
+        parameters=[
+            OpenApiParameter(
+                "state",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by approval state. Comma-separated list accepted. "
+                    "Valid values: queued, approving, dispatched, "
+                    "dispatched_failed, rejected, expired. Defaults to all states."
+                ),
+            ),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApplicationApprovalsListResponse",
+                fields={
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentApprovalRequest",
+                            fields=_APPROVAL_RESPONSE_FIELDS,
+                        ),
+                        help_text="Approval requests for this application, newest first.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="approvals")
+    def approvals_list(self, request: Request, **kwargs) -> Response:
+        """List approval-gated tool requests for this application. Team-admin
+        only (per plan §6.1). Default returns all states — pass `?state=queued`
+        for the inbox view."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        self._require_team_admin()
+        limit_param = request.query_params.get("limit")
+        offset_param = request.query_params.get("offset")
+        try:
+            limit = int(limit_param) if limit_param is not None else None
+            offset = int(offset_param) if offset_param is not None else None
+        except ValueError:
+            raise ValidationError("limit and offset must be integers")
+        try:
+            payload = _janitor().list_approvals(
+                str(application.id),
+                state=request.query_params.get("state") or None,
+                limit=limit,
+                offset=offset,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_approvals_retrieve",
+        parameters=[
+            OpenApiParameter(
+                "approval_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                required=True,
+                description="UUID of the approval request (must belong to this application).",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApprovalRequestDetail",
+                fields=_APPROVAL_RESPONSE_FIELDS,
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="approvals/(?P<approval_id>[^/.]+)")
+    def approvals_retrieve(self, request: Request, approval_id: str = "", **kwargs) -> Response:
+        """Single approval request — full proposed args, assistant snapshot,
+        decision metadata, dispatch outcome. Team-admin only (plan §6.1)."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        self._require_team_admin()
+        try:
+            payload = _janitor().get_approval(approval_id)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        # Cross-check ownership: the janitor doesn't know about teams.
+        if payload.get("application_id") != str(application.id):
+            raise NotFound("Approval not found")
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_approvals_decide",
+        parameters=[
+            OpenApiParameter(
+                "approval_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                required=True,
+                description="UUID of the approval request to decide.",
+            ),
+        ],
+        request=DecideApprovalRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApprovalsDecideResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(help_text="Always `true` on a successful decision."),
+                    "state": drf_serializers.CharField(
+                        help_text="The approval row's new state — `approving` for approve, `rejected` for reject."
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="approvals/(?P<approval_id>[^/.]+)/decide")
+    def approvals_decide(self, request: Request, approval_id: str = "", **kwargs) -> Response:
+        """Approve or reject a queued tool-approval request. Team-admin only
+        (plan §6.1). The runtime side runs the tool platform-side on approve
+        and wakes the session with a synthetic tool_result either way."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        self._require_team_admin()
+        body = DecideApprovalRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        # Cross-check ownership before forwarding.
+        try:
+            existing = _janitor().get_approval(approval_id)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        if existing.get("application_id") != str(application.id):
+            raise NotFound("Approval not found")
+        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and not getattr(
+            request.user, "is_authenticated", False
+        ):
+            # PATs / service tokens are rejected unless the spec opts in.
+            # Real PAT-vs-user discrimination would go here; for v0 we rely
+            # on Django auth + the admin check above as a coarse filter.
+            raise NotFound("Approval not found")
+        try:
+            payload = _janitor().decide_approval(
+                approval_id,
+                decision=body.validated_data["decision"],
+                decided_by=str(request.user.pk) if request.user and request.user.is_authenticated else "",
+                edited_args=body.validated_data.get("edited_args"),
+                reason=body.validated_data.get("reason"),
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
 
 @extend_schema(tags=["agent_stack"])
 class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -544,6 +800,28 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(application=self.get_application())
+
+    def _filter_queryset_by_parents_lookups(self, queryset: QuerySet) -> QuerySet:
+        # The mixin auto-filters by every parent URL kwarg as a literal value
+        # (e.g. `application_id="hello"`). Our parent supports slug-or-UUID
+        # via `_resolve_application`, so a slug in the URL otherwise blows up
+        # with "'hello' is not a valid UUID". Resolve once here and let super
+        # filter by the real PK.
+        raw = self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id")
+        if raw is not None:
+            try:
+                UUID(str(raw))
+            except (ValueError, TypeError):
+                resolved = self.get_application()
+                kwargs_copy = dict(self.kwargs)
+                if "parent_lookup_application_id" in kwargs_copy:
+                    kwargs_copy["parent_lookup_application_id"] = str(resolved.id)
+                if "application_id" in kwargs_copy:
+                    kwargs_copy["application_id"] = str(resolved.id)
+                # `self.kwargs` is what drf-extensions reads — substitute the
+                # resolved id so the parent filter sees a valid UUID.
+                self.kwargs = kwargs_copy
+        return super()._filter_queryset_by_parents_lookups(queryset)
 
     def perform_create(self, serializer: AgentRevisionSerializer) -> None:
         application = self.get_application()

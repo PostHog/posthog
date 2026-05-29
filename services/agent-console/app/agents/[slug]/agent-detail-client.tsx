@@ -82,23 +82,41 @@ function AgentDetailInner({
 
     const { enterPlayground } = useDockStore()
 
-    const stats = useResource(() => getAgentStats(teamId, slug), [teamId, slug])
+    // Phase C endpoint — tolerate 404 so the page still renders.
+    const stats = useResource(
+        () =>
+            getAgentStats(teamId, slug).catch((err: unknown) => {
+                if (err instanceof ApiError && err.status === 404) {
+                    return null
+                }
+                throw err
+            }),
+        [teamId, slug]
+    )
     const sessions = useResource(() => listSessionsForAgent(teamId, slug), [teamId, slug])
     const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug])
 
-    if (stats.error ?? sessions.error ?? revisions.error) {
-        const message = (stats.error ?? sessions.error ?? revisions.error)?.message ?? 'Unknown error'
+    if (sessions.error ?? revisions.error) {
+        const message = (sessions.error ?? revisions.error)?.message ?? 'Unknown error'
         return <div className="px-6 py-6 text-sm text-destructive">Failed to load: {message}</div>
     }
-    if (!stats.data || !sessions.data || !revisions.data) {
+    if (stats.loading || sessions.loading || revisions.loading || !sessions.data || !revisions.data) {
         return <div className="px-6 py-6 text-sm text-muted-foreground">Loading…</div>
+    }
+
+    const effectiveStats = stats.data ?? {
+        liveCount: 0,
+        sessions24hCount: 0,
+        spend24hUsd: 0,
+        lastActivityAt: undefined,
+        failureRate24h: undefined,
     }
 
     return (
         <AgentDetail
             agent={agent}
             revisions={revisions.data}
-            stats={stats.data}
+            stats={effectiveStats}
             sessions={sessions.data}
             urlState={urlState}
             onChangeUrlState={onChangeUrlState}
