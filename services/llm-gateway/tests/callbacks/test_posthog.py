@@ -310,7 +310,7 @@ class TestPostHogCallback:
         assert "$ai_cache_creation_input_tokens" not in props
 
     @pytest.mark.asyncio
-    async def test_on_success_emits_input_output_cost_from_breakdown(
+    async def test_on_success_emits_cost_breakdown_components_separately(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
     ) -> None:
         _, mock_client = mock_posthog_client
@@ -339,14 +339,16 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         props = mock_client.capture.call_args.kwargs["properties"]
-        # Cache read/creation components fold into the input total so the
-        # property mirrors PostHog's gross-input semantics.
-        assert props["$ai_input_cost_usd"] == pytest.approx(0.006)
+        # Each LiteLLM cost_breakdown component maps 1:1 to its PostHog
+        # property — disjoint, so the sum reconciles to $ai_total_cost_usd.
+        assert props["$ai_input_cost_usd"] == 0.003
         assert props["$ai_output_cost_usd"] == 0.006
+        assert props["$ai_cache_read_cost_usd"] == 0.001
+        assert props["$ai_cache_creation_cost_usd"] == 0.002
         assert props["$ai_total_cost_usd"] == 0.012
 
     @pytest.mark.asyncio
-    async def test_on_success_emits_partial_breakdown_when_components_missing(
+    async def test_on_success_omits_cache_costs_when_breakdown_lacks_them(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
     ) -> None:
         _, mock_client = mock_posthog_client
@@ -374,9 +376,11 @@ class TestPostHogCallback:
         props = mock_client.capture.call_args.kwargs["properties"]
         assert props["$ai_input_cost_usd"] == 0.02
         assert props["$ai_output_cost_usd"] == 0.03
+        assert "$ai_cache_read_cost_usd" not in props
+        assert "$ai_cache_creation_cost_usd" not in props
 
     @pytest.mark.asyncio
-    async def test_on_success_omits_input_output_cost_when_breakdown_absent(
+    async def test_on_success_omits_cost_breakdown_when_litellm_omits_it(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
@@ -395,6 +399,8 @@ class TestPostHogCallback:
         props = mock_client.capture.call_args.kwargs["properties"]
         assert "$ai_input_cost_usd" not in props
         assert "$ai_output_cost_usd" not in props
+        assert "$ai_cache_read_cost_usd" not in props
+        assert "$ai_cache_creation_cost_usd" not in props
 
     @pytest.mark.asyncio
     async def test_on_success_emits_reasoning_tokens_when_present(
