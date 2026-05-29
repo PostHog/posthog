@@ -9,7 +9,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SlackThreadContextRunApi } from './generated/api.schemas'
+import { SlackThreadContextRepoResearchApi, SlackThreadContextRunApi } from './generated/api.schemas'
 import { slackTaskContextSceneLogic } from './logics/slackTaskContextSceneLogic'
 
 export const scene: SceneExport = {
@@ -245,6 +245,63 @@ function SlackTaskContextRunCard({ run, index }: { run: SlackThreadContextRunApi
                         run.completed_at ?? (
                             <span key="empty" className="text-muted">
                                 — (still running)
+                            </span>
+                        ),
+                    ],
+                ]}
+            />
+            {run.repo_research ? <RepoResearchBlock research={run.repo_research} /> : null}
+        </div>
+    )
+}
+
+function RepoResearchBlock({ research }: { research: SlackThreadContextRepoResearchApi }): JSX.Element {
+    return (
+        <div className="mt-3 pl-3 border-l-2">
+            <div className="text-muted font-semibold mb-1">
+                Repo research sandbox <LemonTag size="small">{research.status ?? 'unknown'}</LemonTag>
+            </div>
+            <p className="text-muted text-xs mb-2">
+                This run started from an ambiguous mention, so the discovery agent ran a sandbox to pick the repo.
+            </p>
+            <KeyValueGrid
+                rows={[
+                    ['Research run ID', <CodeSnippet key="rr-id">{research.run_id}</CodeSnippet>],
+                    [
+                        'Open in PostHog',
+                        <Link key="rr-view" to={research.task_view_url}>
+                            {research.task_view_url}
+                        </Link>,
+                    ],
+                    [
+                        'Research workflow',
+                        <WorkflowLink
+                            key="rr-wf"
+                            id={research.task_processing_workflow_id}
+                            url={research.task_processing_workflow_url}
+                        />,
+                    ],
+                    [
+                        'Sandbox',
+                        research.sandbox_url ? (
+                            <Link key="rr-sandbox" to={research.sandbox_url} target="_blank">
+                                {research.sandbox_url}
+                            </Link>
+                        ) : (
+                            <span key="empty" className="text-muted">
+                                —
+                            </span>
+                        ),
+                    ],
+                    [
+                        'Logs (presigned, ~1h)',
+                        research.log_url ? (
+                            <Link key="rr-log" to={research.log_url} target="_blank">
+                                Download JSONL
+                            </Link>
+                        ) : (
+                            <span key="empty" className="text-muted">
+                                —
                             </span>
                         ),
                     ],

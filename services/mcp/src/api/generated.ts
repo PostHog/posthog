@@ -36232,6 +36232,44 @@ export namespace Schemas {
     }
 
     /**
+     * The internal sandbox run the discovery agent used to pick this run's repo.
+
+    Only present when the originating mention was ambiguous (multiple candidate
+    repos, no explicit mention) — that's the only path that spins up a research
+    sandbox. Null otherwise.
+     */
+    export interface SlackThreadContextRepoResearch {
+      /** UUID of the internal repo-research Task. */
+      task_id: string;
+      /** UUID of the internal repo-research TaskRun. */
+      run_id: string;
+      /**
+         * Research run status, or null if the run row could not be loaded.
+         * @nullable
+         */
+      status: string | null;
+      /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`). */
+      task_processing_workflow_id: string;
+      /**
+         * Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.
+         * @nullable
+         */
+      task_processing_workflow_url: string | null;
+      /**
+         * Live sandbox tunnel URL for the research run, when one was attached.
+         * @nullable
+         */
+      sandbox_url: string | null;
+      /** Absolute URL to the research task detail page (carries `?ph_debug=true`). */
+      task_view_url: string;
+      /**
+         * Presigned S3 URL for the research run's JSONL log transcript (valid ~1 hour).
+         * @nullable
+         */
+      log_url: string | null;
+    }
+
+    /**
      * Slack-side identifiers and the mapping metadata for a thread → task lookup.
      */
     export interface SlackThreadContextThread {
@@ -36330,6 +36368,8 @@ export namespace Schemas {
          * @nullable
          */
       log_url: string | null;
+      /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
+      repo_research: SlackThreadContextRepoResearch | null;
     }
 
     /**
