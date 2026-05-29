@@ -161,24 +161,33 @@ describe('playgroundModelMatching', () => {
     })
 
     describe('resolveRequestProvider', () => {
-        it('prefers the resolved provider key when given (Azure key + OpenAI-registered model)', () => {
-            const result = resolveRequestProvider({ provider: 'OpenAI' }, providerKey('key-azure', 'azure_openai'))
-            expect(result).toBe('azure_openai')
-        })
-
-        it('normalizes "Azure OpenAI" display name when no key is resolved', () => {
-            const result = resolveRequestProvider({ provider: 'Azure OpenAI' }, null)
-            expect(result).toBe('azure_openai')
-        })
-
-        it('normalizes "OpenAI" to "openai"', () => {
-            const result = resolveRequestProvider({ provider: 'OpenAI' }, null)
-            expect(result).toBe('openai')
-        })
-
-        it('returns null for unknown providers with no key', () => {
-            const result = resolveRequestProvider({ provider: 'Mystery' }, null)
-            expect(result).toBeNull()
+        it.each([
+            {
+                label: 'prefers resolved key provider (Azure key + OpenAI-registered model)',
+                modelProvider: 'OpenAI',
+                key: providerKey('key-azure', 'azure_openai'),
+                expected: 'azure_openai',
+            },
+            {
+                label: 'normalizes "Azure OpenAI" display name when no key is resolved',
+                modelProvider: 'Azure OpenAI',
+                key: null,
+                expected: 'azure_openai',
+            },
+            {
+                label: 'normalizes "OpenAI" to "openai"',
+                modelProvider: 'OpenAI',
+                key: null,
+                expected: 'openai',
+            },
+            {
+                label: 'returns null for unknown providers with no key',
+                modelProvider: 'Mystery',
+                key: null,
+                expected: null,
+            },
+        ])('$label', ({ modelProvider, key, expected }) => {
+            expect(resolveRequestProvider({ provider: modelProvider }, key)).toBe(expected)
         })
     })
 })
