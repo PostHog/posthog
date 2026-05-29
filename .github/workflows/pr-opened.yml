@@ -114,15 +114,16 @@ jobs:
                           per_page: 100,
                       });
 
-                      // Only consider commits attributable to the PR author: either
-                      // GitHub matched the commit to them, or it couldn't match the
-                      // email to any account at all (the usual symptom of a
-                      // misconfigured local git email). Skip commits clearly authored
-                      // by someone else — co-authors, or GitHub's web-flow merge commits.
+                      // Only flag commits GitHub positively attributes to the PR
+                      // author. Everything else keeps its original author and is not
+                      // ours to nudge about: co-authors, external contributors,
+                      // someone else's rebased/pushed commits, web-flow merge commits.
+                      // If a commit's email isn't linked to any GitHub account we
+                      // can't attribute it, so we stay quiet rather than risk nagging
+                      // about someone else's commit.
                       const offendingEmails = new Set();
                       for (const c of commits) {
-                          const matchedLogin = c.author?.login;
-                          if (matchedLogin && matchedLogin !== author) {
+                          if (c.author?.login !== author) {
                               continue;
                           }
                           const email = (c.commit?.author?.email || '').toLowerCase();
@@ -154,11 +155,10 @@ jobs:
                           marker,
                           `Hey @${author}! 👋`,
                           '',
-                          `Some commits on this PR were authored with an email that isn't your \`@posthog.com\` address (${emailList}). Since you're on the PostHog team, it's worth pointing your local git author email at your \`@posthog.com\` address. Why it matters:`,
+                          `It looks like your git author email on this PR isn't your \`@posthog.com\` address (${emailList}). Since you're on the PostHog team, it's worth pointing your local git author email at your \`@posthog.com\` address. Why it matters:`,
                           '',
-                          '- **Your commits get linked to your GitHub account** instead of showing up as an unrecognized author — so they appear on your contribution graph and reviewers can see who actually wrote what.',
-                          '- **Consistent, recognizable authorship across the team** in git history, which keeps internal contributions clearly distinguishable from external community ones.',
-                          '- **One identity for tooling to key off of** — anything that maps git history back to people works reliably when everyone uses their work address.',
+                          '- **Consistent work identity in git history** — internal tooling that attributes commits to team members keys off your `@posthog.com` address.',
+                          '- **Keeps team contributions easy to tell apart from external community ones** when scanning history.',
                           '',
                           'You can fix it for this repo with:',
                           '',
