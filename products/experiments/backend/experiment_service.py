@@ -442,14 +442,26 @@ class ExperimentService:
     }
 
     @classmethod
-    def validate_stats_config(cls, stats_config: dict | None) -> None:
-        """Validate stats_config shape and method value."""
+    def validate_stats_config(cls, stats_config: dict | None, variant_keys: list[str] | None = None) -> None:
+        """Validate stats_config shape, method value, and baseline variant key.
+
+        When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
+        ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
+        baseline validation is skipped (the caller couldn't supply the keys).
+        Absence of ``baseline_variant_key`` is always valid (defaults to control downstream).
+        """
         if not stats_config:
             return
         method = stats_config.get("method")
         if method is not None and method not in cls.VALID_STATS_METHODS:
             raise ValidationError(
                 f"Invalid stats method: '{method}'. Must be one of: {', '.join(sorted(cls.VALID_STATS_METHODS))}"
+            )
+        baseline_variant_key = stats_config.get("baseline_variant_key")
+        if baseline_variant_key is not None and variant_keys and baseline_variant_key not in variant_keys:
+            raise ValidationError(
+                f"Invalid baseline_variant_key: '{baseline_variant_key}'. "
+                f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
     @staticmethod
@@ -680,7 +692,12 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        self.validate_stats_config(stats_config)
+        create_variant_keys = [
+            variant["key"]
+            for variant in (parameters or {}).get("feature_flag_variants", [])
+            if isinstance(variant, dict)
+        ]
+        self.validate_stats_config(stats_config, create_variant_keys)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -1893,7 +1910,15 @@ class ExperimentService:
 
         # --- validate updated fields ------------------------------------------
         if "stats_config" in update_data:
-            self.validate_stats_config(update_data["stats_config"])
+            update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+            if update_variants is None:
+                update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
+                    experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
+                    if experiment.feature_flag
+                    else []
+                )
+            update_variant_keys = [variant["key"] for variant in (update_variants or []) if isinstance(variant, dict)]
+            self.validate_stats_config(update_data["stats_config"], update_variant_keys)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists

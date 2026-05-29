@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -19,7 +19,7 @@ import { resolveSequentialEnabled } from './sequential'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment, statsMethod } = useValues(experimentLogic)
+    const { experiment, statsMethod, variants } = useValues(experimentLogic)
     const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
@@ -96,6 +96,19 @@ export function SettingsTab(): JSX.Element {
                     <CupedModal />
                 </div>
             )}
+            <div>
+                <h2 className="font-semibold text-lg">Baseline variant</h2>
+                <LemonSelect
+                    value={experiment.stats_config?.baseline_variant_key ?? 'control'}
+                    options={variants.map((v) => ({ value: v.key, label: v.name || v.key }))}
+                    onChange={(value) => {
+                        updateExperimentSettings({
+                            stats_config: { ...experiment.stats_config, baseline_variant_key: value },
+                        })
+                    }}
+                />
+                <p className="text-muted text-xs mt-1">The variant all others are compared against.</p>
+            </div>
             <div>
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">

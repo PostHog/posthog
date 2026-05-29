@@ -4899,6 +4899,33 @@ class TestExperimentService(APIBaseTest):
                 },
             )
 
+    VARIANT_KEYS = ["control", "test"]
+
+    @parameterized.expand(
+        [
+            ("valid_baseline_control", {"baseline_variant_key": "control"}, VARIANT_KEYS, False),
+            ("valid_baseline_test", {"baseline_variant_key": "test"}, VARIANT_KEYS, False),
+            ("unknown_baseline", {"baseline_variant_key": "nonexistent"}, VARIANT_KEYS, True),
+            ("baseline_absent", {"method": "bayesian"}, VARIANT_KEYS, False),
+            ("none_stats_config", None, VARIANT_KEYS, False),
+            ("empty_stats_config", {}, VARIANT_KEYS, False),
+            ("unknown_baseline_no_variant_keys", {"baseline_variant_key": "nonexistent"}, None, False),
+            ("unknown_baseline_empty_variant_keys", {"baseline_variant_key": "nonexistent"}, [], False),
+        ]
+    )
+    def test_validate_stats_config_baseline_variant_key(
+        self,
+        _name: str,
+        stats_config: dict | None,
+        variant_keys: list[str] | None,
+        expect_error: bool,
+    ) -> None:
+        if expect_error:
+            with self.assertRaises(ValidationError):
+                ExperimentService.validate_stats_config(stats_config, variant_keys)
+        else:
+            ExperimentService.validate_stats_config(stats_config, variant_keys)
+
 
 class TestValidateExperimentParametersExcludedVariants:
     def _base_params(self) -> dict[str, Any]:
