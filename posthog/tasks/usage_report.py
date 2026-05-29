@@ -231,7 +231,7 @@ class UsageReportCounters:
     logs_mb_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
-    web_logs_records_in_period: int
+    # Web (browser) is intentionally absent: posthog-js doesn't set telemetry.sdk.name on logs yet.
     ios_logs_records_in_period: int
     react_native_logs_records_in_period: int
     android_logs_records_in_period: int
@@ -1727,11 +1727,11 @@ def get_teams_with_logs_records_in_period(
         )
 
 
-# Maps the `telemetry.sdk.name` resource attribute (set by each PostHog SDK on every log record)
-# to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys. The web
-# SDK reports its LIB_NAME ("web"); mobile SDKs report their package name.
+# Maps the `telemetry.sdk.name` resource attribute (the mobile SDK package name, set on every log
+# record) to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys.
+# The browser SDK (posthog-js) is omitted: it doesn't set telemetry.sdk.name on logs (it only sets
+# the OTLP scope name), so a "web" entry here would never match. Add it once posthog-js is fixed.
 SDK_TELEMETRY_NAMES: dict[str, str] = {
-    "web": "web",
     "posthog-ios": "ios",
     "posthog-react-native": "react_native",
     "posthog-android": "android",
@@ -1750,7 +1750,7 @@ def get_teams_with_sdk_logs_records_in_period(
     Returns log record counts grouped by team and PostHog SDK, for the given period.
 
     The result is keyed by the short SDK suffix used on `UsageReportCounters`
-    (`web`, `ios`, `react_native`, `android`, `flutter`); each value is a list of
+    (`ios`, `react_native`, `android`, `flutter`); each value is a list of
     `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
@@ -2167,7 +2167,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_records_in_period": logs_records_rows,
-        "teams_with_web_logs_records_in_period": sdk_logs_by_suffix["web"],
         "teams_with_ios_logs_records_in_period": sdk_logs_by_suffix["ios"],
         "teams_with_react_native_logs_records_in_period": sdk_logs_by_suffix["react_native"],
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
@@ -2331,7 +2330,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
-        web_logs_records_in_period=all_data["teams_with_web_logs_records_in_period"].get(team.id, 0),
         ios_logs_records_in_period=all_data["teams_with_ios_logs_records_in_period"].get(team.id, 0),
         react_native_logs_records_in_period=all_data["teams_with_react_native_logs_records_in_period"].get(team.id, 0),
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),

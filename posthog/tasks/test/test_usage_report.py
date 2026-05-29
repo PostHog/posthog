@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -2758,7 +2759,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # is pre-filtered to those team_ids to stay under the Logs cluster scan-bytes limit.
         org_1_team_3 = Team.objects.create(pk=5, organization=self.org_1, name="Team 3 org 1")
 
-        sync_execute("TRUNCATE TABLE IF EXISTS logs32")
+        # Truncate the actual local shard the schema defines (not a hardcoded name) so the test
+        # stays clean across re-runs even if the shard is renamed in a future logs migration.
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_LOCAL_TABLE}")
 
         for team in (self.org_1_team_1, self.org_1_team_2):
             create_app_metric2(
@@ -2769,7 +2772,6 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             )
 
         lines = ""
-        lines += self._logs_records_json(self.org_1_team_1.id, "web", 3)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ios", 2)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-android", 1)
         lines += self._logs_records_json(self.org_1_team_2.id, "posthog-react-native", 4)
@@ -2792,10 +2794,10 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # telemetry.sdk.name are not counted; flutter ships no logs yet; team 5 has log records but
         # no app_metrics2 row, so the pre-filter drops it entirely.
         expected_counts: dict[str, tuple[dict, dict[str, int]]] = {
-            "org": (org_1_report, {"web": 3, "ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
-            "team 3": (org_1_report["teams"]["3"], {"web": 3, "ios": 2, "android": 1, "react_native": 0}),
-            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "web": 0, "ios": 0}),
-            "team 5": (org_1_report["teams"]["5"], {"ios": 0, "web": 0}),
+            "org": (org_1_report, {"ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
+            "team 3": (org_1_report["teams"]["3"], {"ios": 2, "android": 1, "react_native": 0}),
+            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "ios": 0}),
+            "team 5": (org_1_report["teams"]["5"], {"ios": 0}),
         }
         for scope, (counters, per_sdk) in expected_counts.items():
             for sdk, expected in per_sdk.items():
