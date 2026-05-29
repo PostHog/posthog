@@ -294,9 +294,9 @@ def _render_sync_status(workspace_name: str) -> str:
     session = sessions[0]
     if session.get("paused"):
         return click.style("⚠ paused", fg="yellow")
-    conflicts = session.get("conflicts") or []
+    conflicts = mutagen.conflict_count(session)
     if conflicts:
-        return click.style(f"⚠ {len(conflicts)} conflict{'s' if len(conflicts) != 1 else ''}", fg="red")
+        return click.style(f"⚠ {conflicts} conflict{'s' if conflicts != 1 else ''}", fg="red")
     status = str(session.get("status", "")).strip() or "running"
     # mutagen reports a stalled sync (box stopped, remote root gone) as a
     # `disconnected`/`halted-*` status; a green dot there would read as healthy.

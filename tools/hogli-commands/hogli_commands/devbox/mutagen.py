@@ -191,6 +191,22 @@ def workspace_label_selector(workspace: str) -> str:
     return f"hogli-workspace={workspace}"
 
 
+def conflict_count(session: dict[str, Any]) -> int:
+    """Return a session's true conflict count.
+
+    ``mutagen sync list`` caps the inline ``conflicts`` array (10 by default)
+    and reports the remainder as ``excludedConflicts`` -- summing both is the
+    only way to get the real total. Reading just ``len(conflicts)`` silently
+    undercounts and pins the display at 10 for any heavily-diverged sync.
+    """
+    shown = session.get("conflicts") or []
+    excluded = session.get("excludedConflicts") or 0
+    try:
+        return len(shown) + int(excluded)
+    except (TypeError, ValueError):
+        return len(shown)
+
+
 # ---------------------------------------------------------------------------
 # Sync session wrappers
 # ---------------------------------------------------------------------------

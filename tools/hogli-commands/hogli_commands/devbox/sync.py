@@ -8,6 +8,7 @@ workspaces stay independently controllable.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -76,10 +77,10 @@ def _format_session_status(session: dict[str, Any]) -> str:
     # mutagen refused to overwrite it. Surface them or the sync looks healthy
     # while the user's edits silently never land. Conflicts are per-path: only
     # the diverged paths are blocked, everything else keeps syncing.
-    conflicts = session.get("conflicts") or []
+    conflicts = mutagen.conflict_count(session)
     if conflicts:
         lines.append(
-            f"    conflicts: {len(conflicts)} (these paths diverged on the remote and won't sync until resolved; other files are unaffected)"
+            f"    conflicts: {conflicts} (these paths diverged on the remote and won't sync until resolved; other files are unaffected)"
         )
     last_error = session.get("lastError")
     if last_error:
@@ -96,9 +97,38 @@ def _print_sessions(sessions: list[dict[str, Any]]) -> None:
         click.echo(_format_session_status(session))
 
 
+def _session_summary(session: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a raw mutagen session to a stable shape for programmatic callers.
+
+    Agents driving the sync loop need to answer "am I synced, and is anything
+    conflicting?" without scraping human text. ``conflictPaths`` lists only the
+    roots mutagen inlines (capped at 10); ``conflicts`` is the true total, so a
+    caller compares ``len(conflictPaths)`` to ``conflicts`` to know it's seeing
+    a truncated sample.
+    """
+    paused = bool(session.get("paused", False))
+    status = str(session.get("status", "") or "").strip()
+    shown = session.get("conflicts") or []
+    alpha = session.get("alpha") if isinstance(session.get("alpha"), dict) else {}
+    beta = session.get("beta") if isinstance(session.get("beta"), dict) else {}
+    return {
+        "name": session.get("name") or session.get("identifier"),
+        "state": "paused" if paused else (status or "running"),
+        "paused": paused,
+        "conflicts": mutagen.conflict_count(session),
+        "conflictPaths": [c.get("root") for c in shown if isinstance(c, dict) and c.get("root")],
+        "lastError": session.get("lastError"),
+        "alpha": alpha.get("path"),
+        "beta": beta.get("path"),
+    }
+
+
 @click.command(name="devbox:sync", help="Mirror your local PostHog checkout to a devbox")
 @workspace_argument
 @click.option("--status", "show_status", is_flag=True, help="Show the current sync state")
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print sync state as JSON (implies --status; for scripts and agents)"
+)
 @click.option("--pause", is_flag=True, help="Pause the sync session")
 @click.option("--resume", is_flag=True, help="Resume a paused sync session")
 @click.option("--terminate", is_flag=True, help="Tear down the sync session")
@@ -107,6 +137,7 @@ def _print_sessions(sessions: list[dict[str, Any]]) -> None:
 def cmd_sync(
     workspace: str | None,
     show_status: bool,
+    as_json: bool,
     pause: bool,
     resume: bool,
     terminate: bool,
@@ -122,12 +153,18 @@ def cmd_sync(
     chosen = sum([show_status, pause, resume, terminate, flush])
     if chosen > 1:
         raise click.UsageError("Pick at most one of --status, --pause, --resume, --terminate, --flush.")
+    if as_json and (pause or resume or terminate or flush):
+        raise click.UsageError("--json reports state only; it can't combine with --pause/--resume/--terminate/--flush.")
 
     name, workspaces = resolve_workspace_name(workspace)
     label = mutagen.workspace_label_selector(name)
 
     # Lifecycle subcommands don't need the full runtime preflight -- they
     # just talk to the local mutagen daemon. Keep them fast and offline-safe.
+    if as_json:
+        sessions = mutagen.sync_list(label_selector=label)
+        click.echo(json.dumps([_session_summary(s) for s in sessions]))
+        return
     if show_status:
         _print_sessions(mutagen.sync_list(label_selector=label))
         return

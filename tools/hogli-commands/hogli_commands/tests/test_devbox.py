@@ -3385,6 +3385,24 @@ class TestMutagenSyncWrappers:
         devbox_mutagen.sync_pause("hogli-workspace=devbox-test-user")
 
 
+class TestConflictCount:
+    """Test that conflict counts include mutagen's truncated remainder."""
+
+    @pytest.mark.parametrize(
+        "session, expected",
+        [
+            # mutagen caps the inline list at 10 and reports the rest separately.
+            ({"conflicts": [{}, {}], "excludedConflicts": 31}, 33),
+            ({"conflicts": [], "excludedConflicts": 0}, 0),
+            ({"conflicts": [{}]}, 1),  # no excludedConflicts key at all
+            ({}, 0),
+            ({"conflicts": [{}, {}], "excludedConflicts": "garbage"}, 2),  # falls back to shown
+        ],
+    )
+    def test_sums_shown_and_excluded(self, session: dict, expected: int) -> None:
+        assert devbox_mutagen.conflict_count(session) == expected
+
+
 class TestEnsureUserMutagenConfig:
     """Test that the user-side mutagen.yml is seeded from the packaged defaults."""
 
@@ -3432,6 +3450,40 @@ class TestDevboxSyncCommand:
         result = runner.invoke(cli, ["devbox:sync", "--status"])
         assert result.exit_code == 0, result.output
         assert "ph-devbox-test-user" in result.output
+
+    def test_json_emits_summary_with_true_conflict_total(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_sync.mutagen,
+            "sync_list",
+            lambda label_selector=None: [
+                {
+                    "name": "ph-devbox-test-user",
+                    "status": "watching",
+                    "paused": False,
+                    "conflicts": [{"root": "a.py"}, {"root": "b.py"}],
+                    "excludedConflicts": 31,
+                    "alpha": {"path": "/local"},
+                    "beta": {"path": "coder.devbox-test-user:/home/coder/posthog"},
+                }
+            ],
+        )
+        result = runner.invoke(cli, ["devbox:sync", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        session = payload[0]
+        # The whole point of the fix: 2 shown + 31 excluded, not a capped 2.
+        assert session["conflicts"] == 33
+        assert session["conflictPaths"] == ["a.py", "b.py"]
+        assert session["state"] == "watching"
+        assert session["beta"] == "coder.devbox-test-user:/home/coder/posthog"
+
+    def test_json_rejects_lifecycle_combo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        result = runner.invoke(cli, ["devbox:sync", "--json", "--terminate"])
+        assert result.exit_code != 0
+        assert "json" in result.output.lower()
 
     def test_terminate_invokes_label_scoped_terminate(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
