@@ -73,6 +73,12 @@ def _capture_old_state_if_deferred(sender: type[Team], instance: Team, **kwargs:
     try:
         row = Team.objects.filter(pk=instance.pk).values(*fields).first()
     except OperationalError:
+        # Mirror the loader: log so an operational hiccup mid-rotation is
+        # visible instead of silently leaking the old cache for the full TTL.
+        logger.exception(
+            "Database error capturing old Team state for llm-gateway cache invalidation",
+            team_id=instance.pk,
+        )
         return
     if row is None:
         return
@@ -90,14 +96,20 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
     rotated = bool(old_api_token and old_api_token != instance.api_token)
 
     # Use a sentinel so "no snapshot" (deferred + no fallback) is distinguishable
-    # from "snapshot of None" (loaded as null). We only act on an observed change.
+    # from "snapshot of None" (loaded as null). Read via __dict__ rather than the
+    # descriptor so a deferred-load save that does not touch this field does not
+    # trigger a lazy load just to feed the comparison. We only act on an observed
+    # change where both sides have a real value.
     old_revoked_at = instance.__dict__.get(_LOADED_REVOKED_AT_ATTR, _NO_SNAPSHOT)
-    new_revoked_at = instance.llm_gateway_revoked_at
-    revoked_changed = old_revoked_at is not _NO_SNAPSHOT and old_revoked_at != new_revoked_at
+    new_revoked_at = instance.__dict__.get("llm_gateway_revoked_at", _NO_SNAPSHOT)
+    revoked_changed = (
+        old_revoked_at is not _NO_SNAPSHOT and new_revoked_at is not _NO_SNAPSHOT and old_revoked_at != new_revoked_at
+    )
 
     # Re-snapshot so chained changes compare against the just-saved values.
     instance.__dict__[_LOADED_API_TOKEN_ATTR] = instance.api_token
-    instance.__dict__[_LOADED_REVOKED_AT_ATTR] = new_revoked_at
+    if new_revoked_at is not _NO_SNAPSHOT:
+        instance.__dict__[_LOADED_REVOKED_AT_ATTR] = new_revoked_at
 
     def enqueue_task() -> None:
         try:
