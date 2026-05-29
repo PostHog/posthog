@@ -21,15 +21,23 @@ from products.dashboards.backend.widgets.error_tracking_list import validate_err
 
 
 class TestWidgetRegistry(APIBaseTest):
-    def test_expected_widget_types_matches_registry(self) -> None:
-        assert EXPECTED_WIDGET_TYPES == frozenset(WIDGET_REGISTRY.keys())
-
-    def test_widget_catalog_matches_registry(self) -> None:
+    def test_widget_registry_catalog_and_expected_types_stay_in_sync(self) -> None:
         from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 
-        assert frozenset(WIDGET_CATALOG.keys()) == EXPECTED_WIDGET_TYPES
+        registry_types = frozenset(WIDGET_REGISTRY.keys())
+        assert EXPECTED_WIDGET_TYPES == registry_types
+        assert frozenset(WIDGET_CATALOG.keys()) == registry_types
         for widget_type, entry in WIDGET_CATALOG.items():
             assert entry["widget_type"] == widget_type
+
+    def test_validate_widget_config_unknown_type(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config("not_a_widget", {})
+
+    def test_error_tracking_widget_type_alias(self) -> None:
+        self.assertIs(get_widget_registry_entry("error_tracking"), get_widget_registry_entry("error_tracking_list"))
+        validated = validate_widget_config("error_tracking", {"limit": 5})
+        self.assertEqual(validated["limit"], 5)
 
     def test_validate_error_tracking_list_config_defaults(self) -> None:
         validated = validate_error_tracking_list_config({})
@@ -93,9 +101,10 @@ class TestDashboardRunWidgets(APIBaseTest):
         [
             ("missing_param", None, "tile_ids is required"),
             ("empty_param", "", "tile_ids is required"),
+            ("non_integer", "abc", "tile_ids must be a comma-separated list of integers"),
         ]
     )
-    def test_run_widgets_rejects_missing_or_empty_tile_ids(
+    def test_run_widgets_rejects_invalid_tile_ids_param(
         self, _name: str, tile_ids_param: str | None, expected_detail: str
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -178,6 +187,17 @@ class TestDashboardRunWidgets(APIBaseTest):
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertFalse(query.filterTestAccounts)
 
+    def test_rejects_non_widget_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight"})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        insight_tile_id = next(tile["id"] for tile in dashboard_json["tiles"] if tile.get("insight"))
+
+        body = self._run(dashboard_id, [insight_tile_id])
+
+        self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
+
     def test_rejects_foreign_tile_id(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         other_id, _ = self.dashboard_api.create_dashboard({"name": "other"})
@@ -196,15 +216,6 @@ class TestDashboardRunWidgets(APIBaseTest):
             {"tile_ids": "1"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_validate_widget_config_unknown_type(self) -> None:
-        with self.assertRaises(Exception):
-            validate_widget_config("not_a_widget", {})
-
-    def test_error_tracking_widget_type_alias(self) -> None:
-        self.assertIs(get_widget_registry_entry("error_tracking"), get_widget_registry_entry("error_tracking_list"))
-        validated = validate_widget_config("error_tracking", {"limit": 5})
-        self.assertEqual(validated["limit"], 5)
 
     def test_run_widgets_denies_without_product_access(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

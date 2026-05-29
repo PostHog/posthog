@@ -471,11 +471,6 @@ class MoveTileRequestSerializer(serializers.Serializer):
     to_dashboard = serializers.IntegerField(help_text="Destination dashboard ID.")
     tile = MoveTileTileSerializer(help_text="Tile to move, identified by its dashboard tile ID.")
 
-    def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if isinstance(data, dict) and "toDashboard" in data and "to_dashboard" not in data:
-            data = {**data, "to_dashboard": data["toDashboard"]}
-        return super().to_internal_value(data)
-
 
 class AddDashboardWidgetRequestSerializer(serializers.Serializer):
     widget_type = serializers.CharField(

@@ -418,12 +418,12 @@ export const DashboardsWidgetsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dashboardsWidgetsCreateBodyWidgetTypeMax)
         .describe(
-            'Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+            'Widget type identifier. Supported values: error_tracking, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
         ),
     config: zod
         .unknown()
         .describe(
-            'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list).'
+            'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list, session_replay_list).'
         ),
     name: zod
         .string()
@@ -480,12 +480,12 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
                     .describe(
-                        'Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+                        'Widget type identifier. Supported values: error_tracking, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list).'
+                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list, session_replay_list).'
                     ),
                 name: zod
                     .string()
