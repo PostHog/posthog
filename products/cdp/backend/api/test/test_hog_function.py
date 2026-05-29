@@ -1659,7 +1659,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
 
     def test_can_call_a_test_invocation(self):
-        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_create_hog_invocation_test:
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
             res = MagicMock(status_code=200, json=lambda: {"status": "success"})
             mock_create_hog_invocation_test.return_value = res
 
