@@ -705,6 +705,21 @@ class Emitter:
     INITIAL_NAME = "0001_squashed_initial"
     FINALIZE_NAME = "0002_finalize_fks"
 
+    # Standalone (no FK in/out) models that must be created in the stub so they
+    # exist before any other migration runs. Mostly to dodge races against work
+    # that bin/migrate kicks off in parallel with `manage.py migrate` (e.g.
+    # `migrate_clickhouse` reads `posthog_instancesetting` via get_instance_setting()).
+    # Lowercase model names, per ModelState.name.lower().
+    EARLY_MODELS_BY_APP: dict[str, frozenset[str]] = {
+        "posthog": frozenset({"instancesetting"}),
+    }
+
+    # Django built-in apps that don't have squashes in the project but whose models
+    # are FK-able. If any model in the current app has an FK to one of these apps,
+    # the squash declares ("<app>", "__latest__") explicitly so the dep survives
+    # canonical retirement (when replaces=[] is cleared and the ghost chain is gone).
+    BUILTIN_FK_APPS: frozenset[str] = frozenset({"auth", "contenttypes"})
+
     def __init__(
         self,
         state: ProjectState,
@@ -845,7 +860,15 @@ class Emitter:
         return [by_name[n] for n in order]
 
     def _cross_app_dependencies(self, skip_fields_by_model: dict[str, set[str]]) -> list[tuple[str, str]]:
-        """Declare deps on foreign apps that still have FKs targeting them in the initial migration."""
+        """Declare deps on foreign apps that this app's models reach via FK.
+
+        - In-project foreign apps: dep on their latest-old (claimed) migration name,
+          so the post-fold graph still has an edge in the right direction.
+        - Django built-in apps (auth, contenttypes) and any other foreign app not
+          tracked by the squasher: emit ("<app>", "__latest__") so the dep is
+          declared explicitly rather than inherited via the replaces= ghost chain.
+          This makes canonical retirement (empty replaces=[]) actually work.
+        """
         latest_old = Snapshotter(self.squasher).latest_old_per_app()
         deps: set[tuple[str, str]] = set()
         for ms in self._models_in_app():
@@ -862,6 +885,8 @@ class Emitter:
                     continue
                 if t_app in latest_old:
                     deps.add((t_app, latest_old[t_app]))
+                elif t_app in self.BUILTIN_FK_APPS:
+                    deps.add((t_app, "__latest__"))
         return sorted(deps)
 
     def _replaces(self) -> list[tuple[str, str]]:
@@ -934,20 +959,42 @@ class Emitter:
         for model, field in deferred_keys:
             skip_by_model.setdefault(model, set()).add(field)
 
+        early_names = self.EARLY_MODELS_BY_APP.get(self.app, frozenset())
+        all_models_by_name = {ms.name.lower(): ms for ms in self._models_in_app()}
+        # An "early" model only lands in the stub if it's standalone — no FKs,
+        # no inbound references — otherwise we'd have to declare cross-app deps
+        # on the stub, which defeats its purpose (the stub owns __first__).
+        early_models: list[Any] = []
+        for mname in sorted(early_names):
+            ms = all_models_by_name.get(mname)
+            if ms is None:
+                continue
+            assert not self._intra_app_fk_targets(ms, set()), (
+                f"{self.app}.{mname} is in EARLY_MODELS_BY_APP but references other models; "
+                f"only FK-less standalone models are safe to lift into the stub"
+            )
+            early_models.append(ms)
+        early_model_names = {ms.name.lower() for ms in early_models}
+
         # 0000_squashed_stub: minimal migration that (1) owns __first__ in this
-        # app and (2) carries non-model setup ops we'd otherwise lose — PostgreSQL
-        # extensions (TrigramExtension, BtreeGistExtension, CreateExtension,
-        # RunSQL 'CREATE EXTENSION'). Without it, indexes on `gin_trgm_ops` and
-        # similar fail with "operator class does not exist".
+        # app, (2) carries non-model setup ops we'd otherwise lose — PostgreSQL
+        # extensions — and (3) creates standalone models that need to exist before
+        # the rest of `manage.py migrate` runs (e.g. posthog_instancesetting,
+        # read by code firing in parallel from bin/migrate's migrate_clickhouse).
+        stub_ops: list[Any] = list(self._extension_preamble_ops())
+        for ms in early_models:
+            create, _, _ = self._create_model_op(ms, set())
+            stub_ops.append(create)
         stub = SquashFile(
             app=self.app,
             name=self.STUB_NAME,
-            operations=self._extension_preamble_ops(),
+            operations=stub_ops,
             dependencies=[],
             replaces=[],
         )
 
-        models = self._sort_models_topologically(self._models_in_app(), skip_by_model)
+        rest_models = [ms for ms in self._models_in_app() if ms.name.lower() not in early_model_names]
+        models = self._sort_models_topologically(rest_models, skip_by_model)
         initial_ops: list[Any] = []
         deferred_indexes: list[tuple[str, Any]] = []  # (model_name_lower, Index)
         deferred_constraints: list[tuple[str, Any]] = []  # (model_name_lower, Constraint)
