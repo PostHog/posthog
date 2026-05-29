@@ -1,4 +1,4 @@
-import { buildManifest, extractAuthSecrets, ManifestState, parseManifestIntoState } from './customSourceManifest'
+import { buildManifest, extractAuthSecrets, ManifestState, parseManifestIntoState } from '../customSourceManifest'
 
 const baseState = (): ManifestState => ({
     base_url: 'https://api.example.com',

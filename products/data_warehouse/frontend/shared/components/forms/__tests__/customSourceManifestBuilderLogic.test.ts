@@ -2,8 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { parseManifestIntoState } from './customSourceManifest'
-import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
+import { parseManifestIntoState } from '../customSourceManifest'
+import { customSourceManifestBuilderLogic } from '../customSourceManifestBuilderLogic'
 
 const savedManifest = JSON.stringify({
     client: { base_url: 'https://saved.example.com', auth: { type: 'bearer' } },
