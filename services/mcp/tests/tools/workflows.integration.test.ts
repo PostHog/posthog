@@ -12,6 +12,7 @@ import {
 } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/workflows'
 import type { Context } from '@/tools/types'
+import { workflowsArchive, workflowsDisable, workflowsEnable } from '@/tools/workflows/lifecycle'
 
 describe('Workflows', { concurrent: false }, () => {
     let context: Context
@@ -22,6 +23,9 @@ describe('Workflows', { concurrent: false }, () => {
     const updateTool = GENERATED_TOOLS['workflows-update']!()
     const logsTool = GENERATED_TOOLS['hog-flows-logs-retrieve']!()
     const metricsTool = GENERATED_TOOLS['hog-flows-metrics-retrieve']!()
+    const enableTool = workflowsEnable()
+    const disableTool = workflowsDisable()
+    const archiveTool = workflowsArchive()
 
     const createdWorkflowIds: string[] = []
 
@@ -282,16 +286,56 @@ describe('Workflows', { concurrent: false }, () => {
     // (test_can_call_a_test_invocation) with CDP mocked, and at the MCP unit layer
     // (tests/unit/workflows-run-handler.test.ts) for the handler wiring.
 
+    describe('workflows-enable / disable / archive tools', () => {
+        it('should enable a draft workflow', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+            expect(created.status).toBe('draft')
+
+            const enabled = parseToolResponse(await enableTool.handler(context, { id: created.id }))
+            expect(enabled.status).toBe('active')
+        })
+
+        it('should disable a live workflow back to draft', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            await enableTool.handler(context, { id: created.id })
+            const disabled = parseToolResponse(await disableTool.handler(context, { id: created.id }))
+            expect(disabled.status).toBe('draft')
+        })
+
+        it('should archive a draft workflow', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const archived = parseToolResponse(await archiveTool.handler(context, { id: created.id }))
+            expect(archived.status).toBe('archived')
+        })
+
+        it('should treat enabling an already-active workflow as a no-op', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            await enableTool.handler(context, { id: created.id })
+            const reEnabled = parseToolResponse(await enableTool.handler(context, { id: created.id }))
+            expect(reEnabled.status).toBe('active')
+        })
+    })
+
     describe('full lifecycle', () => {
-        it('should create → update → archive', async () => {
+        it('should create → enable → disable → archive', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
             const id = created.id
             createdWorkflowIds.push(id)
 
-            const updated = parseToolResponse(await updateTool.handler(context, { id, name: 'mcp-lifecycle-test' }))
-            expect(updated.name).toBe('mcp-lifecycle-test')
+            const enabled = parseToolResponse(await enableTool.handler(context, { id }))
+            expect(enabled.status).toBe('active')
 
-            const archived = parseToolResponse(await updateTool.handler(context, { id, status: 'archived' }))
+            const disabled = parseToolResponse(await disableTool.handler(context, { id }))
+            expect(disabled.status).toBe('draft')
+
+            const archived = parseToolResponse(await archiveTool.handler(context, { id }))
             expect(archived.status).toBe('archived')
         })
     })

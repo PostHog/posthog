@@ -6338,6 +6338,21 @@
             "readOnlyHint": true
         }
     },
+    "workflows-archive": {
+        "description": "Archive a draft or disabled workflow.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Archive workflow",
+        "title": "Archive workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-create": {
         "description": "Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type: event|webhook|manual|batch|schedule|tracking_pixel). Other action types: function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch, wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.",
         "category": "Workflows",
@@ -6349,6 +6364,36 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-disable": {
+        "description": "Disable / deactivate a live workflow and stop processing events. Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Disable workflow",
+        "title": "Disable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-enable": {
+        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Enable workflow",
+        "title": "Enable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -6399,7 +6444,7 @@
         }
     },
     "workflows-update": {
-        "description": "Partial update by ID (rename, archive, edit description, etc.). EXCEPTION: transitioning status 'draft' → 'active' requires re-sending the full workflow body (actions, edges, exit_condition); a status-only PATCH fails with an empty validation error because publish needs the full graph. Common: status='archived' to disable; edit actions (still needs exactly one trigger).",
+        "description": "Update a workflow by ID.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

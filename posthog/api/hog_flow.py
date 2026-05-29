@@ -593,6 +593,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return request.headers.get("x-posthog-client") == "mcp"
 
     def perform_create(self, serializer):
+        if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
+            raise exceptions.ValidationError(
+                "You can't one-shot active workflows via MCP. "
+                "Create as draft, test with workflows-run, then enable with workflows-enable."
+            )
+
         serializer.save()
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
 
@@ -619,20 +625,23 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
     def perform_update(self, serializer):
         # Guardrail for MCP callers: don't let an LLM edit a live workflow that's actively
-        # processing events. The only update we allow on an active workflow is one that
-        # disables it (status -> draft/archived), so the agent can follow the hint below.
-        # The frontend and raw API are unaffected — this only fires for x-posthog-client: mcp.
-        if self._is_mcp_request(self.request):
-            current_status = serializer.instance.status
-            target_status = serializer.validated_data.get("status", current_status)
-            if current_status == HogFlow.State.ACTIVE and target_status not in (
-                HogFlow.State.DRAFT,
-                HogFlow.State.ARCHIVED,
-            ):
-                raise exceptions.ValidationError(
-                    "You can't modify an enabled (active) workflow via MCP. "
-                    "Disable it (set status to 'draft') first, then make your changes."
-                )
+        # processing events. Status-only PATCHes are always allowed (so workflows-enable /
+        # workflows-disable / workflows-archive work idempotently); anything that also
+        # touches other fields on an active workflow is rejected. Only fires for
+        # x-posthog-client: mcp; the frontend and raw API are unaffected.
+        #
+        # We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
+        # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise
+        # make every status-only PATCH look like an edit.
+        if (
+            self._is_mcp_request(self.request)
+            and serializer.instance.status == HogFlow.State.ACTIVE
+            and (set(self.request.data.keys()) - {"status"})
+        ):
+            raise exceptions.ValidationError(
+                "You can't edit an enabled (active) workflow via MCP. "
+                "Disable it first with workflows-disable, then make your changes."
+            )
 
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id

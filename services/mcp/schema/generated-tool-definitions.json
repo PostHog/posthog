@@ -5902,7 +5902,7 @@
         }
     },
     "workflows-update": {
-        "description": "Partial update by ID (rename, archive, edit description, etc.). EXCEPTION: transitioning status 'draft' → 'active' requires re-sending the full workflow body (actions, edges, exit_condition); a status-only PATCH fails with an empty validation error because publish needs the full graph. Common: status='archived' to disable; edit actions (still needs exactly one trigger).",
+        "description": "Update a workflow by ID.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",
