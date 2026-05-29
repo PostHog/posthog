@@ -92,6 +92,8 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
+    /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
+    hideEarlyExit?: boolean
 }
 
 const PERSON = 'person' as const
@@ -802,6 +804,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onBucketingIdentifierChange,
     evaluationRuntime,
     hideMatchOptions,
+    hideEarlyExit,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -1092,7 +1095,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 within the rollout percentage.
             </p>
 
-            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && (
+            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && !hideEarlyExit && (
                 <div className="flex flex-col gap-2 mb-2">
                     <div className="flex items-center gap-2">
                         <LemonCheckbox
@@ -1103,12 +1106,14 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
                         />
                     </div>
-                    {releaseFilters.early_exit && evaluationRuntime !== FeatureFlagEvaluationRuntime.SERVER && (
-                        <LemonBanner type="warning" className="mt-1">
-                            <b>Not supported with local evaluation.</b> Client-side and local evaluation SDKs evaluate
-                            all condition groups — early exit only takes effect for server-side evaluation.
-                        </LemonBanner>
-                    )}
+                    {releaseFilters.early_exit &&
+                        evaluationRuntime !== undefined &&
+                        evaluationRuntime !== FeatureFlagEvaluationRuntime.SERVER && (
+                            <LemonBanner type="warning" className="mt-1">
+                                <b>Not supported with local evaluation.</b> Client-side and local evaluation SDKs
+                                evaluate all condition groups — early exit only takes effect for server-side evaluation.
+                            </LemonBanner>
+                        )}
                 </div>
             )}
 
