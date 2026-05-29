@@ -1036,7 +1036,6 @@ def classify_task_needs_repo(
         "insight",
         "session replay",
         "recording",
-        "trace",
         "mcp",
         "webhook",
     )
@@ -1077,6 +1076,15 @@ def classify_task_needs_repo(
         "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
         "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
         "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
+        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
+        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
+        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
+        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
+        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
+        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
+        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
+        "needs_repo. When in doubt, lean needs_repo=true — the discovery agent can still report "
+        "there's no good match.\n\n"
         f"Conversation:\n{conversation}\n\n"
         f"Latest message: {event_text}\n\n"
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
