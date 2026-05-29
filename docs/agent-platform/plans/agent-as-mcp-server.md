@@ -1,6 +1,6 @@
 # Design — agents expose their own MCP server
 
-**Status:** v0 shipped; v1 (`spec.mcp.tools[]`) pending. **Owner:** ben.
+**Status:** v0 shipped (incl. v0.1 fix to scoping — see §3); v1 (`spec.mcp.tools[]`) pending. **Owner:** ben.
 
 > Distinct from [`runtime-mcps.md`](runtime-mcps.md), which is about the
 > runner _consuming_ third-party MCPs as tools. This plan is the inverse:
@@ -91,12 +91,26 @@ inline blocking. To follow up, the client uses MCP **resources**:
 
 - `agent://session/<id>` — read full session state (conversation,
   usage_total, status, principal).
-- `resources/list` — recently-created sessions for the connected client.
+- `resources/list` — recently-created sessions, scoped by the
+  standard streamable-HTTP `Mcp-Session-Id` header (see below).
 
-Scope: by default a client only sees sessions IT created. Tracked by a
-per-connection cookie minted on `initialize` and stamped onto every
-session's `metadata.mcp_connection_id`. Prevents one MCP client from
-seeing another client's sessions on the same agent.
+**Scoping model (post-v0.1 correction):**
+
+- **`resources/read` — capability-by-URI on public agents.** Possession
+  of `agent://session/<uuid>` is the gate; the UUID's 122 bits of
+  entropy are the secret. This matches the standard MCP resources
+  pattern (URI is the auth, same as a sharing link). For authenticated
+  agents (`spec.auth.mode !== 'public'`), the strict-principal match
+  applies on top — possession alone isn't enough.
+- **`resources/list` — scoped by `Mcp-Session-Id` header.** The
+  standard streamable-HTTP session id that every real MCP client
+  (Claude Code, Cursor, the MCP Inspector) sends automatically after
+  `initialize`. Sessions get tagged with the header at enqueue time
+  via `external_key: 'mcp:<sessionId>:<uuid>'`; list filters on
+  prefix match. Clients without the header see an empty list — they
+  can still read sessions whose ids they hold, just not enumerate.
+- **Earlier v0 used a non-standard `_meta.connectionId` echo** that
+  no real client honoured. That mechanism is removed.
 
 Live streaming via MCP `notifications/progress` is deferred — most
 clients render them poorly today. Clients that want real-time updates

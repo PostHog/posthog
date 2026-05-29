@@ -21,12 +21,21 @@
  *     webhook triggers do — public stays public, pat-gated agents demand a
  *     bearer token on the MCP transport too. One auth model across triggers.
  *
- * Connection scoping:
- *   - `initialize` mints a per-connection id; the client echoes it back in
- *     every subsequent request via `_meta.connectionId`. Sessions started by
- *     this connection are tagged so `resources/list` only ever returns the
- *     caller's own sessions. This prevents one MCP client from inspecting
- *     another client's sessions on the same agent.
+ * Resource visibility:
+ *   - For authenticated agents (`spec.auth.mode !== 'public'`), the existing
+ *     principal match is the gate: `resources/list` and `resources/read`
+ *     only surface sessions whose principal matches the caller's.
+ *   - For public agents, we follow standard MCP "URI is the capability" —
+ *     possession of a `agent://session/<uuid>` URI is sufficient to read
+ *     it. The UUID has 122 bits of entropy; this matches how MCP clients
+ *     normally treat resource URIs.
+ *   - We additionally honour the standard streamable-HTTP `Mcp-Session-Id`
+ *     header (the one real MCP clients automatically send across requests
+ *     in one client session). When present, it tags fresh sessions so
+ *     `resources/list` returns only the caller's sessions on public agents.
+ *     Without it, `resources/list` returns nothing on public agents — a
+ *     client that doesn't track its MCP session id has no way to enumerate
+ *     others' sessions, only read sessions whose IDs it already knows.
  *
  * Plan: docs/agent-platform/plans/agent-as-mcp-server.md.
  */
@@ -144,13 +153,24 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     principalToSession(auth.principal)
             }
 
+            // Standard MCP streamable-HTTP session id (`Mcp-Session-Id`
+            // header). Real MCP clients (Claude Code, Cursor, the MCP
+            // Inspector) automatically attach this on every request after
+            // the first one. We use it to scope `resources/list` — clients
+            // see their own sessions, never each other's. `resources/read`
+            // doesn't gate on it (URI possession is the capability), so a
+            // client can always re-read a session id it already holds.
+            const mcpSessionId = extractMcpSessionId(req)
+
             switch (body.method) {
                 case 'initialize': {
-                    // Mint a per-connection id and hand it back; the client
-                    // echoes it on every subsequent call via `_meta.connectionId`.
-                    // Sessions started by this connection get tagged with the id
-                    // so resources/list only sees its own sessions.
-                    const connectionId = randomUUID()
+                    // If the client hasn't already minted an
+                    // `Mcp-Session-Id`, hand one back via the response
+                    // header. Streamable-HTTP-compliant clients pick it up
+                    // and send it on every subsequent request.
+                    if (!mcpSessionId) {
+                        res.setHeader('Mcp-Session-Id', randomUUID())
+                    }
                     res.json(
                         reply({
                             protocolVersion: '2024-11-05',
@@ -159,12 +179,6 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                                 name: `agent:${resolved.application.slug}`,
                                 version: resolved.revision.id,
                             },
-                            // Non-standard echo of the connection id — clients
-                            // that don't honour `_meta.connectionId` still get
-                            // a working session (resources/list will just be
-                            // empty for them), but well-behaved clients keep
-                            // the value.
-                            _meta: { connectionId },
                         })
                     )
                     return
@@ -195,7 +209,6 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
 
                     const principal = (body as McpRequest & { __principal: ReturnType<typeof principalToSession> })
                         .__principal
-                    const connectionId = extractConnectionId(body)
 
                     if (continuationId) {
                         // Continuation path: append to an existing session,
@@ -237,13 +250,13 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                         return
                     }
 
-                    // Fresh session. external_key is the MCP connection id so
-                    // resources/list can filter to "sessions this client owns"
-                    // without a new persistence surface. Multiple sessions per
-                    // connection: the client doesn't pass session_id so we
-                    // generate a fresh row each time — but the same connection
-                    // tag still lets resources/list scope correctly.
-                    const externalKey = connectionId ? `mcp:${connectionId}:${randomUUID()}` : null
+                    // Fresh session. We tag external_key with the standard
+                    // MCP session id so `resources/list` can later filter
+                    // to "sessions this client started". Clients that don't
+                    // send the header still get a working session — they
+                    // just won't see it in resources/list (they can still
+                    // read it by URI since they hold the returned id).
+                    const externalKey = mcpSessionId ? `mcp:${mcpSessionId}:${randomUUID()}` : null
                     const { sessionId } = await enqueueOrResume(
                         { queue: deps.queue, teamId: deps.teamId },
                         {
@@ -267,13 +280,12 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     return
                 }
                 case 'resources/list': {
-                    const connectionId = extractConnectionId(body)
                     const principal = (body as McpRequest & { __principal: ReturnType<typeof principalToSession> })
                         .__principal
                     const sessions = await deps.queue.listByApplication(resolved.application.id, {
                         limit: RECENT_SESSIONS_LIMIT,
                     })
-                    const owned = sessions.filter((s) => isSessionVisibleToConnection(s, connectionId, principal))
+                    const owned = sessions.filter((s) => isSessionVisibleInList(s, mcpSessionId, principal))
                     res.json(
                         reply({
                             resources: owned.map((s) => ({
@@ -299,10 +311,9 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                         res.json(errReply(RPC_INVALID_PARAMS, 'session_not_found'))
                         return
                     }
-                    const connectionId = extractConnectionId(body)
                     const principal = (body as McpRequest & { __principal: ReturnType<typeof principalToSession> })
                         .__principal
-                    if (!isSessionVisibleToConnection(session, connectionId, principal)) {
+                    if (!isSessionReadable(session, principal)) {
                         res.json(errReply(RPC_UNAUTHORIZED, 'session_not_owned'))
                         return
                     }
@@ -513,40 +524,65 @@ function askToolDescriptor(
 }
 
 /**
- * Pulls the connection id off the JSON-RPC envelope. Clients that honour
- * the `_meta.connectionId` echo back what `initialize` minted; clients that
- * don't get null and still work — they just can't see their sessions via
- * `resources/list` (security-conservative default).
+ * Pulls the standard MCP streamable-HTTP session id off the inbound request.
+ * Real MCP clients (Claude Code, Cursor, the MCP Inspector) send this
+ * automatically once `initialize` has handed one back via the response
+ * header.
+ *
+ * Spec note: the header name comparison is case-insensitive per HTTP, and
+ * Express normalises req.headers to lower-case keys, so this lookup is
+ * intentionally lower-case.
  */
-function extractConnectionId(body: McpRequest): string | null {
-    const meta = (body.params?._meta as { connectionId?: unknown } | undefined) ?? undefined
-    if (meta && typeof meta.connectionId === 'string') {
-        return meta.connectionId
+function extractMcpSessionId(req: Request): string | null {
+    const raw = req.headers['mcp-session-id']
+    if (typeof raw !== 'string' || !raw) {
+        return null
     }
-    return null
+    return raw
 }
 
 /**
- * A session is visible to this MCP connection if:
- *   - it was started by the same connection id (matched via external_key prefix), OR
- *   - the caller's principal is non-anonymous and matches the session's principal.
+ * Whether a session shows up in `resources/list`. Stricter than
+ * `isSessionReadable` — list is for discovery, so we never expose other
+ * clients' sessions on a public agent. Keys:
+ *   - The session was started by the same `Mcp-Session-Id` (matched via
+ *     the `mcp:<id>:` external_key prefix the trigger writes on enqueue), OR
+ *   - The caller's principal is non-anonymous and matches the session's
+ *     principal (authenticated agents: PAT, shared_secret, internal).
  *
- * Anonymous-on-anonymous matches are deliberately NOT enough: two distinct
- * anonymous MCP connections shouldn't see each other's sessions on a public
- * agent.
+ * Anonymous-on-anonymous matches are deliberately NOT enough — two distinct
+ * anonymous clients on a public agent shouldn't enumerate each other.
  */
-function isSessionVisibleToConnection(
+function isSessionVisibleInList(
     session: AgentSession,
-    connectionId: string | null,
+    mcpSessionId: string | null,
     principal: ReturnType<typeof principalToSession>
 ): boolean {
-    if (connectionId && session.external_key && session.external_key.startsWith(`mcp:${connectionId}:`)) {
+    if (mcpSessionId && session.external_key && session.external_key.startsWith(`mcp:${mcpSessionId}:`)) {
         return true
     }
     if (principal.kind !== 'anonymous' && principalsMatch(session.principal, principal)) {
         return true
     }
     return false
+}
+
+/**
+ * Whether a session can be read via `resources/read`. Looser than
+ * `isSessionVisibleInList`: possession of the `agent://session/<uuid>` URI
+ * is itself the capability on public agents (standard MCP resources
+ * pattern — the URI is the secret). UUIDs carry 122 bits of entropy and
+ * can't be guessed; a client that wasn't handed the id can't read.
+ *
+ * For authenticated agents the principal must still match — possession of
+ * a URI isn't enough when `spec.auth.mode !== 'public'`, mirroring the
+ * strict-principal rule chat/send already enforce.
+ */
+function isSessionReadable(session: AgentSession, principal: ReturnType<typeof principalToSession>): boolean {
+    if (principal.kind === 'anonymous') {
+        return session.principal === null || session.principal.kind === 'anonymous'
+    }
+    return principalsMatch(session.principal, principal)
 }
 
 /** Body is JSON-RPC 2.0 per the MCP transport spec. The `bodySchema` advertises

@@ -265,13 +265,25 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.error).toBe('invalid_body')
     })
 
-    it('POST /mcp initialize mints a per-connection id', async () => {
+    it('POST /mcp initialize mints an Mcp-Session-Id when the client did not send one', async () => {
         const { revisions, app } = mk()
         await seedApp(revisions, 'x')
         const res = await request(app).post('/agents/x/mcp').send({ jsonrpc: '2.0', id: 1, method: 'initialize' })
-        // The id is non-empty and (informally) UUID-shaped.
-        const connectionId = res.body.result._meta.connectionId as string
-        expect(connectionId).toMatch(/^[0-9a-f-]{36}$/)
+        // Standard streamable-HTTP session header — real MCP clients pick
+        // this up and echo it on every subsequent request.
+        const minted = res.headers['mcp-session-id'] as string | undefined
+        expect(minted).toMatch(/^[0-9a-f-]{36}$/)
+    })
+
+    it('POST /mcp initialize does NOT re-mint when the client already sent an Mcp-Session-Id', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'x')
+        const res = await request(app)
+            .post('/agents/x/mcp')
+            .set('Mcp-Session-Id', 'client-supplied')
+            .send({ jsonrpc: '2.0', id: 1, method: 'initialize' })
+        // Server only mints when missing — client's id wins.
+        expect(res.headers['mcp-session-id']).toBeUndefined()
     })
 
     it('POST /mcp tools/call ask with session_id continues an existing session', async () => {
@@ -333,96 +345,74 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.error.code).toBe(-32601)
     })
 
-    it('POST /mcp resources/list returns only sessions owned by this connection', async () => {
+    it('POST /mcp resources/list scopes by Mcp-Session-Id header on a public agent', async () => {
         const { revisions, app } = mk()
         await seedApp(revisions, 'x')
-        // Connection A creates a session.
+        // Client A creates a session, tagged with its Mcp-Session-Id header.
         const aCreate = await request(app)
             .post('/agents/x/mcp')
+            .set('Mcp-Session-Id', 'client-A')
             .send({
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'tools/call',
-                params: {
-                    name: 'ask',
-                    arguments: { message: 'from A' },
-                    _meta: { connectionId: 'conn-A' },
-                },
+                params: { name: 'ask', arguments: { message: 'from A' } },
             })
         const aSessionId = JSON.parse(aCreate.body.result.content[0].text).session_id as string
-        // Connection B creates a session.
+        // Client B does the same with its own header.
         const bCreate = await request(app)
             .post('/agents/x/mcp')
+            .set('Mcp-Session-Id', 'client-B')
             .send({
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'tools/call',
-                params: {
-                    name: 'ask',
-                    arguments: { message: 'from B' },
-                    _meta: { connectionId: 'conn-B' },
-                },
+                params: { name: 'ask', arguments: { message: 'from B' } },
             })
         const bSessionId = JSON.parse(bCreate.body.result.content[0].text).session_id as string
         // resources/list as A: only A's session shows up.
         const listA = await request(app)
             .post('/agents/x/mcp')
-            .send({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'resources/list',
-                params: { _meta: { connectionId: 'conn-A' } },
-            })
+            .set('Mcp-Session-Id', 'client-A')
+            .send({ jsonrpc: '2.0', id: 1, method: 'resources/list' })
         const aUris = (listA.body.result.resources as Array<{ uri: string }>).map((r) => r.uri)
         expect(aUris).toContain(`agent://session/${aSessionId}`)
         expect(aUris).not.toContain(`agent://session/${bSessionId}`)
-        // A connection with no connection id sees nothing (security default).
+        // A client with no Mcp-Session-Id sees nothing in list (security
+        // default — prevents enumeration of other clients' sessions on a
+        // public agent). It can still read by URI if it has the id.
         const listAnon = await request(app)
             .post('/agents/x/mcp')
             .send({ jsonrpc: '2.0', id: 1, method: 'resources/list' })
         expect(listAnon.body.result.resources).toEqual([])
     })
 
-    it('POST /mcp resources/read refuses sessions owned by another connection', async () => {
+    it('POST /mcp resources/read on a public agent allows reads by URI possession', async () => {
+        // Capability model — possession of the agent://session/<uuid> URI
+        // is the secret. A different anonymous client (no header, no
+        // principal) can read the session if it has the id. The 122 bits
+        // of UUID entropy prevent guessing.
         const { revisions, app } = mk()
         await seedApp(revisions, 'x')
         const create = await request(app)
             .post('/agents/x/mcp')
+            .set('Mcp-Session-Id', 'creator')
             .send({
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'tools/call',
-                params: {
-                    name: 'ask',
-                    arguments: { message: 'mine' },
-                    _meta: { connectionId: 'conn-owner' },
-                },
+                params: { name: 'ask', arguments: { message: 'mine' } },
             })
         const sessionId = JSON.parse(create.body.result.content[0].text).session_id as string
-        // Stranger tries to read.
-        const stranger = await request(app)
-            .post('/agents/x/mcp')
-            .send({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'resources/read',
-                params: {
-                    uri: `agent://session/${sessionId}`,
-                    _meta: { connectionId: 'conn-stranger' },
-                },
-            })
-        expect(stranger.body.error.code).toBe(-32001)
-        // Owner can read.
+        // Same client reads — works.
         const owner = await request(app)
             .post('/agents/x/mcp')
+            .set('Mcp-Session-Id', 'creator')
             .send({
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'resources/read',
-                params: {
-                    uri: `agent://session/${sessionId}`,
-                    _meta: { connectionId: 'conn-owner' },
-                },
+                params: { uri: `agent://session/${sessionId}` },
             })
         expect(owner.body.result.contents[0].text).toContain(sessionId)
     })
