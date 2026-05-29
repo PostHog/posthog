@@ -15,6 +15,7 @@ from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.test.factories import create_account
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -205,6 +206,121 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         apple = create_account(team_id=self.team.id, name="Apple")
         banana = create_account(team_id=self.team.id, name="Banana")
         self.assertEqual(self._ids(orderBy=["-name"]), [str(banana.id), str(apple.id)])
+
+    def _link_notebooks(self, account, count: int) -> None:
+        for i in range(count):
+            notebook = Notebook.objects.create(
+                team=self.team,
+                title=f"NB {account.name} {i}",
+                content=[],
+                visibility=Notebook.Visibility.INTERNAL,
+            )
+            ResourceNotebook.objects.create(notebook=notebook, account=account)
+
+    def test_ordering_by_notebook_count_asc(self):
+        zero = create_account(team_id=self.team.id, name="Zero")
+        one = create_account(team_id=self.team.id, name="One")
+        two = create_account(team_id=self.team.id, name="Two")
+        self._link_notebooks(one, 1)
+        self._link_notebooks(two, 2)
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=["id", "accounts.notebooks.count AS notebook_count"],
+                orderBy=["notebook_count", "name"],
+            ),
+            team=self.team,
+        )
+        response = runner.calculate()
+        id_idx = runner.columns.index("id")
+        # Accounts with no notebook rows aggregate to NULL (no group), so they appear before
+        # the rows with positive counts when sorting ASC. Tie-break by name keeps it deterministic.
+        self.assertEqual(
+            [str(row[id_idx]) for row in response.results],
+            [str(zero.id), str(one.id), str(two.id)],
+        )
+
+    def test_ordering_by_notebook_count_desc(self):
+        zero = create_account(team_id=self.team.id, name="Zero")
+        one = create_account(team_id=self.team.id, name="One")
+        two = create_account(team_id=self.team.id, name="Two")
+        self._link_notebooks(one, 1)
+        self._link_notebooks(two, 2)
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=["id", "accounts.notebooks.count AS notebook_count"],
+                orderBy=["notebook_count DESC", "name"],
+            ),
+            team=self.team,
+        )
+        response = runner.calculate()
+        id_idx = runner.columns.index("id")
+        self.assertEqual(
+            [str(row[id_idx]) for row in response.results[:2]],
+            [str(two.id), str(one.id)],
+        )
+        # `zero` has no notebook rows, so the aggregate is NULL and lands at the end.
+        self.assertEqual(str(response.results[-1][id_idx]), str(zero.id))
+
+    @parameterized.expand(
+        [
+            ("csm", "csm"),
+            ("account_executive", "account_executive"),
+        ]
+    )
+    def test_ordering_by_role_email_asc(self, _name, role_key):
+        zed = create_account(
+            team_id=self.team.id, name="Zed", _properties={role_key: {"id": 1, "email": "zed@example.com"}}
+        )
+        adam = create_account(
+            team_id=self.team.id, name="Adam", _properties={role_key: {"id": 2, "email": "adam@example.com"}}
+        )
+        molly = create_account(
+            team_id=self.team.id, name="Molly", _properties={role_key: {"id": 3, "email": "molly@example.com"}}
+        )
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=["id", role_key],
+                orderBy=[f"tupleElement({role_key}, 2)"],
+            ),
+            team=self.team,
+        )
+        response = runner.calculate()
+        id_idx = runner.columns.index("id")
+        self.assertEqual(
+            [str(row[id_idx]) for row in response.results],
+            [str(adam.id), str(molly.id), str(zed.id)],
+        )
+
+    @parameterized.expand(
+        [
+            ("csm", "csm"),
+            ("account_executive", "account_executive"),
+        ]
+    )
+    def test_ordering_by_role_email_desc(self, _name, role_key):
+        zed = create_account(
+            team_id=self.team.id, name="Zed", _properties={role_key: {"id": 1, "email": "zed@example.com"}}
+        )
+        adam = create_account(
+            team_id=self.team.id, name="Adam", _properties={role_key: {"id": 2, "email": "adam@example.com"}}
+        )
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=["id", role_key],
+                orderBy=[f"tupleElement({role_key}, 2) DESC"],
+            ),
+            team=self.team,
+        )
+        response = runner.calculate()
+        id_idx = runner.columns.index("id")
+        self.assertEqual(
+            [str(row[id_idx]) for row in response.results],
+            [str(zed.id), str(adam.id)],
+        )
 
     def test_pagination_limit_and_offset(self):
         ids = [str(create_account(team_id=self.team.id, name=f"Account {i:02d}").id) for i in range(5)]
