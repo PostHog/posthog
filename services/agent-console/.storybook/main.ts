@@ -44,6 +44,10 @@ const config: StorybookConfig = {
             alias: {
                 ...config.resolve?.alias,
                 '@': path.resolve(__dirname, '../src'),
+                // Storybook runs under Vite, not Next.js. The shell + page
+                // clients call `useRouter()` etc. — stub them out so the
+                // real components mount cleanly in stories.
+                'next/navigation': path.resolve(__dirname, './mocks/next-navigation.tsx'),
             },
         }
         return config

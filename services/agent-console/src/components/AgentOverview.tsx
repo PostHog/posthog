@@ -111,7 +111,7 @@ export function AgentOverview({
                     ) : (
                         <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
                             <DtDd k="model" v={model ?? '—'} mono />
-                            <DtDd k="revision" v={short(liveRevision.id)} mono />
+                            <DtDd k="revision" v={shortId(liveRevision.id)} mono />
                             <DtDd k="secrets" v={secrets.length === 0 ? 'none' : `${secrets.length} declared`} />
                             <DtDd k="promoted" v={formatRelative(liveRevision.updated_at)} />
                         </dl>
@@ -306,7 +306,16 @@ function firstUserText(session: ChatSession): string | null {
     return null
 }
 
-function short(id: string): string {
+/**
+ * Last hyphen-separated chunk of a UUID, truncated to 8 chars. Used as
+ * a human-friendly handle for revisions in the overview card.
+ *
+ * Exported (vs being a private `function short(...)`) because the
+ * SWC dev compiler doesn't always hoist function declarations
+ * referenced from JSX above their definition — the named import
+ * dodges the issue.
+ */
+export function shortId(id: string): string {
     return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
 }
 

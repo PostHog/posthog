@@ -26,7 +26,31 @@ import {
 
 const PROJECT_PREFIX = '/api/projects/:projectId'
 
+/** Project id the AppShell story's session resolves to. The store
+ * doesn't actually scope by team — it serves the same fixture pool
+ * regardless — so the choice is arbitrary, but the same number has to
+ * appear here and in everything the apiClient builds. */
+const STORYBOOK_TEAM_ID = 1
+
 export const handlers = [
+    /* Session — `SessionProvider` hits this on mount. Returns a stable
+     * fake identity so the SessionGate falls through and the shell
+     * renders its child content. */
+    http.get('/api/auth/me', () => {
+        return HttpResponse.json({
+            authenticated: true,
+            teamId: STORYBOOK_TEAM_ID,
+            posthogBaseUrl: 'https://app.posthog.com',
+            oidc: { sub: 'storybook-fake-sub' },
+            profile: {
+                email: 'storybook@posthog.com',
+                first_name: 'Story',
+                last_name: 'Book',
+                team: { id: STORYBOOK_TEAM_ID, name: 'Storybook project' },
+            },
+        })
+    }),
+
     http.get(`${PROJECT_PREFIX}/agent_applications/`, ({ request }) => {
         const url = new URL(request.url)
         const includeArchived = url.searchParams.get('include_archived') === 'true'
