@@ -4,12 +4,17 @@ import importlib
 from typing import Any
 
 from django.apps import apps
+from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand
 
 from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.models.data_color_theme import DataColorTheme
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+# auth groups originally seeded by RunPython migrations. Keep this in sync with
+# any 04xx/05xx migration that did `Group.objects.get_or_create(name=...)`.
+_AUTH_GROUPS: tuple[str, ...] = ("Billing Team",)
 
 # 0537 still references posthog.DataColorTheme which hasn't moved
 _migration_0537 = importlib.import_module("posthog.migrations.0537_data_color_themes")
@@ -207,6 +212,11 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         created_items: list[str] = []
+
+        for group_name in _AUTH_GROUPS:
+            _, created = Group.objects.get_or_create(name=group_name)
+            if created:
+                created_items.append(f"Auth group: {group_name}")
 
         if not DataColorTheme.objects.filter(team__isnull=True, name="Default Theme").exists():
             add_default_themes(apps, None)
