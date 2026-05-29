@@ -39142,6 +39142,14 @@ export namespace Schemas {
 
     export type EnvironmentsAlertsListParams = {
     /**
+     * Optional. Restrict results to alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
+     * Optional. Restrict results to alerts on this insight ID.
+     */
+    insight_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -39149,6 +39157,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type EnvironmentsAlertsRetrieveParams = {
@@ -43912,6 +43924,14 @@ export namespace Schemas {
 
     export type AlertsListParams = {
     /**
+     * Optional. Restrict results to alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
+     * Optional. Restrict results to alerts on this insight ID.
+     */
+    insight_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -43919,6 +43939,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type AlertsRetrieveParams = {

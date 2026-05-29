@@ -1,12 +1,15 @@
+import uuid
 import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
+from django.db.models import F, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -26,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -689,6 +693,34 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Fuzzy match against alert `name` using Postgres trigram word similarity "
+                    "(handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, "
+                    "then creation time. Capped at 200 characters; longer queries return a 400 error."
+                ),
+            ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts created by the user with this UUID.",
+            ),
+            OpenApiParameter(
+                "insight_id",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts on this insight ID.",
+            ),
+        ],
+    ),
+)
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
@@ -703,10 +735,50 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
 
+        insight_id = filters.get("insight_id")
+        if insight_id is not None:
+            queryset = queryset.filter(insight_id=insight_id)
+
+        created_by = filters.get("created_by")
+        if created_by:
+            try:
+                uuid.UUID(created_by)
+            except ValueError:
+                raise ValidationError({"created_by": ["Not a valid UUID."]}) from None
+            queryset = queryset.filter(created_by__uuid=created_by)
+
+        search = filters.get("search")
+        if search:
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            queryset = self._apply_search(queryset, search)
+
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
 
         return queryset
+
+    @staticmethod
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+            )
+            .filter(Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY) | Q(_name_full__gt=MIN_NAME_TRIGRAM_SIMILARITY))
+            .annotate(_search_score=F("_name_word") + F("_name_full"))
+            .order_by("-_search_score", "-created_at")
+        )
 
     CHECKS_DEFAULT_LIMIT = 5
     CHECKS_MAX_LIMIT = 500
@@ -782,10 +854,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-
-        insight_id = request.GET.get("insight_id")
-        if insight_id is not None:
-            queryset = queryset.filter(insight=insight_id)
 
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)

@@ -6116,7 +6116,7 @@ const api = {
         },
         async list(
             insightId?: InsightModel['id'],
-            params: { limit?: number; offset?: number } = {}
+            params: { limit?: number; offset?: number; search?: string; created_by?: string } = {}
         ): Promise<CountedPaginatedResponse<AlertType>> {
             const queryParams: Record<string, any> = { ...params }
             if (insightId !== undefined) {
