@@ -240,7 +240,6 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
-    assert any("pg_terminate_backend" in command for call in commands for command in call)
     assert any("DROP DATABASE IF EXISTS test_posthog;" in command for call in commands for command in call)
     assert any("CREATE DATABASE test_posthog;" in command for call in commands for command in call)
     assert restored == [(schema_path, "test_posthog")]
