@@ -170,7 +170,7 @@ tools:
             - hog_flow:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Test-run workflow
         description: >
