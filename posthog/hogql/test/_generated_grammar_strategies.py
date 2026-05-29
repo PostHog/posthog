@@ -1838,7 +1838,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     def gen(draw: Any) -> str:
         parts: list[str] = []
         if depth <= 0:
-            seed_idx = draw(st.sampled_from([3, 4, 7, 9, 14, 19, 34, 37]))
+            seed_idx = draw(st.sampled_from([3, 5, 7, 9, 14, 19, 34, 37]))
         else:
             seed_idx = draw(
                 st.sampled_from(
@@ -1927,13 +1927,13 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
         if seed_idx == 4:
             parts = []
             parts.append("interval")
-            parts.append(draw(string_literal_token))
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append(draw(interval_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 5:
             parts = []
             parts.append("interval")
-            parts.append(draw(columnExpr_strategy(_dec(depth))))
-            parts.append(draw(interval_strategy(_dec(depth))))
+            parts.append(draw(string_literal_token))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 6:
             parts = []
