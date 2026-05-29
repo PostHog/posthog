@@ -154,7 +154,7 @@ class TestSlackThreadHandler(TestCase):
         assert "Pull request opened" in kwargs["text"]
         actions = kwargs["blocks"][1]["elements"]
         assert actions[0]["text"]["text"] == "View PR"
-        assert actions[1]["text"]["text"] == "Open in PostHog"
+        assert actions[1]["text"]["text"] == "Open in PostHog Code"
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
