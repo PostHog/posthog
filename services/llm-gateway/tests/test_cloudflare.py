@@ -47,3 +47,12 @@ def test_ensure_cloudflare_model_allowed_rejects_unpriced_model(model: str) -> N
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["error"]["type"] == "invalid_request_error"
     assert model in exc_info.value.detail["error"]["message"]
+
+
+def test_litellm_anthropic_messages_adapter_contract() -> None:
+    """Fails in CI if a litellm bump renames the experimental symbol the CF anthropic route imports."""
+    from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
+        LiteLLMMessagesToCompletionTransformationHandler,
+    )
+
+    assert callable(LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler)

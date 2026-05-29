@@ -5,6 +5,8 @@ from typing import Any
 
 import litellm
 from fastapi import HTTPException
+
+# Experimental litellm path — `tests/test_cloudflare.py` has a contract test that fails fast on a rename.
 from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
