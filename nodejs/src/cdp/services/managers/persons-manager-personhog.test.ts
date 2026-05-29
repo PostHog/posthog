@@ -22,7 +22,12 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
-    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
+    persons: jest.Mocked<
+        Pick<
+            PersonHogClient['persons'],
+            'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds' | 'getDistinctIdsForPersons'
+        >
+    >
 }
 
 function createMockPostgres(persons: Record<string, any>[]): jest.Mocked<PersonRepository> {
@@ -30,6 +35,7 @@ function createMockPostgres(persons: Record<string, any>[]): jest.Mocked<PersonR
         fetchPerson: jest.fn(),
         fetchPersonsByDistinctIds: jest.fn(),
         fetchPersonsByPersonIds: jest.fn(),
+        fetchDistinctIdsForPersons: jest.fn(),
         createPerson: jest.fn(),
         updatePerson: jest.fn(),
         updatePersonAssertVersion: jest.fn(),
@@ -43,6 +49,17 @@ function createMockPostgres(persons: Record<string, any>[]): jest.Mocked<PersonR
         updateCohortsAndFeatureFlagsForMerge: jest.fn(),
         inTransaction: jest.fn(),
     }
+
+    mock.fetchDistinctIdsForPersons.mockImplementation((teamId, personIntIds) => {
+        const result: Record<string, string[]> = {}
+        for (const intId of personIntIds) {
+            const match = persons.find((p) => p.team_id === teamId && p.id === intId && p.distinct_id)
+            if (match) {
+                result[intId] = [match.distinct_id]
+            }
+        }
+        return Promise.resolve(result)
+    })
 
     mock.fetchPersonsByDistinctIds.mockImplementation((teamPersons) => {
         const results = persons.filter((p) =>
@@ -91,6 +108,16 @@ function createMockGrpcClient(persons: Record<string, any>[]): MockPersonHogClie
                     )
                     return Promise.resolve(results as InternalPerson[])
                 }),
+            getDistinctIdsForPersons: jest.fn().mockImplementation((teamId: number, personIntIds: string[]) => {
+                const result: Record<string, string[]> = {}
+                for (const intId of personIntIds) {
+                    const match = persons.find((p) => p.team_id === teamId && p.id === intId && p.distinct_id)
+                    if (match) {
+                        result[intId] = [match.distinct_id]
+                    }
+                }
+                return Promise.resolve(result)
+            }),
         },
     }
 }
@@ -186,6 +213,7 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
                 properties: { name: 'Alice', email: 'alice@example.com' },
                 name: 'alice-distinct',
                 url: `http://localhost:8000/project/${TEAM_1}/person/alice-distinct`,
+                distinct_id: 'alice-distinct',
             })
 
             if (rolloutPercentage === 100) {
@@ -195,20 +223,28 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
             }
         })
 
-        it('looks up person by person_id', async () => {
+        it('looks up person by person_id and resolves a distinct_id', async () => {
             const result = await manager.getCyclotronPerson(TEAM_1, MOCK_PERSONS[0].uuid, 'person_id')
 
+            // The distinct_id field is what makes batch-triggered workflows able to use
+            // {event.distinct_id} downstream — without it, capture-based templates would
+            // create a new profile instead of updating the existing one.
             expect(result).toEqual({
                 id: MOCK_PERSONS[0].uuid,
                 properties: { name: 'Alice', email: 'alice@example.com' },
                 name: MOCK_PERSONS[0].uuid,
                 url: `http://localhost:8000/project/${TEAM_1}/person/${MOCK_PERSONS[0].uuid}`,
+                distinct_id: 'alice-distinct',
             })
 
             if (rolloutPercentage === 100) {
                 expect(mockGrpc.persons.fetchPersonsByPersonIds).toHaveBeenCalled()
+                expect(mockGrpc.persons.getDistinctIdsForPersons).toHaveBeenCalledWith(TEAM_1, ['1'], 1)
             } else {
                 expect(mockPostgres.fetchPersonsByPersonIds).toHaveBeenCalled()
+                expect(mockPostgres.fetchDistinctIdsForPersons).toHaveBeenCalledWith(TEAM_1, ['1'], {
+                    limitPerPerson: 1,
+                })
             }
         })
 
@@ -258,6 +294,7 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
                 properties: { name: 'Alice', email: 'alice@example.com' },
                 name: 'alice-distinct',
                 url: `http://localhost:8000/project/${TEAM_1}/person/alice-distinct`,
+                distinct_id: 'alice-distinct',
             })
 
             expect(mockGrpc.persons.fetchPersonsByDistinctIds).toHaveBeenCalled()

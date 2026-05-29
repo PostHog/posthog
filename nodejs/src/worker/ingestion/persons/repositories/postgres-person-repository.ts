@@ -376,6 +376,47 @@ export class PostgresPersonRepository
         return rows.map(this.toPerson)
     }
 
+    async fetchDistinctIdsForPersons(
+        teamId: TeamId,
+        personIntIds: string[],
+        options?: { limitPerPerson?: number; useReadReplica?: boolean }
+    ): Promise<Record<string, string[]>> {
+        if (personIntIds.length === 0) {
+            return {}
+        }
+
+        const useReadReplica = options?.useReadReplica ?? true
+        const limitPerPerson = options?.limitPerPerson
+
+        // posthog_persondistinctid has a btree index on (team_id, person_id) so this is a fast index seek.
+        // We sort by (person_id, id) so taking the head N gives a stable choice of distinct_ids per person.
+        const queryString = `SELECT person_id, distinct_id
+            FROM posthog_persondistinctid
+            WHERE team_id = $1 AND person_id = ANY($2::bigint[])
+            ORDER BY person_id ASC, id ASC`
+
+        const { rows } = await this.postgres.query<{ person_id: string; distinct_id: string }>(
+            useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
+            queryString,
+            [teamId, personIntIds],
+            'fetchDistinctIdsForPersons'
+        )
+
+        const result: Record<string, string[]> = {}
+        for (const row of rows) {
+            const key = String(row.person_id)
+            const existing = result[key]
+            if (existing) {
+                if (limitPerPerson == null || existing.length < limitPerPerson) {
+                    existing.push(row.distinct_id)
+                }
+            } else {
+                result[key] = [row.distinct_id]
+            }
+        }
+        return result
+    }
+
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
