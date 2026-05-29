@@ -117,6 +117,10 @@ pub(crate) async fn flush<P: Producer>(
     metrics::counter!(FLUSH_TOTAL, "reason" => reason, "worker" => worker).increment(1);
     metrics::histogram!(FLUSH_TUPLES, "worker" => worker).record(snapshot.len() as f64);
 
+    for (_, count) in &snapshot {
+        metrics::histogram!(FLUSH_TUPLE_COUNT, "worker" => worker).record(*count as f64);
+    }
+
     if let Err(e) = producer.produce(snapshot.clone()).await {
         metrics::counter!(PRODUCER_FLUSH_FAILED, "worker" => worker).increment(1);
         error!(error = %e, "produce failed; restoring counts, retrying next flush");
