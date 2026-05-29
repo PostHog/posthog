@@ -400,7 +400,7 @@ jobs:
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
-              run: cargo binstall --no-confirm cargo-shear@1.1.12
+              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear
