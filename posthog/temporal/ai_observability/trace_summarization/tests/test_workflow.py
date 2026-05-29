@@ -222,12 +222,11 @@ class TestSampleItemsInWindowActivity:
 
             # argMaxIf with no matching rows returns the zero UUID (not NULL), so
             # HAVING must explicitly compare against it — IS NOT NULL doesn't catch it.
-            # The comparison goes through toString because toUUIDOrZero / toUUID
-            # of the zero-UUID literal are not in the HogQL function allowlist.
+            # toUUIDOrZero is not whitelisted; toUUID('...') is (constant-folded UUID compare).
             assert query.having is not None
-            to_string_guard = CallCollector("toString")
-            to_string_guard.visit(query.having)
-            assert to_string_guard.found, "HAVING must guard against zero-UUID phantom generations"
+            to_uuid_guard = CallCollector("toUUID")
+            to_uuid_guard.visit(query.having)
+            assert to_uuid_guard.found, "HAVING must guard against zero-UUID phantom generations"
 
             class ConstantFinder(TraversingVisitor):
                 def __init__(self, value: str) -> None:
