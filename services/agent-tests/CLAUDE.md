@@ -46,10 +46,20 @@ and fails fast if no key is in env or repo-root `.env`. This is
 deliberate — losing real-inference coverage is how silent pi-ai
 integration drift sneaks in.
 
-Provider order: `POSTHOG_LLM_GATEWAY_KEY`+`URL` → `ANTHROPIC_API_KEY`
-→ `OPENAI_API_KEY`. Override the model with `REAL_INFERENCE_MODEL_ID`.
-Skip with `AGENT_SKIP_REAL_INFERENCE=1` (CI without creds, faux-only
-iteration).
+**Provider matrix.** Every provider with a configured key runs the
+full case set — that's how we catch provider-specific drift (tool
+schemas, stop reasons, system-prompt handling) end-to-end. Detected
+keys (`POSTHOG_LLM_GATEWAY_KEY`+`URL` / `ANTHROPIC_API_KEY` /
+`OPENAI_API_KEY`) each contribute one `describe.each` row. Pin a
+single provider with `REAL_INFERENCE_PROVIDER=anthropic|openai|gateway`
+when iterating locally. Override the model with
+`REAL_INFERENCE_MODEL_ID`. Skip the whole suite with
+`AGENT_SKIP_REAL_INFERENCE=1`.
+
+On macOS, Node's built-in `fetch` doesn't read the keychain trust
+store and silently raises "Connection error." for every TLS handshake.
+The suite auto-sets `SSL_CERT_FILE=/etc/ssl/cert.pem` at load if
+neither `SSL_CERT_FILE` nor `NODE_EXTRA_CA_CERTS` is already set.
 
 ## Running
 

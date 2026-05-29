@@ -10,8 +10,15 @@
  *
  * Provider matrix:
  *   POSTHOG_LLM_GATEWAY_KEY + POSTHOG_LLM_GATEWAY_URL → llm-gateway
- *   ANTHROPIC_API_KEY                                 → Anthropic (default: claude-sonnet-4-6)
+ *   ANTHROPIC_API_KEY                                 → Anthropic (default: claude-haiku-4-5)
  *   OPENAI_API_KEY                                    → OpenAI    (default: gpt-4o-mini)
+ *
+ * Defaults target the cheapest model in each registry that can still reliably
+ * follow simple instructions and emit tool calls. `gpt-4.1-nano` is cheaper
+ * but spuriously invokes `ask_for_input` on trivial single-turn prompts;
+ * `claude-3-haiku-20240307` is cheaper but ancient. Pin
+ * `REAL_INFERENCE_MODEL_ID` to a larger model when investigating a regression
+ * that needs one.
  *
  * Every provider with a key configured runs the full case set — this is how
  * we catch provider-specific drift (tool schemas, stop reasons, system prompt
@@ -100,7 +107,7 @@ function discoverProviders(): ProviderSpec[] {
     if ((!pin || pin === 'anthropic') && process.env.ANTHROPIC_API_KEY) {
         out.push({
             label: 'anthropic',
-            model: resolveOrThrow('anthropic', process.env.REAL_INFERENCE_MODEL_ID ?? 'claude-sonnet-4-6'),
+            model: resolveOrThrow('anthropic', process.env.REAL_INFERENCE_MODEL_ID ?? 'claude-haiku-4-5'),
             apiKey: process.env.ANTHROPIC_API_KEY,
         })
     }
