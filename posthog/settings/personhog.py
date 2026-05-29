@@ -17,6 +17,6 @@ PERSONHOG_CLIENT_IDLE_TIMEOUT_MS = get_from_env("PERSONHOG_CLIENT_IDLE_TIMEOUT_M
 
 # Server enforces a hard limit of 250 IDs per batch lookup request for person records.
 _PERSONHOG_MAX_BATCH_SIZE = 250
-PERSONHOG_BATCH_SIZE: int = min(
-    get_from_env("PERSONHOG_BATCH_SIZE", _PERSONHOG_MAX_BATCH_SIZE, type_cast=int), _PERSONHOG_MAX_BATCH_SIZE
+PERSONHOG_BATCH_SIZE: int = max(
+    1, min(get_from_env("PERSONHOG_BATCH_SIZE", _PERSONHOG_MAX_BATCH_SIZE, type_cast=int), _PERSONHOG_MAX_BATCH_SIZE)
 )
