@@ -296,18 +296,20 @@ class MigrationTaxCorrector:
     def _lookup_call_time(test_id: str, junit_call: dict[str, float]) -> float | None:
         """Find a durations key's call time in the JUnit map.
 
-        Exact match first; otherwise anchored-suffix on the `::class::test`
-        tail, accepted only when unique — JUnit ids and pytest node ids can
-        differ only in file-path prefix. Only ever called for the handful of
-        high / placeholder durations, so the linear scan is cheap.
+        Exact match first; otherwise a suffix anchored on the file basename
+        (`file.py::[Class::]test`) at a path boundary, accepted only when
+        unique — JUnit ids and pytest node ids can differ only in directory
+        prefix. Anchoring on the basename keeps a bare function name from
+        colliding across files. Only ever called for the handful of high /
+        placeholder durations, so the linear scan is cheap.
         """
         if test_id in junit_call:
             return junit_call[test_id]
         parts = test_id.split("::")
         if len(parts) < 2:
             return None
-        suffix = "::" + "::".join(parts[-2:]) if len(parts) >= 3 else "::" + parts[-1]
-        matches = [v for k, v in junit_call.items() if k.endswith(suffix)]
+        tail = "::".join([parts[0].rsplit("/", 1)[-1], *parts[1:]])
+        matches = [v for k, v in junit_call.items() if k == tail or k.endswith("/" + tail)]
         return matches[0] if len(matches) == 1 else None
 
     def _correct_statistically(self) -> MigrationTaxResult:

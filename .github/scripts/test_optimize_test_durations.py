@@ -148,6 +148,27 @@ class TestJUnitCallTimeCorrection:
         result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
         assert result.corrected_durations["posthog/x.py::T::test_setup_heavy"] == 42.0
 
+    def test_keeps_high_recorded_test_with_small_gap(self):
+        # Above the 120s threshold (so it passes the short-circuit) but the
+        # gap to call time is small — a genuinely slow test, not a carrier.
+        # Exercises the inner false-positive guard the short-circuit hides.
+        durations = {"posthog/x.py::T::test_slow": 150.0}
+        shards = [self._shard("core-1", {"posthog/x.py::T::test_slow": 140.0})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/x.py::T::test_slow"] == 150.0
+        assert result.carriers_found == 0
+
+    def test_function_style_name_not_floored_when_ambiguous(self):
+        # A bare function name shared across files must not match by suffix —
+        # ambiguous lookups return None, so the value is left untouched.
+        durations = {"products/a/test_x.py::test_run": 408.0}
+        shards = [
+            self._shard("core-1", {"products/b/test_y.py::test_run": 1.0}),
+            self._shard("core-2", {"products/c/test_z.py::test_run": 1.0}),
+        ]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["products/a/test_x.py::test_run"] == 408.0
+
     def test_suffix_match_when_path_prefix_differs(self):
         # durations key has a path prefix the JUnit id lacks — suffix match.
         durations = {"posthog/api/test/x.py::T::test_a": 408.0}

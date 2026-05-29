@@ -40,9 +40,10 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
 //
-// .test_durations has migration-inflated first-test durations corrected
-// by optimize_test_durations.py (using JUnit to identify carriers and
-// subtract the migration tax). Durations reflect actual test work.
+// .test_durations has migration-tax contamination removed by
+// optimize_test_durations.py: tests recorded far above their JUnit call
+// time (the DB-setup walk lands on whichever test first hits the DB) are
+// floored back to that call time. Durations reflect actual test work.
 //
 // Per-segment overhead constants below cover the fixed per-shard cost
 // outside test work: job setup, pytest collection, per-shard DB setup,
