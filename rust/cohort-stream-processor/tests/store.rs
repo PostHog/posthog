@@ -117,12 +117,18 @@ fn put_raw_writes_to_the_addressed_opaque_cf() {
         })
         .unwrap();
 
-    assert_eq!(store.get_stage1(&s1).unwrap().as_deref(), Some(&b"raw-s1"[..]));
+    assert_eq!(
+        store.get_stage1(&s1).unwrap().as_deref(),
+        Some(&b"raw-s1"[..])
+    );
     assert_eq!(
         store.get(Cf::Stage1, &s1.encode()).unwrap().as_deref(),
         Some(&b"raw-s1"[..])
     );
-    assert_eq!(store.get_stage2(&s2).unwrap().as_deref(), Some(&b"raw-s2"[..]));
+    assert_eq!(
+        store.get_stage2(&s2).unwrap().as_deref(),
+        Some(&b"raw-s2"[..])
+    );
 }
 
 /// Acceptance 2 — the §2.5:301 invariant: a `cf_stage1` put and its `cf_person_index` append are

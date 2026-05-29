@@ -195,13 +195,15 @@ impl CohortStore {
         ];
         let mut flush_opts = FlushOptions::default();
         flush_opts.set_wait(true);
-        self.db.flush_cfs_opt(&handles, &flush_opts).map_err(|source| {
-            counter!(STORE_ERRORS_TOTAL, "op" => OP_FLUSH).increment(1);
-            StoreError::Backend {
-                op: OP_FLUSH,
-                source,
-            }
-        })
+        self.db
+            .flush_cfs_opt(&handles, &flush_opts)
+            .map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_FLUSH).increment(1);
+                StoreError::Backend {
+                    op: OP_FLUSH,
+                    source,
+                }
+            })
     }
 
     fn cf(&self, cf: Cf) -> Result<&ColumnFamily, StoreError> {
