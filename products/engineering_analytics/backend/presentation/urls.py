@@ -6,7 +6,7 @@ Reference router for documentation. The real wiring lives in
 
 from rest_framework.routers import DefaultRouter
 
-from .views import EngineeringAnalyticsViewSet
+from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
 
 router = DefaultRouter()
 router.register(r"engineering_analytics", EngineeringAnalyticsViewSet, basename="engineering_analytics")

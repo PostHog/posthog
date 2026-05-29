@@ -2,7 +2,7 @@
 
 The ONLY module other products (and the DRF presentation layer) import. Public
 functions take a team plus PostHog-convention parameters and return canonical
-contract types. See SPEC.md sections 3 and 5.
+contract types.
 
 ``date_from`` / ``date_to`` follow the posthog/schema.py convention: a relative
 string like ``-7d`` or an ISO8601 timestamp, with ``date_from`` defaulting to
@@ -12,8 +12,8 @@ filter; in v1 it only labels the response (warehouse rows carry no repo column).
 
 from posthog.models.team import Team
 
-from .. import logic
-from .contracts import PRLifecycle, TimeToMerge, WorkflowReport
+from products.engineering_analytics.backend import logic
+from products.engineering_analytics.backend.facade.contracts import PRLifecycle, TimeToMerge, WorkflowReport
 
 
 def get_workflow_report(

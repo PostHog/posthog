@@ -3,7 +3,7 @@
 Framework-free frozen dataclasses that define the canonical data model this
 product exposes — Author, RepoRef, PullRequest, WorkflowRun — plus the
 tool-specific return types (WorkflowReport, TimeToMerge, PRLifecycle). No Django
-imports. See SPEC.md section 4.
+imports.
 
 These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant: same
 ``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps working) but
@@ -12,8 +12,7 @@ shape fails at the facade boundary instead of producing malformed JSON later.
 
 Provider-specific shapes (GitHub column names, nesting) never reach here — the
 query layer maps them into these types. Reviewers, deploys, and file paths are
-intentionally absent until the warehouse data that backs them lands (SPEC.md
-sections 4 and 8).
+intentionally absent until the warehouse data that backs them lands.
 """
 
 from datetime import datetime

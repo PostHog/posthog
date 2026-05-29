@@ -14,7 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
-from ...facade.contracts import WorkflowReportRow
+from products.engineering_analytics.backend.facade.contracts import WorkflowReportRow
 
 DEFAULT_WORKFLOW_LIMIT = 10
 

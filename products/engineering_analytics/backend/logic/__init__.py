@@ -3,7 +3,7 @@
 Resolves caller inputs (relative date strings, ``owner/name`` repo strings) into
 the concrete values the query layer needs, runs the queries, and wraps the rows
 into contract types stamped with their ``metric_quality``. GitHub-shaped columns
-never reach here — that is the query layer's job (SPEC.md section 3).
+never reach here — that is the query layer's job.
 """
 
 from datetime import datetime
@@ -13,9 +13,9 @@ from django.utils import timezone as django_timezone
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
-from ..facade.contracts import PRLifecycle, RepoRef, TimeToMerge, WorkflowReport
-from .queries.pull_requests import query_pr_lifecycle, query_time_to_merge
-from .queries.workflow_runs import query_workflow_report
+from products.engineering_analytics.backend.facade.contracts import PRLifecycle, RepoRef, TimeToMerge, WorkflowReport
+from products.engineering_analytics.backend.logic.queries.pull_requests import query_pr_lifecycle, query_time_to_merge
+from products.engineering_analytics.backend.logic.queries.workflow_runs import query_workflow_report
 
 # PullRequest.repo is required, but v1 warehouse rows carry no repo identity.
 # When the caller doesn't name a repo we echo this neutral ref rather than invent one.

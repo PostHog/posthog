@@ -8,7 +8,7 @@ the OpenAPI spec, generated TypeScript types, and MCP tool schemas.
 
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import (
+from products.engineering_analytics.backend.facade.contracts import (
     Author,
     PRLifecycle,
     PRLifecycleEvent,
