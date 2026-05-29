@@ -71,9 +71,10 @@ class PulseDigest(RootTeamMixin, CreatedMetaFields, UUIDModel):
         return f"PulseDigest(team={self.team_id}, {self.period_start.date()} → {self.period_end.date()})"
 
 
-class PulseFinding(CreatedMetaFields, UUIDTModel):
+class PulseFinding(RootTeamMixin, CreatedMetaFields, UUIDModel):
     """A single metric change Pulse found worth surfacing in a digest."""
 
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="pulse_findings")
     digest = models.ForeignKey(PulseDigest, on_delete=models.CASCADE, related_name="findings")
 
     # The metric the finding is about — opaque JSON descriptor describing event(s), filters, breakdown
@@ -81,9 +82,10 @@ class PulseFinding(CreatedMetaFields, UUIDTModel):
     metric_label = models.CharField(max_length=255, blank=True, default="")
 
     current_value = models.FloatField()
-    baseline_value = models.FloatField()
+    baseline_value = models.FloatField()  # holds the baseline median
     change_pct = models.FloatField()
-    z_score = models.FloatField()
+    impact = models.FloatField()  # abs(change_pct) * sqrt(baseline_median) — used for ranking
+    robust_z = models.FloatField()  # secondary/informational only
 
     # The breakdown the LLM picked as most explanatory (if any) — e.g. {"$browser": "Safari"}
     attribution_breakdown = models.JSONField(null=True, blank=True)
@@ -103,6 +105,8 @@ class PulseFinding(CreatedMetaFields, UUIDTModel):
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
     rank = models.IntegerField(default=0)
+
+    objects = TeamScopedManager()  # type: ignore[misc]
 
     class Meta:
         indexes = [
