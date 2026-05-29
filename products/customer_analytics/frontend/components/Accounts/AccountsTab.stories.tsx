@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-const QUERY_ENDPOINT = '/api/environments/:team_id/query/'
+const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/environments/:team_id/accounts/:account_id/notebooks/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
 
