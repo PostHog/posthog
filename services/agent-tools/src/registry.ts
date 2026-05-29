@@ -15,7 +15,13 @@ import { loadSkill } from './tools/load-skill'
 import { askForInputTool, endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
 import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
-import { slackPostMessageV1, slackUpdateMessageV1, slackReactV1 } from './tools/slack.v1'
+import {
+    slackPostMessageV1,
+    slackReactV1,
+    slackReadChannelV1,
+    slackReadThreadV1,
+    slackUpdateMessageV1,
+} from './tools/slack.v1'
 import { webFetchV1 } from './tools/web-fetch.v1'
 import { webSearchV1 } from './tools/web-search.v1'
 
@@ -24,6 +30,8 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogPersonsSearchV1,
     slackPostMessageV1,
     slackUpdateMessageV1,
+    slackReadChannelV1,
+    slackReadThreadV1,
     slackReactV1,
     webFetchV1,
     webSearchV1,
