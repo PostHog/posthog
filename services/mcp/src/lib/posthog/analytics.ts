@@ -57,6 +57,9 @@ export type IdentityProvider = {
     getMcpClientName: () => Promise<string | undefined>
     getMcpClientVersion: () => Promise<string | undefined>
     getMcpProtocolVersion: () => Promise<string | undefined>
+    // Per-request `x-anthropic-client` value. Distinct from `mcpClientName`:
+    // tracks the live inner client on pooled MCP transports.
+    getMcpVendorClient: () => Promise<string | undefined>
     getRegion: () => Promise<string | undefined>
     getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
     getClientUserAgent: () => Promise<string | undefined>
@@ -139,13 +142,14 @@ async function buildEventTags(identity: IdentityProvider): Promise<Record<string
     }
 }
 
-async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
+export async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
         mcpVersion,
         clientUserAgent,
         mcpClientName,
         mcpClientVersion,
         mcpProtocolVersion,
+        mcpVendorClient,
         mcpRegion,
         analyticsContext,
         oauthClientName,
@@ -161,6 +165,7 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
         identity.getMcpClientName(),
         identity.getMcpClientVersion(),
         identity.getMcpProtocolVersion(),
+        identity.getMcpVendorClient(),
         identity.getRegion(),
         identity.getAnalyticsContext(),
         identity.getOAuthClientName(),
@@ -183,6 +188,7 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
         $mcp_client_user_agent: clientUserAgent,
         $mcp_client_name: mcpClientName,
         $mcp_client_version: mcpClientVersion,
+        mcp_vendor_client: mcpVendorClient,
         $mcp_protocol_version: mcpProtocolVersion,
         $mcp_region: mcpRegion,
         $mcp_organization_id: analyticsContext?.organizationId,
@@ -200,7 +206,7 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
     }
 }
 
-function redactSensitiveInformation(text: string): string {
+export function redactSensitiveInformation(text: string): string {
     return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
 }
 

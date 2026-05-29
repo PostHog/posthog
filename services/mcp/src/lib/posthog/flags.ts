@@ -14,26 +14,27 @@ export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, 
     }
 }
 
-/**
- * Evaluate multiple feature flags in parallel for the given user.
- * Returns a map of flag key → boolean. `groups` is forwarded to posthog-node
- * so group-scoped rollouts (e.g. per-organization) evaluate correctly.
- */
+/** Raw value from posthog-node for a single flag — `true`/`false` for boolean flags, a variant string for multivariate. */
+export type FlagValue = boolean | string | undefined
+
+/** Shape returned by {@link evaluateFeatureFlags} and threaded through the tool-filtering and instructions layers. */
+export type EvaluatedFlags = Record<string, FlagValue>
+
 export async function evaluateFeatureFlags(
     flagKeys: string[],
     distinctId: string,
     groups?: FlagGroups
-): Promise<Record<string, boolean>> {
+): Promise<EvaluatedFlags> {
     if (flagKeys.length === 0) {
         return {}
     }
 
-    const results = await Promise.all(
-        flagKeys.map(async (key) => {
-            const enabled = await isFeatureFlagEnabled(key, distinctId, groups)
-            return [key, enabled] as const
-        })
-    )
-
-    return Object.fromEntries(results)
+    const client = getPostHogClient()
+    const hasGroups = groups && Object.keys(groups).length > 0
+    const allFlags = await client.getAllFlags(distinctId, { flagKeys, ...(hasGroups ? { groups } : {}) })
+    const result: EvaluatedFlags = {}
+    for (const key of flagKeys) {
+        result[key] = allFlags[key] as FlagValue
+    }
+    return result
 }

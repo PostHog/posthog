@@ -31,6 +31,7 @@ const SurveyCreateSchema = SurveysCreateBody.omit({
     response_sampling_interval: true,
     response_sampling_limit: true,
     response_sampling_daily_limits: true,
+    base_language: true,
     _create_in_folder: true,
 }).extend({
     type: SurveysCreateBody.shape['type'].describe(
@@ -201,6 +202,7 @@ const SurveyUpdateSchema = SurveysPartialUpdateParams.omit({ project_id: true })
             response_sampling_interval: true,
             response_sampling_limit: true,
             response_sampling_daily_limits: true,
+            base_language: true,
             _create_in_folder: true,
         }).shape
     )

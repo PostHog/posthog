@@ -1,6 +1,6 @@
 {
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -32,13 +32,77 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
         "title": "List accounts",
         "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-create": {
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account notebook",
+        "title": "Create account notebook",
+        "required_scopes": ["account:write"],
         "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-destroy": {
+        "description": "Permanently delete an account notebook by its `short_id`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account notebook",
+        "title": "Delete account notebook",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-list": {
+        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notebooks",
+        "title": "List account notebooks",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-retrieve": {
+        "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account notebook",
+        "title": "Get account notebook",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -48,7 +112,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-partial-update": {
-        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged.",
+        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags on the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update account",
@@ -64,13 +128,13 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
         "title": "Get account",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1002,6 +1066,21 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-create-text-tile": {
+        "description": "Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings, dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards if you need precise placement.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard text tile",
+        "title": "Create dashboard text tile",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-delete": {
         "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
         "category": "Dashboards",
@@ -1048,7 +1127,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -1068,6 +1147,21 @@
         "feature": "dashboards",
         "summary": "Update dashboard",
         "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-update-text-tile": {
+        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard text tile",
+        "title": "Update dashboard text tile",
         "required_scopes": ["dashboard:write"],
         "new_mcp": true,
         "annotations": {
@@ -1497,7 +1591,7 @@
         }
     },
     "error-tracking-suppression-rules-create": {
-        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more than one distinct error.",
+        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking suppression rule",
@@ -1505,7 +1599,7 @@
         "required_scopes": ["error_tracking:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -1524,6 +1618,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-suppression-rules-update": {
+        "description": "Update an error tracking suppression rule by ID. Only the fields you include in the request body are applied; omitted fields keep their existing values. Supports updating `filters` and `sampling_rate`. WARNING: broadening `filters` will start dropping additional events at ingestion silently. Keep filters tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over widening the match. Confirm with the user before changing a rule's filters in a way that could match more than one distinct error.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking suppression rule",
+        "title": "Update error tracking suppression rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-symbol-sets-download-retrieve": {
@@ -1886,10 +1995,10 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
+        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
         "feature": "experiments",
-        "summary": "Get comprehensive experiment results including metrics and exposure data.",
+        "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
         "new_mcp": true,
@@ -2200,6 +2309,21 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-connections-list": {
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List direct-query connections",
+        "title": "List direct-query connections",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "external-data-sources-create": {
         "description": "Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to discover source types and 'external-data-sources-db-schema' to validate credentials and discover available tables. Present the db-schema results to the user showing each table's available sync methods, incremental fields, detected primary keys, and columns so they can configure before creation. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.",
         "category": "Data warehouse",
@@ -2468,6 +2592,51 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-bulk-delete-create": {
+        "description": "Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING: `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling this with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active experiments, early access features, or that other flags depend on are skipped and reported in `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk delete feature flags",
+        "title": "Bulk delete feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flags-bulk-keys-create": {
+        "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Look up feature flag keys by ID",
+        "title": "Look up feature flag keys by ID",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-bulk-update-tags-create": {
+        "description": "Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and `skipped` (flags missing or without edit permission, with reason).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk update tags on feature flags",
+        "title": "Bulk update tags on feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
         "category": "Feature flags",
@@ -2565,6 +2734,51 @@
         "summary": "Get user blast radius",
         "title": "Get user blast radius",
         "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "file-download-batch-exports-cancel-create": {
+        "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Cancel a running file download export",
+        "title": "Cancel a running file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-create": {
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Start file download export",
+        "title": "Start file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-retrieve": {
+        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Get file download export status",
+        "title": "Get file download export status",
+        "required_scopes": ["batch_export:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -3187,6 +3401,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "llma-personal-spend": {
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get my LLM spend analysis",
+        "title": "Get my LLM spend analysis",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "llma-prompt-create": {
@@ -4024,6 +4253,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Edit part of a notebook's content.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
         "category": "Notebooks",
@@ -4082,7 +4327,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
         "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
@@ -4638,7 +4885,7 @@
         }
     },
     "query-session-recordings-list": {
-        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Deep links to specific recordings\n\nTo link a user to a specific recording, build the URL as `{posthog_base_url}/replay/{id}` using the `id` returned in each result row.\n\nDo not use `/replay/home?sessionRecordingId={id}` — that path takes the user to the replay list with the default filter applied and does not open the recording.\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- Deep-link to a specific recording as `{posthog_base_url}/replay/{id}`, never `/replay/home?sessionRecordingId={id}`.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session recordings",
@@ -5536,6 +5783,22 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-list": {
         "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
@@ -5814,6 +6077,137 @@
             "readOnlyHint": false
         }
     },
+    "vision-scanners-create": {
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Create replay vision scanner",
+        "title": "Create replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-delete": {
+        "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Delete replay vision scanner",
+        "title": "Delete replay vision scanner",
+        "required_scopes": ["replay_scanner:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-get": {
+        "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get replay vision scanner",
+        "title": "Get replay vision scanner",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-list": {
+        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List replay vision scanners",
+        "title": "List replay vision scanners",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-get": {
+        "description": "Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result` including any event citations linking the LLM output back to specific events in the originating session. Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying recording.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get scanner observation",
+        "title": "Get scanner observation",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-list": {
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List scanner observations",
+        "title": "List scanner observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-scan-session": {
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Run scanner against a session now",
+        "title": "Run scanner against a session now",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-update": {
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Update replay vision scanner",
+        "title": "Update replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
         "category": "Visual review",
@@ -5843,6 +6237,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-approve-create": {
+        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Approve visual review snapshots",
+        "title": "Approve visual review snapshots",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },
@@ -5911,7 +6321,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Paginated.",
+        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",
@@ -5923,6 +6333,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-tolerate-create": {
+        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline image.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Tolerate visual review snapshot",
+        "title": "Tolerate visual review snapshot",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },

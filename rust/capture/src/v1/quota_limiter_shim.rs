@@ -59,7 +59,7 @@ pub async fn apply_quota_limits(
                 has_product_tour_id: ev.has_property("product_tour_id"),
             };
             if predicate(info) {
-                ev.result = EventResult::Limited;
+                ev.result = EventResult::Drop;
                 ev.destination = Destination::Drop;
                 ev.details = Some(match resource {
                     QuotaResource::Exceptions => "exceptions_over_quota",
@@ -116,6 +116,7 @@ mod tests {
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             global_rate_limit_enabled: false,
+            global_rate_limit_dry_run: false,
             global_rate_limit_window_interval_secs: 60,
             global_rate_limit_sync_interval_secs: 15,
             global_rate_limit_tick_interval_ms: 1000,
@@ -320,10 +321,10 @@ mod tests {
         names
     }
 
-    fn limited_event_names(events: &[WrappedEvent]) -> Vec<&str> {
+    fn quota_dropped_event_names(events: &[WrappedEvent]) -> Vec<&str> {
         let mut names: Vec<&str> = events
             .iter()
-            .filter(|e| e.result == EventResult::Limited)
+            .filter(|e| e.result == EventResult::Drop && e.destination == Destination::Drop)
             .map(|e| e.event.event.as_str())
             .collect();
         names.sort();
@@ -359,7 +360,7 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_ok());
         assert_eq!(ok_event_names(&events).len(), 4);
-        assert!(limited_event_names(&events).is_empty());
+        assert!(quota_dropped_event_names(&events).is_empty());
     }
 
     // -----------------------------------------------------------------------
@@ -381,7 +382,7 @@ mod tests {
 
         // Global limit short-circuits without mutating events
         assert_eq!(ok_event_names(&events).len(), 4);
-        assert!(limited_event_names(&events).is_empty());
+        assert!(quota_dropped_event_names(&events).is_empty());
     }
 
     #[tokio::test]
@@ -444,10 +445,10 @@ mod tests {
         ok.sort();
         assert_eq!(ok, vec!["$pageview", "survey sent"]);
         assert_eq!(
-            limited_event_names(&events),
+            quota_dropped_event_names(&events),
             vec!["$exception", "$exception"]
         );
-        for ev in events.iter().filter(|e| e.result == EventResult::Limited) {
+        for ev in events.iter().filter(|e| e.result == EventResult::Drop) {
             assert_eq!(ev.details, Some("exceptions_over_quota"));
         }
     }
@@ -462,7 +463,7 @@ mod tests {
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_err());
-        assert_eq!(limited_event_names(&events).len(), 2);
+        assert_eq!(quota_dropped_event_names(&events).len(), 2);
     }
 
     // -----------------------------------------------------------------------
@@ -486,8 +487,8 @@ mod tests {
         let mut ok = ok_event_names(&events);
         ok.sort();
         assert_eq!(ok, vec!["$exception", "$pageview"]);
-        assert_eq!(limited_event_names(&events).len(), 3);
-        for ev in events.iter().filter(|e| e.result == EventResult::Limited) {
+        assert_eq!(quota_dropped_event_names(&events).len(), 3);
+        for ev in events.iter().filter(|e| e.result == EventResult::Drop) {
             assert_eq!(ev.details, Some("survey_responses_over_quota"));
         }
     }
@@ -502,12 +503,12 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         assert!(result.is_ok());
 
-        // Product tour survey → Ok, regular survey → Limited
+        // Product tour survey → Ok, regular survey → Drop (quota exceeded)
         assert_eq!(
             events.iter().find(|e| e.uuid == tour_uuid).unwrap().result,
             EventResult::Ok
         );
-        assert_eq!(limited_event_names(&events).len(), 1);
+        assert_eq!(quota_dropped_event_names(&events).len(), 1);
     }
 
     // -----------------------------------------------------------------------
@@ -528,8 +529,8 @@ mod tests {
         assert!(result.is_ok());
 
         assert_eq!(ok_event_names(&events), vec!["$pageview"]);
-        assert_eq!(limited_event_names(&events).len(), 3);
-        for ev in events.iter().filter(|e| e.result == EventResult::Limited) {
+        assert_eq!(quota_dropped_event_names(&events).len(), 3);
+        for ev in events.iter().filter(|e| e.result == EventResult::Drop) {
             assert_eq!(ev.details, Some("llm_events_over_quota"));
         }
     }
@@ -549,7 +550,7 @@ mod tests {
         let mut ok = ok_event_names(&events);
         ok.sort();
         assert_eq!(ok, vec!["$ainotcounted", "ai_generation"]);
-        assert_eq!(limited_event_names(&events), vec!["$ai_generation"]);
+        assert_eq!(quota_dropped_event_names(&events), vec!["$ai_generation"]);
     }
 
     // -----------------------------------------------------------------------
@@ -579,7 +580,7 @@ mod tests {
         assert!(result.is_ok());
 
         assert_eq!(ok_event_names(&events), vec!["$pageview"]);
-        assert_eq!(limited_event_names(&events).len(), 3);
+        assert_eq!(quota_dropped_event_names(&events).len(), 3);
         assert_eq!(
             find_unique_by_name(&events, "$exception").details,
             Some("exceptions_over_quota")
@@ -657,7 +658,7 @@ mod tests {
         pv_ev.destination = Destination::Drop;
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        // $exception → Limited, $pageview → already Drop → all non-Ok → error
+        // $exception → Drop (quota), $pageview → already Drop → all non-Ok → error
         assert!(result.is_err());
     }
 

@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import type { DataWarehouseSyncWarning } from '@/api/client'
 import { withUiApp } from '@/resources/ui-apps'
 import { QueryRunInputSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -12,7 +13,7 @@ const schema = QueryRunInputSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = WithPostHogUrl<{ query: unknown; results: unknown }>
+type Result = WithPostHogUrl<{ query: unknown; results: unknown; warnings?: DataWarehouseSyncWarning[] }>
 
 export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
@@ -39,6 +40,8 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
     // TrendsQuery, FunnelsQuery, and PathsQuery return results directly as an array
     // HogQLQuery returns { results: [...], columns: [...] }
     // The UI app infers the visualization type from the data structure
+    const warningsField = queryResult.data.warnings?.length ? { warnings: queryResult.data.warnings } : {}
+
     if (
         queryInfo.visualization === 'trends' ||
         queryInfo.visualization === 'funnel' ||
@@ -49,6 +52,7 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
             {
                 query: queryInfo.innerQuery || query,
                 results: queryResult.data.results,
+                ...warningsField,
             },
             path
         )
@@ -63,6 +67,7 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
                 columns: queryResult.data.columns || [],
                 results: queryResult.data.results || [],
             },
+            ...warningsField,
         },
         path
     )

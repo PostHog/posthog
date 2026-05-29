@@ -31,7 +31,8 @@ fn empty_raw_object() -> Box<RawValue> {
 }
 
 /// Per-event outcome in the batch response.
-/// Maps to HTTP semantics: Ok (2xx), Drop (4xx), Limited (429), Retry (5xx).
+/// Ok: captured successfully. Drop: rejected (billing/validation). Limited: accepted
+/// with person processing disabled (do not resubmit). Retry: not persisted, safe to resubmit.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventResult {
@@ -52,14 +53,11 @@ pub struct Batch {
     pub batch: Vec<Event>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        alias = "disable_skew_adjustment"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_skew_correction: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
@@ -75,6 +73,7 @@ pub struct Event {
     pub timestamp: String,
     pub session_id: Option<String>,
     pub window_id: Option<String>,
+    #[serde(default)]
     pub options: Options,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
@@ -170,25 +169,15 @@ impl SinkEvent for WrappedEvent {
             ),
             force_disable_person_processing,
             historical_migration,
+            skip_heatmap_processing: None,
             dlq_reason,
             dlq_step,
             dlq_timestamp,
         }
     }
 
-    fn partition_key<'buf>(&self, ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
+    fn partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
-        // v0 parity: only drop partition key for main/overflow analytics.
-        // DLQ, Historical, and Custom destinations always retain their key
-        // even when person processing is disabled via event restrictions.
-        if self.force_disable_person_processing
-            && matches!(
-                self.destination,
-                Destination::AnalyticsMain | Destination::Overflow
-            )
-        {
-            return None;
-        }
         match (
             self.event.options.cookieless_mode == Some(true),
             ctx.capture_internal,
@@ -203,7 +192,6 @@ impl SinkEvent for WrappedEvent {
                 let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
             }
         }
-        Some(buf.as_str())
     }
 
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
@@ -653,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_event_missing_options_fails() {
+    fn parse_event_missing_options_defaults() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
@@ -663,7 +651,12 @@ mod tests {
                 "timestamp": "2026-03-19T14:29:58.123Z"
             }]
         }"#;
-        assert!(serde_json::from_str::<Batch>(json).is_err());
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        let event = &batch.batch[0];
+        assert_eq!(event.options.cookieless_mode, None);
+        assert_eq!(event.options.disable_skew_correction, None);
+        assert_eq!(event.options.product_tour_id, None);
+        assert_eq!(event.options.process_person_profile, None);
     }
 
     #[test]
@@ -880,9 +873,10 @@ mod tests {
         assert!(h.historical_migration.is_none());
     }
 
-    fn partition_key_str(ev: &WrappedEvent, ctx: &Context) -> Option<String> {
+    fn partition_key_str(ev: &WrappedEvent, ctx: &Context) -> String {
         let mut buf = String::new();
-        ev.partition_key(ctx, &mut buf).map(String::from)
+        ev.partition_key(ctx, &mut buf);
+        buf
     }
 
     #[test]
@@ -891,7 +885,7 @@ mod tests {
         let ev = ok_wrapped("$pageview", "user-42");
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
+            format!("{}:user-42", ctx.api_token)
         );
     }
 
@@ -902,7 +896,7 @@ mod tests {
         ev.event.options.cookieless_mode = Some(true);
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:{}", ctx.api_token, ctx.client_ip))
+            format!("{}:{}", ctx.api_token, ctx.client_ip)
         );
     }
 
@@ -914,7 +908,7 @@ mod tests {
         ev.event.options.cookieless_mode = Some(true);
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:127.0.0.1", ctx.api_token))
+            format!("{}:127.0.0.1", ctx.api_token)
         );
     }
 
@@ -925,72 +919,16 @@ mod tests {
         assert_eq!(*ev.destination(), Destination::Overflow);
     }
 
-    // --- partition key + force_disable_person_processing × destination ---
-
     #[test]
-    fn partition_key_force_disable_analytics_main() {
+    fn partition_key_always_writes_regardless_of_force_disable() {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-42");
         ev.force_disable_person_processing = true;
         ev.destination = Destination::AnalyticsMain;
-        assert_eq!(partition_key_str(&ev, &ctx), None);
-    }
-
-    #[test]
-    fn partition_key_force_disable_overflow() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Overflow;
-        assert_eq!(partition_key_str(&ev, &ctx), None);
-    }
-
-    #[test]
-    fn partition_key_force_disable_dlq() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Dlq;
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
-        );
-    }
-
-    #[test]
-    fn partition_key_force_disable_historical() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::AnalyticsHistorical;
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
-        );
-    }
-
-    #[test]
-    fn partition_key_force_disable_custom() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Custom("my_topic".into());
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
-        );
-    }
-
-    #[test]
-    fn partition_key_force_disable_cookieless_dlq() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Dlq;
-        ev.event.options.cookieless_mode = Some(true);
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            Some(format!("{}:{}", ctx.api_token, ctx.client_ip))
+            format!("{}:user-42", ctx.api_token),
+            "partition_key() is unconditional; sink applies null-key policy"
         );
     }
 
@@ -1089,6 +1027,19 @@ mod tests {
         let data: RawEvent =
             serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
         (captured, data)
+    }
+
+    #[test]
+    fn serialize_into_fails_without_adjusted_timestamp() {
+        let mut ev = pageview_event();
+        ev.adjusted_timestamp = None;
+        let ctx = serialize_ctx();
+        let mut buf = String::new();
+        let err = ev.serialize_into(&ctx, &mut buf).unwrap_err();
+        assert!(
+            err.to_string().contains("adjusted_timestamp"),
+            "error should mention adjusted_timestamp: {err}"
+        );
     }
 
     #[test]
@@ -1549,5 +1500,159 @@ mod tests {
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties["$session_id"], "sess-abc");
         assert_eq!(data.properties.len(), 1);
+    }
+
+    // --- CapturedEvent round-trip parity using realistic fixtures ---
+
+    use crate::v1::test_utils::{
+        assert_round_trip, realistic_batch, realistic_custom, realistic_identify,
+        realistic_pageview, realistic_spread_destinations, WrappedEventMut,
+    };
+
+    #[test]
+    fn round_trip_realistic_pageview() {
+        let ctx = serialize_ctx();
+        let ev = realistic_pageview("user-42");
+        let (captured, data) = assert_round_trip(&ev, &ctx);
+        assert_eq!(captured.event, "$pageview");
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(
+            data.properties["$current_url"],
+            "https://app.example.com/dashboard"
+        );
+        assert_eq!(
+            data.properties["$session_id"],
+            "01jq9abc-def0-1234-5678-9abcdef01234"
+        );
+        assert_eq!(
+            data.properties["$window_id"],
+            "01jq9xyz-0000-4321-8765-fedcba987654"
+        );
+        assert_eq!(data.properties["$cookieless_mode"], false);
+        assert_eq!(data.properties["$process_person_profile"], true);
+    }
+
+    #[test]
+    fn round_trip_realistic_identify() {
+        let ctx = serialize_ctx();
+        let ev = realistic_identify("user-99");
+        let (captured, data) = assert_round_trip(&ev, &ctx);
+        assert_eq!(captured.event, "$identify");
+        assert_eq!(captured.distinct_id, "user-99");
+        assert_eq!(data.properties["$set"]["email"], "user@example.com");
+        assert_eq!(data.properties["$process_person_profile"], true);
+    }
+
+    #[test]
+    fn round_trip_realistic_custom() {
+        let ctx = serialize_ctx();
+        let ev = realistic_custom("user-7", "button_clicked");
+        let (captured, data) = assert_round_trip(&ev, &ctx);
+        assert_eq!(captured.event, "button_clicked");
+        assert_eq!(data.properties["button_id"], "cta-signup");
+        assert_eq!(data.properties["$process_person_profile"], true);
+    }
+
+    #[test]
+    fn round_trip_realistic_batch_all_events() {
+        let ctx = serialize_ctx();
+        for ev in &realistic_batch() {
+            assert_round_trip(ev, &ctx);
+        }
+    }
+
+    #[test]
+    fn round_trip_spread_destinations() {
+        let ctx = serialize_ctx();
+        for ev in &realistic_spread_destinations() {
+            if (ev.result == EventResult::Ok || ev.result == EventResult::Limited)
+                && ev.adjusted_timestamp.is_some()
+            {
+                assert_round_trip(ev, &ctx);
+            }
+        }
+    }
+
+    // --- Kafka header parity checks ---
+
+    #[test]
+    fn headers_parity_pageview() {
+        let ctx = serialize_ctx();
+        let ev = realistic_pageview("user-42");
+        let h = ev.headers(&ctx);
+        assert_eq!(h.token, Some(ctx.api_token.clone()));
+        assert_eq!(h.distinct_id.as_deref(), Some("user-42"));
+        assert_eq!(h.event.as_deref(), Some("$pageview"));
+        assert_eq!(
+            h.session_id.as_deref(),
+            Some("01jq9abc-def0-1234-5678-9abcdef01234")
+        );
+        assert!(h.uuid.is_some());
+        assert!(h.timestamp.is_some());
+        assert!(h.force_disable_person_processing.is_none());
+        assert!(h.historical_migration.is_none());
+    }
+
+    #[test]
+    fn headers_parity_historical_migration() {
+        let mut ctx = serialize_ctx();
+        ctx.historical_migration = true;
+        let ev = realistic_pageview("user-42");
+        let h = ev.headers(&ctx);
+        assert_eq!(h.historical_migration, Some(true));
+    }
+
+    #[test]
+    fn headers_parity_force_disable_person_processing() {
+        let ctx = serialize_ctx();
+        let ev = realistic_pageview("user-42").with_force_disable_person_processing(true);
+        let h = ev.headers(&ctx);
+        assert_eq!(h.force_disable_person_processing, Some(true));
+    }
+
+    #[test]
+    fn headers_parity_dlq_destination() {
+        let ctx = serialize_ctx();
+        let ev = realistic_pageview("user-42").with_destination(Destination::Dlq);
+        let h = ev.headers(&ctx);
+        assert_eq!(h.dlq_reason.as_deref(), Some("event_restriction"));
+        assert_eq!(h.dlq_step.as_deref(), Some("capture"));
+        assert!(h.dlq_timestamp.is_some());
+    }
+
+    // --- Partition key parity ---
+
+    #[test]
+    fn partition_key_parity_normal() {
+        let ctx = serialize_ctx();
+        let ev = realistic_pageview("user-42");
+        let mut buf = String::new();
+        ev.partition_key(&ctx, &mut buf);
+        assert_eq!(buf, format!("{}:user-42", ctx.api_token));
+    }
+
+    #[test]
+    fn partition_key_parity_cookieless() {
+        let ctx = serialize_ctx();
+        let mut ev = realistic_pageview("user-42");
+        ev.event.options.cookieless_mode = Some(true);
+        let mut buf = String::new();
+        ev.partition_key(&ctx, &mut buf);
+        assert_eq!(buf, format!("{}:{}", ctx.api_token, ctx.client_ip));
+    }
+
+    #[test]
+    fn partition_key_parity_force_disable_main() {
+        let ctx = serialize_ctx();
+        let ev = realistic_pageview("user-42")
+            .with_force_disable_person_processing(true)
+            .with_destination(Destination::AnalyticsMain);
+        let mut buf = String::new();
+        ev.partition_key(&ctx, &mut buf);
+        assert_eq!(
+            buf,
+            format!("{}:user-42", ctx.api_token),
+            "partition_key() is unconditional; sink applies null-key policy"
+        );
     }
 }
