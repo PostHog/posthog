@@ -386,6 +386,16 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(response.columns, [])
         self.assertEqual(response.metricsResults, [3])
 
+    def test_combined_mode_returns_rows_and_metrics_in_one_response(self):
+        create_account(team_id=self.team.id, name="A")
+        create_account(team_id=self.team.id, name="B")
+        create_account(team_id=self.team.id, name="C")
+        runner, response = self._run_query(select=["name"], metrics=["count()"])
+        name_idx = runner.columns.index("name")
+        self.assertEqual(len(response.results), 3)
+        self.assertTrue(all(row[name_idx]["name"] for row in response.results))
+        self.assertEqual(response.metricsResults, [3])
+
     def test_metrics_mode_reuses_table_where_clause(self):
         create_account(team_id=self.team.id, name="Acme")
         create_account(team_id=self.team.id, name="Other")

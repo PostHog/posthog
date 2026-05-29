@@ -14,11 +14,12 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
+import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 
-export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
+export const SEARCH_DEBOUNCE_MS = 300
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -78,27 +79,27 @@ const ROLE_LABELS: Record<AccountRoleKey, string> = {
 
 export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
-// `tileId` carries the source tile so the overview can highlight which tile is
-// the active filter; `expression` is the HogQL fragment passed to AccountsQuery.
-export interface TileFilter {
-    tileId: string
-    expression: string
-}
-
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], accountsColumnConfigLogic, ['selectColumns', 'visibleColumnNames']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            accountsColumnConfigLogic,
+            ['selectColumns', 'visibleColumnNames'],
+            accountsOverviewTilesLogic,
+            ['metrics as overviewMetrics', 'tileFilter'],
+        ],
         actions: [accountsColumnConfigLogic, ['setSelectColumns', 'unselectColumn', 'resetColumns']],
     })),
     actions({
+        setSearchInput: (query: string) => ({ query }),
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
         setCsmFilter: (value: RoleFilterValue) => ({ value }),
         setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
-        setTileFilter: (filter: TileFilter | null) => ({ filter }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
@@ -112,6 +113,13 @@ export const accountsLogic = kea<accountsLogicType>([
         replaceAccount: (account: AccountApi) => ({ account }),
     }),
     reducers({
+        searchInput: [
+            '',
+            {
+                setSearchInput: (_, { query }) => query,
+                setSearchQuery: (_, { query }) => query,
+            },
+        ],
         searchQuery: [
             '',
             {
@@ -146,12 +154,6 @@ export const accountsLogic = kea<accountsLogicType>([
             null as RoleFilterValue,
             {
                 setAccountOwnerFilter: (_, { value }) => value,
-            },
-        ],
-        tileFilter: [
-            null as TileFilter | null,
-            {
-                setTileFilter: (_, { filter }) => filter,
             },
         ],
         sortOrder: [
@@ -197,6 +199,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
                 s.tileFilter,
+                s.overviewMetrics,
                 s.sortOrder,
                 s.selectColumns,
             ],
@@ -208,6 +211,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
                 tileFilter: TileFilter | null,
+                overviewMetrics: string[],
                 sortOrder: AccountSortOrder,
                 selectColumns: string[]
             ): DataTableNode => {
@@ -215,6 +219,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     kind: NodeKind.AccountsQuery,
                     select: selectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
+                }
+                if (overviewMetrics.length > 0) {
+                    source.metrics = overviewMetrics
                 }
                 const trimmed = searchQuery.trim()
                 if (trimmed) {
@@ -256,6 +263,10 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setSearchInput: async ({ query }, breakpoint) => {
+            await breakpoint(SEARCH_DEBOUNCE_MS)
+            actions.setSearchQuery(query)
+        },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
                 if (values.csmFilter !== null) {

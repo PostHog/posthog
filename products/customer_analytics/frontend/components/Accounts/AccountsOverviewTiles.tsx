@@ -26,8 +26,7 @@ function tileLabelByKey(tiles: AccountsOverviewTile[]): (key: string) => string 
 }
 
 export function AccountsOverviewTiles(): JSX.Element {
-    const { reconciledTiles, tileValues, tileQueryResponseLoading, selectedTileId } =
-        useValues(accountsOverviewTilesLogic)
+    const { reconciledTiles, tileValues, tilesLoading, selectedTileId } = useValues(accountsOverviewTilesLogic)
     const { showEditor, toggleTileSelection } = useActions(accountsOverviewTilesLogic)
 
     const overviewItems: OverviewItem[] = reconciledTiles.map((tile) => ({
@@ -57,7 +56,7 @@ export function AccountsOverviewTiles(): JSX.Element {
         <div data-attr="accounts-overview-tiles">
             <OverviewGrid
                 items={overviewItems}
-                loading={tileQueryResponseLoading}
+                loading={tilesLoading}
                 numSkeletons={Math.max(reconciledTiles.length, 1)}
                 labelFromKey={tileLabelByKey(reconciledTiles)}
             />

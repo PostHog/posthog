@@ -2,24 +2,14 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import {
     AccountsOverviewTile,
-    buildOverviewAccountsQuery,
     isNumericColumnType,
+    isTileClickable,
     numericColumnOptions,
-    OverviewFilters,
     parseTileValues,
     stripHogqlAlias,
     tileMetricExpression,
+    tileToRowFilter,
 } from './accountsOverviewTilesLogic'
-
-const EMPTY_FILTERS: OverviewFilters = {
-    searchQuery: '',
-    tagsFilter: [],
-    allRolesUnassigned: false,
-    csmFilter: null,
-    accountExecutiveFilter: null,
-    accountOwnerFilter: null,
-    tileFilter: null,
-}
 
 describe('stripHogqlAlias', () => {
     it('strips a trailing AS alias', () => {
@@ -109,56 +99,28 @@ describe('tileMetricExpression', () => {
     })
 })
 
-describe('buildOverviewAccountsQuery', () => {
-    const tiles: AccountsOverviewTile[] = [
-        { id: 'a', label: 'Accounts', metric: { type: 'count' } },
-        {
-            id: 'b',
-            label: 'At risk',
-            metric: {
-                type: 'count_threshold',
-                columnExpression: 'health_score',
-                columnLabel: 'Health score',
-                operator: '<',
-                value: 6,
-            },
+describe('tileToRowFilter / isTileClickable', () => {
+    const thresholdTile: AccountsOverviewTile = {
+        id: 'b',
+        label: 'At risk',
+        metric: {
+            type: 'count_threshold',
+            columnExpression: 'health_score',
+            columnLabel: 'Health score',
+            operator: '<',
+            value: 6,
         },
-    ]
+    }
 
-    it('returns null when there are no tiles', () => {
-        expect(buildOverviewAccountsQuery([], EMPTY_FILTERS)).toBeNull()
+    it('maps a threshold tile to its row predicate', () => {
+        expect(tileToRowFilter(thresholdTile)).toBe('health_score < 6')
+        expect(isTileClickable(thresholdTile)).toBe(true)
     })
 
-    it('emits an AccountsQuery in metrics mode with one expression per tile', () => {
-        expect(buildOverviewAccountsQuery(tiles, EMPTY_FILTERS)).toMatchObject({
-            kind: NodeKind.AccountsQuery,
-            metrics: ['count()', 'countIf(health_score < 6)'],
-            select: [],
-        })
-    })
-
-    it('forwards filter fields onto the AccountsQuery so the runner reuses its WHERE logic', () => {
-        const result = buildOverviewAccountsQuery(tiles, {
-            ...EMPTY_FILTERS,
-            searchQuery: '  acme  ',
-            tagsFilter: ['enterprise'],
-            csmFilter: 42,
-            allRolesUnassigned: true,
-        })
-        expect(result).toMatchObject({
-            search: 'acme',
-            tagNames: ['enterprise'],
-            csm: 42,
-            allRolesUnassigned: true,
-        })
-    })
-
-    it('forwards a selected tileFilter into the AccountsQuery so metric values stay in sync with the table', () => {
-        const result = buildOverviewAccountsQuery(tiles, {
-            ...EMPTY_FILTERS,
-            tileFilter: { tileId: 'b', expression: 'health_score < 6' },
-        })
-        expect(result).toMatchObject({ filterExpression: 'health_score < 6' })
+    it('returns null for non-threshold tiles', () => {
+        const countTile: AccountsOverviewTile = { id: 'a', label: 'Accounts', metric: { type: 'count' } }
+        expect(tileToRowFilter(countTile)).toBeNull()
+        expect(isTileClickable(countTile)).toBe(false)
     })
 })
 

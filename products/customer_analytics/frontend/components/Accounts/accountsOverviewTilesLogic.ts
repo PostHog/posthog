@@ -1,18 +1,11 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { v4 as uuidv4 } from 'uuid'
 
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
 
-import { performQuery } from '~/queries/query'
-import { AccountsQuery, AccountsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-
-import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
-
-import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { accountsLogic, RoleFilterValue, TileFilter } from './accountsLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 
 export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
@@ -36,6 +29,13 @@ export interface AccountsOverviewTile {
     id: string
     label: string
     metric: AccountsOverviewTileMetric
+}
+
+// `tileId` carries the source tile so the overview can highlight which tile is
+// the active filter; `expression` is the HogQL fragment passed to AccountsQuery.
+export interface TileFilter {
+    tileId: string
+    expression: string
 }
 
 const NUMERIC_FIELD_TYPES = new Set(['integer', 'float', 'decimal'])
@@ -102,57 +102,6 @@ export function isTileClickable(tile: AccountsOverviewTile): boolean {
     return tileToRowFilter(tile) !== null
 }
 
-export interface OverviewFilters {
-    searchQuery: string
-    tagsFilter: string[]
-    allRolesUnassigned: boolean
-    csmFilter: RoleFilterValue
-    accountExecutiveFilter: RoleFilterValue
-    accountOwnerFilter: RoleFilterValue
-    tileFilter: TileFilter | null
-}
-
-// Build an AccountsQuery in metrics mode — the backend runner reuses the same
-// WHERE clause it builds for the table, so tile values stay consistent with
-// the rows the user sees.
-export function buildOverviewAccountsQuery(
-    tiles: AccountsOverviewTile[],
-    filters: OverviewFilters
-): AccountsQuery | null {
-    if (tiles.length === 0) {
-        return null
-    }
-    const query: AccountsQuery = {
-        kind: NodeKind.AccountsQuery,
-        metrics: tiles.map(tileMetricExpression),
-        select: [],
-        tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_overview' },
-    }
-    const trimmed = filters.searchQuery.trim()
-    if (trimmed) {
-        query.search = trimmed
-    }
-    if (filters.tagsFilter.length > 0) {
-        query.tagNames = filters.tagsFilter
-    }
-    if (filters.allRolesUnassigned) {
-        query.allRolesUnassigned = true
-    }
-    if (filters.csmFilter !== null) {
-        query.csm = filters.csmFilter
-    }
-    if (filters.accountExecutiveFilter !== null) {
-        query.accountExecutive = filters.accountExecutiveFilter
-    }
-    if (filters.accountOwnerFilter !== null) {
-        query.accountOwner = filters.accountOwnerFilter
-    }
-    if (filters.tileFilter) {
-        query.filterExpression = filters.tileFilter.expression
-    }
-    return query
-}
-
 function readNumeric(raw: unknown): number | null {
     if (raw === null || raw === undefined) {
         return null
@@ -193,35 +142,13 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsOverviewTilesLogic']),
     connect(() => ({
         values: [
-            accountsLogic,
-            [
-                'searchQuery',
-                'tagsFilter',
-                'allRolesUnassigned',
-                'csmFilter',
-                'accountExecutiveFilter',
-                'accountOwnerFilter',
-                'tileFilter',
-            ],
             accountsColumnConfigLogic,
             ['accountsColumnGroups'],
-        ],
-        actions: [
-            accountsLogic,
-            [
-                'setSearchQuery',
-                'setTagsFilter',
-                'setAllRolesUnassigned',
-                'setCsmFilter',
-                'setAccountExecutiveFilter',
-                'setAccountOwnerFilter',
-                'setTileFilter',
-                'refresh as refreshAccounts',
-            ],
-            databaseTableListLogic,
-            ['loadDatabaseSuccess'],
-            joinsLogic,
-            ['loadJoinsSuccess'],
+            // Keyed by `key` only — shares the instance the table binds via
+            // BindLogic, so tile values come from the same response (and request)
+            // as the rows. The placeholder query is replaced once BindLogic mounts.
+            dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {} as DataNode }),
+            ['response as accountsResponse', 'responseLoading as accountsResponseLoading'],
         ],
     })),
     actions({
@@ -230,10 +157,10 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         removeTile: (id: string) => ({ id }),
         moveTile: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
         toggleTileSelection: (tile: AccountsOverviewTile) => ({ tile }),
+        setTileFilter: (filter: TileFilter | null) => ({ filter }),
         resetTiles: true,
         showEditor: true,
         hideEditor: true,
-        refreshTileValues: true,
     }),
     reducers(() => ({
         tiles: [
@@ -264,35 +191,17 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 resetTiles: () => [...DEFAULT_TILES],
             },
         ],
+        tileFilter: [
+            null as TileFilter | null,
+            {
+                setTileFilter: (_, { filter }) => filter,
+            },
+        ],
         editorVisible: [
             false,
             {
                 showEditor: () => true,
                 hideEditor: () => false,
-            },
-        ],
-    })),
-    loaders(({ values }) => ({
-        tileQueryResponse: [
-            null as AccountsQueryResponse | null,
-            {
-                loadTileValues: async (_: unknown, breakpoint) => {
-                    const query = values.overviewQuery
-                    if (!query) {
-                        return null
-                    }
-                    await breakpoint(300)
-                    try {
-                        const response = await performQuery(query)
-                        breakpoint()
-                        return response as AccountsQueryResponse
-                    } catch (error) {
-                        posthog.captureException(error as Error, {
-                            scope: 'accountsOverviewTilesLogic.loadTileValues',
-                        })
-                        throw error
-                    }
-                },
             },
         ],
     })),
@@ -310,92 +219,39 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             (tiles: AccountsOverviewTile[], expressions: Set<string>): AccountsOverviewTile[] =>
                 reconcileTilesAgainstSchema(tiles, expressions),
         ],
-        overviewFilters: [
-            (s) => [
-                s.searchQuery,
-                s.tagsFilter,
-                s.allRolesUnassigned,
-                s.csmFilter,
-                s.accountExecutiveFilter,
-                s.accountOwnerFilter,
-                s.tileFilter,
-            ],
-            (
-                searchQuery: string,
-                tagsFilter: string[],
-                allRolesUnassigned: boolean,
-                csmFilter: RoleFilterValue,
-                accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue,
-                tileFilter: TileFilter | null
-            ): OverviewFilters => ({
-                searchQuery,
-                tagsFilter,
-                allRolesUnassigned,
-                csmFilter,
-                accountExecutiveFilter,
-                accountOwnerFilter,
-                tileFilter,
-            }),
-        ],
-        overviewQuery: [
-            (s) => [s.reconciledTiles, s.overviewFilters],
-            (tiles: AccountsOverviewTile[], filters: OverviewFilters): AccountsQuery | null =>
-                buildOverviewAccountsQuery(tiles, filters),
+        metrics: [
+            (s) => [s.reconciledTiles],
+            (tiles: AccountsOverviewTile[]): string[] => tiles.map(tileMetricExpression),
         ],
         tileValues: [
-            (s) => [s.tileQueryResponse, s.reconciledTiles],
+            (s) => [s.accountsResponse, s.reconciledTiles],
             (response: AccountsQueryResponse | null, tiles: AccountsOverviewTile[]): Record<string, number | null> =>
                 parseTileValues(response, tiles),
         ],
+        tilesLoading: [(s) => [s.accountsResponseLoading], (loading: boolean): boolean => loading],
         selectedTileId: [(s) => [s.tileFilter], (filter: TileFilter | null): string | null => filter?.tileId ?? null],
     }),
-    listeners(({ actions, values }) => {
-        const reload = (): void => actions.loadTileValues(undefined)
-        return {
-            addTile: reload,
-            updateTile: reload,
-            removeTile: ({ id }) => {
-                if (values.tileFilter?.tileId === id) {
-                    actions.setTileFilter(null)
-                }
-                reload()
-            },
-            moveTile: reload,
-            resetTiles: () => {
-                if (values.tileFilter) {
-                    actions.setTileFilter(null)
-                }
-                reload()
-            },
-            refreshTileValues: reload,
-            setSearchQuery: reload,
-            setTagsFilter: reload,
-            setAllRolesUnassigned: reload,
-            setCsmFilter: reload,
-            setAccountExecutiveFilter: reload,
-            setAccountOwnerFilter: reload,
-            setTileFilter: reload,
-            refreshAccounts: reload,
-            // Schema-load actions — when they fire, tiles that were previously
-            // reconciled-out (because their numeric column hadn't surfaced yet)
-            // re-enter the query and need values.
-            loadDatabaseSuccess: reload,
-            loadJoinsSuccess: reload,
-            toggleTileSelection: ({ tile }) => {
-                const expression = tileToRowFilter(tile)
-                if (!expression) {
-                    return
-                }
-                if (values.tileFilter?.tileId === tile.id) {
-                    actions.setTileFilter(null)
-                } else {
-                    actions.setTileFilter({ tileId: tile.id, expression })
-                }
-            },
-        }
-    }),
-    afterMount(({ actions }) => {
-        actions.loadTileValues(undefined)
-    }),
+    listeners(({ actions, values }) => ({
+        removeTile: ({ id }) => {
+            if (values.tileFilter?.tileId === id) {
+                actions.setTileFilter(null)
+            }
+        },
+        resetTiles: () => {
+            if (values.tileFilter) {
+                actions.setTileFilter(null)
+            }
+        },
+        toggleTileSelection: ({ tile }) => {
+            const expression = tileToRowFilter(tile)
+            if (!expression) {
+                return
+            }
+            if (values.tileFilter?.tileId === tile.id) {
+                actions.setTileFilter(null)
+            } else {
+                actions.setTileFilter({ tileId: tile.id, expression })
+            }
+        },
+    })),
 ])

@@ -2,9 +2,10 @@ import { BindLogic, useValues } from 'kea'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
 import { AccountsHogQLTable } from './AccountsHogQLTable'
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, accountsLogic } from './accountsLogic'
+import { accountsLogic } from './accountsLogic'
 import { AccountsOverviewTiles } from './AccountsOverviewTiles'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
 import { AccountsTabFilters } from './AccountsTabFilters'
