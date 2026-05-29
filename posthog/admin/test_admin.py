@@ -16,6 +16,8 @@ from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachment
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 
 class TestOAuthSidebarRegrouping(BaseTest):
@@ -176,7 +178,7 @@ class TestProductAdminRegistration:
     def test_moved_product_models_are_registered(self):
         # Tests skip the lazy admin registry, so trigger registration explicitly.
         register_all_admin()
-        for model in (HogFlow, HogFunction, Plugin, PluginConfig):
+        for model in (HogFlow, HogFlowTemplate, HogFlowBatchJob, HogFunction, Plugin, PluginConfig):
             assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
 
 
