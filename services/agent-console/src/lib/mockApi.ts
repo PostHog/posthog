@@ -33,6 +33,8 @@ import type {
     LogEntry,
 } from '@posthog/agent-chat/fixtures'
 
+type RevisionSpec = AgentRevisionFixture['spec']
+
 export interface MockApiOptions {
     /** Artificial delay before each call resolves. Defaults to 0 (fast for snapshots). */
     latencyMs?: number
@@ -56,6 +58,22 @@ export async function getAgentBySlug(slug: string, opts: MockApiOptions = {}): P
 
 export async function listRevisions(applicationId: string, opts: MockApiOptions = {}): Promise<AgentRevisionFixture[]> {
     await delay(opts.latencyMs ?? 0)
+    return listRevisionsSync(applicationId)
+}
+
+/** Sync variant — same overlay + base merge, used by client hooks on refetch. */
+export function listRevisionsSync(applicationId: string): AgentRevisionFixture[] {
+    const base = baseRevisionsForApplication(applicationId)
+    return base.map((rev) => {
+        const patch = revisionSpecOverlay.get(rev.id)
+        if (!patch) {
+            return rev
+        }
+        return { ...rev, spec: { ...rev.spec, ...patch } as RevisionSpec }
+    })
+}
+
+function baseRevisionsForApplication(applicationId: string): AgentRevisionFixture[] {
     if (applicationId === weeklyDigest.id) {
         return weeklyDigestRevisions
     }
@@ -144,8 +162,9 @@ export async function listLogsForSession(sessionId: string, opts: MockApiOptions
  *   ─────────────────     ────────────────────────────────────────
  *   bundle-file           `bundle-file:<applicationId>:<path>`
  *   bundle                `bundle:<applicationId>`
+ *   revision-spec         `revision-spec:<applicationId>:<revisionId>`
+ *   revisions             `revisions:<applicationId>`
  *   agent                 `agent:<applicationId>`
- *   agent-revisions       `agent-revisions:<applicationId>`
  *
  * v0.1+ replaces this whole section with a real client backed by the
  * janitor's bundle service + a server-sent `mutations` stream.
@@ -193,12 +212,11 @@ export function recordMutation(entityKey: EntityKey, mutationId: string): Mutati
     }
     mutationRegistry.set(entityKey, record)
     listeners.get(entityKey)?.forEach((fn) => fn(record))
-    // Cascade to the parent `bundle:<app>` entity so consumers watching
-    // the whole bundle (e.g. the tree pane) can refetch without
-    // subscribing per-file.
-    if (entityKey.startsWith('bundle-file:')) {
-        const [, applicationId] = entityKey.split(':')
-        const parentKey: EntityKey = `bundle:${applicationId}`
+    // Cascade to the per-app parent key so consumers watching the
+    // aggregate (bundle tree, revisions list) refetch without
+    // subscribing per-leaf.
+    const parentKey = parentEntityKey(entityKey)
+    if (parentKey) {
         const parentPrev = mutationRegistry.get(parentKey)
         const parentRecord: MutationRecord = {
             revision: (parentPrev?.revision ?? 0) + 1,
@@ -209,6 +227,18 @@ export function recordMutation(entityKey: EntityKey, mutationId: string): Mutati
         listeners.get(parentKey)?.forEach((fn) => fn(parentRecord))
     }
     return record
+}
+
+function parentEntityKey(entityKey: EntityKey): EntityKey | null {
+    if (entityKey.startsWith('bundle-file:')) {
+        const [, applicationId] = entityKey.split(':')
+        return `bundle:${applicationId}`
+    }
+    if (entityKey.startsWith('revision-spec:')) {
+        const [, applicationId] = entityKey.split(':')
+        return `revisions:${applicationId}`
+    }
+    return null
 }
 
 /* ── Bundle overlay + reads ──────────────────────────────────────── */
@@ -243,4 +273,18 @@ export function getBundleForApplicationSync(applicationId: string): BundleFile[]
         const patched = bundleOverlay.get(`${applicationId}:${f.path}`)
         return patched !== undefined ? { ...f, content: patched } : f
     })
+}
+
+/* ── Revision spec overlay ───────────────────────────────────────── */
+
+/**
+ * `revisionId` → shallow patch merged on top of the base spec. v0 demo
+ * overlay; v0.1 a real spec mutation creates a new revision instead of
+ * patching in place.
+ */
+const revisionSpecOverlay = new Map<string, Partial<RevisionSpec>>()
+
+export function applyRevisionSpecPatch(revisionId: string, patch: Partial<RevisionSpec>): void {
+    const prev = revisionSpecOverlay.get(revisionId) ?? {}
+    revisionSpecOverlay.set(revisionId, { ...prev, ...patch })
 }

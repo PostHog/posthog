@@ -98,7 +98,10 @@ export function RevisionsBrowser({
                         <Section title="Config" right={<ConfigViewToggle view={configView} onChange={setConfigView} />}>
                             {configView === 'structured' ? (
                                 <>
-                                    <ConfigPanel spec={selected.spec as Record<string, unknown>} />
+                                    <ConfigPanel
+                                        spec={selected.spec as Record<string, unknown>}
+                                        entityKey={`revision-spec:${agent.id}:${selected.id}`}
+                                    />
                                     <UnstructuredFields
                                         spec={selected.spec as Record<string, unknown>}
                                         knownKeys={KNOWN_SPEC_KEYS}

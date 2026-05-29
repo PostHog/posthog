@@ -27,7 +27,7 @@ import {
     waitingSession,
 } from '@posthog/agent-chat/fixtures'
 
-import { applyBundleFilePatch, recordMutation } from '@/lib/mockApi'
+import { applyBundleFilePatch, applyRevisionSpecPatch, recordMutation } from '@/lib/mockApi'
 
 import { useDockStore } from './dock-context'
 import { useFocusStore, type FocusTarget } from './focus-context'
@@ -38,6 +38,16 @@ function isBundleFilePayload(payload: unknown): payload is { newContent: string 
         payload !== null &&
         'newContent' in payload &&
         typeof (payload as { newContent: unknown }).newContent === 'string'
+    )
+}
+
+function isSpecPatchPayload(payload: unknown): payload is { patch: Record<string, unknown> } {
+    return (
+        typeof payload === 'object' &&
+        payload !== null &&
+        'patch' in payload &&
+        typeof (payload as { patch: unknown }).patch === 'object' &&
+        (payload as { patch: unknown }).patch !== null
     )
 }
 
@@ -125,7 +135,13 @@ export function Dock(): React.ReactElement {
         []
     )
 
-    const handlers = useMemo(() => [focusHandler, toastHandler], [focusHandler, toastHandler])
+    // Cast to the loose array type so the strict per-handler generics
+    // (FocusArgs / ToastArgs) survive the contravariant flattening
+    // useFakeRunner / AgentChat do via `ClientToolHandler[]`.
+    const handlers = useMemo<ClientToolHandler[]>(
+        () => [focusHandler, toastHandler] as unknown as ClientToolHandler[],
+        [focusHandler, toastHandler]
+    )
 
     // Mode-aware script set + starting session.
     const initialSession = context.mode === 'playground' ? playgroundSession : waitingSession
@@ -141,6 +157,9 @@ export function Dock(): React.ReactElement {
                         const [, applicationId, ...rest] = m.entityKey.split(':')
                         const path = rest.join(':')
                         applyBundleFilePatch(applicationId, path, m.payload.newContent)
+                    } else if (m.entityKey.startsWith('revision-spec:') && isSpecPatchPayload(m.payload)) {
+                        const [, , revisionId] = m.entityKey.split(':')
+                        applyRevisionSpecPatch(revisionId, m.payload.patch)
                     }
                     recordMutation(m.entityKey, m.mutationId)
                 }

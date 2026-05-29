@@ -71,8 +71,8 @@ export function getStarterPrompts(context: ChatContext): StarterPrompt[] {
                 { id: 'a-2', label: 'Recent sessions', prompt: `Show me ${context.page.agent.name}'s recent sessions and call out anything unusual.` },
                 {
                     id: 'a-3',
-                    label: 'Tighten the prompt',
-                    prompt: 'Tighten the prompt — add a callout to mention Friday deploys in the sources list.',
+                    label: 'Move the cron to 10am',
+                    prompt: 'Move the cron schedule from 9am to 10am Pacific.',
                 },
                 { id: 'a-4', label: 'Make a change', prompt: `I want to change something about ${context.page.agent.name}. Help me plan it.` },
             ]

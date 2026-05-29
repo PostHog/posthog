@@ -43,7 +43,7 @@ import {
 } from '@posthog/agent-chat/fixtures'
 import type { AgentApplicationFixture, AgentRevisionFixture, BundleFile } from '@posthog/agent-chat/fixtures'
 
-import { applyBundleFilePatch, recordMutation } from '@/lib/mockApi'
+import { applyBundleFilePatch, applyRevisionSpecPatch, recordMutation } from '@/lib/mockApi'
 import { AgentDetail } from '@/pages/AgentDetail'
 import { AgentsList } from '@/pages/AgentsList'
 import { SessionDetail } from '@/pages/SessionDetail'
@@ -53,6 +53,7 @@ import { FocusContextProvider, useFocusStore, type FocusTarget } from './focus-c
 import { FocusModeBanner } from './FocusModeBanner'
 import { PostHogMark } from './PostHogMark'
 import { useMutatingBundle } from './use-mutating-bundle'
+import { useMutatingRevisions } from './use-mutating-revisions'
 
 const DOCK_WIDTH = 360
 
@@ -199,10 +200,11 @@ function DetailSurface({
     const stats = getAgentStatsFixture(agent.id)
     const sessions = listSessionsForAgentFixture(agent.id)
     const { bundle: liveBundle } = useMutatingBundle(agent.id, bundle)
+    const { revisions: liveRevisions } = useMutatingRevisions(agent.id, revisions)
     return (
         <AgentDetail
             agent={agent}
-            revisions={revisions}
+            revisions={liveRevisions}
             bundle={liveBundle}
             stats={stats}
             sessions={sessions}
@@ -319,7 +321,10 @@ function DockSurface({
         []
     )
 
-    const handlers = useMemo(() => [focusHandler, toastHandler], [focusHandler, toastHandler])
+    const handlers = useMemo<ClientToolHandler[]>(
+        () => [focusHandler, toastHandler] as unknown as ClientToolHandler[],
+        [focusHandler, toastHandler]
+    )
 
     const initialSession = context.mode === 'playground' ? playgroundSession : waitingSession
     const scripts = context.mode === 'playground' ? playgroundScripts : conciergeScripts
@@ -331,6 +336,9 @@ function DockSurface({
                     if (m.entityKey.startsWith('bundle-file:') && isBundleFilePayload(m.payload)) {
                         const [, applicationId, ...rest] = m.entityKey.split(':')
                         applyBundleFilePatch(applicationId, rest.join(':'), m.payload.newContent)
+                    } else if (m.entityKey.startsWith('revision-spec:') && isSpecPatchPayload(m.payload)) {
+                        const [, , revisionId] = m.entityKey.split(':')
+                        applyRevisionSpecPatch(revisionId, m.payload.patch)
                     }
                     recordMutation(m.entityKey, m.mutationId)
                 }
@@ -373,6 +381,16 @@ function isBundleFilePayload(payload: unknown): payload is { newContent: string 
         payload !== null &&
         'newContent' in payload &&
         typeof (payload as { newContent: unknown }).newContent === 'string'
+    )
+}
+
+function isSpecPatchPayload(payload: unknown): payload is { patch: Record<string, unknown> } {
+    return (
+        typeof payload === 'object' &&
+        payload !== null &&
+        'patch' in payload &&
+        typeof (payload as { patch: unknown }).patch === 'object' &&
+        (payload as { patch: unknown }).patch !== null
     )
 }
 

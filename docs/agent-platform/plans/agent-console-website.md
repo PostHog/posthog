@@ -842,14 +842,16 @@ phase — or a separate plan — once we commit. Newest first.
   carry `mutationId`; tool-call script steps declare a `mutations[]`
   array of `{ entityKey, mutationId?, payload? }`; the fake runner
   fires `onToolMutate` after a successful resolve; mockApi's
-  `recordMutation` + per-app bundle overlay drive `useMutationFlair`,
-  which gates a `flair-pulse` CSS animation on focus mode being on.
-  Bundle-file consumers (`BundleTree` rows + `FileViewer`) and the
-  `useMutatingBundle` hook refetch + flair on bump. Demo: click
-  "Tighten the prompt" in the Storybook `Console/Shell · FocusFlowDemo`
-  or `FocusWithMutationDemo` story. v0.3 swap: the runner protocol's
-  real `mutations[]` field on tool results replaces the script-side
-  declaration; everything downstream is unchanged.
+  `recordMutation` + per-app overlays (bundle-file + revision-spec)
+  drive `useMutationFlair`, which gates a `flair-pulse` CSS animation
+  on focus mode being on. Consumers (`BundleTree` rows + `FileViewer`,
+  `ConfigPanel`'s Triggers row) refetch + flair on bump through the
+  `useMutatingBundle` / `useMutatingRevisions` hooks. Demo: click
+  "Move the cron to 10am" on the agent-detail page — the spec patch
+  lands, the focus call jumps to Configuration, and the Triggers row
+  pulses as `0 9 * * MON` becomes `0 10 * * MON`. v0.3 swap: the
+  runner protocol's real `mutations[]` field on tool results replaces
+  the script-side declaration; everything downstream is unchanged.
 
 - **Spend breakdown** — drill into total cost by principal (user or
   cron trigger), by day, by tool, by revision. Surface on the Sessions
