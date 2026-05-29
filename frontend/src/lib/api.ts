@@ -5543,6 +5543,19 @@ const api = {
                 .withAction('check_cdc_prerequisites')
                 .create({ data: payload })
         },
+        async check_cdc_prerequisites_for_source(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_management_mode: 'posthog' | 'self_managed'
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+            }
+        ): Promise<{ valid: boolean; errors: string[] }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('check_cdc_prerequisites_for_source')
+                .create({ data: payload })
+        },
         async enable_cdc(
             sourceId: ExternalDataSource['id'],
             payload: {

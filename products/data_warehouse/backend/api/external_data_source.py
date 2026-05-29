@@ -944,6 +944,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "update_webhook_inputs",
         "delete_webhook",
         "check_cdc_prerequisites",
+        "check_cdc_prerequisites_for_source",
         "enable_cdc",
         "disable_cdc",
         "update_cdc_settings",
@@ -1886,6 +1887,55 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"CDC is not supported for source type: {instance.source_type}"},
             )
+
+    @action(methods=["POST"], detail=True)
+    def check_cdc_prerequisites_for_source(self, request: Request, *arg: Any, **kwargs: Any):
+        """Validate CDC prerequisites for an existing source using its stored credentials.
+
+        The detail=False ``check_cdc_prerequisites`` action is for the creation wizard,
+        where the client still holds the raw connection config (incl. password) in the
+        form. On the Configuration page the source already exists and secret fields are
+        stripped from API responses — so the client can't supply them. This reads the
+        stored (encrypted) credentials from the DB via the adapter instead.
+
+        Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
+        ``cdc_slot_name`` (optional), ``cdc_publication_name`` (optional).
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        management_mode = request.data.get("cdc_management_mode", "posthog")
+        if management_mode not in ("posthog", "self_managed"):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
+            )
+
+        schema_hint = (instance.job_inputs or {}).get("schema") or "public"
+        try:
+            prereq_errors = adapter.validate_prerequisites(
+                instance,
+                management_mode=management_mode,
+                tables=[],
+                schema=schema_hint,
+                slot_name=request.data.get("cdc_slot_name") or None,
+                publication_name=request.data.get("cdc_publication_name") or None,
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
+        )
 
     @action(methods=["POST"], detail=True)
     def enable_cdc(self, request: Request, *arg: Any, **kwargs: Any):

@@ -269,12 +269,11 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
         setChecking(true)
         setPrereqResult(null)
         try {
-            const result = await api.externalDataSources.check_cdc_prerequisites({
-                source_type: 'Postgres' as any,
+            // Use the stored-credentials endpoint: this source already exists and its secret
+            // fields (password) are stripped from API responses, so we can't resend them.
+            const result = await api.externalDataSources.check_cdc_prerequisites_for_source(source.id, {
                 cdc_management_mode: mode,
-                tables: [],
                 cdc_publication_name: mode === 'self_managed' && publicationName ? publicationName : null,
-                ...source.job_inputs,
             })
             setPrereqResult(result)
         } catch (e: any) {

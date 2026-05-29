@@ -6705,6 +6705,100 @@ def _make_postgres_source(
     )
 
 
+class TestCheckCDCPrerequisitesForSource(APIBaseTest):
+    def test_rejects_source_type_without_cdc_support(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_rejects_invalid_management_mode(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "nonsense"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "cdc_management_mode" in response.json()["message"]
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    def test_uses_stored_credentials_not_client_payload(self, mock_validate) -> None:
+        # The whole point of this endpoint: the client never sends the password (it's
+        # stripped from API responses), so prereqs must validate against the stored source.
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert response.json() == {"valid": True, "errors": []}
+        # The adapter was handed the stored source model — not a client-supplied config dict.
+        called_source = mock_validate.call_args.args[0]
+        assert called_source.pk == source.pk
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=["wal_level must be 'logical'"],
+    )
+    def test_returns_errors_when_prereqs_fail(self, _mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["valid"] is False
+        assert body["errors"] == ["wal_level must be 'logical'"]
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    def test_forwards_self_managed_publication_name(self, mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "self_managed", "cdc_publication_name": "customer_pub"},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
+        assert mock_validate.call_args.kwargs["management_mode"] == "self_managed"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_returns_400_on_connection_exception(self, _mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]
+
+
 class TestEnableCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     def test_enable_cdc_rejects_source_type_without_cdc_support(self, _flag) -> None:
