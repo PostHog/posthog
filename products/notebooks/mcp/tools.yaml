@@ -108,7 +108,7 @@ tools:
         title: Update notebook
         description: >
             Update notebook metadata by short_id, such as title or deleted status. Do not use this tool for notebook
-            content placement or text edits; use notebooks-edit so changes go through the collaboration save path and
+            content placement or text edits; use notebook-edit so changes go through the collaboration save path and
             preserve concurrent edits from people and agents. If you must update the full content field directly, you
             must provide the current version number for optimistic concurrency control after retrieving the latest
             notebook.
@@ -132,7 +132,7 @@ tools:
         title: Get notebook
         description: >
             Get a specific notebook by its short_id. Use this before content edits to inspect the current notebook and
-            choose exact text anchors for notebooks-edit. Returns the full notebook including title, content, version,
+            choose exact text anchors for notebook-edit. Returns the full notebook including title, content, version,
             text_content, and creation/modification metadata.
     notebooks-sharing-list:
         operation: notebooks_sharing_list

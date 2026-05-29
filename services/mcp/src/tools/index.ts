@@ -1,5 +1,7 @@
 import { hasScopes } from '@/lib/api'
 
+// AI observability
+import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -11,11 +13,8 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-// AI observability
-import getLLMCosts from './aiObservability/getLLMCosts'
 // Notebooks (edit tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import createNotebookFromMarkdown from './notebooks/createFromMarkdown'
-import editNotebook from './notebooks/edit'
 import notebookEdit from './notebooks/editByReplacement'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
@@ -97,8 +96,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
-
-    'notebooks-edit': editNotebook,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,

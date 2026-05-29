@@ -228,7 +228,8 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this for notebook content changes instead of notebooks-partial-update. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors. Prefer the `edits` array with append, insert_after, insert_before, insert_after_heading, insert_between, replace_block, and replace_text. For small SQL changes like LIMIT 25 -> LIMIT 200, use replace_text with anchor set to the query title or section heading; the tool can replace text inside query/code node attributes. Heading anchors search that section until the next same-or-higher-level heading. Markdown content supports <query> blocks for inline query nodes. The old_value/new_value subtree replacement form is also supported; use edits for small or anchored changes and subtree replacement when copying exact JSON nodes from notebooks-retrieve.",
+        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, then call notebook-edit. Use the edits array for anchored edits. For small SQL changes, use replace_text with anchor set to the query title or section heading; do not rebuild the whole query block.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -488,21 +489,6 @@
         "title": "Create notebook from markdown",
         "required_scopes": ["notebook:write"],
         "system_prompt_hint": "For new multi-node analyses, use notebooks-create-from-markdown with markdown plus <query> blocks. Prefer old-style HogQLQuery query nodes for SQL; inspect values first with execute-sql/query-run when needed.",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "notebooks-edit": {
-        "description": "Apply conflict-aware content edits to an existing notebook using the notebook collaboration save path. Use this instead of notebooks-partial-update when changing notebook content. Typical workflow: if the user gives a title but no short_id, use execute-sql against system.notebooks to find the short_id, then use notebooks-retrieve to inspect the current content and choose exact text anchors, then call notebooks-edit. For normal text, pass content and content_format instead of raw nodes, for example: {\"type\":\"insert_between\",\"after\":\"Current paragraph\",\"before\":\"Next paragraph\",\"content\":\"New paragraph\",\"content_format\":\"plain_text\"}. Markdown content supports <query> blocks for old-style query nodes. For SQL analysis, prefer <query> blocks containing HogQLQuery or InsightVizNode query JSON; do not use <hogql>, <ducksql>, or <python> blocks unless the notebook-python feature flag is enabled and the user specifically needs executable notebook cells. Use raw nodes only for advanced ProseMirror widgets. Supports append, insert_after, insert_before, insert_after_heading, insert_between, replace_block, and replace_text. The tool retrieves the latest notebook, turns the edit operations into ProseMirror replace steps, submits them through the same collab/version endpoint used by the frontend, and retries by recomputing the edits if another person or agent edits first.",
-        "category": "Notebooks",
-        "feature": "notebooks",
-        "summary": "Edit notebook content through the collaboration save path.",
-        "title": "Edit notebook",
-        "required_scopes": ["notebook:write"],
-        "system_prompt_hint": "For notebook content changes, find unknown short IDs with execute-sql on system.notebooks, retrieve the notebook, choose exact text anchors, then call notebooks-edit with append/insert_after/insert_before/insert_between/replace_block/replace_text. Use markdown <query> blocks for SQL/query nodes; prefer old-style HogQLQuery nodes today.",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

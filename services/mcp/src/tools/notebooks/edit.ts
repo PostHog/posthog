@@ -130,6 +130,20 @@ const ReplaceBlockEditSchema = z
     })
     .describe('Replace a whole top-level notebook block identified by exact text.')
 
+const SubtreeReplaceEditSchema = z
+    .object({
+        type: z.literal('replace_subtree'),
+        old_node: z
+            .union([ProseMirrorNodeSchema, NodesSchema])
+            .describe('exact ProseMirror node or node array to replace.'),
+        new_nodes: NodesSchema.describe('replacement ProseMirror node array.'),
+        replace_all: z
+            .boolean()
+            .default(false)
+            .describe('Replace every exact subtree match instead of only the first.'),
+    })
+    .describe('Subtree replacement edit used by the notebook-edit old_value/new_value schema.')
+
 const ReplaceTextEditSchema = z
     .object({
         type: z.literal('replace_text'),
@@ -159,7 +173,7 @@ const ReplaceTextEditSchema = z
         'Replace exact text in notebook text or inside query/code node attributes. For small SQL changes, prefer this over replacing the whole query block.'
     )
 
-const NotebookEditSchema = z.object({
+export const NotebookEditSchema = z.object({
     short_id: z.string().describe('Short ID of the notebook to edit.'),
     edits: z
         .array(
@@ -171,6 +185,7 @@ const NotebookEditSchema = z.object({
                 InsertBetweenEditSchema,
                 ReplaceBlockEditSchema,
                 ReplaceTextEditSchema,
+                SubtreeReplaceEditSchema,
             ])
         )
         .min(1)
@@ -1140,6 +1155,65 @@ function assertReplacementLimit(find: string, replacementCount: number): void {
     }
 }
 
+function countNodeMatches(node: ProseMirrorNode | ProseMirrorDoc | ProseMirrorNode[], target: unknown): number {
+    let count = 0
+    const walk = (value: unknown): void => {
+        if (JSON.stringify(value) === JSON.stringify(target)) {
+            count++
+            return
+        }
+        if (Array.isArray(value)) {
+            value.forEach(walk)
+        } else if (isRecord(value)) {
+            Object.values(value).forEach(walk)
+        }
+    }
+    walk(node)
+    return count
+}
+
+function applySubtreeReplacementEdit(
+    doc: ProseMirrorDoc,
+    oldNode: ProseMirrorNode | ProseMirrorNode[],
+    newNodes: ProseMirrorNode[],
+    replaceAll: boolean
+): ReplaceStep[] {
+    const target = oldNode
+    const matches = countNodeMatches(doc, target)
+    if (matches === 0) {
+        throw new Error('old_node was not found in the notebook content.')
+    }
+    if (matches > 1 && !replaceAll) {
+        throw new Error(
+            `old_node matches ${matches} places in the notebook content. Use a more specific node or set replace_all.`
+        )
+    }
+
+    const steps: ReplaceStep[] = []
+    for (let index = 0; index < doc.content.length; index++) {
+        const node = doc.content[index]
+        if (!node || JSON.stringify(node) !== JSON.stringify(target)) {
+            continue
+        }
+        const from = topLevelPositionBefore(doc, index)
+        const to = topLevelPositionAfter(doc, index)
+        const insertedNodes = cloneNodes(newNodes)
+        doc.content.splice(index, 1, ...insertedNodes)
+        steps.push(replaceStep(from, to, insertedNodes))
+        if (!replaceAll) {
+            break
+        }
+        index += insertedNodes.length - 1
+    }
+
+    if (steps.length === 0) {
+        throw new Error(
+            'old_node was not found as a top-level notebook block. Use the anchored edits schema for nested replacements.'
+        )
+    }
+    return steps
+}
+
 function applyReplaceTextEdit(
     doc: ProseMirrorDoc,
     find: string,
@@ -1241,10 +1315,12 @@ function applyNotebookEdit(doc: ProseMirrorDoc, edit: NotebookEdit): ReplaceStep
                 edit.anchor,
                 edit.occurrence ?? 1
             )
+        case 'replace_subtree':
+            return applySubtreeReplacementEdit(doc, edit.old_node, edit.new_nodes, edit.replace_all ?? false)
     }
 }
 
-function buildEditPlan(content: unknown, edits: NotebookEdit[]): EditPlan {
+export function buildEditPlan(content: unknown, edits: NotebookEdit[]): EditPlan {
     const doc = normalizeDocument(content)
     const steps = edits.flatMap((edit) => applyNotebookEdit(doc, edit))
 
@@ -1317,7 +1393,7 @@ async function updateTitleOnly(
 }
 
 const tool = (): ToolBase<typeof NotebookEditSchema, WithPostHogUrl<NotebookEditResult>> => ({
-    name: 'notebooks-edit',
+    name: 'notebook-edit',
     schema: NotebookEditSchema,
     handler: async (context: Context, params: Params): Promise<WithPostHogUrl<NotebookEditResult>> => {
         const projectId = String(await context.stateManager.getProjectId())

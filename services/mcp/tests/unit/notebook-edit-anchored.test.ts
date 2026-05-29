@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { PostHogApiError } from '@/lib/errors'
 import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
-import editNotebook from '@/tools/notebooks/edit'
+import editNotebook from '@/tools/notebooks/editByReplacement'
 import type { Context } from '@/tools/types'
 
 vi.mock('@/lib/posthog/flags', () => ({
@@ -100,7 +100,7 @@ function bodyForCall(requestMock: ReturnType<typeof vi.fn>, callIndex: number): 
     return call[0].body as Record<string, unknown>
 }
 
-describe('notebooks-edit', () => {
+describe('notebook-edit anchored edits', () => {
     beforeEach(() => {
         mockIsFeatureFlagEnabled.mockResolvedValue(true)
     })

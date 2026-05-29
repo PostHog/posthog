@@ -159,9 +159,9 @@ describe('Notebooks', { concurrent: false }, () => {
         })
     })
 
-    describe('notebooks-edit tool', () => {
+    describe('notebook-edit anchored edits', () => {
         const createTool = getToolByName('notebooks-create')
-        const editTool = getToolByName('notebooks-edit')
+        const editTool = getToolByName('notebook-edit')
 
         it('should insert content between anchors through the collaboration save path', async () => {
             const createResult = await createTool.handler(context, {
