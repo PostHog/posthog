@@ -306,17 +306,29 @@
                         "type": "object"
                     },
                     {
-                        "description": "Replace exact plain text in notebook text nodes.",
+                        "description": "Replace exact text in notebook text or inside query/code node attributes. For small SQL changes, prefer this over replacing the whole query block.",
                         "properties": {
                             "all_occurrences": {
                                 "default": false,
                                 "description": "Replace every exact match instead of only the first.",
                                 "type": "boolean"
                             },
-                            "find": {
-                                "description": "Exact text to find inside a single text node.",
+                            "anchor": {
+                                "description": "Optional exact text anchor for a top-level block. When set, only that block is searched, which is the safest way to edit a specific query node.",
                                 "minLength": 1,
                                 "type": "string"
+                            },
+                            "find": {
+                                "description": "Exact text to find. This can match normal notebook text and SQL inside query, HogQL, or DuckDB nodes.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "occurrence": {
+                                "default": 1,
+                                "description": "Which matching anchor block to use when anchor appears more than once.",
+                                "maximum": 9007199254740991,
+                                "minimum": 1,
+                                "type": "integer"
                             },
                             "replace": {
                                 "description": "Replacement text. Use an empty string to delete the matching text.",
