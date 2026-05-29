@@ -12,7 +12,7 @@ def delete_relationless_subscriptions(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1188_migrate_cdp_models"),
+        ("posthog", "1189_file_system_shortcut_order_index"),
     ]
 
     operations = [

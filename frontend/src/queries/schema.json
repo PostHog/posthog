@@ -14650,6 +14650,13 @@
                 "schema": {
                     "$ref": "#/definitions/DatabaseSchemaSchema"
                 },
+                "search_aliases": {
+                    "description": "Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "source": {
                     "$ref": "#/definitions/DatabaseSchemaSource"
                 },
@@ -21907,7 +21914,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -22014,7 +22021,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "debug": {
@@ -22159,7 +22166,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "explain": {
