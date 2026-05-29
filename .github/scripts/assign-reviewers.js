@@ -343,27 +343,13 @@ function formatPatterns(patterns, max = 3) {
     return shown.join(', ')
 }
 
-function footprintRow(footprint) {
-    // Owners are rendered as inline code so the comment is informational and
-    // doesn't fire a round of @-mention notifications.
-    return `| \`${footprint.owner}\` | ${footprint.fileCount} | ${footprint.lines} | ${formatPatterns(
-        footprint.patterns
-    )} |`
-}
-
-function demotedRow(footprint) {
-    const why = footprint.reason === 'capped' ? 'reviewer cap' : 'minor changes'
-    return `| \`${footprint.owner}\` | ${footprint.fileCount} | ${footprint.lines} | ${why} | ${formatPatterns(
-        footprint.patterns
-    )} |`
-}
-
-function formatOwnerList(footprints, max = 5) {
-    const names = footprints.map((f) => `\`${f.owner}\``)
-    if (names.length <= max) {
-        return names.join(', ')
-    }
-    return `${names.slice(0, max).join(', ')}, and ${names.length - max} more`
+// Owners are rendered as inline code so the comment is informational and
+// doesn't fire a round of @-mention notifications. The matched rule is the only
+// locator worth showing — it tells the owner which area pulled them in. Raw
+// file/line counts are intentionally omitted: without the actual file list (too
+// long to include) a bare "10 files" tells the reader nothing actionable.
+function formatSkippedOwner(footprint) {
+    return `\`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
 }
 
 // Produce the explanation comment body, or null if no owner was dropped. We
@@ -375,42 +361,20 @@ function buildReviewerComment(requested, demoted, config = CONFIG) {
     }
 
     const allMinor = demoted.every((f) => f.reason === 'minor')
-    const leadReason = allMinor
-        ? 'their changes in this PR are minor'
-        : 'their changes are minor (or the reviewer list was getting long)'
+    const reason = allMinor
+        ? 'they only have minor changes here'
+        : 'their changes are minor or the reviewer list was getting long'
 
-    const lines = [
+    return [
         config.commentMarker,
         '### 👥 Auto-assigned reviewers',
         '',
-        `We didn't request review from ${formatOwnerList(demoted)} because ${leadReason}. ` +
-            "Flagging it here so it isn't a silent drop — these are soft owners " +
+        `Skipped a review request for ${demoted.map(formatSkippedOwner).join(', ')} because ${reason}. ` +
+            'These are soft owners ' +
             '([`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) / ' +
-            "each product's `product.yaml`), so review never blocks merge and you can self-assign if you'd like a look. " +
+            "each product's `product.yaml`), so nothing blocks merge — self-assign if you'd like a look. " +
             '(Generated files and lockfiles are ignored when deciding ownership.)',
-        '',
-        '**Not requested for review:**',
-        '',
-        '| Owner | Files | Lines | Why skipped | Matched rule |',
-        '| --- | --: | --: | --- | --- |',
-        ...demoted.map(demotedRow),
-    ]
-
-    if (requested.length > 0) {
-        lines.push(
-            '',
-            '<details>',
-            `<summary>Requested for review (${requested.length})</summary>`,
-            '',
-            '| Owner | Files | Lines | Matched rule |',
-            '| --- | --: | --: | --- |',
-            ...requested.map(footprintRow),
-            '',
-            '</details>'
-        )
-    }
-
-    return lines.join('\n')
+    ].join('\n')
 }
 
 async function assignReviewers(teams, users) {

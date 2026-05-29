@@ -181,22 +181,19 @@ describe('assign-reviewers', () => {
             expect(buildReviewerComment([...requested, requested[0]], [])).toBeNull()
         })
 
-        test('leads with who was skipped and includes the why-skipped table', () => {
+        test('names each skipped owner with its matched rule, not raw counts', () => {
             const body = buildReviewerComment(requested, demoted)
             expect(body).toContain(CONFIG.commentMarker)
-            expect(body).toContain("We didn't request review from `@PostHog/team-data-tools`")
-            expect(body).toContain('because their changes in this PR are minor')
-            expect(body).toContain('Not requested for review')
-            expect(body).toContain('minor changes')
-            // The requested owners live in a collapsed section.
-            expect(body).toContain('Requested for review')
-            expect(body).toContain('`@PostHog/team-surveys`')
+            expect(body).toContain('Skipped a review request for `@PostHog/team-data-tools` (`posthog/hogql/**`)')
+            expect(body).toContain('they only have minor changes here')
+            // No count theater: file/line numbers are internal-only.
+            expect(body).not.toMatch(/\d+ files/)
+            expect(body).not.toContain('| Lines |')
         })
 
         test('explains the reviewer cap when an owner was capped out', () => {
             const cappedDemoted = [{ ...demoted[0], reason: 'capped' }]
             const body = buildReviewerComment(requested, cappedDemoted)
-            expect(body).toContain('reviewer cap')
             expect(body).toContain('the reviewer list was getting long')
         })
 
