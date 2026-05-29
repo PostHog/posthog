@@ -39,8 +39,12 @@ class TestResolveStaleIssuesWithDeltas(BaseTest):
         # issue persists.
         missing_team_id = self.team.id + 999_999
         issues_by_team = {
-            self.team.id: [HealthCheckResult(severity="warning", payload={"detail": "x"}, hash_keys=[])],
-            missing_team_id: [HealthCheckResult(severity="warning", payload={"detail": "y"}, hash_keys=[])],
+            self.team.id: [
+                HealthCheckResult(severity=HealthIssue.Severity.WARNING, payload={"detail": "x"}, hash_keys=[])
+            ],
+            missing_team_id: [
+                HealthCheckResult(severity=HealthIssue.Severity.WARNING, payload={"detail": "y"}, hash_keys=[])
+            ],
         }
 
         created = upsert_issues_with_deltas("test_kind", issues_by_team)

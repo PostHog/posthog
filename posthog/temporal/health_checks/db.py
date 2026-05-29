@@ -39,7 +39,7 @@ def resolve_stale_issues_with_deltas(
     # Mirror the bulk_upsert filter — a team deleted mid-workflow already had
     # its issues cascaded away, so resolving on its ID is wasted work and
     # produces misleading `resolved` alerts if the IDs were ever reused.
-    all_team_ids = _filter_existing_team_ids(all_team_ids, kind=kind, log_event="resolve_stale_issues")
+    all_team_ids = _filter_existing_team_ids(all_team_ids)
 
     keep_hashes: dict[int, set[str]] = {}
     for team_id, results in issues_by_team.items():

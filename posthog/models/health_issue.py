@@ -12,7 +12,7 @@ from posthog.models.utils import UUIDModel
 logger = structlog.get_logger(__name__)
 
 
-def _filter_existing_team_ids(team_ids: set[int], *, kind: str, log_event: str) -> set[int]:
+def _filter_existing_team_ids(team_ids: set[int]) -> set[int]:
     """Return the subset of team_ids that still exist in posthog_team.
 
     Health checks snapshot team IDs at workflow start and dispatch them to
@@ -33,8 +33,6 @@ def _filter_existing_team_ids(team_ids: set[int], *, kind: str, log_event: str) 
     if missing:
         logger.warning(
             "health_issue_dropping_deleted_teams",
-            kind=kind,
-            event=log_event,
             dropped_count=len(missing),
             dropped_team_ids=sorted(missing),
         )
@@ -160,18 +158,21 @@ class HealthIssue(UUIDModel):
         # team_id sets.
         kind_lock_key = int.from_bytes(hashlib.sha256(kind.encode()).digest()[:4], "big", signed=True)
 
-        # Teams can be deleted between the workflow's team-ID snapshot and
-        # this upsert. A missing team would trigger a deferred FK violation
-        # at COMMIT and roll back every row in the batch, not just the
-        # orphan — so drop incoming rows for teams that no longer exist.
-        team_ids = _filter_existing_team_ids({tid for tid, _ in incoming}, kind=kind, log_event="bulk_upsert")
-        if not team_ids:
-            return []
-
-        # Drop incoming rows for teams that no longer exist
-        incoming = {key: value for key, value in incoming.items() if key[0] in team_ids}
-
         with transaction.atomic():
+            # Teams can be deleted between the workflow's team-ID snapshot and
+            # this upsert. A missing team would trigger a deferred FK violation
+            # at COMMIT and roll back every row in the batch, not just the
+            # orphan — so drop incoming rows for teams that no longer exist.
+            #
+            # Filter before acquiring advisory locks so we don't hold per-team
+            # locks for IDs we're about to drop.
+            team_ids = _filter_existing_team_ids({tid for tid, _ in incoming})
+            if not team_ids:
+                return []
+
+            # Drop incoming rows for teams that no longer exist
+            incoming = {key: value for key, value in incoming.items() if key[0] in team_ids}
+
             with connection.cursor() as cursor:
                 for team_id in sorted(team_ids):
                     cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [kind_lock_key, team_id])
