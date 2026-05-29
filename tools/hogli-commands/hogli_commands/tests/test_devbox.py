@@ -3403,6 +3403,11 @@ class TestEnsureUserMutagenConfig:
         assert "pnpm-lock.yaml" not in contents
         assert "uv.lock" not in contents
         assert "Cargo.lock" not in contents
+        # The worktree `.git` *file* and the machine-native `.flox/` venv tree
+        # must be ignored: `vcs: true` only catches the `.git/` directory, and
+        # PostHog's venv lives under `.flox`, not `.venv`.
+        assert "'.git'" in contents
+        assert "'.flox'" in contents
 
     def test_preserves_existing_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         target = tmp_path / "mutagen.yml"

@@ -4,9 +4,19 @@ sync:
         ignore:
             vcs: true
             paths:
+                # `vcs: true` ignores the `.git/` *directory*, but a git worktree
+                # checkout (e.g. `/wt`) has `.git` as a *file* (gitdir pointer),
+                # which it doesn't catch -- it would conflict with the remote's
+                # real `.git` directory on every sync. Ignore the name outright.
+                - '.git'
+
                 # Per-language deps -- OS-incompatible, prewarmed on remote AMI.
                 - 'node_modules'
                 - '.venv'
+                # PostHog's Python venv lives under `.flox/cache/venv` (flox), not
+                # `.venv`; the whole `.flox/` tree is machine/OS-native and
+                # per-box, so it must never propagate macOS binaries to the box.
+                - '.flox'
                 - '**/__pycache__'
                 - '*.pyc'
                 - '*.egg-info'
