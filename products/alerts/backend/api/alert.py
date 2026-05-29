@@ -691,7 +691,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
-    queryset = AlertConfiguration.objects.select_related("team", "insight").order_by("-created_at")
+    queryset = (
+        AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
+        .prefetch_related("subscribed_users")
+        .order_by("-created_at")
+    )
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
