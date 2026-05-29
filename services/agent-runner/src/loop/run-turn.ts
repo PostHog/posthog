@@ -47,6 +47,7 @@ import { PiClient } from '../models/pi-client'
 import { parseApprovalDecidedMarker } from './approval-marker'
 import { buildToolList } from './build-tool-list'
 import { dispatchApproved, dispatchOne } from './dispatch-one'
+import type { IsAskerInApproverScope } from './per-asker-auth'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
@@ -103,6 +104,13 @@ export interface RunSessionDeps {
      * `urn:posthog:approval:<id>` placeholder.
      */
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
+     * When set, the dispatcher checks whether the current user-turn's
+     * sender themselves satisfies the tool's approver scope and dispatches
+     * directly if so. Omit to preserve the always-queue behaviour.
+     */
+    isAskerInApproverScope?: IsAskerInApproverScope
 }
 
 export type RunOutcome =
@@ -452,6 +460,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 turn: turns,
                 approvals: deps.approvals,
                 buildApprovalUrl: deps.buildApprovalUrl,
+                isAskerInApproverScope: deps.isAskerInApproverScope,
             })
             if (signal.kind === 'end_turn') {
                 endTurn = { prompt: signal.prompt }

@@ -8,6 +8,25 @@ import { AgentUser, MemoryIdentityStore, MemoryIntegrationStore } from '@posthog
 
 import { bridgeSlackToPosthogUser } from './slack-posthog-bridge'
 
+async function seedIdentity(store: MemoryIdentityStore, agentUser: AgentUser): Promise<void> {
+    // Round-trip the row through the public API so tests don't depend on
+    // the store's private internals. findOrCreate uses (application_id,
+    // principal_kind, principal_id) as the natural key, then we patch
+    // metadata + posthog_user_id via the public setters.
+    const created = await store.findOrCreate({
+        team_id: agentUser.team_id,
+        application_id: agentUser.application_id,
+        principal_kind: agentUser.principal_kind,
+        principal_id: agentUser.principal_id,
+        metadata: agentUser.metadata,
+    })
+    // Hand back the stable id so the caller can use it in the bridge call.
+    agentUser.id = created.id
+    if (agentUser.posthog_user_id !== undefined) {
+        await store.setPosthogUserId(created.id, agentUser.posthog_user_id)
+    }
+}
+
 function makeAgentUser(overrides: Partial<AgentUser> = {}): AgentUser {
     return {
         id: 'au-bob',
@@ -43,7 +62,7 @@ describe('bridgeSlackToPosthogUser', () => {
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser()
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
             integrations,
@@ -66,7 +85,7 @@ describe('bridgeSlackToPosthogUser', () => {
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser({ id: 'au-external' })
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-EXTERNAL', {
             integrations,
@@ -87,7 +106,7 @@ describe('bridgeSlackToPosthogUser', () => {
     it('returns the cached posthog_user_id without re-running the lookup', async () => {
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser({ posthog_user_id: 7 })
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         let calls = 0
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
@@ -106,7 +125,7 @@ describe('bridgeSlackToPosthogUser', () => {
     it('respects an explicit cached null (no match found previously) without re-asking slack', async () => {
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser({ posthog_user_id: null })
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         let calls = 0
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
@@ -125,7 +144,7 @@ describe('bridgeSlackToPosthogUser', () => {
     it('caches `null` when no slack integration is connected (treat as "lookup ran, no match")', async () => {
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser({ id: 'au-noslack' })
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         // Empty integration store — no slack token for the team.
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
@@ -148,7 +167,7 @@ describe('bridgeSlackToPosthogUser', () => {
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser({ id: 'au-blip' })
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
             integrations,
@@ -174,7 +193,7 @@ describe('bridgeSlackToPosthogUser', () => {
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
         const identities = new MemoryIdentityStore()
         const agentUser = makeAgentUser({ id: 'au-case' })
-        ;(identities as MemoryIdentityStore & { rows: AgentUser[] }).rows.push(agentUser)
+        await seedIdentity(identities, agentUser)
 
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
             integrations,

@@ -37,6 +37,7 @@ import {
     SessionQueue,
 } from '@posthog/agent-shared'
 
+import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import { runSession } from '../loop/run-turn'
 import { PiClient, resolveModelCached } from '../models/pi-client'
 
@@ -108,6 +109,12 @@ export interface WorkerDeps {
      * the model. Wire from config so prod hits the real domain.
      */
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
+     * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
+     * Omit to keep B.2 v0 behaviour (always queue).
+     */
+    isAskerInApproverScope?: IsAskerInApproverScope
 }
 
 export class Worker {
@@ -281,6 +288,7 @@ export class Worker {
                 useGatewayCost: this.deps.useGatewayCost,
                 approvals: this.deps.approvals,
                 buildApprovalUrl: this.deps.buildApprovalUrl,
+                isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs

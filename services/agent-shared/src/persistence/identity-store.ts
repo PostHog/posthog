@@ -45,6 +45,8 @@ export interface IdentityStore {
     }): Promise<AgentUser>
     /** Lookup only (no create). Returns null if no row exists. */
     find(input: { application_id: string; principal_kind: string; principal_id: string }): Promise<AgentUser | null>
+    /** Lookup by AgentUser uuid. Returns null when the row doesn't exist. */
+    getById(agentUserId: string): Promise<AgentUser | null>
     /**
      * Cache the result of a Slack-user → PostHog-user lookup. Called once per
      * AgentUser the first time the ingress resolves it via slack.users.info.
@@ -106,6 +108,10 @@ export class MemoryIdentityStore implements IdentityStore {
         if (row) {
             row.posthog_user_id = posthogUserId
         }
+    }
+
+    async getById(agentUserId: string): Promise<AgentUser | null> {
+        return this.rows.find((r) => r.id === agentUserId) ?? null
     }
 }
 
@@ -185,5 +191,38 @@ export class PgIdentityStore implements IdentityStore {
 
     async setPosthogUserId(agentUserId: string, posthogUserId: number | null): Promise<void> {
         await this.pool.query(`UPDATE agent_user SET posthog_user_id = $2 WHERE id = $1`, [agentUserId, posthogUserId])
+    }
+
+    async getById(agentUserId: string): Promise<AgentUser | null> {
+        const r = await this.pool.query<{
+            id: string
+            team_id: number
+            application_id: string
+            principal_kind: string
+            principal_id: string
+            metadata: unknown
+            posthog_user_id: number | null
+            created_at: Date
+        }>(
+            `SELECT id, team_id, application_id, principal_kind, principal_id, metadata,
+                    posthog_user_id, created_at
+             FROM agent_user
+             WHERE id = $1`,
+            [agentUserId]
+        )
+        if (r.rowCount === 0) {
+            return null
+        }
+        const row = r.rows[0]
+        return {
+            id: row.id,
+            team_id: row.team_id,
+            application_id: row.application_id,
+            principal_kind: row.principal_kind,
+            principal_id: row.principal_id,
+            metadata: (row.metadata as Record<string, unknown>) ?? undefined,
+            posthog_user_id: row.posthog_user_id,
+            created_at: row.created_at.toISOString(),
+        }
     }
 }

@@ -35,6 +35,7 @@ import {
     Memory,
     NoopAnalyticsSink,
     NoopSessionEventBus,
+    PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -47,6 +48,7 @@ import {
 import { setMemory } from '@posthog/agent-tools'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
+import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogLlmGatewayModel } from './models/llm-gateway-model'
 import { PiAiClient, resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
@@ -143,6 +145,13 @@ async function main(): Promise<void> {
         analytics = capture
     }
 
+    // Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
+    // Lets a Slack user who's already a team admin drive a gated tool
+    // directly via chat instead of going through the queued-approval UI.
+    // Reuses the same identity table the ingress writes through.
+    const identities = new PgIdentityStore(agentDb)
+    const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -155,6 +164,7 @@ async function main(): Promise<void> {
         logs: logSink,
         resolveIntegrations,
         resolveSecrets,
+        isAskerInApproverScope,
         resolveModel: config.useLlmGateway
             ? // Route every model through PostHog's llm-gateway, keeping spec.model
               // as the model id but ignoring the provider prefix.

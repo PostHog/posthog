@@ -35,6 +35,7 @@ import {
     toolSpanId,
 } from '@posthog/agent-shared'
 
+import type { IsAskerInApproverScope } from './per-asker-auth'
 import { dispatchTool } from './tool-dispatch'
 
 export interface DispatchOneDeps {
@@ -73,6 +74,13 @@ export interface DispatchOneDeps {
      * working without a real router.
      */
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * Per-asker authorisation check (#23 step 3). When set, an
+     * approval-gated tool can be dispatched directly if the most recent
+     * user-turn's sender themselves satisfies the tool's `approver_scope`.
+     * Omit to preserve B.2 v0 behaviour (every gated call queues).
+     */
+    isAskerInApproverScope?: IsAskerInApproverScope
 }
 
 export type DispatchSignal =
@@ -101,10 +109,27 @@ export async function dispatchOne(call: ToolCall, deps: DispatchOneDeps): Promis
     // Approval gate. If the resolved tool ref declares requires_approval,
     // the model's call is queued instead of dispatched — see
     // docs/agent-platform/plans/approval-gated-tools.md.
+    //
+    // Per-asker shortcut (#23 step 3): if the asker — the sender of the
+    // most recent user turn — themselves satisfies the tool's approver
+    // scope, dispatch directly. The model sees no difference; the queued
+    // tool_result + UI approval round-trip is just skipped.
     const toolRef = deps.rev.spec.tools.find((t) => t.id === originalName)
     if (toolRef?.requires_approval && deps.approvals) {
-        const signal = await queueApproval(call, originalName, toolRef, deps)
-        return signal
+        const askerSatisfiesScope = deps.isAskerInApproverScope
+            ? await deps.isAskerInApproverScope(
+                  deps.session.conversation,
+                  deps.session.team_id,
+                  toolRef.approval_policy.approvers
+              )
+            : false
+        if (!askerSatisfiesScope) {
+            const signal = await queueApproval(call, originalName, toolRef, deps)
+            return signal
+        }
+        // Fall through to direct dispatch — the asker is themselves an
+        // authorised approver for this scope.
+        deps.runLog.info({ turn: deps.turn, tool: originalName, callId: call.id }, 'tool.dispatch.per_asker_authorised')
     }
     const t0 = Date.now()
     const outcome = await dispatchTool(
