@@ -16,7 +16,6 @@ import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~
 
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
@@ -338,13 +337,5 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
 
 export function AccountsHogQLTable(): JSX.Element {
     const { hogqlQuery } = useValues(accountsLogic)
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <AccountsColumnConfigurator />
-            </div>
-            <AccountsHogQLDataTable query={hogqlQuery} />
-        </div>
-    )
+    return <AccountsHogQLDataTable query={hogqlQuery} />
 }

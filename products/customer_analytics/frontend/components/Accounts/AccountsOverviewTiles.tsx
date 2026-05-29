@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 
-import { AccountsOverviewTilesEditor } from './AccountsOverviewTilesEditor'
 import { accountsOverviewTilesLogic, AccountsOverviewTile, isTileClickable } from './accountsOverviewTilesLogic'
 
 function tileCaption(tile: AccountsOverviewTile): string | undefined {
@@ -28,9 +26,9 @@ function tileLabelByKey(tiles: AccountsOverviewTile[]): (key: string) => string 
 }
 
 export function AccountsOverviewTiles(): JSX.Element {
-    const { reconciledTiles, tileValues, tileQueryResponseLoading, editorVisible, selectedTileId } =
+    const { reconciledTiles, tileValues, tileQueryResponseLoading, selectedTileId } =
         useValues(accountsOverviewTilesLogic)
-    const { showEditor, hideEditor, toggleTileSelection } = useActions(accountsOverviewTilesLogic)
+    const { showEditor, toggleTileSelection } = useActions(accountsOverviewTilesLogic)
 
     const overviewItems: OverviewItem[] = reconciledTiles.map((tile) => ({
         key: tile.id,
@@ -41,35 +39,28 @@ export function AccountsOverviewTiles(): JSX.Element {
         onClick: isTileClickable(tile) ? () => toggleTileSelection(tile) : undefined,
     }))
 
-    return (
-        <div className="flex flex-col gap-2" data-attr="accounts-overview-tiles">
-            <div className="flex justify-end">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconGear />}
-                    onClick={showEditor}
-                    data-attr="accounts-overview-tiles-edit"
-                >
-                    Edit overview tiles
+    if (reconciledTiles.length === 0) {
+        return (
+            <div
+                className="border rounded p-6 flex flex-col items-center justify-center gap-2 text-secondary bg-surface-primary"
+                data-attr="accounts-overview-tiles"
+            >
+                <span>No overview tiles configured.</span>
+                <LemonButton type="primary" size="small" onClick={showEditor}>
+                    Add tile
                 </LemonButton>
             </div>
-            {reconciledTiles.length === 0 ? (
-                <div className="border rounded p-6 flex flex-col items-center justify-center gap-2 text-secondary bg-surface-primary">
-                    <span>No overview tiles configured.</span>
-                    <LemonButton type="primary" size="small" onClick={showEditor}>
-                        Add tile
-                    </LemonButton>
-                </div>
-            ) : (
-                <OverviewGrid
-                    items={overviewItems}
-                    loading={tileQueryResponseLoading}
-                    numSkeletons={Math.max(reconciledTiles.length, 1)}
-                    labelFromKey={tileLabelByKey(reconciledTiles)}
-                />
-            )}
-            <AccountsOverviewTilesEditor isOpen={editorVisible} onClose={hideEditor} />
+        )
+    }
+
+    return (
+        <div data-attr="accounts-overview-tiles">
+            <OverviewGrid
+                items={overviewItems}
+                loading={tileQueryResponseLoading}
+                numSkeletons={Math.max(reconciledTiles.length, 1)}
+                labelFromKey={tileLabelByKey(reconciledTiles)}
+            />
         </div>
     )
 }
