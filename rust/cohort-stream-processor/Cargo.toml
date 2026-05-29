@@ -17,6 +17,9 @@ common-database = { path = "../common/database" }
 # hold their per-partition maps behind sharded locks (no global mutex on the hot path).
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+# `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
+# one partition can't head-of-line-block the sends to the others. Same version dedup uses.
+futures = { workspace = true }
 hogvm = { path = "../common/hogvm" }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }

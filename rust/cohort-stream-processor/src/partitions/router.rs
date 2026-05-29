@@ -15,17 +15,18 @@
 //! returns the channel `Receiver` for the caller (PR 1.6's `worker.rs`; tests drain it directly)
 //! to own, which keeps the routing layer free of any Stage 1 concern for M1.
 //!
-//! Deferred (decision 3): dedup's `routing_processor` fans the per-partition sends out
-//! concurrently via `join_all` so a slow channel never delays the others within one batch. M1
-//! routes the grouped sub-batches sequentially to avoid pulling `futures` for the infra-only
-//! slice; with no live worker draining yet (PR 1.6/1.7) there is nothing to delay. The
-//! guard-release above already isolates partitions at the `DashMap` level. Promote to concurrent
-//! fan-out when the live consumer lands.
+//! Per-partition sends fan out concurrently via [`join_all`](futures::future::join_all) (lifted
+//! from `routing_processor.rs:82-98`): a full channel on one partition never head-of-line-blocks
+//! the sends to the *other* partitions within a single [`route_batch`](PartitionRouter::route_batch)
+//! call. This is a different axis from the guard-release discipline above — that isolates the
+//! `DashMap` against lock contention, while concurrent fan-out isolates the `.await` on a
+//! backpressured channel. Both are needed once PR 1.6/1.7 attach workers that drain at uneven rates.
 
 use std::collections::HashMap;
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
+use futures::future::join_all;
 use metrics::{counter, gauge};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -82,21 +83,46 @@ impl PartitionRouter {
 
     /// Register a worker channel for `partition` and return its `Receiver` for the caller to own.
     ///
-    /// Returns `Some(receiver)` the first time a partition is registered. Returns `None` if the
-    /// partition is *already* registered: the existing sender — and therefore the existing worker
-    /// — is reused, and since a channel has exactly one receiver, a second one cannot be handed
-    /// out. This mirrors dedup's reuse-on-rapid-reassign behavior (`partition_router.rs:72-95`),
-    /// which guards the revoke→assign race where the previous worker's cleanup has not run yet.
+    /// Returns `Some(receiver)` the first time a partition is registered. If the partition is
+    /// *already* registered, the result depends on whether its worker is still alive:
+    /// - **Live channel** (receiver still held): the existing sender — and therefore the existing
+    ///   worker — is reused and `None` is returned, since a channel has exactly one receiver and a
+    ///   second cannot be handed out. This mirrors dedup's reuse-on-rapid-reassign behavior
+    ///   (`partition_router.rs:72-95`), guarding the revoke→assign race where the previous worker's
+    ///   cleanup has not run yet.
+    /// - **Closed channel** (receiver already dropped): the previous worker exited *without*
+    ///   [`remove_partition`](Self::remove_partition) — a panic or early return. The orphaned sender
+    ///   would otherwise strand the partition forever (every [`route_batch`](Self::route_batch)
+    ///   would return [`RouteError::ChannelClosed`], and this reuse path would mask re-creation), so
+    ///   it is replaced with a fresh channel and the new `Receiver` is handed out: reassignment
+    ///   self-heals.
+    ///
+    /// The self-heal is a safety net, **not** a substitute for cleanup. PR 1.6/1.7 must still run
+    /// [`remove_partition`](Self::remove_partition) on every worker-exit path — ideally a drop guard
+    /// on the worker — because until the next reassignment a silently-dead worker keeps dropping its
+    /// partition's messages (Kafka replays them after the rebalance settles).
     ///
     /// Call this synchronously from the partition-assignment callback (PR 1.7).
     pub fn add_partition(&self, partition: i32) -> Option<mpsc::Receiver<Vec<ShuffleMessage>>> {
         let receiver = match self.senders.entry(partition) {
-            Entry::Occupied(_) => {
-                warn!(
-                    partition,
-                    "partition already registered; reusing the existing worker channel"
-                );
-                None
+            Entry::Occupied(mut slot) => {
+                if slot.get().is_closed() {
+                    // The previous worker dropped its receiver without `remove_partition`. Replace
+                    // the orphaned sender so the partition becomes usable again instead of stuck.
+                    let (sender, receiver) = mpsc::channel(self.channel_buffer);
+                    slot.insert(sender);
+                    warn!(
+                        partition,
+                        "replacing closed worker channel on reassign (previous worker exited without revoke)"
+                    );
+                    Some(receiver)
+                } else {
+                    warn!(
+                        partition,
+                        "partition already registered; reusing the existing worker channel"
+                    );
+                    None
+                }
             }
             Entry::Vacant(slot) => {
                 let (sender, receiver) = mpsc::channel(self.channel_buffer);
@@ -122,9 +148,10 @@ impl PartitionRouter {
     }
 
     /// Group a mixed-partition batch by partition and dispatch each sub-batch to its worker
-    /// channel, preserving per-partition arrival order (the affinity guarantee). Per-partition
-    /// failures are collected into the returned `Vec` instead of aborting the batch — mirrors
-    /// dedup's "log and continue" (`routing_processor.rs:100-109`).
+    /// channel, preserving per-partition arrival order (the affinity guarantee). The per-partition
+    /// sends run concurrently (see the module comment) so one backpressured channel can't delay the
+    /// others within this call. Per-partition failures are collected into the returned `Vec`
+    /// instead of aborting the batch — mirrors dedup's "log and continue" (`routing_processor.rs:100-109`).
     pub async fn route_batch(&self, messages: Vec<(i32, ShuffleMessage)>) -> Vec<RouteError> {
         if messages.is_empty() {
             return Vec::new();
@@ -135,31 +162,49 @@ impl PartitionRouter {
             by_partition.entry(partition).or_default().push(message);
         }
 
-        let mut errors = Vec::new();
-        for (partition, batch) in by_partition {
-            let dropped = batch.len();
+        // Fan the per-partition sends out concurrently: `join_all` polls every send on each poll,
+        // so a partition whose channel is full only parks itself while the others keep making
+        // progress within this call. Each future borrows `&self` (shared) and is awaited in place,
+        // never spawned, so no `'static`/`Send`/`Arc` is required — unlike dedup's
+        // `routing_processor.rs:82-98`, which clones an `Arc` only because it spawns.
+        let sends = by_partition
+            .into_iter()
+            .map(|(partition, batch)| self.send_to_partition(partition, batch));
+        join_all(sends).await.into_iter().flatten().collect()
+    }
 
-            // Clone the sender and let the `DashMap` guard drop *before* awaiting the send, so one
-            // full channel can never block routing to the other partitions (the load-bearing
-            // backpressure-isolation detail lifted from `partition_router.rs:145-158`).
-            let Some(sender) = self.sender_for(partition) else {
-                self.record_drop(partition, dropped, REASON_NO_WORKER);
-                errors.push(RouteError::NoWorker { partition, dropped });
-                continue;
-            };
+    /// Dispatch one partition's sub-batch to its worker channel, returning the failure (if any)
+    /// rather than propagating it — the per-partition unit of [`route_batch`](Self::route_batch)'s
+    /// concurrent fan-out. Emits the success/drop metrics inline so this is the single place that
+    /// accounts for a send.
+    async fn send_to_partition(
+        &self,
+        partition: i32,
+        batch: Vec<ShuffleMessage>,
+    ) -> Option<RouteError> {
+        let dropped = batch.len();
 
-            match sender.send(batch).await {
-                Ok(()) => self.emit_channel_depth(partition, &sender),
-                Err(mpsc::error::SendError(returned)) => {
-                    self.record_drop(partition, returned.len(), REASON_CHANNEL_CLOSED);
-                    errors.push(RouteError::ChannelClosed {
-                        partition,
-                        dropped: returned.len(),
-                    });
-                }
+        // Clone the sender and let the `DashMap` guard drop *before* awaiting the send, so one
+        // full channel can never block routing to the other partitions (the load-bearing
+        // backpressure-isolation detail lifted from `partition_router.rs:145-158`).
+        let Some(sender) = self.sender_for(partition) else {
+            self.record_drop(partition, dropped, REASON_NO_WORKER);
+            return Some(RouteError::NoWorker { partition, dropped });
+        };
+
+        match sender.send(batch).await {
+            Ok(()) => {
+                self.emit_channel_depth(partition, &sender);
+                None
+            }
+            Err(mpsc::error::SendError(returned)) => {
+                self.record_drop(partition, returned.len(), REASON_CHANNEL_CLOSED);
+                Some(RouteError::ChannelClosed {
+                    partition,
+                    dropped: returned.len(),
+                })
             }
         }
-        errors
     }
 
     /// Number of partitions with a registered worker channel.
@@ -198,11 +243,12 @@ impl PartitionRouter {
 mod tests {
     use super::*;
     use crate::consumers::events::CohortStreamEvent;
+    use futures::future::FutureExt;
 
     /// An event tagged by its `source_offset` so a routed sub-batch can be identified by tag
     /// without needing `PartialEq` on the (foreign) event type.
     fn event(tag: i64) -> ShuffleMessage {
-        ShuffleMessage::Event(Box::new(CohortStreamEvent {
+        ShuffleMessage::Event(CohortStreamEvent {
             team_id: 1,
             person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
             distinct_id: "d".to_string(),
@@ -214,7 +260,7 @@ mod tests {
             elements_chain: None,
             source_offset: tag,
             source_partition: 0,
-        }))
+        })
     }
 
     /// Project a received sub-batch back to its tags, in order.
@@ -340,5 +386,56 @@ mod tests {
     async fn empty_batch_is_a_no_op() {
         let router = PartitionRouter::new(16);
         assert!(router.route_batch(vec![]).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn route_batch_fans_out_so_a_full_channel_does_not_block_other_partitions() {
+        // I2 regression: a backpressured partition must not head-of-line-block the sends to the
+        // others within one `route_batch` call. With a buffer of 1, fill partition 1's channel so
+        // its next send parks; partition 2's send must still complete in the same call.
+        let router = PartitionRouter::new(1);
+        let mut rx1 = router.add_partition(1).unwrap();
+        let mut rx2 = router.add_partition(2).unwrap();
+
+        // Fill partition 1's single slot (and never drain rx1) so its next send blocks.
+        assert!(router.route_batch(vec![(1, event(100))]).await.is_empty());
+
+        // Route a batch touching the blocked partition 1 and the free partition 2.
+        let routed = router.route_batch(vec![(1, event(1)), (2, event(2))]);
+        tokio::pin!(routed);
+
+        // One poll can't complete the call (partition 1's channel is still full), but `join_all`
+        // polls every send on that poll, so partition 2's send finishes concurrently. Sequential
+        // routing would block on partition 1 and never reach partition 2 within this call.
+        assert!(
+            routed.as_mut().now_or_never().is_none(),
+            "route_batch must stay pending while partition 1 is backpressured"
+        );
+
+        // Partition 2 received its sub-batch during that poll, even though partition 1 is stuck.
+        assert_eq!(tags(&rx2.try_recv().unwrap()), vec![2]);
+
+        // Partition 1 still holds only the pre-fill; the new sub-batch is queued behind the full
+        // channel inside the still-pending future (not delivered).
+        assert_eq!(tags(&rx1.try_recv().unwrap()), vec![100]);
+        assert!(rx1.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn re_adding_a_partition_whose_worker_died_without_revoke_self_heals() {
+        // I3: a worker that drops its receiver WITHOUT `remove_partition` (panic / early return)
+        // leaves an orphaned sender. Reassigning the partition must replace the dead channel and
+        // hand out a fresh receiver instead of silently reusing the dead one (which strands it).
+        let router = PartitionRouter::new(16);
+        let rx_dead = router.add_partition(5).unwrap();
+        drop(rx_dead); // worker exited without revoke; sender is now orphaned
+
+        let mut rx_new = router
+            .add_partition(5)
+            .expect("closed slot self-heals to a fresh receiver");
+        assert_eq!(router.partition_count(), 1);
+
+        assert!(router.route_batch(vec![(5, event(7))]).await.is_empty());
+        assert_eq!(tags(&rx_new.recv().await.unwrap()), vec![7]);
     }
 }

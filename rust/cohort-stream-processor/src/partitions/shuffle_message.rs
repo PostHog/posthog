@@ -27,11 +27,14 @@ use crate::consumers::events::CohortStreamEvent;
 pub enum ShuffleMessage {
     /// A re-keyed event from `cohort_stream_events` (the hot path).
     ///
-    /// Boxed deliberately: [`CohortStreamEvent`] is by far the largest payload and the
-    /// overwhelming majority of messages are events, so boxing keeps `size_of::<ShuffleMessage>`
-    /// down to a pointer. That way the future, larger merge/transfer variants won't inflate the
-    /// footprint of every queued event sitting in a worker channel.
-    Event(Box<CohortStreamEvent>),
+    /// Kept inline (unboxed) on purpose: events are the hot, overwhelmingly common variant, so the
+    /// payload lives directly in the enum to avoid a heap allocation per event on the routing path
+    /// and to keep each `Vec<ShuffleMessage>` slot contiguous (one buffer, no pointer-chase). The
+    /// idiom is to box the *large, rare* variants — not the common one — so when the future
+    /// merge/transfer variants land, each boxes its own payload to keep `size_of::<ShuffleMessage>`
+    /// from inflating for every queued event. `clippy::large_enum_variant` will flag exactly which
+    /// variant to box once there is more than one.
+    Event(CohortStreamEvent),
 }
 
 #[cfg(test)]
@@ -56,7 +59,7 @@ mod tests {
 
     #[test]
     fn event_variant_round_trips_through_the_box() {
-        let message = ShuffleMessage::Event(Box::new(sample_event(42)));
+        let message = ShuffleMessage::Event(sample_event(42));
 
         // Exhaustive match (no wildcard) so adding a variant later forces this test to be revisited.
         match message {
