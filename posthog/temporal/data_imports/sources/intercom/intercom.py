@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
-from requests import Request, Response, Session
+import structlog
+from requests import HTTPError, Request, Response, Session
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -17,6 +18,8 @@ from posthog.temporal.data_imports.sources.intercom.settings import INTERCOM_END
 
 INTERCOM_API_BASE = "https://api.intercom.io"
 INTERCOM_API_VERSION = "2.13"
+
+logger = structlog.get_logger(__name__)
 
 
 def _default_headers() -> dict[str, str]:
@@ -211,9 +214,26 @@ def _conversation_parts_generator(
     """Yield each conversation part. Parents are server-filtered by
     `updated_at >`; the part rows themselves carry their own `updated_at`,
     so the pipeline's cursor watermark advances per-part. `conversation_id`
-    is injected onto each row for joinability."""
+    is injected onto each row for joinability.
+
+    A 403 on a single conversation (record-level access restriction, soft-
+    deleted record, team inbox restriction) is tolerated: skip the row and
+    continue. The parent `/conversations/search` already succeeded for this
+    token, so a per-row 403 is not a workspace-scope failure — propagating
+    it would abort the whole stream and surface a misleading 'missing
+    scopes' message via the source's non-retryable error mapping.
+    """
     for conv in _iter_conversations(session, incremental_field, db_incremental_field_last_value):
-        full = _intercom_get(session, f"/conversations/{conv['id']}")
+        try:
+            full = _intercom_get(session, f"/conversations/{conv['id']}")
+        except HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 403:
+                logger.warning(
+                    "intercom_conversation_part_forbidden",
+                    conversation_id=conv["id"],
+                )
+                continue
+            raise
         parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
         for part in parts:
             part["conversation_id"] = conv["id"]
@@ -243,9 +263,24 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
 def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
-    either parent or child."""
+    either parent or child.
+
+    Per-row 403s on `/companies/{id}/segments` are tolerated for the same
+    reason as `_conversation_parts_generator`: the parent `/companies/list`
+    succeeded, so a forbidden single company is a record-level restriction,
+    not a workspace-scope failure.
+    """
     for company in _iter_companies(session):
-        payload = _intercom_get(session, f"/companies/{company['id']}/segments")
+        try:
+            payload = _intercom_get(session, f"/companies/{company['id']}/segments")
+        except HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 403:
+                logger.warning(
+                    "intercom_company_segment_forbidden",
+                    company_id=company["id"],
+                )
+                continue
+            raise
         for seg in payload.get("data", []) or []:
             seg["company_id"] = company["id"]
             yield seg
