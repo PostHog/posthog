@@ -282,11 +282,10 @@ impl RawProxyInner {
         method: &str,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
+        let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
             let mut channel = self.replica.next_raw_channel_for(method);
-
-            let client = current_client_name();
 
             let ready_start = Instant::now();
             let ready_channel = match channel.ready().await {
