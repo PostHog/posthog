@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.db import transaction
@@ -59,13 +59,14 @@ from products.data_warehouse.backend.api.external_data_schema import (
     SimpleExternalDataSchemaSerializer,
 )
 from products.data_warehouse.backend.data_load.service import (
+    bulk_create_external_data_job_schedules,
+    bulk_delete_external_data_schedules,
     cancel_external_data_workflow,
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     sync_discover_schemas_schedule,
-    sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
@@ -1363,11 +1364,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
 
+        # Create all sync schedules over a single shared Temporal connection. Creating them
+        # one call at a time reconnects to Temporal on every iteration, which does not scale
+        # to sources with thousands of schemas (e.g. a Slack workspace with thousands of
+        # channels).
         try:
-            for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
+            schedule_errors = bulk_create_external_data_job_schedules(
+                [(active_schema, active_schema.should_sync) for active_schema in active_schemas]
+            )
+            for schema_id, schedule_error in schedule_errors:
+                # The source model was already created, so a partial schedule failure
+                # shouldn't fail the request — log each failure and carry on.
+                logger.exception(
+                    "Could not trigger external data job",
+                    exc_info=schedule_error,
+                    schema_id=schema_id,
+                )
         except Exception as e:
-            # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
         # Per-source schema discovery schedule. Runs every 6h so newly added
@@ -1545,7 +1558,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for schema in schemas:
                 if schema.table:
                     schema.table.soft_delete()
-                schema.soft_delete()
+
+            # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
+            # runs a SELECT + UPDATE + activity-log write each, which does not scale to
+            # sources with thousands of schemas (e.g. a Slack workspace with thousands of
+            # channels).
+            deleted_at = datetime.now(UTC)
+            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
+                deleted=True, deleted_at=deleted_at
+            )
+            # Mirror the bulk update onto the in-memory objects so the post-atomic
+            # `schema.delete_table()` save() below doesn't overwrite deleted=True with the
+            # stale in-memory value.
+            for schema in schemas:
+                schema.deleted = True
+                schema.deleted_at = deleted_at
 
             # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
             # DataWarehouseTable records linked to the source but not to schema.table.
@@ -1581,12 +1608,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        for schema in schemas:
-            try:
-                delete_external_data_schedule(str(schema.id))
-            except Exception as e:
-                capture_exception(e)
+        # Delete all schema sync schedules over a single shared Temporal connection — see
+        # the matching comment in `create`. Guarded so a Temporal-connect failure here
+        # doesn't skip the source/discovery schedule and S3 cleanup below.
+        try:
+            schedule_delete_errors = bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
+            for schema_id, schedule_delete_error in schedule_delete_errors:
+                capture_exception(schedule_delete_error, {"schema_id": schema_id})
+        except Exception as e:
+            capture_exception(e)
 
+        for schema in schemas:
             try:
                 schema.delete_table()
             except Exception as e:
