@@ -4,18 +4,61 @@ from typing import Any
 from django.db import IntegrityError
 from django.db.models import Count, QuerySet
 
+import posthoganalytics
+from asgiref.sync import async_to_sync
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import PulseDigest, PulseFinding, PulseSubscription
-from posthog.models.pulse import PulseChannel, PulseFindingFeedback
+from posthog.models.pulse import DetectionMode, PulseFindingFeedback
+from posthog.temporal.ai.pulse.selection import select_candidates
 
-ALLOWED_CHANNELS = {c.value for c in PulseChannel}
+MAX_PULSE_FLAG = "max-pulse"
+WATCHED_MAX_CANDIDATES = 50
+
+
+class MaxPulseFeatureFlagPermission(BasePermission):
+    """404 (not 403) the whole Pulse surface unless `max-pulse` is enabled for the team's org.
+
+    A 404 hides the feature's existence from teams that don't have it, rather than
+    advertising it with a 403.
+    """
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        team = view.team
+        org_id = str(team.organization_id)
+        project_id = str(team.id)
+        enabled = posthoganalytics.feature_enabled(
+            MAX_PULSE_FLAG,
+            str(request.user.distinct_id),
+            groups={"organization": org_id, "project": project_id},
+            group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        if not enabled:
+            raise NotFound()
+        return True
+
+
+class PulseFeedbackSerializer(serializers.Serializer):
+    """Request body for submitting feedback on a single Pulse finding."""
+
+    action = serializers.ChoiceField(
+        choices=PulseFindingFeedback.choices,
+        help_text="The feedback to record for this finding (e.g. up, down, dismissed, snoozed).",
+    )
+    snoozed_until = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the finding should resurface. Only meaningful when action is 'snoozed'.",
+    )
 
 
 class PulseFindingSerializer(serializers.ModelSerializer):
@@ -29,7 +72,8 @@ class PulseFindingSerializer(serializers.ModelSerializer):
             "current_value",
             "baseline_value",
             "change_pct",
-            "z_score",
+            "robust_z",
+            "impact",
             "attribution_breakdown",
             "narrative",
             "chart_thumbnail_url",
@@ -46,13 +90,28 @@ class PulseFindingSerializer(serializers.ModelSerializer):
             "current_value",
             "baseline_value",
             "change_pct",
-            "z_score",
+            "robust_z",
+            "impact",
             "attribution_breakdown",
             "narrative",
             "chart_thumbnail_url",
             "rank",
             "created_at",
         ]
+        extra_kwargs = {
+            "metric_label": {"help_text": "Human-readable name of the metric this finding is about."},
+            "metric_descriptor": {"help_text": "Opaque descriptor (source, label, query) Pulse re-evaluates."},
+            "current_value": {"help_text": "Metric value for the current period."},
+            "baseline_value": {"help_text": "Baseline median over the configured baseline window."},
+            "change_pct": {"help_text": "Fractional change vs baseline median, e.g. 0.5 means +50%."},
+            "robust_z": {
+                "help_text": "Robust z-score (median/MAD based). Secondary signal only, never a sole trigger."
+            },
+            "impact": {"help_text": "Ranking score: abs(change_pct) * sqrt(baseline_median)."},
+            "narrative": {"help_text": "LLM-generated explanation of the change."},
+            "feedback": {"help_text": "User feedback state for this finding."},
+            "snoozed_until": {"help_text": "When a snoozed finding should resurface."},
+        }
 
 
 class PulseDigestSerializer(serializers.ModelSerializer):
@@ -66,7 +125,6 @@ class PulseDigestSerializer(serializers.ModelSerializer):
             "period_start",
             "period_end",
             "status",
-            "delivered_to",
             "workflow_run_id",
             "error",
             "created_at",
@@ -74,6 +132,11 @@ class PulseDigestSerializer(serializers.ModelSerializer):
             "findings",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "status": {"help_text": "Lifecycle of this scan run (pending, generating, delivered, failed)."},
+            "workflow_run_id": {"help_text": "Temporal workflow run id that produced this digest."},
+            "error": {"help_text": "Error payload if the scan run failed, otherwise null."},
+        }
 
     def get_finding_count(self, obj: PulseDigest) -> int:
         # Avoid extra query when prefetched, fall back to .count() otherwise.
@@ -83,7 +146,7 @@ class PulseDigestSerializer(serializers.ModelSerializer):
 
 
 class PulseDigestListSerializer(serializers.ModelSerializer):
-    finding_count = serializers.IntegerField(read_only=True)
+    finding_count = serializers.IntegerField(read_only=True, help_text="Number of findings in this digest.")
 
     class Meta:
         model = PulseDigest
@@ -92,36 +155,82 @@ class PulseDigestListSerializer(serializers.ModelSerializer):
             "period_start",
             "period_end",
             "status",
-            "delivered_to",
             "created_at",
             "finding_count",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "status": {"help_text": "Lifecycle of this scan run (pending, generating, delivered, failed)."},
+        }
 
 
 class PulseSubscriptionSerializer(serializers.ModelSerializer):
+    min_change_pct = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Primary gate: minimum absolute fractional change to flag (0.0-1.0).",
+    )
+    baseline_weeks = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=52,
+        help_text="Number of completed weeks used to compute the baseline median.",
+    )
+    max_findings = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=50,
+        help_text="Maximum findings surfaced per digest.",
+    )
+    robust_z_threshold = serializers.FloatField(
+        required=False,
+        min_value=0.1,
+        max_value=10.0,
+        help_text="Secondary informational threshold for the robust z-score. Never a sole trigger.",
+    )
+
     class Meta:
         model = PulseSubscription
         fields = [
             "id",
             "enabled",
             "frequency",
-            "enabled_channels",
-            "slack_channel_id",
-            "email_recipients",
+            "detection_mode",
+            "sensitivity",
+            "min_change_pct",
+            "baseline_weeks",
+            "max_findings",
+            "robust_z_threshold",
             "last_scan_at",
             "next_scan_at",
             "created_at",
         ]
         read_only_fields = ["id", "last_scan_at", "next_scan_at", "created_at"]
+        extra_kwargs = {
+            "enabled": {"help_text": "Whether Pulse runs scans for this team."},
+            "frequency": {"help_text": "Scan cadence (weekly or daily)."},
+            "detection_mode": {"help_text": "Detection algorithm. Only 'change_v1' is available in v1."},
+            "sensitivity": {"help_text": "Preset that derives thresholds, or 'custom' to use the raw knobs."},
+            "last_scan_at": {"help_text": "When Pulse last completed a scan for this team."},
+            "next_scan_at": {"help_text": "When the next scan is scheduled."},
+        }
 
-    def validate_enabled_channels(self, value: Any) -> list[str]:
-        if not isinstance(value, list):
-            raise ValidationError("enabled_channels must be a list")
-        bad = [v for v in value if v not in ALLOWED_CHANNELS]
-        if bad:
-            raise ValidationError(f"Invalid channels: {bad}. Allowed: {sorted(ALLOWED_CHANNELS)}")
+    def validate_detection_mode(self, value: str) -> str:
+        if value == DetectionMode.DISCOVERY:
+            raise ValidationError("detection_mode 'discovery' is not available in v1.")
         return value
+
+
+class PulseWatchedCandidateSerializer(serializers.Serializer):
+    """A single metric Pulse is currently watching (read-only transparency)."""
+
+    source = serializers.CharField(
+        help_text="Where the candidate came from (dashboard_tile, recent_insight, top_event)."
+    )
+    source_id = serializers.CharField(allow_null=True, help_text="Underlying insight/event id, if any.")
+    label = serializers.CharField(help_text="Human-readable metric name.")
+    query = serializers.JSONField(help_text="TrendsQuery-shaped dict Pulse re-evaluates.")
 
 
 class PulseDigestViewSet(
@@ -131,8 +240,8 @@ class PulseDigestViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
-    queryset = PulseDigest.objects.all()
+    permission_classes = [IsAuthenticated, MaxPulseFeatureFlagPermission]
+    queryset = PulseDigest.objects.unscoped()
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -155,8 +264,8 @@ class PulseFindingViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
-    queryset = PulseFinding.objects.all()
+    permission_classes = [IsAuthenticated, MaxPulseFeatureFlagPermission]
+    queryset = PulseFinding.objects.unscoped()
     serializer_class = PulseFindingSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -169,27 +278,22 @@ class PulseFindingViewSet(
             qs = qs.filter(feedback=feedback)
         return qs.order_by("rank", "-created_at")
 
+    @extend_schema(
+        request=PulseFeedbackSerializer,
+        responses={200: OpenApiResponse(response=PulseFindingSerializer)},
+    )
     @action(detail=True, methods=["post"], url_path="feedback")
     def submit_feedback(self, request: Request, *args, **kwargs) -> Response:
         finding = self.get_object()
-        action_value = request.data.get("action")
-        try:
-            normalized = PulseFindingFeedback(action_value)
-        except ValueError:
-            raise ValidationError(
-                f"Invalid feedback action: {action_value!r}. "
-                f"Allowed: {[c.value for c in PulseFindingFeedback]}"
-            )
+        body = PulseFeedbackSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        normalized = body.validated_data["action"]
+
         finding.feedback = normalized
         finding.feedback_user = request.user
         finding.feedback_at = datetime.now(UTC)
         if normalized == PulseFindingFeedback.SNOOZED:
-            snoozed_until = request.data.get("snoozed_until")
-            if snoozed_until:
-                try:
-                    finding.snoozed_until = datetime.fromisoformat(snoozed_until.replace("Z", "+00:00"))
-                except (TypeError, ValueError):
-                    raise ValidationError("snoozed_until must be an ISO datetime string")
+            finding.snoozed_until = body.validated_data.get("snoozed_until")
         finding.save(update_fields=["feedback", "feedback_user", "feedback_at", "snoozed_until"])
         return Response(self.get_serializer(finding).data)
 
@@ -204,8 +308,8 @@ class PulseSubscriptionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
-    queryset = PulseSubscription.objects.all()
+    permission_classes = [IsAuthenticated, MaxPulseFeatureFlagPermission]
+    queryset = PulseSubscription.objects.unscoped()
     serializer_class = PulseSubscriptionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -222,6 +326,7 @@ class PulseSubscriptionViewSet(
         except IntegrityError as exc:
             raise ValidationError("This team already has a Pulse subscription. Use PATCH to update it.") from exc
 
+    @extend_schema(responses={200: OpenApiResponse(response=PulseSubscriptionSerializer)})
     @action(detail=False, methods=["get"], url_path="current")
     def current(self, request: Request, *args, **kwargs) -> Response:
         sub = PulseSubscription.objects.filter(team_id=self.team_id).first()
@@ -232,11 +337,32 @@ class PulseSubscriptionViewSet(
                 "id": None,
                 "enabled": False,
                 "frequency": "weekly",
-                "enabled_channels": ["in_app"],
-                "slack_channel_id": "",
-                "email_recipients": [],
+                "detection_mode": "change_v1",
+                "sensitivity": "balanced",
+                "min_change_pct": 0.25,
+                "baseline_weeks": 4,
+                "max_findings": 5,
+                "robust_z_threshold": 3.5,
                 "last_scan_at": None,
                 "next_scan_at": None,
                 "created_at": None,
             }
         )
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=PulseWatchedCandidateSerializer(many=True))},
+    )
+    @action(detail=False, methods=["get"], url_path="watched")
+    def watched(self, request: Request, *args, **kwargs) -> Response:
+        candidates = async_to_sync(select_candidates)(team_id=self.team_id, max_candidates=WATCHED_MAX_CANDIDATES)
+        rows = [
+            {
+                "source": c.descriptor.source,
+                "source_id": None if c.descriptor.source_id is None else str(c.descriptor.source_id),
+                "label": c.descriptor.label,
+                "query": c.descriptor.query,
+            }
+            for c in candidates
+        ]
+        return Response({"results": rows})
