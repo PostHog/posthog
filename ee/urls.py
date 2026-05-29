@@ -13,6 +13,8 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
+from products.cdp.backend.api import hooks
+
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
@@ -27,7 +29,6 @@ from .api import (
     conversation,
     core_memory,
     dashboard_collaborator,
-    hooks,
     license,
     sentry_stats,
     subscription,

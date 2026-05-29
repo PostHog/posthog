@@ -178,6 +178,7 @@ export enum NodeKind {
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
+    AccountsQuery = 'AccountsQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -243,6 +244,7 @@ export type AnyDataNode =
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
+    | AccountsQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -348,6 +350,7 @@ export type QuerySchema =
 
     // Customer analytics
     | UsageMetricsQuery
+    | AccountsQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -1052,6 +1055,7 @@ export interface DataTableNode
                     | ExperimentTrendsQuery
                     | TracesQuery
                     | EndpointsUsageTableQuery
+                    | AccountsQuery
                 )['response']
             >
         >,
@@ -1090,6 +1094,7 @@ export interface DataTableNode
         | TracesQuery
         | TraceQuery
         | EndpointsUsageTableQuery
+        | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -2251,6 +2256,35 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     search?: string
     properties?: AnyGroupScopeFilter[]
     group_type_index: integer
+    orderBy?: string[]
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedAccountsQueryResponse = CachedQueryResponse<AccountsQueryResponse>
+
+export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    kind: NodeKind.AccountsQuery
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit: integer
+    offset: integer
+}
+
+export type AccountsRoleAssignmentFilter = integer | 'unassigned'
+
+export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
+    kind: NodeKind.AccountsQuery
+    select?: HogQLExpression[]
+    search?: string
+    tagNames?: string[]
+    csm?: AccountsRoleAssignmentFilter
+    accountExecutive?: AccountsRoleAssignmentFilter
+    accountOwner?: AccountsRoleAssignmentFilter
+    allRolesUnassigned?: boolean
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -6309,6 +6343,11 @@ export enum InfinityValue {
 
 export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
+}
+
+/** Subscriptions a free-tier team may create. */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
