@@ -144,6 +144,17 @@ def _format_serializer_errors(serializer_errors: dict) -> str:
     return ". ".join(error_messages)
 
 
+class PromotedProductIntentSerializer(serializers.Serializer):
+    product_key = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The product key the team selected as their primary product during onboarding "
+            "(e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no "
+            "primary onboarding product intent has been captured for this team."
+        ),
+    )
+
+
 class CachingTeamSerializer(serializers.ModelSerializer):
     """
     This serializer is used for caching teams.
@@ -2035,6 +2046,24 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        tags=["platform_features"],
+        responses={200: PromotedProductIntentSerializer},
+        description=(
+            "Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary "
+            "product during onboarding. Resolved from the most recent `user showed product intent` event with "
+            "`intent_context = onboarding product selected - primary`. Returns `null` when no such event has been "
+            "captured (e.g. teams created before this signal existed, or where onboarding was skipped)."
+        ),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
+    def promoted_product_intent(self, request: request.Request, **kwargs):
+        from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
+
+        team = self.get_object()
+        product_key = get_promoted_product_intent(team.pk)
+        return response.Response({"product_key": product_key})
 
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):

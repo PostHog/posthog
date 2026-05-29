@@ -10,22 +10,38 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+export interface NavLinkSideAction {
+    onClick: (e: React.MouseEvent) => void
+    tooltip: string
+    'data-attr'?: string
+}
+
 interface NavLinkProps {
     to: string
     label: string
     icon: React.ReactNode
     isCollapsed: boolean
     'data-attr'?: string
-    onClick?: () => void
+    onClick?: (e: React.MouseEvent) => void
+    sideAction?: NavLinkSideAction
 }
 
-export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, onClick }: NavLinkProps): JSX.Element {
+export function NavLink({
+    to,
+    label,
+    icon,
+    isCollapsed,
+    'data-attr': dataAttr,
+    onClick,
+    sideAction,
+}: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const hasSideActionRight = (isHomePage || !!sideAction) && !isCollapsed
 
     return (
         <ButtonGroupPrimitive
@@ -38,7 +54,7 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                     iconOnly: isCollapsed,
                     className: 'group -outline-offset-2',
                     active: isActive,
-                    hasSideActionRight: isHomePage && !isCollapsed,
+                    hasSideActionRight,
                 }}
                 to={to}
                 data-attr={dataAttr}
@@ -77,6 +93,22 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                     tooltip="Configure home"
                     tooltipPlacement="right"
                     data-attr="nav-configure-home"
+                >
+                    <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
+                </ButtonPrimitive>
+            )}
+            {sideAction && !isCollapsed && (
+                <ButtonPrimitive
+                    className="group -outline-offset-2"
+                    iconOnly
+                    isSideActionRight
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        sideAction.onClick(e)
+                    }}
+                    tooltip={sideAction.tooltip}
+                    tooltipPlacement="right"
+                    data-attr={sideAction['data-attr']}
                 >
                     <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
                 </ButtonPrimitive>
