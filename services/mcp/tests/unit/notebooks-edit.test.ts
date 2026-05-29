@@ -614,6 +614,92 @@ describe('notebooks-edit', () => {
         })
     })
 
+    it('uses heading anchors as section ranges when replacing query text', async () => {
+        const oldQuery = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'SELECT event\nFROM events\nLIMIT 20' },
+            display: 'ActionsTable',
+        }
+        const newQuery = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'SELECT event\nFROM events\nLIMIT 100' },
+            display: 'ActionsTable',
+        }
+        const requestMock = vi
+            .fn()
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 2,
+                title: 'Notebook',
+                content: doc(
+                    headingWithLevel(2, 'Device & browser'),
+                    paragraph('This section compares device/browser combinations.'),
+                    queryNode(oldQuery, 'Device type by segment'),
+                    headingWithLevel(2, 'Next section'),
+                    queryNode({
+                        kind: 'DataVisualizationNode',
+                        source: { kind: 'HogQLQuery', query: 'SELECT * FROM events LIMIT 20' },
+                        display: 'ActionsTable',
+                    })
+                ),
+            })
+            .mockResolvedValueOnce({
+                short_id: 'abc123',
+                version: 3,
+                title: 'Notebook',
+                content: doc(
+                    headingWithLevel(2, 'Device & browser'),
+                    paragraph('This section compares device/browser combinations.'),
+                    queryNode(newQuery, 'Device type by segment'),
+                    headingWithLevel(2, 'Next section'),
+                    queryNode({
+                        kind: 'DataVisualizationNode',
+                        source: { kind: 'HogQLQuery', query: 'SELECT * FROM events LIMIT 20' },
+                        display: 'ActionsTable',
+                    })
+                ),
+            })
+        const context = createMockContext(requestMock)
+        const tool = editNotebook()
+
+        await tool.handler(context, {
+            short_id: 'abc123',
+            max_retries: 3,
+            edits: [
+                {
+                    type: 'replace_text',
+                    anchor: 'Device & browser',
+                    find: 'LIMIT 20',
+                    replace: 'LIMIT 100',
+                },
+            ],
+        })
+
+        const body = bodyForCall(requestMock, 1)
+        expect(body).toMatchObject({
+            version: 2,
+            content: doc(
+                headingWithLevel(2, 'Device & browser'),
+                paragraph('This section compares device/browser combinations.'),
+                queryNode(newQuery, 'Device type by segment'),
+                headingWithLevel(2, 'Next section'),
+                queryNode({
+                    kind: 'DataVisualizationNode',
+                    source: { kind: 'HogQLQuery', query: 'SELECT * FROM events LIMIT 20' },
+                    display: 'ActionsTable',
+                })
+            ),
+            steps: [
+                {
+                    stepType: 'replace',
+                    from: 57,
+                    to: 58,
+                    slice: { content: [queryNode(newQuery, 'Device type by segment')] },
+                },
+            ],
+        })
+    })
+
     it('replaces text inside a query node by title anchor without rebuilding the whole block', async () => {
         const oldQuery = {
             kind: 'DataVisualizationNode',

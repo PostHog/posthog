@@ -932,8 +932,13 @@ function applyAttributeReplacementInBlock(
     return [replaceStep(from, to, [insertedNode])]
 }
 
-function findAttributeReplacementBlockIndex(doc: ProseMirrorDoc, find: string, startIndex: number = 0): number | null {
-    for (let index = startIndex; index < doc.content.length; index++) {
+function findAttributeReplacementBlockIndex(
+    doc: ProseMirrorDoc,
+    find: string,
+    startIndex: number = 0,
+    endIndex: number = doc.content.length
+): number | null {
+    for (let index = startIndex; index < endIndex; index++) {
         const node = doc.content[index]
         if (!node || !textContent(node).includes(find)) {
             continue
@@ -944,6 +949,47 @@ function findAttributeReplacementBlockIndex(doc: ProseMirrorDoc, find: string, s
     }
 
     return null
+}
+
+function headingLevel(node: ProseMirrorNode): number | null {
+    if (node.type !== 'heading' || !isRecord(node.attrs) || typeof node.attrs.level !== 'number') {
+        return null
+    }
+    return node.attrs.level
+}
+
+function findSectionEndIndex(doc: ProseMirrorDoc, headingIndex: number): number {
+    const heading = doc.content[headingIndex]
+    if (!heading) {
+        return headingIndex + 1
+    }
+
+    const level = headingLevel(heading)
+    if (level === null) {
+        return headingIndex + 1
+    }
+
+    for (let index = headingIndex + 1; index < doc.content.length; index++) {
+        const node = doc.content[index]
+        if (!node) {
+            continue
+        }
+        const nextLevel = headingLevel(node)
+        if (nextLevel !== null && nextLevel <= level) {
+            return index
+        }
+    }
+
+    return doc.content.length
+}
+
+function blockRangeForAnchor(doc: ProseMirrorDoc, anchorIndex: number): { startIndex: number; endIndex: number } {
+    const anchorNode = doc.content[anchorIndex]
+    if (anchorNode?.type !== 'heading') {
+        return { startIndex: anchorIndex, endIndex: anchorIndex + 1 }
+    }
+
+    return { startIndex: anchorIndex + 1, endIndex: findSectionEndIndex(doc, anchorIndex) }
 }
 
 function applyTextReplacementInBlock(
@@ -963,6 +1009,49 @@ function applyTextReplacementInBlock(
     }
 
     return applyTextMatchReplacement(match, find, replacement)
+}
+
+function applyReplacementsInBlockRange(
+    doc: ProseMirrorDoc,
+    startIndex: number,
+    endIndex: number,
+    find: string,
+    replacement: string,
+    allOccurrences: boolean
+): ReplaceStep[] {
+    const steps: ReplaceStep[] = []
+    let replacements = 0
+
+    for (let index = startIndex; index < endIndex; index++) {
+        const attributeSteps = applyAttributeReplacementInBlock(doc, index, find, replacement, allOccurrences)
+        if (attributeSteps.length > 0) {
+            steps.push(...attributeSteps)
+            replacements += attributeSteps.length
+            if (!allOccurrences) {
+                return steps
+            }
+            assertReplacementLimit(find, replacements)
+            continue
+        }
+
+        while (true) {
+            const textStep = applyTextReplacementInBlock(doc, index, find, replacement)
+            if (!textStep) {
+                break
+            }
+
+            steps.push(textStep)
+            replacements += 1
+
+            if (!allOccurrences) {
+                return steps
+            }
+
+            assertReplacementLimit(find, replacements)
+        }
+    }
+
+    return steps
 }
 
 function findTextMatch(
@@ -1065,31 +1154,20 @@ function applyReplaceTextEdit(
             throw new Error(`Could not find text "${anchor}" in the notebook.`)
         }
 
-        const attributeSteps = applyAttributeReplacementInBlock(doc, index, find, replacement, allOccurrences)
-        if (attributeSteps.length > 0) {
-            return attributeSteps
+        const range = blockRangeForAnchor(doc, index)
+        const steps = applyReplacementsInBlockRange(
+            doc,
+            range.startIndex,
+            range.endIndex,
+            find,
+            replacement,
+            allOccurrences
+        )
+        if (steps.length > 0) {
+            return steps
         }
 
-        const textSteps: ReplaceStep[] = []
-        while (true) {
-            const textStep = applyTextReplacementInBlock(doc, index, find, replacement)
-            if (!textStep) {
-                break
-            }
-            textSteps.push(textStep)
-
-            if (!allOccurrences) {
-                break
-            }
-
-            assertReplacementLimit(find, textSteps.length)
-        }
-
-        if (textSteps.length > 0) {
-            return textSteps
-        }
-
-        throw new Error(`Could not find text "${find}" inside notebook block anchored by "${anchor}".`)
+        throw new Error(`Could not find text "${find}" inside notebook block or section anchored by "${anchor}".`)
     }
 
     const steps: ReplaceStep[] = []
