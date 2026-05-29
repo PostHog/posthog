@@ -2,7 +2,7 @@ import math
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import ClassVar, Optional, Union
 
 import structlog
@@ -84,6 +84,61 @@ TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("fbclid", "$fbclid"),
     TrackedField("gad_source", "$gad_source"),
 ]
+
+
+def build_touchpoints_precompute_query() -> ast.SelectQuery:
+    """Config-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
+    goal, attribution mode or window. Every attribution query reuses the same materialized rows
+    (identical query hash → one shared lazy-computation job per team); attribution happens at read
+    time. Columns are aliased to the marketing_touchpoints_preaggregated schema — the lazy framework
+    prepends team_id/job_id and appends expires_at, and resolves the time_window placeholders per job.
+    """
+
+    def _prop_to_string(event_property: str) -> ast.Expr:
+        return ast.Call(
+            name="toString",
+            args=[
+                ast.Call(
+                    name="ifNull",
+                    args=[ast.Field(chain=["events", "properties", event_property]), ast.Constant(value="")],
+                )
+            ],
+        )
+
+    select_columns: list[ast.Expr] = [
+        ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),
+        ast.Alias(alias="touchpoint_timestamp", expr=ast.Field(chain=["events", "timestamp"])),
+    ]
+    for tracked in TRACKED_FIELDS:
+        select_columns.append(ast.Alias(alias=tracked.attributed_name, expr=_prop_to_string(tracked.event_property)))
+
+    # Mirror the fallback's touchpoint definition (_build_pageview_event_filter): a UTM pageview
+    # requires BOTH campaign and source non-empty — keep these in lockstep.
+    return ast.SelectQuery(
+        select=select_columns,
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value="$pageview"),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "timestamp"]),
+                    op=ast.CompareOperationOp.GtEq,
+                    right=ast.Placeholder(expr=ast.Field(chain=["time_window_min"])),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "timestamp"]),
+                    op=ast.CompareOperationOp.LtEq,
+                    right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
+                ),
+                ast.Call(name="notEmpty", args=[_prop_to_string("utm_campaign")]),
+                ast.Call(name="notEmpty", args=[_prop_to_string("utm_source")]),
+            ]
+        ),
+    )
 
 
 @dataclass
@@ -294,9 +349,9 @@ class ConversionGoalProcessor:
             # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
             assert date_from is not None and date_to is not None
             try:
-                precomputed_attribution = self._build_attributed_source_from_precompute(date_from, date_to)
-                if precomputed_attribution is not None:
-                    return self._build_final_aggregation_query(precomputed_attribution)
+                precomputed = self._build_attribution_from_touchpoints_precompute(date_from, date_to)
+                if precomputed is not None:
+                    return precomputed
             except Exception:
                 CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
                 logger.exception(
@@ -424,6 +479,175 @@ class ConversionGoalProcessor:
             return self._build_multi_touch_attribution_subquery(array_join, for_precompute=True)
         array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
         return self._build_single_touch_attribution_subquery(array_join, for_precompute=True)
+
+    def _build_attribution_from_touchpoints_precompute(
+        self, date_from: datetime, date_to: datetime
+    ) -> Optional[ast.SelectQuery]:
+        """Reusable-precompute read path: ensure the config-agnostic touchpoints are materialized,
+        then attribute at read time by feeding a touchpoint-sourced array collection through the
+        existing pipeline (all modes). Returns None if jobs aren't ready — caller falls back.
+        """
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LazyComputationTable,
+            ensure_precomputed,
+        )
+
+        window = timedelta(days=self.config.attribution_window_days)
+        result = ensure_precomputed(
+            team=self.team,
+            insert_query=build_touchpoints_precompute_query(),
+            time_range_start=date_from - window,
+            time_range_end=date_to,
+            ttl_seconds={"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60},
+            table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+        )
+        if not result.ready:
+            return None
+
+        array_collection = self._build_touchpoint_sourced_array_collection(result.job_ids, date_from, date_to)
+        return self.build_attribution_pipeline(array_collection)
+
+    def _build_touchpoint_sourced_array_collection(
+        self, job_ids: Sequence[str | uuid.UUID], date_from: datetime, date_to: datetime
+    ) -> ast.SelectQuery:
+        """Reusable-precompute analogue of build_array_collection_query: identical per-person array
+        contract, but touchpoint arrays come from the precomputed marketing_touchpoints table (joined
+        on person_id) instead of an inline UTM-pageview scan. Conversion arrays still come live from
+        events, so build_attribution_pipeline runs unchanged for every attribution mode.
+        """
+        conversion_event = self.goal.event if self.goal.kind == "EventsNode" else None
+        conversions = self._build_conversion_only_arrays(conversion_event, date_from, date_to)
+        touchpoints = self._build_touchpoint_arrays_from_table(job_ids)
+
+        select_columns: list[ast.Expr] = [ast.Alias(alias="person_id", expr=ast.Field(chain=["c", "person_id"]))]
+        for col in ("conversion_timestamps", "conversion_math_values"):
+            select_columns.append(ast.Alias(alias=col, expr=ast.Field(chain=["c", col])))
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                ast.Alias(alias=field.conversion_array, expr=ast.Field(chain=["c", field.conversion_array]))
+            )
+        # LEFT JOIN: organic conversions (no matching person in the touchpoints table) get empty
+        # touchpoint arrays (ClickHouse fills missing Array columns with []), handled downstream.
+        select_columns.append(ast.Alias(alias="utm_timestamps", expr=ast.Field(chain=["t", "utm_timestamps"])))
+        for field in TRACKED_FIELDS:
+            select_columns.append(ast.Alias(alias=field.utm_array, expr=ast.Field(chain=["t", field.utm_array])))
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(
+                table=conversions,
+                alias="c",
+                next_join=ast.JoinExpr(
+                    table=touchpoints,
+                    alias="t",
+                    join_type="LEFT JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["c", "person_id"]),
+                            right=ast.Field(chain=["t", "person_id"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+    def _build_conversion_only_arrays(
+        self, conversion_event: Optional[str], date_from: datetime, date_to: datetime
+    ) -> ast.SelectQuery:
+        """Per-person conversion arrays from events (no touchpoint scan) — the live half of the
+        touchpoint-sourced array collection. Mirrors the conversion columns of build_array_collection_query.
+        """
+        select_columns: list[ast.Expr] = [
+            ast.Field(chain=["events", "person_id"]),
+            self._build_conversion_timestamps_array(conversion_event),
+            self._build_conversion_math_values_array(conversion_event),
+        ]
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                self._build_conversion_utm_array(
+                    field.conversion_array, conversion_event, self._resolve_field_name(field)
+                )
+            )
+
+        where_exprs: list[ast.Expr] = [
+            self._build_conversion_event_condition(conversion_event),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Constant(value=date_from),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Constant(value=date_to),
+            ),
+        ]
+        where_exprs = add_conversion_goal_property_filters(where_exprs, self.goal, self.team)
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=where_exprs),
+            group_by=[ast.Field(chain=["events", "person_id"])],
+            having=ast.CompareOperation(
+                left=ast.Call(name="length", args=[ast.Field(chain=["conversion_timestamps"])]),
+                op=ast.CompareOperationOp.Gt,
+                right=ast.Constant(value=0),
+            ),
+        )
+
+    def _build_touchpoint_arrays_from_table(self, job_ids: Sequence[str | uuid.UUID]) -> ast.SelectQuery:
+        """Per-person touchpoint arrays (utm_timestamps + per-field UTM arrays) read from the
+        precomputed marketing_touchpoints table, matching the array shape build_array_collection_query
+        produces from a UTM-pageview scan.
+        """
+        select_columns: list[ast.Expr] = [
+            ast.Field(chain=["person_id"]),
+            ast.Alias(
+                alias="utm_timestamps",
+                expr=ast.Call(
+                    name="groupArray",
+                    args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoint_timestamp"])])],
+                ),
+            ),
+        ]
+        for field in TRACKED_FIELDS:
+            select_columns.append(
+                ast.Alias(
+                    alias=field.utm_array,
+                    expr=ast.Call(
+                        name="arrayFilter",
+                        args=[
+                            ast.Lambda(args=["x"], expr=ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])),
+                            ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
+                        ],
+                    ),
+                )
+            )
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_touchpoints_preaggregated"])),
+            where=ast.And(
+                exprs=[
+                    ast.Call(
+                        name="in",
+                        args=[
+                            ast.Field(chain=["job_id"]),
+                            ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in job_ids]),
+                        ],
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["team_id"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=self.team.pk),
+                    ),
+                ]
+            ),
+            group_by=[ast.Field(chain=["person_id"])],
+        )
 
     def build_attributed_source_from_precomputed(
         self,
