@@ -84,7 +84,7 @@ export const setupPlugin = async ({ attachments, global, config }: gcsMeta): Pro
     const storage = new Storage({
         projectId: credentials['project_id'],
         credentials,
-        retryOptions: { autoRetry: false },
+        autoRetry: false,
     })
     global.bucket = storage.bucket(config.bucketName)
     global.eventsToIgnore = new Set<string>((config.exportEventsToIgnore || '').split(',').map((event) => event.trim()))
