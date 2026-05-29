@@ -53,6 +53,10 @@ _PREDICT_TIMEOUT_S = 120
 # Bundle scripts communicate only through files written into the workspace; the
 # framework reads them back via cat. Sentinels bracket the readback so any stray
 # shell output can't corrupt the parse. Nothing is parsed from script stdout.
+# HogQL applies a low default row limit (100) when a query has no LIMIT. Without an
+# explicit bound the train/holdout/score matrices would be silently capped at 100 rows —
+# a tiny, high-variance sample. Mirror inference.FEATURE_QUERY_LIMIT and bound explicitly.
+_MATERIALIZE_ROW_LIMIT = 50_000
 _OUTPUT_JSON = "data/output.json"
 _SCORES_CSV = "data/scores.csv"
 _FILE_BEGIN = "<<<AUTORESEARCH_FILE_BEGIN>>>"
@@ -171,9 +175,12 @@ def _materialize_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql
 
 def _run_hogql(*, team: Team, sql: str, values: dict[str, Any]) -> list[dict[str, Any]]:
     """Run a HogQL query and return rows as dicts, coercing person_id (distinct_id) to str."""
+    # Bound explicitly — without a LIMIT, HogQL caps results at 100, silently shrinking
+    # the training/holdout/score matrices to a tiny sample.
+    bounded_sql = sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=bounded_sql, values=values), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     except Exception as exc:
         raise SandboxInferenceError(f"Feature query failed: {exc}") from exc

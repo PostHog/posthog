@@ -95,6 +95,23 @@ class TestMaterializeData(BaseTest):
         assert cols == ["events_total", "pageviews"]
         assert "__label" not in cols and "__fold" not in cols and "distinct_id" not in cols
 
+    def test_run_hogql_appends_explicit_limit(self):
+        # Without an explicit LIMIT, HogQL caps the materialization at 100 rows — the
+        # training/holdout/score matrices must be bounded high, not silently truncated.
+        captured: dict = {}
+
+        class _FakeRunner:
+            def __init__(self, query, team):
+                captured["query"] = query.query
+
+            def run(self, execution_mode):
+                return MagicMock(results=[], columns=[])
+
+        with patch.object(sandbox_inference, "HogQLQueryRunner", _FakeRunner):
+            sandbox_inference._run_hogql(team=self.team, sql="SELECT person_id FROM events", values={})
+
+        assert captured["query"].rstrip().endswith(f"LIMIT {sandbox_inference._MATERIALIZE_ROW_LIMIT}")
+
 
 class TestCsvSerialization(BaseTest):
     def test_features_csv_header_and_rows(self):
