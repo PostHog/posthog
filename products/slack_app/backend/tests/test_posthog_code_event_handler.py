@@ -335,12 +335,13 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             other_integration.id,
         }
 
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
     def test_rules_add_without_repo_routes_to_command_workflow_for_picker(
-        self, mock_sync_connect, mock_asyncio_run, _mock_flag
+        self, mock_sync_connect, mock_asyncio_run, _mock_flag, _mock_us_claim
     ):
         # ``rules add "description"`` with no inline repo is still a command, so
         # the webhook hands it to the command workflow. The command workflow
@@ -761,6 +762,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         if scope_value and "chat:write.customize" in scope_value:
             assert "chat:write.customize" not in feedback_text
 
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
@@ -776,6 +778,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         _mock_flag,
         _mock_is_team_limited,
         mock_post_feedback,
+        _mock_us_claim,
     ):
         mock_slack_instance = mock_slack_cls.return_value
         mock_slack_instance.missing_scopes.return_value = set()

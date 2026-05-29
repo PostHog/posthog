@@ -548,14 +548,24 @@ def _other_region_domain(incoming_host: str) -> str:
 
 
 def _was_proxied(request: HttpRequest) -> bool:
-    return bool(request.headers.get(REGION_PROXY_HEADER))
+    # Match the literal value the sender sets (`"1"`) rather than coercing the header value to
+    # bool — semgrep flags the latter as nan-injection and we control the sender anyway.
+    return request.headers.get(REGION_PROXY_HEADER) == "1"
 
 
 def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests.Response | None:
     """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
     parsed_url = urlparse(request.build_absolute_uri())
-    target_url = urlunparse(parsed_url._replace(netloc=target_domain))
-    headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
+    # In dev the EU "region" is plain-HTTP localhost while the incoming URI is HTTPS (ngrok-
+    # terminated TLS), so always pick the scheme by target domain rather than copying the
+    # inbound one. Production talks HTTPS region-to-region.
+    target_scheme = "http" if settings.DEBUG else "https"
+    target_url = urlunparse(parsed_url._replace(scheme=target_scheme, netloc=target_domain))
+    # Drop Host plus the host-identifying forwarded headers so the receiver computes its own
+    # host from the new TCP connection rather than mirroring the sender's edge. X-Forwarded-For
+    # is intentionally preserved so the original Slack client IP survives the inter-region hop.
+    stripped = {"host", "x-forwarded-host", "forwarded"}
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in stripped}
     headers[REGION_PROXY_HEADER] = "1"
 
     try:
@@ -1483,6 +1493,21 @@ def route_posthog_code_event_to_relevant_region(
     other_domain = _other_region_domain(incoming_host)
     can_defer_to_other_region = not _is_us_host(incoming_host) and not proxied
 
+    logger.info(
+        "posthog_code_route_enter",
+        incoming_host=incoming_host,
+        is_us=_is_us_host(incoming_host),
+        proxied=proxied,
+        other_domain=other_domain,
+        can_defer=can_defer_to_other_region,
+        event_type=event_type,
+        slack_team_id=slack_team_id,
+        event_id=event_id,
+        debug=settings.DEBUG,
+        us_domain=_us_region_domain(),
+        eu_domain=_eu_region_domain(),
+    )
+
     # In local dev we run a single instance pretending to be both regions: forcing one proxy hop
     # on the original delivery exercises the at-most-one-hop guarantee end-to-end against the
     # same process. The loop header makes the second hop run the normal logic.
@@ -1571,9 +1596,13 @@ def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: b
     """
     if not can_defer:
         return False
-    return bool(
-        does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    logger.info(
+        "posthog_code_route_us_probe_result",
+        slack_team_id=slack_team_id,
+        claimed=claimed,
     )
+    return bool(claimed)
 
 
 def _route_to_other_region_or_drop(
@@ -1581,7 +1610,11 @@ def _route_to_other_region_or_drop(
 ) -> str:
     """No local match: either forward to the other region or drop if we are the second hop."""
     if proxied:
-        logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
+        logger.warning(
+            "posthog_code_no_integration_found",
+            slack_team_id=slack_team_id,
+            incoming_host=request.get_host(),
+        )
         return ROUTE_NO_INTEGRATION
     return _proxy_event_and_return_route(request, other_domain)
 
@@ -1693,6 +1726,12 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
 
         if event.get("type") in HANDLED_EVENT_TYPES:
             result = route_posthog_code_event_to_relevant_region(request, event, slack_team_id, event_id=event_id)
+            logger.info(
+                "posthog_code_event_dispatch_result",
+                result=result,
+                slack_team_id=slack_team_id,
+                event_id=event_id,
+            )
             if result == ROUTE_PROXY_FAILED:
                 return HttpResponse(status=502)
 
