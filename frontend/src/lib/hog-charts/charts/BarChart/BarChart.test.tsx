@@ -455,37 +455,52 @@ describe('BarChart', () => {
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
         })
 
-        it('grouped onPointClick routes to the sub-band under the cursor, not the first series', async () => {
+        it('grouped onPointClick routes to the sub-band under the cursor', async () => {
+            // Three groups so the middle slot is centred on the band — a click there resolves
+            // to series index 1, which neither a series[0] default nor an off-by-one produces.
+            const threeSeries: Series[] = [
+                { key: 'a', label: 'A', data: [5, 10, 15] },
+                { key: 'b', label: 'B', data: [6, 20, 16] },
+                { key: 'c', label: 'C', data: [7, 30, 17] },
+            ]
             const onPointClick = jest.fn()
             const { chart } = renderHogChart(
                 <BarChart
-                    series={SERIES}
+                    series={threeSeries}
                     labels={LABELS}
                     theme={THEME}
                     config={{ barLayout: 'grouped' }}
                     onPointClick={onPointClick}
                 />
             )
-            // Band center lands in `b`'s sub-band — the same position the grouped tooltip
-            // narrows to. Before the grouped click-routing fix this reported `a` (series[0]).
+            const bandCenterX = dimensions.plotLeft + dimensions.plotWidth / 2
+            const midRowY = dimensions.plotTop + dimensions.plotHeight / 2
+            // Each slot spans ~1/3 of the band; ~8% of plot width sits clearly inside the
+            // outer slots, past the nearest-centre boundary with the middle slot.
+            const slotOffset = dimensions.plotWidth * 0.08
+
+            // Band centre coincides with the middle slot.
             await chart.clickAtIndex(1)
-            const clickB: PointClickData = onPointClick.mock.calls[0][0]
-            expect(clickB.series.key).toBe('b')
-            expect(clickB.value).toBe(15)
-            expect(clickB.seriesIndex).toBe(1)
+            const middle: PointClickData = onPointClick.mock.calls[0][0]
+            expect(middle.series.key).toBe('b')
+            expect(middle.value).toBe(20)
+            expect(middle.seriesIndex).toBe(1)
 
             onPointClick.mockClear()
-            // Well left of center sits in `a`'s sub-band.
-            const step = dimensions.plotWidth / (LABELS.length - 1)
-            fireEvent.mouseMove(chart.element, {
-                clientX: dimensions.plotLeft + step * 1 - dimensions.plotWidth * 0.1,
-                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-            })
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX - slotOffset, clientY: midRowY })
             fireEvent.click(chart.element)
-            const clickA: PointClickData = onPointClick.mock.calls[0][0]
-            expect(clickA.series.key).toBe('a')
-            expect(clickA.value).toBe(20)
-            expect(clickA.seriesIndex).toBe(0)
+            const left: PointClickData = onPointClick.mock.calls[0][0]
+            expect(left.series.key).toBe('a')
+            expect(left.value).toBe(10)
+            expect(left.seriesIndex).toBe(0)
+
+            onPointClick.mockClear()
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX + slotOffset, clientY: midRowY })
+            fireEvent.click(chart.element)
+            const right: PointClickData = onPointClick.mock.calls[0][0]
+            expect(right.series.key).toBe('c')
+            expect(right.value).toBe(30)
+            expect(right.seriesIndex).toBe(2)
         })
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
