@@ -40,7 +40,15 @@ logger = structlog.get_logger(__name__)
 
 # Rolling window kept warm. Matches the lazy precompute MAX_PRECOMPUTE_DAYS so a
 # later read path can serve any sub-window without falling back to raw tables.
-PRECOMPUTE_WINDOW_DAYS = 90
+PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS", "90"))
+
+# Each ensure_precomputed call covers at most this many days. The framework merges
+# a fully-missing range into ONE INSERT, so without chunking a cold backfill would
+# scan the entire window (e.g. 90 days of raw sessions+events) in a single query —
+# the real overload risk for a high-volume team. Chunking bounds each INSERT's scan;
+# combined with the job's max_runtime and ensure_precomputed's idempotency, a cold
+# backfill self-paces across runs (a killed run resumes from the first unfilled chunk).
+PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "7"))
 
 # Comma-separated team IDs to precompute. Empty/unset → the job is a no-op.
 SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
@@ -57,6 +65,22 @@ def get_selected_team_ids() -> list[int]:
     return ids
 
 
+def chunk_ranges(start: datetime, end: datetime, chunk_days: int) -> list[tuple[datetime, datetime]]:
+    """Split [start, end) into <=chunk_days sub-windows, newest first.
+
+    Newest-first so recent data (which carries the shortest TTL and is requested
+    most) is refreshed before older history is backfilled.
+    """
+    chunks = []
+    cur_end = end
+    step = timedelta(days=max(chunk_days, 1))
+    while cur_end > start:
+        cur_start = max(start, cur_end - step)
+        chunks.append((cur_start, cur_end))
+        cur_end = cur_start
+    return chunks
+
+
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(
     "web_dimensional_precompute_team_done_total",
     "Teams whose dimensional precompute window was ensured, by table.",
@@ -69,24 +93,32 @@ WEB_DIMENSIONAL_PRECOMPUTE_TEAM_FAILED = Counter(
 )
 
 
-def _ensure_for_team(context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime) -> int:
-    """Ensure both dimensional tables for one team. Returns the count of failures.
+def _ensure_for_team(
+    context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
+) -> int:
+    """Ensure both dimensional tables for one team, one bounded chunk at a time.
 
-    Failures per table are caught so one broken team or table doesn't poison the
-    rest of the run; the framework already inserts only the windows it needs.
+    Each chunk is a separate ensure_precomputed call (one INSERT scanning at most
+    `chunk_days` of raw data), so no single query scans the whole window. Failures
+    per (table, chunk) are caught so one bad chunk doesn't poison the rest;
+    already-fresh chunks are cheap PG cache-checks with no INSERT.
     """
     failures = 0
     for table_label, ensure_fn in (
         ("web_stats_dimensional_preaggregated", ensure_web_stats_dimensional_precomputed),
         ("web_bounces_dimensional_preaggregated", ensure_web_bounces_dimensional_precomputed),
     ):
-        try:
-            ensure_fn(team, start, end)
-            WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE.labels(table=table_label).inc()
-        except Exception as exc:
-            WEB_DIMENSIONAL_PRECOMPUTE_TEAM_FAILED.labels(table=table_label, error_type=type(exc).__name__).inc()
-            context.log.exception(f"web_dimensional_precompute_failed team={team.pk} table={table_label}")
-            failures += 1
+        for chunk_start, chunk_end in chunk_ranges(start, end, chunk_days):
+            try:
+                ensure_fn(team, chunk_start, chunk_end)
+                WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE.labels(table=table_label).inc()
+            except Exception as exc:
+                WEB_DIMENSIONAL_PRECOMPUTE_TEAM_FAILED.labels(table=table_label, error_type=type(exc).__name__).inc()
+                context.log.exception(
+                    f"web_dimensional_precompute_failed team={team.pk} table={table_label} "
+                    f"chunk=[{chunk_start}, {chunk_end})"
+                )
+                failures += 1
     return failures
 
 
@@ -97,7 +129,10 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
     start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
 
     team_ids = get_selected_team_ids()
-    context.log.info(f"web_dimensional_precompute_start teams={len(team_ids)} window=[{start}, {end})")
+    context.log.info(
+        f"web_dimensional_precompute_start teams={len(team_ids)} window=[{start}, {end}) "
+        f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
+    )
     if not team_ids:
         context.log.info(f"web_dimensional_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
         result = {"teams": 0, "failures": 0}
@@ -113,7 +148,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         if team is None:
             context.log.warning(f"web_dimensional_precompute_team_missing team_id={team_id}")
             continue
-        failures += _ensure_for_team(context, team, start, end)
+        failures += _ensure_for_team(context, team, start, end, PRECOMPUTE_CHUNK_DAYS)
         processed += 1
 
     context.log.info(f"web_dimensional_precompute_complete teams={processed} failures={failures}")

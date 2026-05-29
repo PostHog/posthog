@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -10,10 +11,33 @@ from posthog.models import Organization, Team
 from products.web_analytics.dags.web_dimensional_precompute import (
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
+    chunk_ranges,
     ensure_web_dimensional_precompute_op,
     get_selected_team_ids,
     web_dimensional_precompute_job,
 )
+
+# Patch chunking to a single chunk so call counts are deterministic in the op tests.
+_SINGLE_CHUNK = "products.web_analytics.dags.web_dimensional_precompute.PRECOMPUTE_CHUNK_DAYS"
+
+
+class TestChunkRanges:
+    def test_splits_newest_first_and_bounds_each_chunk(self):
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 31, tzinfo=UTC)
+        chunks = chunk_ranges(start, end, 7)
+        # Newest first, each <= 7 days, contiguous, fully covering [start, end].
+        assert chunks[0][1] == end
+        assert chunks[-1][0] == start
+        assert all((c_end - c_start).days <= 7 for c_start, c_end in chunks)
+        for newer, older in zip(chunks, chunks[1:]):
+            assert older[1] == newer[0]  # contiguous
+        assert len(chunks) == 5  # 30 days / 7
+
+    def test_single_chunk_when_window_fits(self):
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 5, tzinfo=UTC)
+        assert chunk_ranges(start, end, 90) == [(start, end)]
 
 
 class TestGetSelectedTeamIds:
@@ -41,6 +65,7 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
 
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed")
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed")
+    @patch(_SINGLE_CHUNK, PRECOMPUTE_WINDOW_DAYS)  # one chunk → one ensure call per team/table
     def test_drives_both_tables_for_every_selected_team(self, stats_mock, bounces_mock):
         t1 = self._make_team("A")
         t2 = self._make_team("B")
@@ -57,6 +82,18 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
 
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed")
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed")
+    def test_chunking_issues_multiple_bounded_calls(self, stats_mock, bounces_mock):
+        # With a 7-day chunk over the (>=14d) window, each team/table is ensured in
+        # several bounded calls rather than one window-wide query that could overload CH.
+        t1 = self._make_team("A")
+        with patch(_SINGLE_CHUNK, 7), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk}"}):
+            ensure_web_dimensional_precompute_op(dagster.build_op_context())
+        assert stats_mock.call_count > 1
+        assert all((e - s).days <= 7 for _t, s, e in (c.args for c in stats_mock.call_args_list))
+
+    @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed")
+    @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed")
+    @patch(_SINGLE_CHUNK, PRECOMPUTE_WINDOW_DAYS)
     def test_one_team_failure_does_not_poison_others(self, stats_mock, bounces_mock):
         t1 = self._make_team("A")
         t2 = self._make_team("B")
