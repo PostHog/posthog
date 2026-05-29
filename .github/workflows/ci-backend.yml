@@ -800,11 +800,16 @@ jobs:
                       echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output. --skip-checks mirrors what we do for
-                      # `manage.py migrate` in the validate-migrations step: the
-                      # full system checks aren't relevant for SQL preview and
-                      # they can fail on cross-app lazy references that are
-                      # only resolved transiently across squash boundaries.
-                      SQL_OUTPUT=$(python manage.py sqlmigrate --skip-checks $app_name $migration_number)
+                      # `manage.py migrate` in the validate-migrations step.
+                      # When sqlmigrate fails (e.g. cross-app lazy references
+                      # that only resolve transiently across squash boundaries
+                      # — see PR #60518), don't fail the whole analyzer; the
+                      # comment is informational and migrate itself already
+                      # succeeded for this DB state.
+                      if ! SQL_OUTPUT=$(python manage.py sqlmigrate --skip-checks $app_name $migration_number 2>&1); then
+                        echo "::warning::sqlmigrate failed for $app_name $migration_number; including raw error in comment"
+                        SQL_OUTPUT="-- sqlmigrate failed (see job log for full traceback)"
+                      fi
 
                       # Add to comment body
                       COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
