@@ -12,3 +12,5 @@
 //! - `transition`         — typed transition events (PR 1.6)
 //! - `bucket_tz`          — calendar-day-in-team-timezone bucket math (D9; PR 2.1)
 //! - `compressed_history` — RLE storage for long windows (D10; PR 2.1)
+
+pub mod key;

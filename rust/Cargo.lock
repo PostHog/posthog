@@ -2070,14 +2070,24 @@ name = "cohort-stream-processor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "axum 0.7.9",
  "common-alloc",
+ "common-database",
  "envconfig",
  "lifecycle",
+ "metrics",
  "metrics-exporter-prometheus",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

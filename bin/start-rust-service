@@ -228,6 +228,18 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  cohort-stream-processor)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime filter catalog
+    # Refresh fast in dev so window/threshold edits surface a new LeafStateKey quickly.
+    export FILTER_CATALOG_REFRESH_SECS="${FILTER_CATALOG_REFRESH_SECS:-30}"
+    export FILTER_CATALOG_REFRESH_JITTER_SECS="${FILTER_CATALOG_REFRESH_JITTER_SECS:-5}"
+    export BIND_PORT=3311 # distinct from the shuffler (3310); default is 3323
+    export DEBUG=1
+    ;;
+
   personhog-router-leader)
     export RUST_LOG=debug
     export RUST_BACKTRACE=1
