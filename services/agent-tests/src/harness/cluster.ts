@@ -33,13 +33,17 @@ import {
     AgentApplication,
     AgentRevision,
     AgentSpecSchema,
+    buildTestStore as buildMemoryTestStore,
     FsBundleStore,
     InProcessSandboxPool,
+    newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
+    S3MemoryStore,
     SecretBroker,
+    wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
@@ -70,6 +74,12 @@ export interface Cluster {
     sandboxes: InProcessSandboxPool
     sandboxInstances: PgSandboxInstanceStore
     broker: SecretBroker
+    /**
+     * Real S3MemoryStore (MinIO in dev) wired through to ToolContext for the
+     * `@posthog/memory-*` tools. Per-cluster random prefix isolates concurrent
+     * tests; teardown wipes the prefix.
+     */
+    memoryStore: S3MemoryStore
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
     piClient: PiAiClient
@@ -149,6 +159,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const sandboxInstances = new PgSandboxInstanceStore(pool)
     const approvals = new PgApprovalStore(pool)
     const broker = new SecretBroker()
+    // Real S3 (MinIO) memory store with a per-cluster random prefix —
+    // teardown wipes it. Failing here means MinIO isn't up; fix the dev
+    // stack rather than mocking around it.
+    const memoryStorePrefix = newMemoryTestPrefix('agent_memory_harness')
+    const { client: memoryStoreClient, store: memoryStore } = buildMemoryTestStore(memoryStorePrefix)
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
     const piClient = new PiAiClient(process.env.AGENT_TEST_API_KEY ?? 'faux-key')
@@ -182,6 +197,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         resolveModel: resolveModelForHarness,
         approvals,
         buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
+        memoryStore,
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
@@ -216,6 +232,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         logs,
         sandboxes,
         broker,
+        memoryStore,
         model,
         piClient,
         ingress,
@@ -285,6 +302,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         },
         async teardown() {
             await fs.rm(bundleRoot, { recursive: true, force: true }).catch(() => undefined)
+            await wipeMemoryTestPrefix(memoryStoreClient, memoryStorePrefix).catch(() => undefined)
+            memoryStoreClient.destroy()
         },
     }
 }

@@ -12,7 +12,14 @@
 import { NativeTool, NativeToolSchema } from '@posthog/agent-shared'
 
 import { loadSkill } from './tools/load-skill'
-import { memoryDefinePatternV1, memoryPrimeV1, memoryQueryV1, memoryRememberV1, memorySearchV1 } from './tools/memory'
+import {
+    memoryDeleteV1,
+    memoryListV1,
+    memoryReadV1,
+    memorySearchV1,
+    memoryUpdateV1,
+    memoryWriteV1,
+} from './tools/memory'
 import { askForInputTool, endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
 import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
@@ -41,11 +48,12 @@ export const ALL_TOOLS: NativeTool[] = [
     endSessionTool,
     emitEventTool,
     loadSkill,
-    memoryPrimeV1,
-    memoryDefinePatternV1,
-    memoryRememberV1,
-    memoryQueryV1,
+    memoryListV1,
     memorySearchV1,
+    memoryReadV1,
+    memoryWriteV1,
+    memoryUpdateV1,
+    memoryDeleteV1,
 ]
 
 const BY_ID = new Map<string, NativeTool>(ALL_TOOLS.map((t) => [t.id, t]))

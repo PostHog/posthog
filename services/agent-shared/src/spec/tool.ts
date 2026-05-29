@@ -17,6 +17,8 @@
 
 import { Static, TSchema, Type } from 'typebox'
 
+import type { MemoryStore } from '../memory/store'
+
 export type { Static, TSchema }
 
 export interface NativeToolSchema {
@@ -58,6 +60,14 @@ export interface ToolContext {
      * this to validate the requested skill id before fetching its body.
      */
     skillIndex?: ReadonlyArray<{ id: string; description?: string; path: string }>
+    /**
+     * S3-backed memory store, scoped at call time to the session's
+     * (teamId, applicationId). Optional — when absent the memory tools
+     * surface a 'memory_store_unavailable' error to the model. Wired in
+     * the runner from AGENT_MEMORY_S3_* config; tests construct an
+     * `InMemoryMemoryStore` directly.
+     */
+    memoryStore?: MemoryStore
 }
 
 export interface IntegrationCredentials {
