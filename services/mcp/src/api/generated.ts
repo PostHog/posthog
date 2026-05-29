@@ -3670,7 +3670,7 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLQuery {
-      /** Optional direct external data source id for running against a specific source */
+      /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
       connectionId?: string | null;
       explain?: boolean | null;
       filters?: HogQLFilters | null;
@@ -19846,7 +19846,7 @@ export namespace Schemas {
     export type HogQLMetadataVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLMetadata {
-      /** Optional direct external data source id for running against a specific source */
+      /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
       connectionId?: string | null;
       /** Enable more verbose output, usually run from the /debug page */
       debug?: boolean | null;
@@ -19872,7 +19872,7 @@ export namespace Schemas {
     }
 
     export interface HogQLAutocomplete {
-      /** Optional direct external data source id for running against a specific source */
+      /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
       connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
