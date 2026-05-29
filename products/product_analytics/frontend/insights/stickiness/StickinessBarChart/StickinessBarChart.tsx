@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesLineChart } from 'lib/hog-charts'
-import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from 'lib/hog-charts'
+import { TimeSeriesBarChart } from 'lib/hog-charts'
+import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -15,27 +15,31 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType } from '~/types'
 
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
-import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { handleStickinessChartClick } from './handleStickinessChartClick'
+import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
+import {
+    buildTrendsSeriesMeta,
+    resolveGroupTypeLabel,
+    type TrendsSeriesMeta,
+} from '../../trends/shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
+import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
     buildStickinessLabels,
-    buildStickinessLineTimeSeriesConfig,
-    buildStickinessSeries,
     buildStickinessTooltipTitle,
     stickinessPercentFormatter,
     STICKINESS_TOOLTIP_CONFIG,
-} from './stickinessChartTransforms'
+} from '../StickinessLineChart/stickinessChartTransforms'
+import { buildStickinessBarSeries, buildStickinessBarTimeSeriesConfig } from './stickinessBarChartTransforms'
 
-interface StickinessLineChartProps {
+interface StickinessBarChartProps {
     context?: QueryContext<InsightVizNode>
 }
 
-const handleChartError = makeChartErrorHandler('stickiness-line-chart')
+const handleChartError = makeChartErrorHandler('stickiness-bar-chart')
 
-export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
+export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
 
@@ -44,7 +48,6 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         display,
         interval,
         yAxisScaleType,
-        showMultipleYAxes,
         getTrendsColor,
         getTrendsHidden,
         currentPeriodResult,
@@ -59,51 +62,54 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
+    // Inverted polarity vs legacy `isStacked` in `ActionsLineGraph`; matches `TrendsBarChart`.
+    const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
+
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
     const bucketCount = currentPeriodResult?.labels?.length ?? 0
     const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
 
-    const hasData =
-        indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
+    const hasData = (indexedResults ?? []).some((r: IndexedTrendResult) => r.count !== 0)
 
+    // `TimeSeriesBarChart` has a single y-axis — `showMultipleYAxes` is intentionally not forwarded.
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            buildStickinessSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-                showMultipleYAxes: showMultipleYAxes ?? undefined,
-                display: display ?? undefined,
+            buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, display, getTrendsColor, getTrendsHidden, showMultipleYAxes]
+        [indexedResults, getTrendsColor, getTrendsHidden]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesBarChartConfig = useMemo(
         () =>
-            buildStickinessLineTimeSeriesConfig({
+            buildStickinessBarTimeSeriesConfig({
                 yAxisScaleType,
+                isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
-                showCrosshair: true,
                 tooltip: STICKINESS_TOOLTIP_CONFIG,
             }),
-        [yAxisScaleType, showValuesOnSeries]
+        [yAxisScaleType, isGrouped, showValuesOnSeries]
     )
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    // Close over the primitives so the click memos don't invalidate when unrelated
+    // context fields change. `openPersonsModal` is a stable module import.
+    const onDataPointClick = context?.onDataPointClick
+    const formatCompareLabel = context?.formatCompareLabel
+    const hasClickHandler = !!onDataPointClick || !!hasPersonsModal
 
     const clickDeps = useMemo(
         () => ({
-            context,
+            context: onDataPointClick ? { onDataPointClick } : undefined,
             hasPersonsModal: !!hasPersonsModal,
             interval,
             querySource,
             indexedResults: indexedResults ?? [],
             openPersonsModal,
         }),
-        [context, hasPersonsModal, interval, querySource, indexedResults]
+        [onDataPointClick, hasPersonsModal, interval, querySource, indexedResults]
     )
 
     const onPointClick = useCallback(
@@ -117,7 +123,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            const onRowClick = canHandleClick
+            const onRowClick = hasClickHandler
                 ? (datum: SeriesDatum) => {
                       const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
                       handleStickinessChartClick(seriesKey, datum.dataIndex, clickDeps)
@@ -135,7 +141,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                     isPercentStackView={false}
                     baseCurrency={baseCurrency}
                     groupTypeLabel={resolvedGroupTypeLabel}
-                    formatCompareLabel={context?.formatCompareLabel}
+                    formatCompareLabel={formatCompareLabel}
                     onRowClick={onRowClick}
                     altTitle={altTitle}
                 />
@@ -149,8 +155,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             formula,
             baseCurrency,
             resolvedGroupTypeLabel,
-            context?.formatCompareLabel,
-            canHandleClick,
+            formatCompareLabel,
+            hasClickHandler,
             clickDeps,
             altTitle,
         ]
@@ -161,15 +167,15 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     }
 
     return (
-        <TimeSeriesLineChart<TrendsSeriesMeta>
+        <TimeSeriesBarChart<TrendsSeriesMeta>
             series={series}
             labels={labels}
             theme={theme}
             config={chartConfig}
             tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
-            className="LineGraph"
-            dataAttr="trend-line-graph"
+            onPointClick={hasClickHandler ? onPointClick : undefined}
+            className="BarGraph"
+            dataAttr="stickiness-bar-graph"
             onError={handleChartError}
         />
     )
