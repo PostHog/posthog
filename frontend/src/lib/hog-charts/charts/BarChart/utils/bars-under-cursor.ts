@@ -153,11 +153,6 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
     if (!visible) {
         return null
     }
-    let nextSmallerExtent = 0
-    for (const ext of allExtents) {
-        if (ext < visible.extent && ext > nextSmallerExtent) {
-            nextSmallerExtent = ext
-        }
-    }
+    const nextSmallerExtent = allExtents.reduce((max, ext) => (ext < visible!.extent && ext > max ? ext : max), 0)
     return { series: visible.series, bar: visible.bar, dataIndex: visible.dataIndex, nextSmallerExtent }
 }
