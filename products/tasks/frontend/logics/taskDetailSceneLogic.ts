@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { isUUIDLike } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -537,7 +538,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return
             }
             const runIdFromUrl = searchParams.runId
-            if (runIdFromUrl && runIdFromUrl !== values.selectedRunId) {
+            if (runIdFromUrl && isUUIDLike(runIdFromUrl) && runIdFromUrl !== values.selectedRunId) {
                 actions.setSelectedRunId(runIdFromUrl, props.taskId)
             }
         },
