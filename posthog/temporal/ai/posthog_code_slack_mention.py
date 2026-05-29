@@ -183,10 +183,13 @@ class PostHogCodeRepoCascadeOutcome:
 
     `auto` → use `repository` directly. `no_repo` → create a task with no repo
     (e.g. team has no GitHub integration connected). `agent_needed` → there are
-    multiple candidates and no explicit mention.
+    multiple candidates and no explicit mention. `needs_user_github` → the team
+    has a GitHub install but the mentioning user has not connected their personal
+    GitHub yet, so the workflow should fire the connect-GitHub prompt rather than
+    silently creating a no-repo task.
     """
 
-    mode: Literal["auto", "no_repo", "agent_needed"]
+    mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
     repository: str | None
     reason: str
 
@@ -324,6 +327,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         channel,
                         thread_ts,
                         slack_user_id,
+                        user_id,
                         event,
                         workflow.info().workflow_id,
                         POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
@@ -378,12 +382,25 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     cascade_posthog_code_repository_activity,
                     inputs,
                     event.get("text", ""),
+                    user_id,
                 )
 
                 if cascade.mode == "auto":
                     repository = cascade.repository
                 elif cascade.mode == "no_repo":
                     repository = None
+                elif cascade.mode == "needs_user_github":
+                    # Team has GitHub, but the mentioning user hasn't connected their
+                    # personal install. Fire the gate so they get the Connect button
+                    # instead of a silently no-repo task.
+                    await _execute_posthog_code_activity(
+                        block_posthog_code_task_if_no_personal_github_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        user_id,
+                    )
+                    return
                 else:
                     # Multiple candidates and no explicit mention. Cheap Haiku
                     # check first to skip the agent entirely for analytics/config
@@ -421,6 +438,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                                 channel,
                                 thread_ts,
                                 slack_user_id,
+                                user_id,
                                 event,
                                 workflow.info().workflow_id,
                                 picker_guidance,
@@ -488,6 +506,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         channel,
                         thread_ts,
                         slack_user_id,
+                        user_id,
                         event,
                         workflow.info().workflow_id,
                         POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
@@ -682,12 +701,13 @@ def collect_posthog_code_thread_messages_activity(
 def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
+    user_id: int,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
 
-    Resolves the trivial cases — no GitHub repos connected, exactly one
-    connected, or an explicit `org/repo` mentioned in the message — without
-    paying for the sandbox-backed agent. Anything else returns
+    Resolves the trivial cases — no GitHub repos connected to the mentioning user's
+    personal install, exactly one connected, or an explicit `org/repo` mentioned in the
+    message — without paying for the sandbox-backed agent. Anything else returns
     `mode='agent_needed'` and the workflow takes over.
     """
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
@@ -697,9 +717,16 @@ def cascade_posthog_code_repository_activity(
         kind="slack",
         integration_id=inputs.slack_team_id,
     )
-    all_repos = _get_full_repo_names(integration)
+    all_repos = _get_full_repo_names(integration, user_id=user_id)
 
     if not all_repos:
+        # A connected team install with no personal install is recoverable via the gate prompt;
+        # a team with no install at all is genuinely no-op.
+        team_has_github = Integration.objects.filter(
+            team=integration.team, kind=Integration.IntegrationKind.GITHUB
+        ).exists()
+        if team_has_github:
+            return PostHogCodeRepoCascadeOutcome(mode="needs_user_github", repository=None, reason="no_user_repos")
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 
     if len(all_repos) == 1:
@@ -734,7 +761,7 @@ def select_posthog_code_repository_activity(
         kind="slack",
         integration_id=inputs.slack_team_id,
     )
-    all_repos = _get_full_repo_names(integration)
+    all_repos = _get_full_repo_names(integration, user_id=user_id)
     return PostHogCodeSlackRepoDecisionData(
         mode="picker",
         repository=None,
@@ -924,6 +951,7 @@ def post_posthog_code_repo_picker_activity(
     channel: str,
     thread_ts: str,
     slack_user_id: str,
+    user_id: int,
     event: dict[str, Any],
     workflow_id: str,
     guidance: str,
@@ -944,6 +972,7 @@ def post_posthog_code_repo_picker_activity(
         channel=channel,
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
+        user_id=user_id,
         event_text=event.get("text", ""),
         user_message_ts=event.get("ts"),
         guidance=guidance,
@@ -1193,14 +1222,19 @@ def create_posthog_code_routing_rule_activity(
     )
     slack = SlackIntegration(integration)
 
-    all_repos = _get_full_repo_names(integration)
+    all_repos = _get_full_repo_names(integration, user_id=user_id)
     matched_repo = _extract_explicit_repo(repository, all_repos)
     if not matched_repo:
-        logger.warning("posthog_code_rules_add_repo_no_longer_connected", repo=repository, team_id=integration.team_id)
+        logger.warning(
+            "posthog_code_rules_add_repo_no_longer_connected",
+            repo=repository,
+            team_id=integration.team_id,
+            user_id=user_id,
+        )
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text=f"Repository `{repository}` is no longer connected to this project.",
+            text=f"Repository `{repository}` is no longer connected to your account.",
         )
         return
 

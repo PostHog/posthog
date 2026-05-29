@@ -69,6 +69,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         from posthog.temporal.ai.posthog_code_slack_mention import (
             POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
             PostHogCodeSlackMentionWorkflowInputs,
+            block_posthog_code_task_if_no_personal_github_activity,
             create_posthog_code_routing_rule_activity,
             post_posthog_code_picker_timeout_activity,
             post_posthog_code_repo_picker_activity,
@@ -115,6 +116,18 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             slack_team_id=inputs.slack_team_id,
         )
 
+        # Pre-patch command workflows skip the gate entirely and behave as before,
+        # so in-flight replays don't trip nondeterminism on the new activity command.
+        if workflow.patched("posthog-code-command-block-no-personal-github-2026-06"):
+            blocked = await workflow.execute_activity(
+                block_posthog_code_task_if_no_personal_github_activity,
+                args=[picker_inputs, channel, thread_ts, user_id],
+                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if blocked:
+                return
+
         await workflow.execute_activity(
             post_posthog_code_repo_picker_activity,
             args=[
@@ -122,6 +135,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
                 channel,
                 thread_ts,
                 slack_user_id,
+                user_id,
                 inputs.event,
                 workflow.info().workflow_id,
                 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
