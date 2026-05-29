@@ -18,11 +18,13 @@ packages:
     - products/*
     - docs/onboarding
     - services/agent-console
+    - services/agents
     - services/agent-shared
     - services/agent-tools
     - services/agent-sandbox-host
     - services/agent-ingress
     - services/agent-janitor
+    - services/agent-migrations
     - services/agent-runner
     - services/agent-tests
     - services/oauth-proxy

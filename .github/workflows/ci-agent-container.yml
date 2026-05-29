@@ -1,0 +1,260 @@
+name: Build and deploy agent platform container images
+
+# Builds and pushes container images for the agent platform:
+#
+#   - posthog-agents (ingress / runner / janitor / migrations — one image,
+#     four bundled entrypoints; the deploy manifest picks the CMD)
+#   - posthog-agent-console (Next.js standalone)
+#   - posthog-agent-sandbox-host (Alpine sidecar — no build step)
+#
+# See docs/agent-platform/plans/container-builds.md for the full plan.
+
+on:
+    workflow_dispatch:
+    pull_request:
+    merge_group:
+    push:
+        branches:
+            - 'master'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            pull-requests: read
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        name: Determine need to run agent Docker build
+        outputs:
+            agent_files: ${{ steps.filter.outputs.agent_files }}
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      agent_files:
+                        - 'services/agent-ingress/**'
+                        - 'services/agent-runner/**'
+                        - 'services/agent-janitor/**'
+                        - 'services/agent-migrations/**'
+                        - 'services/agent-shared/**'
+                        - 'services/agent-tools/**'
+                        - 'services/agent-console/**'
+                        - 'services/agent-sandbox-host/**'
+                        - 'services/agents/**'
+                        - 'packages/agent-chat/**'
+                        - 'packages/quill/**'
+                        - '.github/workflows/ci-agent-container.yml'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+
+    build:
+        needs: changes
+        name: Build ${{ matrix.image }}
+        if: |
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.agent_files == 'true') ||
+            github.event_name == 'merge_group' ||
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.agent_files == 'true')
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - image: posthog-agents
+                      dockerfile: services/agents/Dockerfile
+                      context: .
+                      # TODO: replace placeholder with the project id once
+                      # the Depot project for posthog-agents is created.
+                      depot_project: REPLACE_WITH_DEPOT_PROJECT_ID
+                    - image: posthog-agent-console
+                      dockerfile: services/agent-console/Dockerfile
+                      context: .
+                      depot_project: REPLACE_WITH_DEPOT_PROJECT_ID
+                    - image: posthog-agent-sandbox-host
+                      dockerfile: services/agent-sandbox-host/Dockerfile
+                      context: services/agent-sandbox-host
+                      depot_project: REPLACE_WITH_DEPOT_PROJECT_ID
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: ${{ matrix.image }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: ${{ matrix.context }}
+                  buildx-fallback: false
+                  project: ${{ matrix.depot_project }}
+                  push: true
+                  file: ${{ matrix.dockerfile }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+
+            - name: Container image digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  IMAGE_NAME: ${{ matrix.image }}
+              run: |
+                  echo "Image digest: $IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_REGISTRY/$IMAGE_NAME:${{ github.sha }}@$IMAGE_DIGEST"
+                  {
+                    echo "## ${IMAGE_NAME} built :rocket:"
+                    echo ""
+                    echo "**Image reference:** \`$IMAGE_REGISTRY/$IMAGE_NAME:${{ github.sha }}@$IMAGE_DIGEST\`"
+                    echo ""
+                    echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            # Upload the digest so the deploy job can dispatch the right
+            # SHA per release. Same idiom as _rust-build-images.yml.
+            - name: Save digest to file
+              env:
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
+
+            - name: Upload digest
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: digest-${{ matrix.image }}
+                  path: /tmp/digest-${{ matrix.image }}.txt
+                  retention-days: 1
+
+            - name: Report failure
+              if: failure()
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'agent-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"}'
+            - name: Report failure to DevEx PostHog
+              if: failure()
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'agent-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"}'
+
+    deploy:
+        name: Deploy ${{ matrix.release }}
+        needs: build
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - release: agent-ingress
+                      image: posthog-agents
+                    - release: agent-runner
+                      image: posthog-agents
+                    - release: agent-janitor
+                      image: posthog-agents
+                    - release: agent-migrations
+                      image: posthog-agents
+                    - release: agent-console
+                      image: posthog-agent-console
+                    - release: agent-sandbox-host
+                      image: posthog-agent-sandbox-host
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Download digest
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: digest-${{ matrix.image }}
+                  path: /tmp
+
+            - name: Read digest
+              id: digest
+              run: |
+                  DIGEST=$(cat /tmp/digest-${{ matrix.image }}.txt)
+                  if [ -z "$DIGEST" ]; then
+                      echo "::error::empty digest for ${{ matrix.image }}"
+                      exit 1
+                  fi
+                  echo "value=$DIGEST" >> "$GITHUB_OUTPUT"
+
+            - name: Get deployer token
+              id: deployer
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Get PR labels
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Trigger ${{ matrix.release }} deployment
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.digest.outputs.value }}"
+                          }
+                        },
+                        "release": "${{ matrix.release }}",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

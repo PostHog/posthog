@@ -3997,6 +3997,37 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.18.8)(happy-dom@20.0.11)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
 
+  services/agents:
+    dependencies:
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
+      '@posthog/agent-janitor':
+        specifier: workspace:*
+        version: link:../agent-janitor
+      '@posthog/agent-migrations':
+        specifier: workspace:*
+        version: link:../agent-migrations
+      '@posthog/agent-runner':
+        specifier: workspace:*
+        version: link:../agent-runner
+      node-rdkafka:
+        specifier: ^3.4.0
+        version: 3.6.1
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.10
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.5
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   services/mcp:
     dependencies:
       '@hono/node-server':

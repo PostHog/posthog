@@ -9,6 +9,13 @@ const nextConfig = {
     // redirect strips the trailing slash and the catch-all proxy forwards
     // a URL Django doesn't recognize.
     skipTrailingSlashRedirect: true,
+    // Emits a minimal self-contained server bundle under `.next/standalone/`
+    // for the container image — see services/agent-console/Dockerfile.
+    output: 'standalone',
+    // The standalone output traces dependencies from this file outward.
+    // Pinning the workspace root makes the trace deterministic across
+    // local + docker builds (otherwise next picks a parent dir as root).
+    outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
 }
 
 export default nextConfig
