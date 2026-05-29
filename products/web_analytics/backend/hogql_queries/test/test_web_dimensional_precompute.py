@@ -167,6 +167,51 @@ class TestWebDimensionalPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Bounce semantics depend on the session table; just assert it's in range.
         assert 0 <= bounces <= 2
 
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_separate_chunks_share_one_query_hash_and_read_reassembles_window(self):
+        # Two events in two different 7-day chunks of the same window.
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2024-01-03T10:00:00Z",  # older chunk
+            properties={"$session_id": str(uuid7("2024-01-03")), "$host": "example.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2024-01-10T10:00:00Z",  # newer chunk
+            properties={"$session_id": str(uuid7("2024-01-10")), "$host": "example.com"},
+        )
+
+        chunk_older = ensure_web_stats_dimensional_precomputed(
+            self.team, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+        )
+        chunk_newer = ensure_web_stats_dimensional_precomputed(
+            self.team, datetime(2024, 1, 8, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC)
+        )
+        assert chunk_older.ready and chunk_newer.ready
+
+        # 1. Every chunk shares ONE cache key (time range is excluded from the hash).
+        distinct_hashes = PreaggregationJob.objects.filter(team_id=self.team.pk).values("query_hash").distinct()
+        assert distinct_hashes.count() == 1
+
+        # 2/3. A read over the union of all chunk job_ids reassembles the full window.
+        all_ids = "(" + ", ".join(f"'{jid}'" for jid in [*chunk_older.job_ids, *chunk_newer.job_ids]) + ")"
+        rows = sync_execute(
+            f"""
+            SELECT uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), sumMerge(pageviews_count_state)
+            FROM web_stats_dimensional_preaggregated
+            WHERE team_id = %(team_id)s AND job_id IN {all_ids}
+            """,
+            {"team_id": self.team.pk},
+        )
+        persons, sessions, pageviews = (int(v) for v in rows[0])
+        assert (persons, sessions, pageviews) == (2, 2, 2)  # one event in each chunk, merged
+
 
 class TestWebDimensionalPrecomputeTemplates(unittest.TestCase):
     """Pure HogQL-parse checks — no DB/ClickHouse, so they validate the templates
