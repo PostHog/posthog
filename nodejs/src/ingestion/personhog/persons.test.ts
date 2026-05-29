@@ -91,25 +91,38 @@ function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService
 }
 
 describe('PersonHogPersonOperations', () => {
-    describe('fetchPersonsByDistinctIds batching', () => {
+    describe.each([
+        {
+            method: 'fetchPersonsByDistinctIds' as const,
+            handler: 'getPersonsByDistinctIds' as const,
+            makeItem: (i: number) => ({ teamId: 1, distinctId: `d-${i}` }),
+        },
+        {
+            method: 'fetchPersonsByPersonIds' as const,
+            handler: 'getPersonsByUuids' as const,
+            makeItem: (i: number) => ({ teamId: 1, personId: `uuid-${i}` }),
+        },
+    ])('$method batching', ({ method, handler, makeItem }) => {
         it('sends a single RPC when under the batch limit', async () => {
             const { ops, handlers } = createOperations()
-            const items = Array.from({ length: 10 }, (_, i) => ({ teamId: 1, distinctId: `d-${i}` }))
-
-            await ops.fetchPersonsByDistinctIds(items)
-
-            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            await ops[method](Array.from({ length: 10 }, (_, i) => makeItem(i)))
+            expect(handlers[handler]).toHaveBeenCalledTimes(1)
         })
 
         it('splits into multiple RPCs when over the batch limit', async () => {
             const { ops, handlers } = createOperations()
-            const items = Array.from({ length: 400 }, (_, i) => ({ teamId: 1, distinctId: `d-${i}` }))
-
-            await ops.fetchPersonsByDistinctIds(items)
-
-            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(2)
+            await ops[method](Array.from({ length: 400 }, (_, i) => makeItem(i)))
+            expect(handlers[handler]).toHaveBeenCalledTimes(2)
         })
 
+        it('handles exact batch boundary without duplicating or dropping', async () => {
+            const { ops, handlers } = createOperations()
+            await ops[method](Array.from({ length: 250 }, (_, i) => makeItem(i)))
+            expect(handlers[handler]).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('fetchPersonsByDistinctIds', () => {
         it('merges results from multiple batches', async () => {
             const handler = jest.fn()
             let callCount = 0
@@ -135,42 +148,9 @@ describe('PersonHogPersonOperations', () => {
             expect(handler).toHaveBeenCalledTimes(2)
             expect(results).toHaveLength(300)
         })
-
-        it('handles exact batch boundary without duplicating or dropping', async () => {
-            const { ops, handlers } = createOperations()
-            const items = Array.from({ length: 250 }, (_, i) => ({ teamId: 1, distinctId: `d-${i}` }))
-
-            await ops.fetchPersonsByDistinctIds(items)
-
-            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        })
     })
 
-    describe('fetchPersonsByPersonIds batching', () => {
-        it('sends a single RPC per team when under the batch limit', async () => {
-            const { ops, handlers } = createOperations()
-            const items = Array.from({ length: 10 }, (_, i) => ({
-                teamId: 1,
-                personId: `uuid-${i}`,
-            }))
-
-            await ops.fetchPersonsByPersonIds(items)
-
-            expect(handlers.getPersonsByUuids).toHaveBeenCalledTimes(1)
-        })
-
-        it('splits into multiple RPCs per team when over the batch limit', async () => {
-            const { ops, handlers } = createOperations()
-            const items = Array.from({ length: 400 }, (_, i) => ({
-                teamId: 1,
-                personId: `uuid-${i}`,
-            }))
-
-            await ops.fetchPersonsByPersonIds(items)
-
-            expect(handlers.getPersonsByUuids).toHaveBeenCalledTimes(2)
-        })
-
+    describe('fetchPersonsByPersonIds', () => {
         it('merges results from multiple batches across teams', async () => {
             const handler = jest.fn()
             handler.mockImplementation((req: GetPersonsByUuidsRequest) => ({
@@ -188,18 +168,6 @@ describe('PersonHogPersonOperations', () => {
             // team 1: 2 batches (250 + 50), team 2: 1 batch (100)
             expect(handler).toHaveBeenCalledTimes(3)
             expect(results).toHaveLength(400)
-        })
-
-        it('handles exact batch boundary without duplicating or dropping', async () => {
-            const { ops, handlers } = createOperations()
-            const items = Array.from({ length: 250 }, (_, i) => ({
-                teamId: 1,
-                personId: `uuid-${i}`,
-            }))
-
-            await ops.fetchPersonsByPersonIds(items)
-
-            expect(handlers.getPersonsByUuids).toHaveBeenCalledTimes(1)
         })
     })
 })
