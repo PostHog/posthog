@@ -128,14 +128,14 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 return
             }
             // Terminal-state policy (see session-restart redesign):
-            //   - `failed`: always 410. Restarting a failed session would
-            //     likely just re-fail.
+            //   - `failed` / `cancelled`: always 410. Restarting either
+            //     would likely just re-fail or re-cancel.
             //   - `closed`: 410 unless the chat trigger spec opts into
             //     `allow_restart`.
             //   - `completed` / `queued` / `running`: append the message,
             //     re-queue. `completed` is open by design.
-            if (existing.state === 'failed') {
-                res.status(410).json({ error: 'session_terminal', state: 'failed' })
+            if (existing.state === 'failed' || existing.state === 'cancelled') {
+                res.status(410).json({ error: 'session_terminal', state: existing.state })
                 return
             }
             if (existing.state === 'closed') {
@@ -167,12 +167,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 return
             }
             // Cancel is idempotent: terminal sessions return ok without changing state.
-            if (existing.state === 'closed' || existing.state === 'failed') {
+            if (existing.state === 'closed' || existing.state === 'failed' || existing.state === 'cancelled') {
                 res.json({ ok: true, idempotent: true, state: existing.state })
                 return
             }
-            await deps.queue.update(sessionId, { state: 'failed' })
-            res.json({ ok: true })
+            await deps.queue.update(sessionId, { state: 'cancelled' })
+            res.json({ ok: true, state: 'cancelled' })
         })
     )
 

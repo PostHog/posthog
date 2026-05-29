@@ -3950,6 +3950,7 @@ export namespace Schemas {
     * `running` - running
     * `completed` - completed
     * `closed` - closed
+    * `cancelled` - cancelled
     * `failed` - failed
      */
     export type AgentSessionStateEnum = typeof AgentSessionStateEnum[keyof typeof AgentSessionStateEnum];
@@ -3960,6 +3961,7 @@ export namespace Schemas {
       Running: 'running',
       Completed: 'completed',
       Closed: 'closed',
+      Cancelled: 'cancelled',
       Failed: 'failed',
     } as const;
 
@@ -44413,7 +44415,7 @@ export namespace Schemas {
      */
     revision_id?: string;
     /**
-     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, failed.
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.
      */
     state?: string;
     };

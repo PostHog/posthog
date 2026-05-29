@@ -316,12 +316,22 @@ describe('janitor HTTP', () => {
         expect(repeat.body).toMatchObject({ scanned: 1, updated: 0 })
     })
 
-    it('POST /sessions/:id/cancel marks failed', async () => {
+    it('POST /sessions/:id/cancel marks cancelled', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s2'))
         const res = await request(app).post('/sessions/s2/cancel')
         expect(res.status).toBe(200)
-        expect((await queue.get('s2'))!.state).toBe('failed')
+        expect(res.body).toMatchObject({ ok: true, state: 'cancelled' })
+        expect((await queue.get('s2'))!.state).toBe('cancelled')
+    })
+
+    it('POST /sessions/:id/cancel is idempotent on terminal state', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue(session('s2b'))
+        await request(app).post('/sessions/s2b/cancel')
+        const second = await request(app).post('/sessions/s2b/cancel')
+        expect(second.status).toBe(200)
+        expect(second.body).toMatchObject({ ok: true, idempotent: true, state: 'cancelled' })
     })
 
     it('POST /sweep returns counts', async () => {

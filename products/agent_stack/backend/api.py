@@ -242,7 +242,7 @@ _AGENT_SESSION_PRINCIPAL = inline_serializer(
 )
 
 # Runtime `AgentSession.state` enum. Mirrors agent-shared spec.ts.
-_AGENT_SESSION_STATE_VALUES = ["queued", "running", "completed", "closed", "failed"]
+_AGENT_SESSION_STATE_VALUES = ["queued", "running", "completed", "closed", "cancelled", "failed"]
 
 
 @extend_schema(tags=["agent_stack"])
@@ -478,7 +478,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description=(
                     "Filter by session state. Comma-separated list accepted "
                     "(e.g. `completed,failed`). Valid values: queued, running, "
-                    "completed, closed, failed."
+                    "completed, closed, cancelled, failed."
                 ),
             ),
             OpenApiParameter(

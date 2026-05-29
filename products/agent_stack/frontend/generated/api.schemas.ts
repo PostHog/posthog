@@ -638,6 +638,7 @@ export interface AgentSessionPrincipalApi {
  * `running` - running
  * `completed` - completed
  * `closed` - closed
+ * `cancelled` - cancelled
  * `failed` - failed
  */
 export type AgentSessionStateEnumApi = (typeof AgentSessionStateEnumApi)[keyof typeof AgentSessionStateEnumApi]
@@ -647,6 +648,7 @@ export const AgentSessionStateEnumApi = {
     Running: 'running',
     Completed: 'completed',
     Closed: 'closed',
+    Cancelled: 'cancelled',
     Failed: 'failed',
 } as const
 
@@ -926,7 +928,7 @@ export type AgentApplicationsSessionsListParams = {
      */
     revision_id?: string
     /**
-     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, failed.
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.
      */
     state?: string
 }

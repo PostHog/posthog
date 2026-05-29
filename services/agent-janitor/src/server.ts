@@ -284,8 +284,14 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 res.status(404).json({ error: 'not_found' })
                 return
             }
-            await opts.queue.update(req.params.id, { state: 'failed' })
-            res.json({ ok: true })
+            // Cancel is idempotent on terminal states — mirrors the chat
+            // `/cancel` semantics.
+            if (s.state === 'closed' || s.state === 'failed' || s.state === 'cancelled') {
+                res.json({ ok: true, idempotent: true, state: s.state })
+                return
+            }
+            await opts.queue.update(req.params.id, { state: 'cancelled' })
+            res.json({ ok: true, state: 'cancelled' })
         })
     )
     app.post(

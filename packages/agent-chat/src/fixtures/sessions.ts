@@ -620,7 +620,7 @@ const incidentTriagerHistory: ChatSession[] = [
         id: '01998a01-2222-7000-8000-0000000007f2',
         application: incidentTriager,
         principal: { kind: 'system', displayName: 'pagerduty · INC-4087' },
-        state: 'aborted',
+        state: 'cancelled',
         started_at: '2026-05-27T03:14:00Z',
         ended_at: '2026-05-27T03:14:42Z',
         usage: { inputTokens: 320, outputTokens: 0, costUsd: 0.003 },
@@ -629,7 +629,7 @@ const incidentTriagerHistory: ChatSession[] = [
                 kind: 'user',
                 id: 'ih2-u',
                 timestamp: '2026-05-27T03:14:00Z',
-                text: 'INC-4087: false positive, user aborted.',
+                text: 'INC-4087: false positive, user cancelled.',
             },
         ],
     }),
@@ -684,7 +684,7 @@ export function getAgentStatsFixture(applicationId: string): AgentStats {
         ['streaming', 'awaiting_approval', 'awaiting_client_tool', 'idle', 'disconnected'].includes(s.state)
     )
     const spend = recent.reduce((acc, s) => acc + s.usage.costUsd, 0)
-    const failures = recent.filter((s) => s.state === 'failed' || s.state === 'error' || s.state === 'aborted').length
+    const failures = recent.filter((s) => s.state === 'failed' || s.state === 'error' || s.state === 'cancelled').length
     const failureRate = recent.length > 0 ? failures / recent.length : undefined
 
     return {

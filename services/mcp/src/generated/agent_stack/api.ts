@@ -919,7 +919,7 @@ export const AgentApplicationsSessionsListQueryParams = /* @__PURE__ */ zod.obje
         .string()
         .optional()
         .describe(
-            'Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, failed.'
+            'Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.'
         ),
 })
 

@@ -269,7 +269,7 @@ function humanisePrincipalKind(kind: AgentSessionPrincipalApi['kind']): string {
 }
 
 function isTerminalState(s: AgentSessionStateEnumApi): boolean {
-    return s === 'completed' || s === 'closed' || s === 'failed'
+    return s === 'completed' || s === 'closed' || s === 'failed' || s === 'cancelled'
 }
 
 function mapSessionState(s: AgentSessionStateEnumApi): ChatSession['state'] {
@@ -281,6 +281,8 @@ function mapSessionState(s: AgentSessionStateEnumApi): ChatSession['state'] {
         case 'completed':
         case 'closed':
             return 'completed'
+        case 'cancelled':
+            return 'cancelled'
         case 'failed':
             return 'failed'
     }

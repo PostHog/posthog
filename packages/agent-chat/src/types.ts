@@ -73,7 +73,7 @@ export interface SessionUsage {
  * `awaiting_client_tool` · `idle` (paused between turns) ·
  * `disconnected` (transport blip, session preserved).
  *
- * Terminal states (session is over): `completed` · `failed` · `aborted` ·
+ * Terminal states (session is over): `completed` · `failed` · `cancelled` ·
  * `error` (live failure that ended the session).
  *
  * v0.1+ may add `suspended` per [`long-running-sessions.md`](docs/agent-platform/plans/long-running-sessions.md).
@@ -87,7 +87,7 @@ export type SessionState =
     | 'error'
     | 'completed'
     | 'failed'
-    | 'aborted'
+    | 'cancelled'
 
 /** True if the session is still active (not in a terminal state). */
 export const LIVE_SESSION_STATES: ReadonlyArray<SessionState> = [

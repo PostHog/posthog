@@ -294,16 +294,21 @@ export interface AgentSession {
      * Session state. See docs/agent-platform/plans/_TODO.md (system-prompt
      * fleshing out) and the session-restart redesign for the contract:
      *
-     *   queued   — awaiting a worker claim.
-     *   running  — claimed; worker actively driving the turn.
+     *   queued    — awaiting a worker claim.
+     *   running   — claimed; worker actively driving the turn.
      *   completed — agent finished its turn, session is OPEN. /send
      *               re-queues. Default end-of-turn state (natural stop,
      *               meta-end-turn, meta-ask-for-input).
-     *   closed   — sealed by `meta-end-session`. Terminal. /send returns
-     *              410 unless the trigger config sets `allow_restart`.
-     *   failed   — error state. Terminal regardless of `allow_restart`.
+     *   closed    — sealed by `meta-end-session`. Terminal. /send returns
+     *               410 unless the trigger config sets `allow_restart`.
+     *   cancelled — user invoked `/cancel`. Terminal. Same lifecycle
+     *               semantics as `failed` (terminal regardless of
+     *               `allow_restart`) but distinguishable in the UI and
+     *               in observability so a user-initiated cancel isn't
+     *               confused with a runtime error.
+     *   failed    — error state. Terminal regardless of `allow_restart`.
      */
-    state: 'queued' | 'running' | 'completed' | 'closed' | 'failed'
+    state: 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
     /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions

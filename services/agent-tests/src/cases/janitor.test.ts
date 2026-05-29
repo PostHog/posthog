@@ -39,7 +39,7 @@ describe('janitor: real e2e', () => {
         expect(res.status).toBe(404)
     })
 
-    it('POST /sessions/:id/cancel marks failed', async () => {
+    it('POST /sessions/:id/cancel marks cancelled', async () => {
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'j2', spec: {} })
         const create = await request(c.ingress).post('/agents/j2/run').send({ message: 'hi' })
@@ -47,7 +47,18 @@ describe('janitor: real e2e', () => {
         expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
         const cancel = await request(c.janitor).post(`/sessions/${create.body.session_id}/cancel`)
         expect(cancel.status).toBe(200)
-        expect((await c.queue.get(create.body.session_id))!.state).toBe('failed')
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('cancelled')
+    })
+
+    it('POST /sessions/:id/cancel is idempotent on already-cancelled', async () => {
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        await c.deployAgent({ slug: 'j2b', spec: {} })
+        const create = await request(c.ingress).post('/agents/j2b/run').send({ message: 'hi' })
+        await c.drain()
+        await request(c.janitor).post(`/sessions/${create.body.session_id}/cancel`)
+        const second = await request(c.janitor).post(`/sessions/${create.body.session_id}/cancel`)
+        expect(second.status).toBe(200)
+        expect(second.body).toMatchObject({ ok: true, idempotent: true, state: 'cancelled' })
     })
 
     it('POST /sweep returns counts', async () => {

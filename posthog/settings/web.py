@@ -506,7 +506,7 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
-        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "failed"],
+        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "OrderByEnum": ["latest", "earliest"],

@@ -224,10 +224,10 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                             return
                         }
                         // Terminal-state policy mirrors chat /send (session-restart redesign):
-                        // `failed` is always terminal; `closed` is terminal unless the
-                        // MCP trigger spec opts into `allow_restart`. `completed` is
-                        // open — re-queue and let the runner drain.
-                        if (existing.state === 'failed') {
+                        // `failed` and `cancelled` are always terminal; `closed` is
+                        // terminal unless the MCP trigger spec opts into `allow_restart`.
+                        // `completed` is open — re-queue and let the runner drain.
+                        if (existing.state === 'failed' || existing.state === 'cancelled') {
                             res.json(errReply(RPC_INVALID_PARAMS, 'session_terminal'))
                             return
                         }

@@ -362,7 +362,7 @@ tools:
         title: List sessions for an agent
         description: >
             Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued /
-            running / waiting / completed / failed), revision_id, principal, turn count, retry count, timestamps, a
+            running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a
             `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the
             whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that.
             Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID),

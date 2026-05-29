@@ -290,8 +290,8 @@ function stateTone(state: ChatSession['state']): { dotClass: string; label: stri
         case 'failed':
         case 'error':
             return { dotClass: 'bg-destructive', label: state }
-        case 'aborted':
-            return { dotClass: 'bg-muted-foreground/60', label: 'aborted' }
+        case 'cancelled':
+            return { dotClass: 'bg-muted-foreground/60', label: 'cancelled' }
         case 'disconnected':
             return { dotClass: 'bg-muted-foreground/60', label: 'disconnected' }
         case 'idle':

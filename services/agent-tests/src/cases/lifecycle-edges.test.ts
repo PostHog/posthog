@@ -79,9 +79,12 @@ describe('session lifecycle edges: real e2e', () => {
         expect(res.status).toBe(404)
     })
 
-    it('/cancel of an idle `completed` (open) session → terminal failed', async () => {
+    it('/cancel of an idle `completed` (open) session → terminal cancelled', async () => {
         // `completed` is open by default, so /cancel is a real state
-        // transition (the user wants out of this conversation).
+        // transition (the user wants out of this conversation). The
+        // resulting state is `cancelled` (distinct from `failed`) so
+        // operators can tell user-initiated termination from runtime
+        // errors.
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'cc1' })
         const create = await request(c.ingress).post('/agents/cc1/run').send({ message: 'hi' })
@@ -89,7 +92,32 @@ describe('session lifecycle edges: real e2e', () => {
         expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
         const cancel = await request(c.ingress).post('/agents/cc1/cancel').send({ session_id: create.body.session_id })
         expect(cancel.status).toBe(200)
-        expect((await c.queue.get(create.body.session_id))!.state).toBe('failed')
+        expect(cancel.body).toMatchObject({ ok: true, state: 'cancelled' })
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('cancelled')
+    })
+
+    it('/send to a cancelled session → 410 Gone with state=cancelled', async () => {
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        await c.deployAgent({ slug: 'cc1b' })
+        const create = await request(c.ingress).post('/agents/cc1b/run').send({ message: 'hi' })
+        await c.drain()
+        await request(c.ingress).post('/agents/cc1b/cancel').send({ session_id: create.body.session_id })
+        const send = await request(c.ingress)
+            .post('/agents/cc1b/send')
+            .send({ session_id: create.body.session_id, message: 'second' })
+        expect(send.status).toBe(410)
+        expect(send.body).toMatchObject({ error: 'session_terminal', state: 'cancelled' })
+    })
+
+    it('/cancel of an already-cancelled session is idempotent', async () => {
+        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        await c.deployAgent({ slug: 'cc1c' })
+        const create = await request(c.ingress).post('/agents/cc1c/run').send({ message: 'hi' })
+        await c.drain()
+        await request(c.ingress).post('/agents/cc1c/cancel').send({ session_id: create.body.session_id })
+        const second = await request(c.ingress).post('/agents/cc1c/cancel').send({ session_id: create.body.session_id })
+        expect(second.status).toBe(200)
+        expect(second.body).toMatchObject({ ok: true, idempotent: true, state: 'cancelled' })
     })
 
     it('/cancel of a terminal (closed) session is idempotent', async () => {
