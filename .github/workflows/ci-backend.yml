@@ -121,12 +121,16 @@ jobs:
                         - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
+                        # Python outside backend/ — products like logs and
+                        # posthog_ai point `backend:test` at extra roots
+                        # (skills/, scripts/). Catch any .py change so the
+                        # backend job triggers when only those files move.
+                        - 'products/**/*.py'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
-                        # widening or fixing the script doesn't trigger the
-                        # tests it controls — silent regressions like
-                        # products/actions slip in.
+                        # widening or fixing the script doesn't trigger
+                        # tests it controls.
                         - 'products/*/package.json'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py

@@ -85,15 +85,19 @@ def _lint_tach_toml() -> list[str]:
 def _is_backend_product_dir(d: Path) -> bool:
     """Identify products with backend code that should be linted.
 
-    A `backend/` directory is the load-bearing signal here. Previously the
-    lint used `__init__.py` as the discovery signal, which silently dropped
-    any product that had backend code but was missing the file we want the
-    lint itself to enforce (the bug that let `actions/` slip through for
-    weeks after the model move). Discovery should NOT depend on the file
-    being checked.
+    A `backend/` directory is the load-bearing signal. Discovery
+    deliberately does NOT depend on `__init__.py` — that's the file
+    we want the lint itself to enforce, so using it as the discovery
+    signal would silently drop products that are missing it (the bug
+    that let `actions/` slip through for weeks after the model move).
 
-    Frontend-only products (no `backend/`) are skipped — they don't carry
-    Python code that needs `__init__.py`, `apps.py`, `backend:test`, etc.
+    Frontend-only products (no `backend/`) are skipped — they carry no
+    Python that needs `__init__.py`, `apps.py`, `backend:test`, etc.
+
+    `query_performance_ai/` is the one exception today — a local-only
+    macOS+Docker dev coordinator that lives under `products/` but isn't
+    really a product (no `apps.py`, no `manifest.tsx`, no CI). It's a
+    candidate for moving under `tools/`, not for widening discovery here.
     """
     if not d.is_dir() or d.name.startswith((".", "_")):
         return False
