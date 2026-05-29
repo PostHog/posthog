@@ -8,6 +8,8 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 
+const PASSIVE_WINDOW_MAX_ENTRIES: usize = 10_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerState {
     Healthy,
@@ -21,6 +23,14 @@ impl WorkerState {
             WorkerState::Healthy => "healthy",
             WorkerState::Degraded => "degraded",
             WorkerState::Unhealthy => "unhealthy",
+        }
+    }
+
+    fn as_gauge_value(self) -> f64 {
+        match self {
+            WorkerState::Healthy => 0.0,
+            WorkerState::Degraded => 1.0,
+            WorkerState::Unhealthy => 2.0,
         }
     }
 }
@@ -70,6 +80,12 @@ impl WorkerHealth {
         let old_state = self.state;
         self.state = new_state;
         self.state_entered_at = Instant::now();
+        // Reset so probe failure count is always scoped to the current state
+        // epoch. Without this, a passive-driven transition (e.g. Healthy →
+        // Degraded) carries the stale count into the new state, effectively
+        // lowering the probe_failure_threshold by however many failures had
+        // already accumulated.
+        self.consecutive_probe_failures = 0;
 
         if new_state == WorkerState::Unhealthy && self.unhealthy_since.is_none() {
             self.unhealthy_since = Some(Instant::now());
@@ -90,6 +106,14 @@ impl WorkerHealth {
             "to" => new_state.as_str(),
         )
         .increment(1);
+        // Numeric gauge so operators can alert directly on state without
+        // reconstructing it from cumulative transition counters.
+        // 0 = Healthy, 1 = Degraded, 2 = Unhealthy.
+        gauge!(
+            "ingestion_consumer_worker_health_state",
+            "worker" => worker_url.to_string(),
+        )
+        .set(new_state.as_gauge_value());
 
         true
     }
@@ -217,6 +241,9 @@ impl WorkerRegistry {
         let mut health = health_lock.lock().unwrap();
 
         health.passive_window.push_back((Instant::now(), is_error));
+        if health.passive_window.len() > PASSIVE_WINDOW_MAX_ENTRIES {
+            health.passive_window.pop_front();
+        }
 
         let (error_rate, sample_count) = health.passive_error_rate(self.config.passive_window);
         gauge!(
@@ -439,8 +466,7 @@ mod tests {
 
         // Simulate 2 consecutive probe failures
         health.consecutive_probe_failures = 2;
-        let transitioned =
-            health.try_transition(WorkerState::Unhealthy, Duration::ZERO, url);
+        let transitioned = health.try_transition(WorkerState::Unhealthy, Duration::ZERO, url);
 
         assert!(transitioned);
         assert_eq!(health.state, WorkerState::Unhealthy);
@@ -458,8 +484,7 @@ mod tests {
         assert_eq!(health.state, WorkerState::Unhealthy);
 
         // Probe success → Degraded
-        let transitioned =
-            health.try_transition(WorkerState::Degraded, Duration::ZERO, url);
+        let transitioned = health.try_transition(WorkerState::Degraded, Duration::ZERO, url);
 
         assert!(transitioned);
         assert_eq!(health.state, WorkerState::Degraded);
@@ -613,6 +638,51 @@ mod tests {
         assert_eq!(registry.state(2), WorkerState::Degraded);
     }
 
+    // --- consecutive_probe_failures reset on transition ---
+
+    #[test]
+    fn test_probe_failure_count_reset_on_passive_transition() {
+        let registry = WorkerRegistry::new(&worker_urls(), no_cooldown_config());
+
+        // One probe failure accumulates count=1.
+        {
+            let (_, health_lock) = &registry.workers[0];
+            let mut health = health_lock.lock().unwrap();
+            health.consecutive_probe_failures = 1;
+        }
+
+        // Passive signal drives Healthy → Degraded; try_transition must reset count.
+        registry.record_outcome(0, true);
+        registry.record_outcome(0, true);
+        registry.record_outcome(0, true);
+        assert_eq!(registry.state(0), WorkerState::Degraded);
+
+        let (_, health_lock) = &registry.workers[0];
+        let health = health_lock.lock().unwrap();
+        assert_eq!(
+            health.consecutive_probe_failures, 0,
+            "try_transition must reset consecutive_probe_failures so the Degraded epoch needs a full probe_failure_threshold failures to reach Unhealthy"
+        );
+    }
+
+    // --- passive_window size cap ---
+
+    #[test]
+    fn test_passive_window_capped_at_max_entries() {
+        let registry = WorkerRegistry::new(&worker_urls(), no_cooldown_config());
+
+        for _ in 0..PASSIVE_WINDOW_MAX_ENTRIES + 10 {
+            registry.record_outcome(0, false);
+        }
+
+        let (_, health_lock) = &registry.workers[0];
+        let health = health_lock.lock().unwrap();
+        assert!(
+            health.passive_window.len() <= PASSIVE_WINDOW_MAX_ENTRIES,
+            "passive_window must not exceed PASSIVE_WINDOW_MAX_ENTRIES"
+        );
+    }
+
     // --- Same-state no-op ---
 
     #[test]
@@ -621,8 +691,7 @@ mod tests {
         let (url, health_lock) = &registry.workers[0];
         let mut health = health_lock.lock().unwrap();
 
-        let transitioned =
-            health.try_transition(WorkerState::Healthy, Duration::ZERO, url);
+        let transitioned = health.try_transition(WorkerState::Healthy, Duration::ZERO, url);
 
         assert!(!transitioned);
         assert_eq!(health.state, WorkerState::Healthy);
