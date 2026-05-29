@@ -16,7 +16,7 @@ export interface TranscriptTurn {
     text: string
 }
 
-const TURN_SPLIT_RE = /\b(AI|Assistant|Interviewer|User|Interviewee):\s+/
+const TURN_SPLIT_RE = /(?:^|\n)\s*(AI|Assistant|Interviewer|User|Interviewee):\s+/i
 
 const AI_SPEAKER_RE = /^(AI|Assistant|Interviewer)$/i
 const USER_SPEAKER_RE = /^(User|Interviewee)$/i

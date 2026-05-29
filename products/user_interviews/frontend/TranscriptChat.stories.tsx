@@ -33,17 +33,13 @@ const multiTurnTranscript = [
     'User: I was trying to figure out the install rate on iOS, because it matters a lot for our product right now.',
     'AI: Why reach for MCP for that instead of opening the dashboard yourself?',
     'User: Having one tool that can synthesize across platforms is really valuable. I would not know where to look in the UI on my own.',
-].join(' ')
+].join('\n')
 
-const singleParagraphTranscript =
-    'AI: Hey there, thanks for joining. Could you describe a typical week for you? User: Sure, mostly product work. I spend Monday reviewing dashboards, Tuesday and Wednesday writing copy, and Thursday talking to customers. AI: Where do you feel the most friction? User: Honestly, switching between tools — every context switch costs me momentum.'
+const inlineNoNewlinesTranscript =
+    'AI: Hey there, thanks for joining. Could you describe a typical week for you? User: Sure, mostly product work. AI: Where do you feel the most friction? User: Honestly, switching between tools — every context switch costs me momentum.'
 
-const newlineSeparatedTranscript = `AI: Hi! Walk me through the last bug you shipped a fix for.
-User: It was a flaky test in our checkout flow. Took an afternoon to track down.
-AI: What made it tricky?
-User: The repro only happened under specific timing. Once I added a deterministic clock it was obvious.
-AI: Great. Anything you wish your tools did better here?
-User: A way to replay the exact failure with the same seed without rebuilding the whole environment.`
+const speakerKeywordInBodyTranscript =
+    'AI: When you say the User: experience felt slow, do you mean the loading time or the time-to-first-interaction?\nUser: The loading time.\nAI: Got it.'
 
 const namedSpeakerTranscript = `Assistant: Welcome. Before we dive in, could you tell me what brought you to the product?
 Interviewee: A friend recommended it. We needed a way to track usage without piecing things together ourselves.
@@ -73,17 +69,17 @@ export const IdentifierOnly: Story = {
     },
 }
 
-export const InlineSingleParagraph: Story = {
+export const InlineNoNewlines: Story = {
     args: {
-        transcript: singleParagraphTranscript,
+        transcript: inlineNoNewlinesTranscript,
         person: fakePerson,
         identifier: 'alex@example.com',
     },
 }
 
-export const NewlineSeparated: Story = {
+export const SpeakerKeywordInBody: Story = {
     args: {
-        transcript: newlineSeparatedTranscript,
+        transcript: speakerKeywordInBodyTranscript,
         person: fakePerson,
         identifier: 'alex@example.com',
     },
