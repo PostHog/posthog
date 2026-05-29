@@ -312,6 +312,20 @@ describe('ValueLabels', () => {
         })
     })
 
+    it('lifts nothing when the chart resolves the cursor to no segment (hoverSegment null)', () => {
+        // Stacked bars publish `hoverSegment: null` when the cursor is past the bar's value
+        // extent — the segment-driven path must lift nothing rather than fall back to hoverIndex.
+        // (The happy path — lift follows the cursor's segment — is covered end-to-end in BarChart.test.)
+        const series: ResolvedSeries[] = [
+            { key: 's0', label: 'S0', color: '#f00', data: [10, 0] },
+            { key: 's1', label: 'S1', color: '#0f0', data: [0, 20] },
+        ]
+        const ctx = makeContext(series, { labels: ['Mon', 'Mon'], hoverSegment: null, hoverIndex: 1 })
+        for (const d of labelDivs(renderInChart(ctx, <ValueLabels />).container)) {
+            expect(d.style.transform).not.toContain('-6px')
+        }
+    })
+
     it('in percent layout, formatter receives each segment fraction (0..1), not raw data', () => {
         // Both series have non-zero values in both bands so we exercise the `raw / total`
         // division, not the trivial single-segment-per-band 100% path.

@@ -19,6 +19,7 @@ export interface OverlayContextOverrides {
     axisOrientation?: 'vertical' | 'horizontal'
     isPercent?: boolean
     hoverIndex?: number
+    hoverSegment?: { seriesKey: string; dataIndex: number } | null
     xTickFormatter?: (value: string, index: number) => string | null
 }
 
@@ -39,6 +40,7 @@ export function makeOverlayContext(scales: ChartScales, overrides: OverlayContex
             isPercent: overrides.isPercent ?? false,
         },
         hoverIndex: overrides.hoverIndex ?? -1,
+        hoverSegment: overrides.hoverSegment,
     }
 }
 
@@ -46,11 +48,11 @@ export function makeOverlayContext(scales: ChartScales, overrides: OverlayContex
  *  in isolation without booting a real chart. Pass hand-rolled scales so you can
  *  assert exact pixel positions without depending on d3's tick algorithm. */
 export function renderOverlayInChart(node: ReactNode, ctx: BaseChartContext): RenderResult {
-    const { hoverIndex, ...layout } = ctx
+    const { hoverIndex, hoverSegment, ...layout } = ctx
     const layoutValue: ChartLayoutContextValue = layout
     return render(
         <ChartLayoutContext.Provider value={layoutValue}>
-            <ChartHoverContext.Provider value={{ hoverIndex }}>{node}</ChartHoverContext.Provider>
+            <ChartHoverContext.Provider value={{ hoverIndex, hoverSegment }}>{node}</ChartHoverContext.Provider>
         </ChartLayoutContext.Provider>
     )
 }

@@ -113,6 +113,14 @@ export interface ChartProps<Meta = unknown> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Chart-type seam: resolve which segment the cursor is over (the visible slice in a stacked
+     *  band), published on the hover context as `hoverSegment` so overlays (value labels) can
+     *  target it instead of guessing from `hoverIndex`. Return `null` when over no segment. */
+    resolveHoverSegment?: (
+        hoverIndex: number,
+        hoverPosition: { x: number; y: number } | null,
+        scales: ChartScales
+    ) => { seriesKey: string; dataIndex: number } | null
 }
 
 export function Chart<Meta = unknown>({
@@ -133,6 +141,7 @@ export function Chart<Meta = unknown>({
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
+    resolveHoverSegment,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -282,7 +291,21 @@ export function Chart<Meta = unknown>({
         }
     }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue])
 
-    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
+    const hoverSegment =
+        resolveHoverSegment && scales ? (resolveHoverSegment(hoverIndex, hoverPosition, scales) ?? null) : undefined
+    // Key the memo on a primitive so the context identity only changes when the resolved segment
+    // changes — not on every mousemove within the same segment.
+    const hoverSegmentKey =
+        hoverSegment === undefined
+            ? 'none'
+            : hoverSegment === null
+              ? 'empty'
+              : `${hoverSegment.seriesKey} ${hoverSegment.dataIndex}`
+    const hoverValue = useMemo<ChartHoverContextValue>(
+        () => ({ hoverIndex, hoverSegment }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [hoverIndex, hoverSegmentKey]
+    )
 
     return (
         <ChartLayoutContext.Provider value={layoutValue}>

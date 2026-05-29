@@ -2,6 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
+import { ValueLabels } from '../../overlays/ValueLabels'
 import { getHogChartTooltip, renderHogChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
@@ -437,6 +438,29 @@ describe('BarChart', () => {
                     expect(click.seriesIndex).toBe(expectedSeriesIndex)
                 }
             )
+
+            it('hover-lifts the value label of the segment under the cursor, following the cursor', async () => {
+                const { chart } = renderHogChart(
+                    <BarChart series={SPARSE_SERIES} labels={SPARSE_LABELS} theme={THEME} config={HORIZONTAL_STACKED}>
+                        <ValueLabels />
+                    </BarChart>
+                )
+                const liftOf = (text: string): string =>
+                    Array.from(chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).find(
+                        (d) => d.textContent === text
+                    )?.style.transform ?? ''
+
+                // Cursor in the small slice (0..20): only 'small's label (20) lifts.
+                fireEvent.mouseMove(chart.element, { clientX: xForValue(10), clientY: yMidBand })
+                await waitFor(() => expect(liftOf('20')).toContain('translate(6px, 0px)'))
+                expect(liftOf('50')).not.toContain('6px')
+                expect(liftOf('100')).not.toContain('6px')
+
+                // Move into the mid slice (20..50): the lift follows to 'mid's label (50).
+                fireEvent.mouseMove(chart.element, { clientX: xForValue(30), clientY: yMidBand })
+                await waitFor(() => expect(liftOf('50')).toContain('translate(6px, 0px)'))
+                expect(liftOf('20')).not.toContain('6px')
+            })
         })
 
         it('grouped layout still narrows when the cursor is above every bar (value-axis miss)', async () => {

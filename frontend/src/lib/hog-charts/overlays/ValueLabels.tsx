@@ -388,7 +388,7 @@ export function ValueLabels({
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
-    const { hoverIndex } = useChartHover()
+    const { hoverIndex, hoverSegment } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -443,10 +443,27 @@ export function ValueLabels({
 
     const borderColor = theme.backgroundColor ?? 'white'
 
+    const candidateIsHovered = (c: Candidate): boolean => {
+        // Charts that resolve the exact segment under the cursor (stacked bars) drive the lift
+        // off `hoverSegment` — `hoverIndex` is ambiguous when segments share a band. `null` means
+        // the cursor is over no segment (e.g. past the bar), so nothing lifts.
+        if (hoverSegment !== undefined) {
+            if (!hoverSegment) {
+                return false
+            }
+            if (c.seriesIndex === -1) {
+                // Stack-total label: lift when the hovered segment sits in its band.
+                return labels[c.dataIndex] === labels[hoverSegment.dataIndex]
+            }
+            return series[c.seriesIndex]?.key === hoverSegment.seriesKey && c.dataIndex === hoverSegment.dataIndex
+        }
+        return c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
+    }
+
     return (
         <>
             {visible.map((c) => {
-                const isHovered = c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
+                const isHovered = candidateIsHovered(c)
                 return (
                     <div
                         key={c.key}

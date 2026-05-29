@@ -46,6 +46,11 @@ export interface ChartLayoutContextValue<Meta = unknown> {
 export interface ChartHoverContextValue {
     /** Index of the currently hovered data point, or -1 when not hovering. */
     hoverIndex: number
+    /** The segment the cursor actually resolved to, for chart types that disambiguate within
+     *  a band (stacked bars: the visible slice under the cursor). `undefined` when the chart
+     *  doesn't resolve segments (overlays fall back to `hoverIndex`); `null` when it does but
+     *  the cursor is over no segment (e.g. the empty track past a bar) — overlays target nothing. */
+    hoverSegment?: { seriesKey: string; dataIndex: number } | null
 }
 
 /** Merged layout + hover shape returned by {@link useChart}. */

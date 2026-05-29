@@ -517,6 +517,43 @@ function BarChartInner<Meta = unknown>({
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
     )
 
+    // Publish the visible segment under the cursor so overlays (value labels) can target it.
+    // Sparse-stacked bands hold several dataIndexes at one band slot, so `hoverIndex` alone
+    // can't say which segment the cursor is on.
+    const resolveHoverSegment = useCallback(
+        (
+            hoverIndex: number,
+            hoverPosition: { x: number; y: number } | null,
+            scales: ChartScales
+        ): { seriesKey: string; dataIndex: number } | null => {
+            if (
+                !isStackedLayout(barLayout) ||
+                !hoverPosition ||
+                hoverIndex < 0 ||
+                hoverIndex >= labelsRef.current.length
+            ) {
+                return null
+            }
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+            if (!d3Scales) {
+                return null
+            }
+            const visible = findVisibleStackedSegment({
+                series: seriesRef.current,
+                labels: labelsRef.current,
+                hoveredLabel: labelsRef.current[hoverIndex],
+                cursor: hoverPosition,
+                scales: d3Scales,
+                layout: barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+            })
+            return visible ? { seriesKey: visible.series.key, dataIndex: visible.dataIndex } : null
+        },
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+    )
+
     const chart = (
         <Chart
             series={series}
@@ -539,6 +576,7 @@ function BarChartInner<Meta = unknown>({
             )}
             onPointClick={onPointClick}
             wrapClickData={onPointClick ? wrapClickData : undefined}
+            resolveHoverSegment={resolveHoverSegment}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
