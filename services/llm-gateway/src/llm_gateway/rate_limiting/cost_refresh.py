@@ -45,13 +45,7 @@ def normalize_metric_labels(litellm_model: str, litellm_provider: str) -> tuple[
 
 
 def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
-    """Mutate model_cost to add alias keys for non-canonical provider routings.
-
-    Every writer to `litellm.model_cost` must call this — otherwise alias-routed
-    models fall back to default cost in the rate-limiting callback. A missing
-    canonical is logged so cost map regressions surface in alerting instead of
-    silently routing requests through the default fallback cost.
-    """
+    """Add alias keys for non-canonical provider routings. Prefer `set_litellm_model_cost`."""
     for alias, canonical in COST_ALIASES.items():
         if alias in model_cost:
             continue
@@ -60,6 +54,12 @@ def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
             model_cost[alias] = dict(model_cost[canonical])
         else:
             logger.warning("cost_alias_canonical_missing", alias=alias, canonical=canonical)
+
+
+def set_litellm_model_cost(model_cost: dict[str, Any]) -> None:
+    """Single writer for `litellm.model_cost` — applies aliases atomically."""
+    apply_cost_aliases(model_cost)
+    litellm.model_cost = model_cost
 
 
 class CostRefreshService:
@@ -88,8 +88,7 @@ class CostRefreshService:
     def refresh(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
-            apply_cost_aliases(model_cost)
-            litellm.model_cost = model_cost
+            set_litellm_model_cost(model_cost)
             self._last_refresh = time.monotonic()
             logger.info("model_cost_refreshed", model_count=len(model_cost))
         except Exception:
