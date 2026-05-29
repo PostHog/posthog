@@ -1104,8 +1104,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                         evaluationRuntime !== undefined &&
                         evaluationRuntime !== FeatureFlagEvaluationRuntime.SERVER && (
                             <LemonBanner type="warning" className="mt-1">
-                                <b>Not supported with local evaluation.</b> Client-side and local evaluation SDKs
-                                evaluate all condition groups — early exit only takes effect for server-side evaluation.
+                                Early exit is not supported with local evaluation.
                             </LemonBanner>
                         )}
                 </div>
