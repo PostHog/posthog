@@ -1,18 +1,13 @@
 from typing import Literal
 
-from posthog.personhog_client.proto import CONSISTENCY_LEVEL_EVENTUAL, CONSISTENCY_LEVEL_STRONG, ReadOptions
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_EVENTUAL, CONSISTENCY_LEVEL_STRONG, Person, ReadOptions
 
 ReadConsistency = Literal["strong", "eventual"]
 
+_PERSON_PROPERTIES_FIELDS = frozenset({"properties", "properties_last_updated_at", "properties_last_operation"})
+
 PERSON_FIELDS_WITHOUT_PROPERTIES: list[str] = [
-    "id",
-    "uuid",
-    "team_id",
-    "created_at",
-    "version",
-    "is_identified",
-    "is_user_id",
-    "last_seen_at",
+    f.name for f in Person.DESCRIPTOR.fields if f.name not in _PERSON_PROPERTIES_FIELDS
 ]
 
 READ_OPTIONS_WITHOUT_PROPERTIES = ReadOptions(field_mask=PERSON_FIELDS_WITHOUT_PROPERTIES)
