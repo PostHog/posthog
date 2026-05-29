@@ -154,8 +154,20 @@ describe('slack trigger: real e2e', () => {
         // Distinct senders — exactly what #23 step 3 needs to read at
         // dispatch time to authorise per-asker.
         expect(new Set(senders).size).toBe(2)
-        expect(senders.some((id) => typeof id === 'string' && id.includes('U-ALICE'))).toBe(true)
-        expect(senders.some((id) => typeof id === 'string' && id.includes('U-BOB'))).toBe(true)
+
+        // sender.id is the AgentUser uuid (the slack handler stamps the
+        // identity-store id rather than the raw slack user id, giving the
+        // dispatcher a stable handle for the #23 step 2 bridge / per-asker
+        // lookups). Resolve each uuid back through the identity store and
+        // verify the underlying slack principals are really alice + bob.
+        const resolved: string[] = []
+        for (const id of senders) {
+            expect(typeof id).toBe('string')
+            const agentUser = await c.identities.getById(id as string)
+            expect(agentUser).not.toBeNull()
+            resolved.push(agentUser!.principal_id)
+        }
+        expect(resolved.sort()).toEqual(['unknown:U-ALICE', 'unknown:U-BOB'])
     })
 
     it('different user in same thread → elevation_required, session is NOT advanced', async () => {
