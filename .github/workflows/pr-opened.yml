@@ -60,8 +60,11 @@ jobs:
         steps:
             # GitHub App token is required because GITHUB_TOKEN can't read
             # org-private memberships (a private member looks like a non-member).
-            # On PRs from forks the secrets aren't available, so this step is
-            # allowed to fail — external contributors are never nudged.
+            # `owner`/`repositories` keep the token narrow while still scoping it at
+            # the org, so the org-level `Members: read` permission flows through —
+            # without `owner` the token is repo-scoped and that permission is dropped
+            # (see ci-backend.yml). On PRs from forks the secrets aren't available,
+            # so this step is allowed to fail — external contributors are never nudged.
             - name: Get app token for org membership check
               id: app-token
               continue-on-error: true
@@ -69,6 +72,8 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
 
             - name: Check whether PR author is a PostHog org member
               id: membership
@@ -98,6 +103,8 @@ jobs:
 
             - name: Nudge if commits use a non-PostHog email
               if: steps.membership.outputs.is-member == 'true'
+              # A non-critical nudge must never turn the PR red on a transient API error.
+              continue-on-error: true
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
