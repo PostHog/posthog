@@ -1936,6 +1936,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
+        path: 'Pulse',
+        intents: [ProductKey.MAX],
+        category: ProductItemCategory.ANALYTICS,
+        iconType: 'activity',
+        href: urls.pulse(),
+        flag: FEATURE_FLAGS.MAX_PULSE,
+        tags: ['beta'],
+        sceneKey: 'Pulse',
+        sceneKeys: ['Pulse'],
+    },
+    {
         path: 'Replay vision',
         category: ProductItemCategory.BEHAVIOR,
         intents: [ProductKey.REPLAY_VISION],

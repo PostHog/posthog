@@ -73,6 +73,17 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                 <Tooltip title={ROBUST_Z_TOOLTIP}>
                     <span className="text-muted-alt text-xs cursor-help">Why flagged?</span>
                 </Tooltip>
+                {finding.metric_descriptor?.url ? (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        to={finding.metric_descriptor.url as string}
+                        targetBlank
+                        className="ml-auto"
+                    >
+                        View insight
+                    </LemonButton>
+                ) : null}
             </div>
             <p className="text-sm mb-3">{finding.narrative}</p>
             <div className="flex flex-wrap items-center gap-2">
