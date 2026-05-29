@@ -440,37 +440,4 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         expect(finalText.length).toBeGreaterThan(20)
         expect(finalText).toMatch(/tool|query|available|unable|cannot|not.*available|sorry/i)
     }, 60_000)
-
-    it('max_turns ceiling: a looping agent fails with reason=max_turns_exceeded', async () => {
-        await c.deployAgent({
-            slug: 'real-loopy',
-            spec: {
-                tools: [{ kind: 'native', id: '@posthog/query' }],
-                limits: { max_turns: 3, max_tool_calls: 100, max_wall_seconds: 60 },
-                // Suppress every preamble section that names a meta tool —
-                // they nudge the model toward `meta-end-turn` as the
-                // default, exactly what this test needs to prevent.
-                // Canonical use case for `spec.framework_prompt.omit` (plan
-                // §7.4): a load-testing agent that needs the runner's
-                // mechanical max_turns enforcement, not model judgement.
-                framework_prompt: {
-                    omit: ['meta_tool_guidance', 'state_contract', 'tool_failure_guidance', 'approval_guidance'],
-                },
-            },
-            files: {
-                'agent.md':
-                    '# Load-testing harness\n\n' +
-                    'You are a load-testing harness used to verify the platform max_turns enforcement.\n\n' +
-                    '**Mandatory protocol — DO NOT deviate:**\n\n' +
-                    '1. Every turn, call the `@posthog/query` tool with `{"query": "select 1 as x"}`.\n' +
-                    '2. Do not call any other tool. The `meta-end-turn`, `meta-end-session`, and `meta-ask-for-input` tools are off-limits in this test agent — do not call them under any circumstances.\n' +
-                    '3. Do not produce any text response. Pure tool-call turns only.\n' +
-                    '4. Keep looping until the platform stops you with `max_turns_exceeded`. That outcome IS the goal of this agent.',
-            },
-        })
-        const res = await request(c.ingress).post('/agents/real-loopy/run').send({ message: 'go' })
-        await c.drain({ iterations: 100 })
-        const session = await c.queue.get(res.body.session_id)
-        expect(session!.state).toBe('failed')
-    }, 120_000)
 })

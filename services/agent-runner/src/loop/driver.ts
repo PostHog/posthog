@@ -625,13 +625,25 @@ function resultText(result: { content?: Array<{ type: string; text?: string }> }
  * Wrap a StreamFn so provider-bound tool names are sanitized to the
  * `^[a-zA-Z0-9_-]{1,128}$` form strict providers require, and the names a
  * provider echoes back in tool calls are translated to the original ids the
- * loop matches against. Only the materialized `result()` needs translating —
- * that's what the loop uses for tool matching and what lands in the transcript.
+ * loop matches against.
+ *
+ * Three sites need rewriting on every call:
+ *   1. `context.tools[].name` — the declarations the provider validates against.
+ *   2. `context.messages[]` — historical assistant `toolCall` names and the
+ *      paired `toolResult.toolName` from prior turns. Strict providers
+ *      (e.g. OpenAI Responses, `^[a-zA-Z0-9_-]+$`) reject the original
+ *      `@posthog/query` shape in this position too, so without rewriting them
+ *      turn 2 fails with a 400 even though turn 1 went through fine.
+ *   3. The materialized `result()` — tool calls on the assistant reply get
+ *      their names translated BACK to the original ids the loop matches
+ *      against. The faux provider echoes the script's original name verbatim
+ *      so the reverse-map miss just leaves it unchanged.
  */
 function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>): StreamFn {
     return async (model, context, options) => {
         const tools = context.tools?.map((t) => ({ ...t, name: providerSafeName(t.name) }))
-        const stream = await base(model, { ...context, tools }, options)
+        const messages = context.messages?.map(sanitizeMessageNames)
+        const stream = await base(model, { ...context, tools, messages }, options)
         const result = async (): Promise<AssistantMessage> => {
             const msg = await stream.result()
             return {
@@ -651,4 +663,27 @@ function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>)
             },
         })
     }
+}
+
+/**
+ * Rewrite tool names embedded in a historical Message so they match the
+ * provider-safe form the live request will declare. Untyped to avoid a
+ * tight coupling to pi-ai's Message union — we touch only the two fields
+ * that carry a tool id, copy everything else through, and leave non-tool
+ * messages unchanged.
+ */
+function sanitizeMessageNames(message: Message): Message {
+    const m = message as unknown as { role?: string; toolName?: unknown; content?: unknown }
+    if (m.role === 'toolResult' && typeof m.toolName === 'string') {
+        return { ...message, toolName: providerSafeName(m.toolName) } as Message
+    }
+    if (m.role === 'assistant' && Array.isArray(m.content)) {
+        return {
+            ...message,
+            content: (m.content as Array<{ type?: string; name?: string }>).map((b) =>
+                b && b.type === 'toolCall' && typeof b.name === 'string' ? { ...b, name: providerSafeName(b.name) } : b
+            ),
+        } as Message
+    }
+    return message
 }
