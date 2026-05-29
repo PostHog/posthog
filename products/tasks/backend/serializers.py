@@ -1741,6 +1741,40 @@ class SlackThreadContextTaskSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Absolute URL to the task detail page in the PostHog app.")
 
 
+class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
+    """The internal sandbox run the discovery agent used to pick this run's repo.
+
+    Only present when the originating mention was ambiguous (multiple candidate
+    repos, no explicit mention) — that's the only path that spins up a research
+    sandbox. Null otherwise.
+    """
+
+    task_id = serializers.CharField(help_text="UUID of the internal repo-research Task.")
+    run_id = serializers.CharField(help_text="UUID of the internal repo-research TaskRun.")
+    status = serializers.CharField(
+        allow_null=True,
+        help_text="Research run status, or null if the run row could not be loaded.",
+    )
+    task_processing_workflow_id = serializers.CharField(
+        help_text="Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`).",
+    )
+    task_processing_workflow_url = serializers.CharField(
+        allow_null=True,
+        help_text="Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.",
+    )
+    sandbox_url = serializers.CharField(
+        allow_null=True,
+        help_text="Live sandbox tunnel URL for the research run, when one was attached.",
+    )
+    task_view_url = serializers.CharField(
+        help_text="Absolute URL to the research task detail page (carries `?ph_debug=true`).",
+    )
+    log_url = serializers.CharField(
+        allow_null=True,
+        help_text="Presigned S3 URL for the research run's JSONL log transcript (valid ~1 hour).",
+    )
+
+
 class SlackThreadContextRunSerializer(serializers.Serializer):
     """One TaskRun and its associated Temporal workflow handles."""
 
@@ -1786,6 +1820,10 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
     log_url = serializers.CharField(
         allow_null=True,
         help_text="Presigned S3 URL for the run's full JSONL log transcript (valid ~1 hour).",
+    )
+    repo_research = SlackThreadContextRepoResearchSerializer(
+        allow_null=True,
+        help_text="The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous.",
     )
 
 

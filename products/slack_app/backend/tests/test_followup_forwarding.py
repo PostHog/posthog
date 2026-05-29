@@ -230,6 +230,63 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_persists_repo_research_ids_when_provided(self, mock_slack_cls, mock_execute_workflow):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "investigate the flaky checkout test"}],
+            None,
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        state = task.latest_run.state
+        assert state["repo_research_task_id"] == "11111111-1111-1111-1111-111111111111"
+        assert state["repo_research_run_id"] == "22222222-2222-2222-2222-222222222222"
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    def test_no_repo_research_ids_when_not_provided(self, mock_slack_cls, mock_execute_workflow):
+        # The unambiguous path (explicit mention / cascade auto) never runs the
+        # discovery sandbox, so the keys must be absent rather than null.
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "just answer this, no repo needed"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert "repo_research_task_id" not in task.latest_run.state
+        assert "repo_research_run_id" not in task.latest_run.state
+
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_no_repo_task_falls_back_to_team_github_integration(self, mock_slack_cls, mock_execute_workflow):
         Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
         mock_slack_instance = MagicMock()

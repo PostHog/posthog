@@ -223,3 +223,80 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         body = response.json()
         assert body["runs"][0]["mention_workflow_id"] is None
         assert body["runs"][0]["mention_workflow_url"] is None
+
+    def test_repo_research_null_for_unambiguous_run(self):
+        # The default fixture run has no repo_research_* state — it should report null.
+        self._create_fixture()
+        with patch("products.tasks.backend.api.object_storage.get_presigned_url", return_value=None):
+            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["runs"][0]["repo_research"] is None
+
+    def test_repo_research_surfaced_for_ambiguous_run(self):
+        task, run, _ = self._create_fixture()
+        # The discovery sandbox is a separate internal task/run on the same team.
+        research_task = Task.objects.create(
+            team=self.team,
+            title="[sandbox_prompt:repo_selection] pick a repo",
+            description="repo research",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=self.user,
+            repository="PostHog/.github",
+            internal=True,
+        )
+        research_run = TaskRun.objects.create(
+            task=research_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"sandbox_url": "https://sandbox.example/research"},
+        )
+        run.state = {
+            **run.state,
+            "repo_research_task_id": str(research_task.id),
+            "repo_research_run_id": str(research_run.id),
+        }
+        run.save(update_fields=["state"])
+
+        with override_settings(TEMPORAL_UI_HOST="https://temporal.example.com", TEMPORAL_NAMESPACE="prod"):
+            with patch(
+                "products.tasks.backend.api.object_storage.get_presigned_url",
+                return_value="https://s3.example/research-log",
+            ):
+                response = self.client.get(
+                    self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299")
+                )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        research = response.json()["runs"][0]["repo_research"]
+        assert research is not None
+        assert research["task_id"] == str(research_task.id)
+        assert research["run_id"] == str(research_run.id)
+        assert research["status"] == TaskRun.Status.COMPLETED
+        assert research["sandbox_url"] == "https://sandbox.example/research"
+        assert research["task_processing_workflow_id"] == f"task-processing-{research_task.id}-{research_run.id}"
+        assert research["task_processing_workflow_url"] == (
+            f"https://temporal.example.com/namespaces/prod/workflows/task-processing-{research_task.id}-{research_run.id}"
+        )
+        assert research["task_view_url"].endswith(
+            f"/project/{self.team.id}/tasks/{research_task.id}?runId={research_run.id}&ph_debug=true"
+        )
+        assert research["log_url"] == "https://s3.example/research-log"
+
+    def test_repo_research_handles_missing_research_run_row(self):
+        # If the research run row is gone, still surface the ids/workflow without crashing.
+        task, run, _ = self._create_fixture()
+        run.state = {
+            **run.state,
+            "repo_research_task_id": "11111111-1111-1111-1111-111111111111",
+            "repo_research_run_id": "22222222-2222-2222-2222-222222222222",
+        }
+        run.save(update_fields=["state"])
+        with patch("products.tasks.backend.api.object_storage.get_presigned_url", return_value=None):
+            response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+        assert response.status_code == status.HTTP_200_OK
+        research = response.json()["runs"][0]["repo_research"]
+        assert research is not None
+        assert research["run_id"] == "22222222-2222-2222-2222-222222222222"
+        assert research["status"] is None
+        assert research["sandbox_url"] is None
+        assert research["log_url"] is None

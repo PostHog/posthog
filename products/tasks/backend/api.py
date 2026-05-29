@@ -282,6 +282,41 @@ def _temporal_workflow_url(workflow_id: str | None) -> str | None:
     return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
 
 
+def _slack_repo_research_payload(
+    request, team_id: int, state: dict[str, Any], repo_research_runs_by_id: dict[str, TaskRun]
+) -> dict[str, Any] | None:
+    """Build the repo-research block for a run, or None when the mention wasn't ambiguous."""
+    research_task_id = state.get("repo_research_task_id")
+    research_run_id = state.get("repo_research_run_id")
+    if not research_task_id or not research_run_id:
+        return None
+    research_run = repo_research_runs_by_id.get(research_run_id)
+    sandbox_url = None
+    log_url = None
+    run_status = None
+    if research_run is not None:
+        sandbox_url = (research_run.state or {}).get("sandbox_url")
+        run_status = research_run.status
+        try:
+            log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
+        except Exception:
+            logger.exception("slack_thread_context_research_log_presign_failed", run_id=research_run_id)
+            log_url = None
+    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    return {
+        "task_id": research_task_id,
+        "run_id": research_run_id,
+        "status": run_status,
+        "task_processing_workflow_id": workflow_id,
+        "task_processing_workflow_url": _temporal_workflow_url(workflow_id),
+        "sandbox_url": sandbox_url,
+        "task_view_url": request.build_absolute_uri(
+            f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"
+        ),
+        "log_url": log_url,
+    }
+
+
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -490,6 +525,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task = mapping.task
         # 3. Find runs for the task
         runs = list(TaskRun.objects.filter(task=task).order_by("created_at", "id"))
+        # Include repo discovery runs, if present
+        repo_research_run_ids = [rid for run in runs if (rid := (run.state or {}).get("repo_research_run_id"))]
+        repo_research_runs_by_id: dict[str, TaskRun] = (
+            {str(r.id): r for r in TaskRun.objects.filter(team=task.team, id__in=repo_research_run_ids)}
+            if repo_research_run_ids
+            else {}
+        )
         # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>
         task_url = request.build_absolute_uri(f"/project/{task.team_id}/tasks/{task.id}?ph_debug=true")
         run_payloads: list[dict[str, Any]] = []
@@ -521,6 +563,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         f"/project/{task.team_id}/tasks/{task.id}?runId={run.id}&ph_debug=true"
                     ),
                     "log_url": presigned_log_url,
+                    "repo_research": _slack_repo_research_payload(
+                        request, task.team_id, state, repo_research_runs_by_id
+                    ),
                 }
             )
         payload = {
