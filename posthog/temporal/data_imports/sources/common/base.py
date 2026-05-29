@@ -51,6 +51,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     source_for_pipeline - use SimpleSource or ResumableSource instead.
     """
 
+    # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
+    # via their own override if a driver genuinely can't project columns).
+    supports_column_selection: bool = False
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:

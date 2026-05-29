@@ -253,6 +253,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     was_impersonated: zod.boolean().nullish(),
     is_system: zod.boolean().nullish(),
     client: zod.string().max(advancedActivityLogsExportCreateBodyClientMax).nullish(),
+    ip_address: zod.string().nullish(),
     activity: zod.string().max(advancedActivityLogsExportCreateBodyActivityMax),
     item_id: zod.string().max(advancedActivityLogsExportCreateBodyItemIdMax).nullish(),
     scope: zod.string().max(advancedActivityLogsExportCreateBodyScopeMax),

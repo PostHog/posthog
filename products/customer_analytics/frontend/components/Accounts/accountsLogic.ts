@@ -5,6 +5,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
 import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
@@ -13,13 +15,65 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import { ACCOUNTS_HOGQL_PINNED_SELECT, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 20
 
+export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
+
+interface SortLikeValues {
+    sortOrder: AccountSortOrder
+    visibleColumnNames: string[]
+}
+
+interface SortLikeActions {
+    setSortOrder: (sortOrder: AccountSortOrder) => void
+}
+
+// Sort safety: if the user removes the column currently being sorted on, drop
+// the sort — otherwise the backend receives an `orderBy` that references a
+// non-existent alias.
+function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActions): void {
+    const sort = values.sortOrder
+    if (!sort) {
+        return
+    }
+    if (!values.visibleColumnNames.includes(sort.column)) {
+        actions.setSortOrder(null)
+    }
+}
+
 export type RoleFilterValue = number | null
 
+export type AccountsView = 'endpoint' | 'hogql'
+
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
+
+// `column` matches the visible column name (alias-stripped) so any selected
+// column can drive the sort.
+export type AccountSortableColumn = string
+
+export type AccountSortDirection = 'asc' | 'desc'
+
+export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
+
+// Columns that are HogQL `Tuple(id, email)` — sort by the `email` element so the
+// order matches what the user sees on screen rather than the opaque user id.
+const TUPLE_SORT_COLUMNS = new Set<string>(['csm', 'account_executive', 'account_owner'])
+
+// Resolve the HogQL expression to use in ORDER BY for a sortable column.
+// HogQL ORDER BY resolves SELECT aliases by name, so the visible column name
+// (which is the alias for aliased entries, or the bare expression otherwise)
+// works directly — except for tuple-shaped role columns, where we sort by
+// the email element so the visual order matches the rendered cell.
+export function deriveAccountsOrderByExpr(column: string): string {
+    if (TUPLE_SORT_COLUMNS.has(column)) {
+        return `tupleElement(${column}, 2)`
+    }
+    return column
+}
 
 const ROLE_LABELS: Record<AccountRoleKey, string> = {
     csm: 'CSM',
@@ -39,7 +93,8 @@ const EMPTY_RESULT: AccountsLoadResult = { count: 0, results: [] }
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], accountsColumnConfigLogic, ['selectColumns', 'visibleColumnNames']],
+        actions: [accountsColumnConfigLogic, ['setSelectColumns', 'unselectColumn', 'resetColumns']],
     })),
     actions({
         setSearchQuery: (query: string) => ({ query }),
@@ -49,6 +104,9 @@ export const accountsLogic = kea<accountsLogicType>([
         setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
         setCurrentPage: (page: number) => ({ page }),
+        setActiveView: (view: AccountsView) => ({ view }),
+        setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
+        toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
         updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
             accountId,
@@ -58,6 +116,7 @@ export const accountsLogic = kea<accountsLogicType>([
         roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         replaceAccount: (account: AccountApi) => ({ account }),
+        revertAccountOverride: (accountId: string) => ({ accountId }),
     }),
     reducers({
         searchQuery: [
@@ -102,6 +161,18 @@ export const accountsLogic = kea<accountsLogicType>([
                 setCurrentPage: (_, { page }) => page,
             },
         ],
+        activeView: [
+            'endpoint' as AccountsView,
+            {
+                setActiveView: (_, { view }) => view,
+            },
+        ],
+        sortOrder: [
+            null as AccountSortOrder,
+            {
+                setSortOrder: (_, { sortOrder }) => sortOrder,
+            },
+        ],
         savingRoles: [
             {} as Record<string, true>,
             {
@@ -120,6 +191,11 @@ export const accountsLogic = kea<accountsLogicType>([
             {} as Record<string, AccountApi>,
             {
                 replaceAccount: (state, { account }) => ({ ...state, [account.id]: account }),
+                revertAccountOverride: (state, { accountId }) => {
+                    const next = { ...state }
+                    delete next[accountId]
+                    return next
+                },
                 loadAccountsSuccess: () => ({}),
             },
         ],
@@ -181,6 +257,67 @@ export const accountsLogic = kea<accountsLogicType>([
                 (accountId: string, role: AccountRoleKey): boolean =>
                     !!savingRoles[savingRoleKey(accountId, role)],
         ],
+        hogqlQuery: [
+            (s) => [
+                s.searchQuery,
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.csmFilter,
+                s.accountExecutiveFilter,
+                s.accountOwnerFilter,
+                s.sortOrder,
+                s.selectColumns,
+            ],
+            (
+                searchQuery: string,
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                csmFilter: RoleFilterValue,
+                accountExecutiveFilter: RoleFilterValue,
+                accountOwnerFilter: RoleFilterValue,
+                sortOrder: AccountSortOrder,
+                selectColumns: string[]
+            ): DataTableNode => {
+                const source: AccountsQuery = {
+                    kind: NodeKind.AccountsQuery,
+                    select: [...ACCOUNTS_HOGQL_PINNED_SELECT, ...selectColumns],
+                    tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
+                }
+                const trimmed = searchQuery.trim()
+                if (trimmed) {
+                    source.search = trimmed
+                }
+                if (tagsFilter.length > 0) {
+                    source.tagNames = tagsFilter
+                }
+                if (allRolesUnassigned) {
+                    source.allRolesUnassigned = true
+                }
+                if (csmFilter !== null) {
+                    source.csm = csmFilter
+                }
+                if (accountExecutiveFilter !== null) {
+                    source.accountExecutive = accountExecutiveFilter
+                }
+                if (accountOwnerFilter !== null) {
+                    source.accountOwner = accountOwnerFilter
+                }
+                if (sortOrder) {
+                    const expr = deriveAccountsOrderByExpr(sortOrder.column)
+                    source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
+                }
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source,
+                    full: true,
+                    // Suppress DataTable's built-in sort indicator on column
+                    // headers — our `SortableColumnHeader` renders its own (and
+                    // correctly reflects sorts where the orderBy expression
+                    // differs from the column name, e.g. `tupleElement(csm, 2)`).
+                    allowSorting: true,
+                }
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setSearchQuery: () => {
@@ -224,8 +361,33 @@ export const accountsLogic = kea<accountsLogicType>([
         setCurrentPage: () => {
             actions.loadAccounts()
         },
+        toggleSort: ({ column }) => {
+            const current = values.sortOrder
+            let next: AccountSortOrder
+            if (!current || current.column !== column) {
+                next = { column, direction: 'asc' }
+            } else if (current.direction === 'asc') {
+                next = { column, direction: 'desc' }
+            } else {
+                next = null
+            }
+            actions.setSortOrder(next)
+        },
+        setSortOrder: () => {
+            actions.setCurrentPage(1)
+        },
+        setSelectColumns: () => {
+            clearSortIfColumnRemoved(values, actions)
+        },
+        unselectColumn: () => {
+            clearSortIfColumnRemoved(values, actions)
+        },
+        resetColumns: () => {
+            clearSortIfColumnRemoved(values, actions)
+        },
         refresh: () => {
             actions.loadAccounts()
+            dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         updateAccountRole: async ({ accountId, role, user }) => {
             if (values.isRoleSaving(accountId, role)) {
@@ -235,16 +397,25 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!account) {
                 return
             }
+            const previousOverride = values.accountOverrides[accountId]
             const nextProperties: PatchedAccountApiProperties = {
                 ...account.properties,
                 [role]: user ? { id: user.id, email: user.email } : null,
             }
+            const optimisticAccount: AccountApi = { ...account, properties: nextProperties }
             const projectId = String(values.currentTeamId)
             actions.roleUpdateStarted(accountId, role)
+            actions.replaceAccount(optimisticAccount)
             try {
                 const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
                 actions.replaceAccount(updated)
+                dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
+                if (previousOverride) {
+                    actions.replaceAccount(previousOverride)
+                } else {
+                    actions.revertAccountOverride(accountId)
+                }
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
                 lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
             } finally {

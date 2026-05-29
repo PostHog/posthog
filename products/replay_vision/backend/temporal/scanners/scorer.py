@@ -31,7 +31,6 @@ class ScorerOutput(BaseScannerOutput, frozen=True):
 
 class ScorerScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
-    prompt: str
     prompt_template: ClassVar[str] = "scorer.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = ScorerOutput

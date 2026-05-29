@@ -23,11 +23,20 @@ pub struct Config {
     #[envconfig(default = "clickhouse_property_values")]
     pub output_topic: String,
 
+    #[envconfig(default = "property_vals_intermediate")]
+    pub intermediate_topic: String,
+
+    #[envconfig(default = "clickhouse-property-vals-rs-merger")]
+    pub merger_consumer_group: String,
+
     #[envconfig(default = "30")]
     pub flush_interval_secs: u64,
 
     #[envconfig(default = "500000")]
     pub max_buffered_tuples: usize,
+
+    #[envconfig(default = "0")]
+    pub max_values_per_key: usize,
 
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,

@@ -242,6 +242,12 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 /// histogram quantiles.
 pub const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
+/// Response header set by [`AsyncGzipLayer`] with the total gzip layer
+/// overhead in milliseconds (body collection + compression). The router
+/// subtracts this alongside `PROCESSING_TIME_HEADER` to isolate true
+/// network RTT.
+pub const GZIP_OVERHEAD_HEADER: &str = "x-gzip-overhead-ms";
+
 /// Tower layer that instruments gRPC requests with timing and concurrency metrics.
 ///
 /// Records:

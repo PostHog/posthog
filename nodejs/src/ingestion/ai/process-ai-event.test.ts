@@ -1232,7 +1232,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
         })
 
-        it('handles the seperate price for lage prompts', () => {
+        it('handles the separate price for lage prompts', () => {
             const event1 = {
                 ...event,
                 properties: {

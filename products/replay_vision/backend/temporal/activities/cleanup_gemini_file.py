@@ -9,12 +9,14 @@ from temporalio import activity
 
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import untrack_uploaded_file
 
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import CleanupGeminiFileInputs
 
 logger = structlog.get_logger(__name__)
 
 
 @activity.defn(name="replay_vision_cleanup_gemini_file_activity")
+@track_activity()
 async def cleanup_gemini_file_activity(inputs: CleanupGeminiFileInputs) -> None:
     """Best-effort delete of the uploaded Gemini file; the cleanup sweep retries on failure via the tracking key."""
     try:

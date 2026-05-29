@@ -304,6 +304,12 @@ export function DataTable({
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => {
+            // Result tuples for array-of-arrays responses are positionally
+            // aligned with `allColumns` (the unfiltered list from the response
+            // / query). When hidden columns precede visible ones, the position
+            // in `columnsInLemonTable` (`index`) no longer matches the result
+            // tuple, so look up by the column's index in `allColumns` instead.
+            const resultIndex = allColumns.indexOf(key)
             return {
                 dataIndex: key as any,
                 ...renderColumnMeta(key, query, context),
@@ -323,7 +329,7 @@ export function DataTable({
                         return { props: { colSpan: 0 } }
                     } else if (result) {
                         const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                            ? (result as any[])[index]
+                            ? (result as any[])[resultIndex]
                             : (result as Record<string, any>)[key]
                         return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
                     }
@@ -339,7 +345,7 @@ export function DataTable({
                                   return null
                               }
                               const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                                  ? (record.result as any[])[index]
+                                  ? (record.result as any[])[resultIndex]
                                   : (record.result as Record<string, any>)[key]
                               return <NonIntegratedConversionsCellActions columnName={key} value={value} />
                           }
