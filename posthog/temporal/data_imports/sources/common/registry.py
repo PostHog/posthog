@@ -1,3 +1,4 @@
+import threading
 from typing import TYPE_CHECKING
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -11,18 +12,25 @@ class SourceRegistry:
 
     _sources: dict[ExternalDataSourceType, "AnySource"] = {}
     _loaded: bool = False
+    _load_lock = threading.Lock()
 
     @classmethod
     def _ensure_loaded(cls) -> None:
         # Sources self-register via @SourceRegistry.register on import. We import them
         # on first registry use rather than at package import, so a process that never
         # touches the registry (most of them) doesn't pay for every vendor SDK at startup.
+        # Double-checked lock: concurrent first-callers in a web worker must not observe a
+        # half-populated registry, and `_loaded` flips only after the import succeeds — so a
+        # failed load (e.g. a broken optional dependency) is retried rather than cached.
         if cls._loaded:
             return
-        cls._loaded = True
-        from posthog.temporal.data_imports.sources import load_all_sources  # noqa: PLC0415
+        with cls._load_lock:
+            if cls._loaded:
+                return
+            from posthog.temporal.data_imports.sources import load_all_sources  # noqa: PLC0415
 
-        load_all_sources()
+            load_all_sources()
+            cls._loaded = True
 
     @classmethod
     def register(cls, source_class: type["AnySource"]):
