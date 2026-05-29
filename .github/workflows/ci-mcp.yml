@@ -433,7 +433,10 @@ jobs:
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.
               # MCP integration tests hit the live posthog DB, not test_posthog — that's
               # the only deviation from ci-backend.yml's equivalent step.
-              if: ${{ github.event_name == 'pull_request' }}
+              # TEMP: nextgensquash trial — force full migrate by skipping the cache
+              # restore. Our PR's migration graph diverges from master, so restoring
+              # a master-built dump causes InconsistentMigrationHistory.
+              if: ${{ false && github.event_name == 'pull_request' }}
               env:
                   TARGET_DB: posthog
               run: |
