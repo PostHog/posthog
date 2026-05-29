@@ -220,6 +220,27 @@ class PostHogCallback(InstrumentedCallback):
         if response_cost is not None:
             properties["$ai_total_cost_usd"] = response_cost
 
+        # Emit per-side cost so the ingestion cost calculator short-circuits
+        # to passthrough (nodejs/src/ingestion/ai/costs/index.ts::processCost)
+        # instead of rederiving costs from its bundled model catalog. The
+        # recomputation path misprices cache-read tokens versus LiteLLM's
+        # cost_breakdown, inflating $ai_input_cost_usd + $ai_output_cost_usd
+        # well above $ai_total_cost_usd on cache-heavy traffic.
+        cost_breakdown = standard_logging_object.get("cost_breakdown") or {}
+        # PostHog's $ai_input_cost_usd represents the gross input-side cost
+        # (matching the ingestion calculator's semantics), so fold the cache
+        # read/creation components into the input total.
+        input_components = [
+            cost_breakdown.get("input_cost"),
+            cost_breakdown.get("cache_read_cost"),
+            cost_breakdown.get("cache_creation_cost"),
+        ]
+        if any(c is not None for c in input_components):
+            properties["$ai_input_cost_usd"] = sum(c for c in input_components if c is not None)
+        output_cost = cost_breakdown.get("output_cost")
+        if output_cost is not None:
+            properties["$ai_output_cost_usd"] = output_cost
+
         response = standard_logging_object.get("response")
         if response:
             properties["$ai_output_choices"] = response

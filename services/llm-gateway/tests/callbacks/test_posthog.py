@@ -310,6 +310,93 @@ class TestPostHogCallback:
         assert "$ai_cache_creation_input_tokens" not in props
 
     @pytest.mark.asyncio
+    async def test_on_success_emits_input_output_cost_from_breakdown(
+        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-sonnet-4-6",
+                "custom_llm_provider": "anthropic",
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "response_cost": 0.012,
+                "cost_breakdown": {
+                    "input_cost": 0.003,
+                    "cache_read_cost": 0.001,
+                    "cache_creation_cost": 0.002,
+                    "output_cost": 0.006,
+                    "total_cost": 0.012,
+                },
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        # Cache read/creation components fold into the input total so the
+        # property mirrors PostHog's gross-input semantics.
+        assert props["$ai_input_cost_usd"] == pytest.approx(0.006)
+        assert props["$ai_output_cost_usd"] == 0.006
+        assert props["$ai_total_cost_usd"] == 0.012
+
+    @pytest.mark.asyncio
+    async def test_on_success_emits_partial_breakdown_when_components_missing(
+        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {
+                "model": "gpt-4o",
+                "custom_llm_provider": "openai",
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "response_cost": 0.05,
+                "cost_breakdown": {
+                    "input_cost": 0.02,
+                    "output_cost": 0.03,
+                },
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        assert props["$ai_input_cost_usd"] == 0.02
+        assert props["$ai_output_cost_usd"] == 0.03
+
+    @pytest.mark.asyncio
+    async def test_on_success_omits_input_output_cost_when_breakdown_absent(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        assert "$ai_input_cost_usd" not in props
+        assert "$ai_output_cost_usd" not in props
+
+    @pytest.mark.asyncio
     async def test_on_success_emits_reasoning_tokens_when_present(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
     ) -> None:
