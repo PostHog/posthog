@@ -91,6 +91,41 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 )
 
 
+# Per-job lifecycle counters. The executor framework processes jobs synchronously
+# inside `execute()` — there is no background queue and PENDING is just "an INSERT
+# is currently running in some pod". A point-in-time sample of PENDING rows can't
+# answer "are we keeping up?" because finished jobs vanish from the live set as
+# fast as new ones arrive. These counters are the queue-throughput primitive
+# instead: subtract the rates to get net backlog growth, slice by `outcome` to
+# see whether failures or staleness are climbing.
+#
+# `created.cache_state` mirrors the executor-level `lazy_computation_executions_total`
+# label so a per-job rate can be attributed to the kind of execute() call that
+# spawned it. Hits don't create anything, so only `miss` and `partial_hit` appear:
+#   - `miss`        → execute() found no pre-existing READY data; every job in
+#                     this counter slice is part of a fresh population.
+#   - `partial_hit` → execute() found some pre-existing READY data; jobs here are
+#                     top-ups filling the gaps.
+# Use `rate(created{cache_state="miss"}) / rate(executions_total{cache_state="miss"})`
+# to get average jobs per miss execution (i.e. average miss window size).
+#
+# `finished` outcomes:
+#   - `ready`  → INSERT succeeded, row moved PENDING → READY.
+#   - `failed` → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
+#   - `stale`  → another waiter detected the owning executor crashed and marked
+#                the row FAILED via `_try_mark_stale_job_as_failed`.
+LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
+    "lazy_computation_jobs_created_total",
+    "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
+    ["cache_state", "table"],
+)
+LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
+    "lazy_computation_jobs_finished_total",
+    "PreaggregationJob rows that reached a terminal status, labeled by outcome and table.",
+    ["outcome", "table"],
+)
+
+
 def _get_insert_settings(team_id: int) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
@@ -276,6 +311,13 @@ class LazyComputationTable(StrEnum):
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
+    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
+    WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
+    WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
+    WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
+    WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
+    WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
+    WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -284,6 +326,7 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
+    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
 }
 
 
@@ -748,6 +791,15 @@ class LazyComputationExecutor:
                             did_work = True
                             continue
 
+                        # `had_ready_at_start` is set above before the create loop runs and
+                        # is the same signal `_log_execution` uses to compute the executor's
+                        # final cache_state. Reusing it here keeps job-level and
+                        # execution-level series aligned. Hits never enter this branch.
+                        LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(
+                            cache_state="partial_hit" if had_ready_at_start else "miss",
+                            table=str(query_info.table),
+                        ).inc()
+
                         try:
                             insert_start = time.monotonic()
                             insert_fn(team, new_job)
@@ -756,6 +808,9 @@ class LazyComputationExecutor:
                             new_job.computed_at = django_timezone.now()
                             new_job.save()
                             publish_job_completion(new_job.id, "ready")
+                            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                outcome="ready", table=str(query_info.table)
+                            ).inc()
                             jobs_created += 1
                             logger.info(
                                 "lazy_computation.job_completed",
@@ -773,6 +828,9 @@ class LazyComputationExecutor:
                             new_job.error = str(e)
                             new_job.save()
                             publish_job_completion(new_job.id, "failed")
+                            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                outcome="failed", table=str(query_info.table)
+                            ).inc()
                             jobs_created += 1
                             logger.warning(
                                 "lazy_computation.job_failed",
@@ -828,6 +886,9 @@ class LazyComputationExecutor:
                         if self._is_job_stale(job):
                             marked = self._try_mark_stale_job_as_failed(job)
                             if marked:
+                                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                    outcome="stale", table=str(query_info.table)
+                                ).inc()
                                 logger.warning(
                                     "lazy_computation.job_marked_stale",
                                     job_id=str(job.id),
@@ -931,6 +992,7 @@ def ensure_precomputed(
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
+    query_type: str | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1038,7 +1100,10 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        with tags_context(client_query_id=str(job.id), team_id=t.id):
+        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        if query_type:
+            tag_kwargs["query_type"] = query_type
+        with tags_context(**tag_kwargs):
             sync_execute(
                 insert_sql,
                 values,

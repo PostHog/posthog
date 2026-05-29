@@ -19,7 +19,7 @@ def generate_short_id():
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
 
 
-class Conversation(UUIDTModel):
+class Conversation(UUIDTModel, DeletedMetaFields):
     TITLE_MAX_LENGTH = 250
 
     class Meta:

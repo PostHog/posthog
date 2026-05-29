@@ -1,0 +1,12 @@
+pub const EVENTS_RECEIVED: &str = "property_vals_rs_events_received_total";
+pub const EVENTS_FILTERED: &str = "property_vals_rs_events_filtered_total";
+pub const TUPLES_AGGREGATED: &str = "property_vals_rs_tuples_aggregated_total";
+pub const FLUSH_TUPLES: &str = "property_vals_rs_flush_tuples";
+pub const FLUSH_TUPLE_COUNT: &str = "property_vals_rs_flush_tuple_count";
+pub const FLUSH_TOTAL: &str = "property_vals_rs_flushes_total";
+pub const FLUSH_REASON_TIMER: &str = "timer";
+pub const FLUSH_REASON_BACKPRESSURE: &str = "backpressure";
+pub const FLUSH_REASON_SHUTDOWN: &str = "shutdown";
+pub const PRODUCER_FLUSH_FAILED: &str = "property_vals_rs_producer_flush_failed_total";
+pub const OFFSET_STORE_FAILED: &str = "property_vals_rs_offset_store_failed_total";
+pub const KAFKA_RECV_ERRORS: &str = "property_vals_rs_kafka_recv_errors_total";

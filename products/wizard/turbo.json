@@ -1,0 +1,10 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": ["backend/facade/**", "backend/presentation/**"],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}

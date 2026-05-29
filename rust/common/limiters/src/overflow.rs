@@ -66,7 +66,7 @@ impl OverflowLimiter {
         }
 
         // is the event key in the forced_keys list?
-        if self.keys_to_reroute.contains(event_key) {
+        if self.keys_to_reroute.contains(event_key.as_str()) {
             return OverflowLimiterResult::ForceLimited;
         }
 

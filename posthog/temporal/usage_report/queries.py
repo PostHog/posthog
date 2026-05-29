@@ -47,7 +47,6 @@ from django.db.models import Count
 
 from posthog.constants import FlagRequestType
 from posthog.models import GroupTypeMapping
-from posthog.models.feature_flag import FeatureFlag
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
@@ -77,6 +76,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
+    get_teams_with_sdk_logs_records_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
@@ -87,6 +87,7 @@ from posthog.tasks.usage_report import (
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 # ---- Postgres ORM / API helpers ---------------------------------------------
@@ -177,6 +178,18 @@ def _exceptions_captured(begin: datetime, end: datetime) -> dict[str, list[list[
     for library, rows in library_totals.items():
         out[library] = rows
     return out
+
+
+def _sdk_logs_records(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    """Wrap `get_teams_with_sdk_logs_records_in_period` so the spec is self-contained.
+
+    The underlying query needs the set of team_ids that produced any logs as a primary-key
+    pre-filter; we derive it here from `get_teams_with_logs_records_in_period` (which the Celery
+    path passes in). Returns rows keyed by SDK suffix, remapped to `all_data` keys by the
+    `multi_keys_mapping` below.
+    """
+    team_ids_with_logs = [int(row[0]) for row in get_teams_with_logs_records_in_period(begin, end)]
+    return get_teams_with_sdk_logs_records_in_period(begin, end, team_ids_with_logs=team_ids_with_logs)
 
 
 # ---- Registry ---------------------------------------------------------------
@@ -436,6 +449,18 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_logs_records_in_period",
         fn=get_teams_with_logs_records_in_period,
+    ),
+    QuerySpec(
+        name="sdk_logs_records",
+        fn=_sdk_logs_records,
+        output="multi",
+        multi_keys_mapping={
+            "web": "teams_with_web_logs_records_in_period",
+            "ios": "teams_with_ios_logs_records_in_period",
+            "react_native": "teams_with_react_native_logs_records_in_period",
+            "android": "teams_with_android_logs_records_in_period",
+            "flutter": "teams_with_flutter_logs_records_in_period",
+        },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------
     # ⚠️  Read the disclaimer at the top of this module. These ignore the

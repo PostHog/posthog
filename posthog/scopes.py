@@ -68,6 +68,8 @@ APIScopeObject = Literal[
     "llm_provider_key",
     "llm_skill",
     "logs",
+    "marketing_analytics",
+    "metrics",
     "notebook",
     "organization",
     "organization_integration",
@@ -79,7 +81,8 @@ APIScopeObject = Literal[
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
-    "replay_lens",
+    "query_performance",
+    "replay_scanner",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -101,6 +104,7 @@ APIScopeObject = Literal[
     "warehouse_view",
     "web_analytics",
     "webhook",
+    "wizard_session",
 ]
 
 APIScopeActions = Literal[
@@ -119,13 +123,13 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 # Scope objects minted programmatically only — never via the OAuth consent flow,
 # the personal-API-key UI, the CLI authorize page, or RBAC. Filtered out of
 # `get_scope_descriptions()` and rejected by every user-facing scope validator.
-INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_test_cluster_perf"})
+INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_test_cluster_perf", "query_performance"})
 
 # Scope objects available via personal API keys but never advertised through
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_lens"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 

@@ -27,7 +27,6 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -144,7 +143,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         query: 'SQL query',
         product_analytics: 'Product analytics',
         web_analytics: 'Web analytics',
-        llm_analytics: 'LLM analytics',
+        llm_analytics: 'AI observability',
         revenue_analytics: 'Revenue analytics',
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
@@ -667,7 +666,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 e.stopPropagation()
                 const item = highlightedItemRef.current
                 if (item?.href) {
-                    newInternalTab(item.href)
+                    window.open(item.href, '_blank', 'noopener,noreferrer')
                 }
             }
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {

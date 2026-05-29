@@ -25,11 +25,6 @@ export {
 } from './post-team-preprocessing-subpipeline'
 
 export {
-    createPreTeamPreprocessingSubpipeline,
-    type PreTeamPreprocessingSubpipelineConfig,
-} from './pre-team-preprocessing-subpipeline'
-
-export {
     createJoinedIngestionPipeline,
     type JoinedIngestionPipelineConfig,
     type JoinedIngestionPipelineContext,

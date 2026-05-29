@@ -1,4 +1,6 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+import posthoganalytics
 
 from posthog.schema import EntityType, RetentionEntity
 
@@ -8,6 +10,35 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+
+RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG = "retention-fixed-interval-base-query-dwh-variant"
+
+
+def retention_fixed_interval_base_query_use_dwh_variant(team: "Team") -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            RETENTION_FIXED_INTERVAL_BASE_QUERY_DWH_VARIANT_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
@@ -20,7 +51,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
         )
 
-        if has_data_warehouse_series:
+        if has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
             return self.build_base_query_dwh(
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
@@ -39,7 +70,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        is_valid_start_interval = self._is_valid_start_interval_expr()
+        is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
 
         start_event_query = self._build_dwh_retention_event_query(
@@ -92,14 +123,19 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                             arrayFilter(
                                 x -> x > -1,
                                 arrayMap(
-                                (interval_index, interval_date) ->
+                                (interval_index, interval_date, _start_event_timestamps) ->
                                     if(
                                         {is_valid_start_interval},
                                         interval_index - 1,
                                         -1
                                     ),
                                     arrayEnumerate(date_range),
-                                    date_range
+                                    date_range,
+                                    arrayResize(
+                                        [start_event_timestamps],
+                                        length(date_range),
+                                        start_event_timestamps
+                                    )
                                 )
                             )
                         )
@@ -367,7 +403,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_values = None
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            min_timestamp_inner_expr = self.get_first_time_anchor_expr()
+            min_timestamp_inner_expr = self.get_first_time_anchor_expr(self.start_event)
 
             start_event_timestamps = parse_expr(
                 """
@@ -387,10 +423,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 },
             )
             # interval must be same as first interval of in which start event happened
-            is_valid_start_interval = self._is_valid_start_interval_expr()
-        else:
-            # start event must have happened in the interval
-            is_valid_start_interval = self._is_valid_start_interval_expr()
+        is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         retention_value_expr: ast.Expr | None
         intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
 
@@ -426,14 +459,19 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                             arrayFilter(
                                 x -> x > -1,
                                 arrayMap(
-                                (interval_index, interval_date) ->
+                                (interval_index, interval_date, _start_event_timestamps) ->
                                     if(
                                         {is_valid_start_interval},
                                         interval_index - 1,
                                         -1
                                     ),
                                     arrayEnumerate(date_range),
-                                    date_range
+                                    date_range,
+                                    arrayResize(
+                                        [start_event_timestamps],
+                                        length(date_range),
+                                        start_event_timestamps
+                                    )
                                 )
                             )
                         )
@@ -515,8 +553,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             expr=parse_expr(
                 """
                 arrayMap(
-                    interval_date -> countEqual(return_event_timestamps_with_dupes, interval_date),
-                    date_range
+                    (interval_date, _return_event_timestamps_with_dupes) ->
+                        countEqual(_return_event_timestamps_with_dupes, interval_date),
+                    date_range,
+                    arrayResize(
+                        [return_event_timestamps_with_dupes],
+                        length(date_range),
+                        return_event_timestamps_with_dupes
+                    )
                 )
                 """
             ),
@@ -565,11 +609,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return event_filters
 
-    def _is_valid_start_interval_expr(self) -> ast.Expr:
+    def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:
+        start_event_timestamps = ast.Field(chain=[start_event_timestamps_field])
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            return parse_expr("start_event_timestamps[1] = interval_date")
+            return parse_expr(
+                "{start_event_timestamps}[1] = interval_date",
+                {"start_event_timestamps": start_event_timestamps},
+            )
 
-        return parse_expr("has(start_event_timestamps, interval_date)")
+        return parse_expr(
+            "has({start_event_timestamps}, interval_date)",
+            {"start_event_timestamps": start_event_timestamps},
+        )
 
     def _is_first_interval_after_start_event_expr(self) -> ast.Expr:
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:

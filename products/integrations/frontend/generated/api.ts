@@ -14,6 +14,7 @@ import type {
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
     IntegrationConfigApi,
+    IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
@@ -288,16 +289,33 @@ export const integrationsAnthropicManagedAgentsRetrieve = async (
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/channels/`
+export const getIntegrationsChannelsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsChannelsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsChannelsRetrieveParams,
     options?: RequestInit
 ): Promise<SlackChannelsResponseApi> => {
-    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -855,11 +873,12 @@ user can pick any GitHub org (new or already connected).  GitHub's install
 page handles both cases: orgs where the app is installed show "Configure"
 (no admin needed), orgs where it isn't show "Install" (needs admin).
 
-**PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
-the current project already has a team-level GitHub installation, and the
-user has no ``UserIntegration`` for that installation yet, we skip the org
-picker and redirect straight to ``/login/oauth/authorize`` so the user
-only authorizes themselves and returns to PostHog Code immediately.
+**OAuth fast path:** when the current project already has a team-level
+GitHub installation, and the user has no ``UserIntegration`` for that
+installation yet, we skip the org picker and redirect straight to
+``/login/oauth/authorize`` so the user only authorizes themselves.
+``connect_from`` is preserved for first-party clients so they return to
+the originating client immediately.
 
 In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking
