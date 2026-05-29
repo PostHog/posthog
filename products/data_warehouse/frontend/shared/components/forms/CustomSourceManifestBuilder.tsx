@@ -356,7 +356,7 @@ function PaginatorSection({
                 onUpdate({ type, limit: 100, offset_param: 'offset', limit_param: 'limit' })
                 return
             case 'page_number':
-                onUpdate({ type, page_param: 'page', initial_page: 1 })
+                onUpdate({ type, page_param: 'page', base_page: 1 })
                 return
             case 'header_link':
                 onUpdate({ type, links_next_key: 'next' })
@@ -406,7 +406,7 @@ function PaginatorSection({
                         <LemonInput
                             type="number"
                             value={paginator.limit ?? 100}
-                            onChange={(value) => onUpdate({ ...paginator, limit: value || 100 })}
+                            onChange={(value) => onUpdate({ ...paginator, limit: value ?? 100 })}
                         />
                     </LemonField.Pure>
                     <LemonField.Pure label="Offset param">
@@ -437,8 +437,8 @@ function PaginatorSection({
                     <LemonField.Pure label="Initial page">
                         <LemonInput
                             type="number"
-                            value={paginator.initial_page ?? 1}
-                            onChange={(value) => onUpdate({ ...paginator, initial_page: value || 1 })}
+                            value={paginator.base_page ?? 1}
+                            onChange={(value) => onUpdate({ ...paginator, base_page: value ?? 1 })}
                         />
                     </LemonField.Pure>
                 </div>

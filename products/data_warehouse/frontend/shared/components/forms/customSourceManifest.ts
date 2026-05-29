@@ -16,7 +16,7 @@ export type Paginator =
     | { type: 'json_response'; next_url_path?: string }
     | { type: 'cursor'; cursor_path?: string; cursor_param?: string }
     | { type: 'offset'; limit?: number; offset_param?: string; limit_param?: string }
-    | { type: 'page_number'; page_param?: string; initial_page?: number }
+    | { type: 'page_number'; page_param?: string; base_page?: number }
     | { type: 'header_link'; links_next_key?: string }
 
 // Backend IncrementalFieldType values that make sense for REST cursors.
@@ -144,7 +144,9 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
                 start_param: stream.start_param.trim() || stream.cursor_path.trim(),
             }
             // Only emit cursor_type when it differs from the backend default
-            // (datetime) — keeps round-tripped manifests minimal.
+            // (datetime) — keeps round-tripped manifests minimal. The Custom
+            // source reads it for incremental-field typing and strips it before
+            // the REST engine builds its Incremental tracker.
             if (stream.cursor_type !== 'datetime') {
                 incremental.cursor_type = stream.cursor_type
             }
@@ -156,7 +158,9 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             .filter(Boolean)
         const resource: Record<string, unknown> = {
             name: stream.name,
-            primary_key: primaryKeys.length === 1 ? primaryKeys[0] : primaryKeys,
+            // Fall back to 'id' when the field is cleared — an empty primary_key
+            // array produces a broken resource downstream.
+            primary_key: primaryKeys.length === 0 ? 'id' : primaryKeys.length === 1 ? primaryKeys[0] : primaryKeys,
             endpoint,
         }
         // sort_mode only affects incremental resume safety. Emit only when the
@@ -207,7 +211,9 @@ function serializePaginator(paginator: Paginator): Record<string, unknown> {
             return {
                 type: 'page_number',
                 page_param: paginator.page_param || 'page',
-                initial_page: paginator.initial_page ?? 1,
+                // base_page is the PageNumberPaginator constructor arg the REST
+                // engine expects — initial_page would raise an unexpected-kwarg error.
+                base_page: paginator.base_page ?? 1,
             }
         case 'header_link':
             return { type: 'header_link', links_next_key: paginator.links_next_key || 'next' }

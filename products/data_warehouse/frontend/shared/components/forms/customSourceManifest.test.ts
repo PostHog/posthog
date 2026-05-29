@@ -100,6 +100,13 @@ describe('buildManifest', () => {
         expect(manifest.resources[0].primary_key).toEqual('id')
     })
 
+    it.each(['', '   ', ' , '])('falls back to id when primary_key is cleared (%p)', (cleared) => {
+        const state = baseState()
+        state.streams[0].primary_key = cleared
+        const manifest = buildManifest(state) as any
+        expect(manifest.resources[0].primary_key).toEqual('id')
+    })
+
     it("only sets endpoint.method when the stream isn't GET", () => {
         const get = buildManifest(baseState()) as any
         expect('method' in get.resources[0].endpoint).toBe(false)
@@ -122,12 +129,12 @@ describe('buildManifest', () => {
         })
 
         const pageState = baseState()
-        pageState.streams[0].paginator = { type: 'page_number', page_param: 'p', initial_page: 0 }
+        pageState.streams[0].paginator = { type: 'page_number', page_param: 'p', base_page: 0 }
         const pageManifest = buildManifest(pageState) as any
         expect(pageManifest.resources[0].endpoint.paginator).toEqual({
             type: 'page_number',
             page_param: 'p',
-            initial_page: 0,
+            base_page: 0,
         })
     })
 
