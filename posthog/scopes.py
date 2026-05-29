@@ -236,12 +236,13 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Excludes `OAUTH_HIDDEN_SCOPES` so OAuth-based clients (MCP, third-party
-    apps) don't discover scopes intended only for manually issued personal
-    API keys. PAT validation uses `get_scope_descriptions()` directly and is
-    unaffected.
+    Built from `UNPRIVILEGED_SCOPES`, so it excludes both `OAUTH_HIDDEN_SCOPES`
+    (alpha / PAT-only) and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
+    only). Discovery metadata shouldn't advertise scopes an OAuth client can't
+    obtain self-serve. PAT validation uses `get_scope_descriptions()` directly
+    and is unaffected.
     """
-    visible = ALL_SCOPES - OAUTH_HIDDEN_SCOPES
+    visible = UNPRIVILEGED_SCOPES
     ordered = [
         f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
     ]

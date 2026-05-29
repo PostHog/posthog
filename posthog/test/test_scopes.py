@@ -12,9 +12,11 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
     OAUTH_HIDDEN_SCOPES,
+    OIDC_SCOPES,
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
+    get_oauth_scopes_supported,
     get_scope_descriptions,
 )
 
@@ -135,6 +137,22 @@ class TestScopeSets(BaseTest):
         self.assertIn("UNPRIVILEGED_SCOPES", loaded)
         self.assertTrue(loaded["UNPRIVILEGED_SCOPES"])
         self.assertIn("llm_gateway:read", loaded["PRIVILEGED_SCOPES"])
+
+    def test_oauth_scopes_supported_excludes_privileged_and_hidden(self) -> None:
+        # Discovery metadata (/.well-known/oauth-authorization-server) must not
+        # advertise privileged scopes (llm_gateway:*, admin-granted only) or
+        # OAUTH_HIDDEN scopes — an OAuth client can't obtain them self-serve.
+        supported = set(get_oauth_scopes_supported())
+        self.assertTrue(supported.isdisjoint(PRIVILEGED_SCOPES))
+        self.assertTrue(supported.isdisjoint(OAUTH_HIDDEN_SCOPES))
+        self.assertNotIn("llm_gateway:read", supported)
+        self.assertNotIn("llm_gateway:write", supported)
+
+    def test_oauth_scopes_supported_includes_oidc_and_unprivileged(self) -> None:
+        supported = set(get_oauth_scopes_supported())
+        for oidc in OIDC_SCOPES:
+            self.assertIn(oidc, supported)
+        self.assertEqual(supported - set(OIDC_SCOPES), UNPRIVILEGED_SCOPES)
 
     def test_all_scope_objects_fit_in_oauthapplication_scopes_charfield(self) -> None:
         # OAuthApplication.scopes is ArrayField(CharField(max_length=100)), matching
