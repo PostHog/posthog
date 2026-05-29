@@ -23,7 +23,7 @@ import { getMutationRecord, subscribeMutation, type EntityKey } from '@/lib/mock
 
 import { useFocusStore } from './focus-context'
 
-const FLAIR_MS = 1700
+const FLAIR_MS = 2500
 
 interface MutationFlairState {
     revision: number

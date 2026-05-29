@@ -3,15 +3,21 @@
  * entity revision and re-reads via mockApi's overlay whenever a
  * revision-spec mutation lands. Mirrors `useMutatingBundle` for the
  * other half of the agent-detail data.
+ *
+ * Live notifications are debounced through a short refetch delay so the
+ * registry bump fires the flair animation first, then the new value
+ * lands visibly inside the pulse. On-mount reads are immediate.
  */
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
 
 import { getMutationRecord, listRevisionsSync, subscribeMutation } from '@/lib/mockApi'
+
+const REFETCH_DELAY_MS = 500
 
 interface MutatingRevisions {
     revisions: AgentRevisionFixture[]
@@ -35,16 +41,30 @@ export function useMutatingRevisions(
         }
         return { revisions: initialRevisions, revision: 0, lastMutationId: null }
     })
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     useEffect(() => {
         return subscribeMutation(entityKey, (rec) => {
-            setState({
-                revisions: listRevisionsSync(applicationId),
-                revision: rec.revision,
-                lastMutationId: rec.mutationId,
-            })
+            if (timerRef.current) {
+                clearTimeout(timerRef.current)
+            }
+            timerRef.current = setTimeout(() => {
+                setState({
+                    revisions: listRevisionsSync(applicationId),
+                    revision: rec.revision,
+                    lastMutationId: rec.mutationId,
+                })
+            }, REFETCH_DELAY_MS)
         })
     }, [applicationId, entityKey])
+
+    useEffect(() => {
+        return () => {
+            if (timerRef.current) {
+                clearTimeout(timerRef.current)
+            }
+        }
+    }, [])
 
     return state
 }
