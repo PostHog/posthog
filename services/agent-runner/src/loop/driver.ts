@@ -107,12 +107,12 @@ export interface RunSessionDeps {
     buildApprovalUrl?: (requestId: string) => string
     /**
      * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-     *
-     * **NOT YET CONSUMED** by the pi-agent-core driver. Accepted on the deps
-     * for API-shape stability with `WorkerDeps` (the harness + index.ts wire
-     * a real impl). Needs to be plumbed into the gated tool's `execute`
-     * swap below so the queue is skipped when the asker already satisfies
-     * the approver scope.
+     * Called inside the gated tool's `execute` before queueing: when the
+     * most recent user-turn's sender themselves satisfies the tool's
+     * `approver_scope`, the call is dispatched directly via the original
+     * `realExecute` (no queue, no UI round-trip). Errors fall through to
+     * the queue path so a transient lookup failure can't strand a gated
+     * call. Omit to keep the always-queue default.
      */
     isAskerInApproverScope?: IsAskerInApproverScope
     /**
@@ -252,8 +252,34 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             const ref = rev.spec.tools.find((t) => t.id === id)
             if (ref?.requires_approval) {
                 const policy = ref.approval_policy as ApprovalPolicy
-                tool.execute = (toolCallId, args) =>
-                    queueApprovalResult({
+                const real = realExecute.get(id)
+                tool.execute = async (toolCallId, args) => {
+                    // Per-asker shortcut (#23 step 3): when the most recent
+                    // user-turn's sender already satisfies the tool's
+                    // approver scope, dispatch the real tool directly and
+                    // skip the queue. The model sees a normal tool_result
+                    // either way. Best-effort — a thrown check falls through
+                    // to the queue path so a transient DB blip can't strand
+                    // a gated call as never-queued, never-executed.
+                    if (real && deps.isAskerInApproverScope) {
+                        try {
+                            const allowed = await deps.isAskerInApproverScope(
+                                session.conversation,
+                                session.team_id,
+                                policy.approvers
+                            )
+                            if (allowed) {
+                                log('info', 'tool.dispatch.per_asker_authorised', { tool: id })
+                                return real(toolCallId, (args ?? {}) as Record<string, unknown>)
+                            }
+                        } catch (err) {
+                            log('warn', 'tool.dispatch.per_asker_check_failed', {
+                                tool: id,
+                                err: (err as Error).message,
+                            })
+                        }
+                    }
+                    return queueApprovalResult({
                         approvals,
                         buildApprovalUrl: deps.buildApprovalUrl,
                         session,
@@ -266,6 +292,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         args: (args ?? {}) as Record<string, unknown>,
                         policy,
                     })
+                }
             }
         }
     }
