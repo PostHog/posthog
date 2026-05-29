@@ -40,6 +40,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { runSession } from '../loop/driver'
+import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import { resolveModelCached } from '../models/pi-client'
 
 const log = createLogger('worker')
@@ -152,6 +153,14 @@ export interface WorkerDeps {
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
      */
     memoryStore?: MemoryStore
+    /**
+     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
+     * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
+     * The driver passes it through to `approval.ts` so a gated call from a
+     * user who already satisfies the approver scope dispatches directly
+     * instead of queueing. Omit to keep the always-queue default.
+     */
+    isAskerInApproverScope?: IsAskerInApproverScope
 }
 
 export class Worker {
@@ -329,6 +338,7 @@ export class Worker {
                 approvals: this.deps.approvals,
                 buildApprovalUrl: this.deps.buildApprovalUrl,
                 memoryStore: this.deps.memoryStore,
+                isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs

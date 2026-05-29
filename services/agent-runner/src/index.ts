@@ -37,6 +37,7 @@ import {
     MemoryStore,
     NoopAnalyticsSink,
     NoopSessionEventBus,
+    PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -50,6 +51,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
+import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogLlmGatewayModel } from './models/llm-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
@@ -139,12 +141,14 @@ async function main(): Promise<void> {
         analytics = capture
     }
 
-    // Per-asker authorisation shortcut for approval-gated tools (#23 step 3)
-    // was wired into the old dispatch-one.ts on `ass`; the helper module
-    // never actually committed (only referenced) and the pi-agent-core
-    // refactor removed the dispatcher hook it plugged into. The capability
-    // needs porting into `queueApprovalResult` (approval.ts) — until then
-    // every gated call queues, matching the pre-asker default.
+    // Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
+    // Lets a Slack user who's already a team admin drive a gated tool
+    // directly via chat instead of going through the queued-approval UI.
+    // Reuses the same identity table the ingress writes through. Threaded
+    // into `WorkerDeps.isAskerInApproverScope` → driver → gated tool's
+    // pre-queue check in build-agent-tools.
+    const identities = new PgIdentityStore(agentDb)
+    const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
 
     // On the gateway path the bearer is the owning team's phc_ project key.
     // The resolver caches per team so the hot path is a hash lookup.

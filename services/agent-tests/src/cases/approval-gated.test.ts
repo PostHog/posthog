@@ -477,3 +477,155 @@ describe('approval-gated tools: real e2e', () => {
         expect(approved!.result).toMatchObject({ echoed: { ping: 'pong' } })
     })
 })
+
+// ─────────────────────────────────────────────────────────────────────
+// Per-asker authorisation shortcut (#23 step 3).
+//
+// The dispatcher reads the most recent user-turn's `sender` and, if it
+// satisfies the tool's `approver_scope`, dispatches directly instead of
+// queueing for someone else to approve. Verifies the load-bearing demo
+// scenario: regular user → queues; admin user → dispatches.
+//
+// The harness doesn't carry a real posthog_organizationmembership table,
+// so we stub `isAskerInApproverScope` to "is the sender id the
+// admin PAT?". The dispatcher's real production code reads through the
+// identity store + posthog DB; that path is covered by
+// per-asker-auth.test.ts.
+//
+// We use PAT-based chat auth (rather than slack) because the chat
+// trigger stamps a `service`-kind sender carrying the pat_id verbatim
+// — easy to recognise — whereas the slack identity store mints
+// non-deterministic UUIDs.
+// ─────────────────────────────────────────────────────────────────────
+describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
+    const ADMIN_PAT_ID = 'pat-admin'
+    const NORMAL_PAT_ID = 'pat-normal'
+
+    const authProvider = {
+        async verifyPat(token: string, application: { team_id: number }) {
+            if (token === 'admin-token') {
+                return { kind: 'service' as const, team_id: application.team_id, pat_id: ADMIN_PAT_ID }
+            }
+            if (token === 'normal-token') {
+                return { kind: 'service' as const, team_id: application.team_id, pat_id: NORMAL_PAT_ID }
+            }
+            return null
+        },
+        async verifyInternal() {
+            return null
+        },
+        async verifySharedSecret() {
+            return null
+        },
+    }
+
+    let c: Cluster
+
+    beforeEach(async () => {
+        c = await buildCluster({
+            authProvider,
+            // Stub the per-asker check to recognise the admin PAT id. The real
+            // production check resolves principal → AgentUser → posthog_user
+            // → OrganizationMembership level; the harness short-circuits all
+            // of that with a literal id match.
+            isAskerInApproverScope: async (conversation, _teamId, approverScope) => {
+                if (!approverScope.includes('team_admins')) {
+                    return false
+                }
+                for (let i = conversation.length - 1; i >= 0; i--) {
+                    const m = conversation[i] as { role: string; sender?: { id?: string } }
+                    if (m.role !== 'user') {
+                        continue
+                    }
+                    if (m.sender?.id === ADMIN_PAT_ID) {
+                        return true
+                    }
+                    if (m.sender) {
+                        return false
+                    }
+                }
+                return false
+            },
+        })
+    })
+
+    afterEach(async () => {
+        await c.teardown()
+    })
+
+    afterAll(async () => {
+        await closeSharedPool()
+    })
+
+    async function listQueuedApprovals(applicationId: string): Promise<Array<{ id: string }>> {
+        const res = await request(c.janitor).get('/approvals').query({ application_id: applicationId, state: 'queued' })
+        expect(res.status).toBe(200)
+        return res.body.results as Array<{ id: string }>
+    }
+
+    it('non-admin: gated call queues an approval (B.2 v0 behaviour preserved)', async () => {
+        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('queued for approval')])
+        const { application } = await c.deployAgent({
+            slug: 'shortcut-noadmin',
+            spec: {
+                auth: { mode: 'pat' },
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/query',
+                        requires_approval: true,
+                        approval_policy: { allow_edit: false },
+                    },
+                ],
+            },
+        })
+
+        await request(c.ingress)
+            .post('/agents/shortcut-noadmin/run')
+            .set('authorization', 'Bearer normal-token')
+            .send({ message: 'delete the cohort' })
+        await c.drain()
+
+        const queued = await listQueuedApprovals(application.id)
+        expect(queued).toHaveLength(1)
+    })
+
+    it('admin: gated call dispatches directly, NO approval row, model sees real tool result', async () => {
+        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
+        const { application } = await c.deployAgent({
+            slug: 'shortcut-admin',
+            spec: {
+                auth: { mode: 'pat' },
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/query',
+                        requires_approval: true,
+                        approval_policy: { allow_edit: false },
+                    },
+                ],
+            },
+        })
+
+        const run = await request(c.ingress)
+            .post('/agents/shortcut-admin/run')
+            .set('authorization', 'Bearer admin-token')
+            .send({ message: 'delete the cohort' })
+        await c.drain()
+
+        // No approval row written — the dispatcher took the shortcut.
+        const queued = await listQueuedApprovals(application.id)
+        expect(queued).toHaveLength(0)
+
+        // The conversation carries a real @posthog/query toolResult, not
+        // a synthetic queued envelope. The harness's PostHog internal
+        // client echoes `{ rows: [{query}], columns: ['query'] }`.
+        const session = await c.queue.get(run.body.session_id)
+        const toolResults = session!.conversation.filter((m) => (m as { role: string }).role === 'toolResult')
+        expect(toolResults).toHaveLength(1)
+        const result = toolResults[0] as { content: Array<{ type: string; text: string }>; toolName: string }
+        expect(result.toolName).toBe('@posthog/query')
+        expect(result.content[0].text).toContain('rows')
+        expect(result.content[0].text).not.toContain('queued')
+    })
+})

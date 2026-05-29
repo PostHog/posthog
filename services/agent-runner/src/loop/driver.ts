@@ -72,6 +72,7 @@ import {
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
+import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
@@ -104,6 +105,16 @@ export interface RunSessionDeps {
      * When absent, gated tools run normally (pre-approval default). */
     approvals?: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
+     *
+     * **NOT YET CONSUMED** by the pi-agent-core driver. Accepted on the deps
+     * for API-shape stability with `WorkerDeps` (the harness + index.ts wire
+     * a real impl). Needs to be plumbed into the gated tool's `execute`
+     * swap below so the queue is skipped when the asker already satisfies
+     * the approver scope.
+     */
+    isAskerInApproverScope?: IsAskerInApproverScope
     /**
      * S3-backed memory store. Threaded into `AgentToolDeps` → `ToolContext`
      * so native `@posthog/memory-*` tools work; absent → memory tools return

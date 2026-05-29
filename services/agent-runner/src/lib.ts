@@ -10,6 +10,7 @@
 
 export * from './loop/driver'
 export * from './loop/build-agent-tools'
+export * from './loop/per-asker-auth'
 export * from './loop/provider-safe-names'
 export * from './workers/worker'
 export * from './models/pi-client'
