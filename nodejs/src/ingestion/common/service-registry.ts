@@ -48,34 +48,6 @@ export class ScopeBuilder<S extends Record<string, object> = Record<never, objec
 }
 
 /**
- * Legacy service shape — exposes `start()/stop()` directly on the
- * business object. Prefer the `Manager<T>` shape for new code; this is
- * kept for adapter use so existing services can be wired into a scope
- * without refactoring their interface.
- */
-export interface ConsumerManagedService {
-    start(): Promise<void>
-    stop(): Promise<void>
-}
-
-/**
- * Adapts a legacy service to the `Manager` shape. The adapted service is
- * exposed in the scope's container without its `start`/`stop`
- * methods.
- */
-export function adaptManagedService<T extends ConsumerManagedService>(svc: T): Manager<Omit<T, 'start' | 'stop'>> {
-    return {
-        async start() {
-            await svc.start()
-            return {
-                value: svc,
-                stop: () => svc.stop(),
-            }
-        },
-    }
-}
-
-/**
  * Returned by `Scope.start()`. The handle's `stop` removes this caller
  * from the refcount and is single-shot — calling it twice has no effect
  * after the first call.

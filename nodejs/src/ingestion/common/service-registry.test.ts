@@ -1,76 +1,55 @@
-import { ConsumerManagedService, adaptManagedService, newScope } from './service-registry'
+import { Manager, newScope } from './service-registry'
 
-type TrackedService = ConsumerManagedService & { startCalls: number; stopCalls: number }
+type TrackedManager = Manager<{ name: string }> & { startCalls: number; stopCalls: number }
 
-function makeService(name: string, log: string[]): TrackedService {
-    const svc: TrackedService = {
+function makeManager(name: string, log: string[]): TrackedManager {
+    const manager: TrackedManager = {
         startCalls: 0,
         stopCalls: 0,
-        start: jest.fn((): Promise<void> => {
-            svc.startCalls++
+        start: jest.fn(() => {
+            manager.startCalls++
             log.push(`start:${name}`)
-            return Promise.resolve()
-        }),
-        stop: jest.fn((): Promise<void> => {
-            svc.stopCalls++
-            log.push(`stop:${name}`)
-            return Promise.resolve()
+            return Promise.resolve({
+                value: { name },
+                stop: (): Promise<void> => {
+                    manager.stopCalls++
+                    log.push(`stop:${name}`)
+                    return Promise.resolve()
+                },
+            })
         }),
     }
-    return svc
+    return manager
 }
 
 describe('Lifecycle', () => {
     it('starts services in registration order', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const b = makeService('b', log)
+        const a = makeManager('a', log)
+        const b = makeManager('b', log)
 
-        const lifecycle = newScope('phase', (builder) =>
-            builder.add('a', adaptManagedService(a)).add('b', adaptManagedService(b))
-        )
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a).add('b', b))
         const started = await lifecycle.start()
 
         expect(log).toEqual(['start:a', 'start:b'])
         expect(started.name).toBe('phase')
-        expect(started.container).toEqual({ a, b })
+        expect(started.container).toEqual({ a: { name: 'a' }, b: { name: 'b' } })
 
         await started.stop()
     })
 
-    it('types each service without per-service start or stop', async () => {
-        const log: string[] = []
-        const a = makeService('a', log)
-
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
-        const { container, stop } = await lifecycle.start()
-
-        // Compile-time check: neither `start` nor `stop` should exist on the
-        // typed view. (The runtime object still has both — this is a typed
-        // guard, not a wrapped object.) The `@ts-expect-error` lines will
-        // FAIL the build if either method is ever re-exposed in the type.
-        // @ts-expect-error -- start is intentionally hidden on the started view
-        const _start: unknown = container.a.start
-        // @ts-expect-error -- stop is intentionally hidden on the started view
-        const _stop: unknown = container.a.stop
-        expect(_start).toBe(a.start)
-        expect(_stop).toBe(a.stop)
-
-        await stop()
-    })
-
     it('supports manual composition of two lifecycles', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const b = makeService('b', log)
+        const a = makeManager('a', log)
+        const b = makeManager('b', log)
 
-        const server = newScope('server', (builder) => builder.add('a', adaptManagedService(a)))
+        const server = newScope('server', (builder) => builder.add('a', a))
         const { container: serverContainer, stop: stopServer } = await server.start()
 
         // Caller wires the next lifecycle using the prior container's business
-        // methods (not start/stop — those aren't exposed).
-        expect(serverContainer.a).toBeDefined()
-        const consumer = newScope('consumer', (builder) => builder.add('b', adaptManagedService(b)))
+        // value.
+        expect(serverContainer.a).toEqual({ name: 'a' })
+        const consumer = newScope('consumer', (builder) => builder.add('b', b))
         const { stop: stopConsumer } = await consumer.start()
 
         expect(log).toEqual(['start:a', 'start:b'])
@@ -82,13 +61,11 @@ describe('Lifecycle', () => {
 
     it('stops services in reverse registration order', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const b = makeService('b', log)
-        const c = makeService('c', log)
+        const a = makeManager('a', log)
+        const b = makeManager('b', log)
+        const c = makeManager('c', log)
 
-        const lifecycle = newScope('phase', (builder) =>
-            builder.add('a', adaptManagedService(a)).add('b', adaptManagedService(b)).add('c', adaptManagedService(c))
-        )
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a).add('b', b).add('c', c))
         const { stop } = await lifecycle.start()
         await stop()
 
@@ -97,21 +74,15 @@ describe('Lifecycle', () => {
 
     it('rolls back already-started services when a later service fails to start', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const b: ConsumerManagedService = {
-            start: jest.fn((): Promise<void> => {
+        const a = makeManager('a', log)
+        const b: Manager<{ name: string }> = {
+            start: jest.fn(() => {
                 log.push('start:b')
                 return Promise.reject(new Error('b failed'))
             }),
-            stop: jest.fn((): Promise<void> => {
-                log.push('stop:b')
-                return Promise.resolve()
-            }),
         }
 
-        const lifecycle = newScope('phase', (builder) =>
-            builder.add('a', adaptManagedService(a)).add('b', adaptManagedService(b))
-        )
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a).add('b', b))
 
         await expect(lifecycle.start()).rejects.toThrow('b failed')
         // Only services that successfully started are rolled back, in reverse.
@@ -120,9 +91,9 @@ describe('Lifecycle', () => {
 
     it('makes stop idempotent on a single handle', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
+        const a = makeManager('a', log)
 
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const { stop } = await lifecycle.start()
 
         await stop()
@@ -133,9 +104,9 @@ describe('Lifecycle', () => {
 
     it('starts services only once across multiple start calls', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
+        const a = makeManager('a', log)
 
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
         const h2 = await lifecycle.start()
 
@@ -148,9 +119,9 @@ describe('Lifecycle', () => {
 
     it('keeps services running until the last caller releases', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
+        const a = makeManager('a', log)
 
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
         const h2 = await lifecycle.start()
 
@@ -164,9 +135,9 @@ describe('Lifecycle', () => {
 
     it('restarts cleanly after a full stop', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
+        const a = makeManager('a', log)
 
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
         await h1.stop()
 
@@ -181,23 +152,23 @@ describe('Lifecycle', () => {
     it('shares the same start operation across concurrent start calls', async () => {
         const log: string[] = []
         let resolveStart: (() => void) | undefined
-        const a: ConsumerManagedService = {
-            start: jest.fn((): Promise<void> => {
+        const stopA = jest.fn((): Promise<void> => {
+            log.push('stop:a')
+            return Promise.resolve()
+        })
+        const a: Manager<{ name: string }> = {
+            start: jest.fn(() => {
                 log.push('start:a:begin')
-                return new Promise<void>((resolve) => {
+                return new Promise<{ value: { name: string }; stop: () => Promise<void> }>((resolve) => {
                     resolveStart = () => {
                         log.push('start:a:end')
-                        resolve()
+                        resolve({ value: { name: 'a' }, stop: stopA })
                     }
                 })
             }),
-            stop: jest.fn((): Promise<void> => {
-                log.push('stop:a')
-                return Promise.resolve()
-            }),
         }
 
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a))
 
         const p1 = lifecycle.start()
         const p2 = lifecycle.start()
@@ -212,9 +183,9 @@ describe('Lifecycle', () => {
         const [h1, h2] = await Promise.all([p1, p2])
 
         await h1.stop()
-        expect(a.stop).toHaveBeenCalledTimes(0)
+        expect(stopA).toHaveBeenCalledTimes(0)
         await h2.stop()
-        expect(a.stop).toHaveBeenCalledTimes(1)
+        expect(stopA).toHaveBeenCalledTimes(1)
     })
 
     it('waits for in-flight stop before starting fresh', async () => {
@@ -222,31 +193,33 @@ describe('Lifecycle', () => {
         let startCalls = 0
         let stopCalls = 0
         let resolveFirstStop: (() => void) | undefined
-        const a: ConsumerManagedService = {
-            start: jest.fn((): Promise<void> => {
+        const a: Manager<{ name: string }> = {
+            start: jest.fn(() => {
                 startCalls++
                 log.push('start:a')
-                return Promise.resolve()
-            }),
-            stop: jest.fn((): Promise<void> => {
-                stopCalls++
-                // Only the first stop blocks; subsequent stops resolve
-                // immediately so the test can clean up without hanging.
-                if (stopCalls === 1) {
-                    log.push('stop:a:begin')
-                    return new Promise<void>((resolve) => {
-                        resolveFirstStop = () => {
-                            log.push('stop:a:end')
-                            resolve()
+                return Promise.resolve({
+                    value: { name: 'a' },
+                    stop: (): Promise<void> => {
+                        stopCalls++
+                        // Only the first stop blocks; subsequent stops resolve
+                        // immediately so the test can clean up without hanging.
+                        if (stopCalls === 1) {
+                            log.push('stop:a:begin')
+                            return new Promise<void>((resolve) => {
+                                resolveFirstStop = () => {
+                                    log.push('stop:a:end')
+                                    resolve()
+                                }
+                            })
                         }
-                    })
-                }
-                log.push('stop:a')
-                return Promise.resolve()
+                        log.push('stop:a')
+                        return Promise.resolve()
+                    },
+                })
             }),
         }
 
-        const lifecycle = newScope('phase', (builder) => builder.add('a', adaptManagedService(a)))
+        const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
         const stopPromise = h1.stop()
 
@@ -269,21 +242,21 @@ describe('Lifecycle', () => {
 
     it('extends a parent scope with a child scope', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const b = makeService('b', log)
+        const a = makeManager('a', log)
+        const b = makeManager('b', log)
 
-        const parent = newScope('parent', (builder) => builder.add('a', adaptManagedService(a)))
+        const parent = newScope('parent', (builder) => builder.add('a', a))
         const child = parent.extend('child', (services, builder) => {
             // Services from the parent must be available here.
-            expect(services.a).toBe(a)
-            return builder.add('b', adaptManagedService(b))
+            expect(services.a).toEqual({ name: 'a' })
+            return builder.add('b', b)
         })
 
         const started = await child.start()
 
         expect(log).toEqual(['start:a', 'start:b'])
         expect(started.name).toBe('child')
-        expect(started.container).toEqual({ a, b })
+        expect(started.container).toEqual({ a: { name: 'a' }, b: { name: 'b' } })
 
         await started.stop()
         // Child first, then parent.
@@ -292,13 +265,13 @@ describe('Lifecycle', () => {
 
     it('refcounts the parent across multiple extensions', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const b = makeService('b', log)
-        const c = makeService('c', log)
+        const a = makeManager('a', log)
+        const b = makeManager('b', log)
+        const c = makeManager('c', log)
 
-        const parent = newScope('parent', (builder) => builder.add('a', adaptManagedService(a)))
-        const childB = parent.extend('childB', (_services, builder) => builder.add('b', adaptManagedService(b)))
-        const childC = parent.extend('childC', (_services, builder) => builder.add('c', adaptManagedService(c)))
+        const parent = newScope('parent', (builder) => builder.add('a', a))
+        const childB = parent.extend('childB', (_services, builder) => builder.add('b', b))
+        const childC = parent.extend('childC', (_services, builder) => builder.add('c', c))
 
         const hB = await childB.start()
         const hC = await childC.start()
@@ -322,14 +295,13 @@ describe('Lifecycle', () => {
 
     it('rolls back the parent when the child fails to start', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
-        const failing: ConsumerManagedService = {
-            start: jest.fn((): Promise<void> => Promise.reject(new Error('child boom'))),
-            stop: jest.fn((): Promise<void> => Promise.resolve()),
+        const a = makeManager('a', log)
+        const failing: Manager<{ name: string }> = {
+            start: jest.fn(() => Promise.reject(new Error('child boom'))),
         }
 
-        const parent = newScope('parent', (builder) => builder.add('a', adaptManagedService(a)))
-        const child = parent.extend('child', (_services, builder) => builder.add('bad', adaptManagedService(failing)))
+        const parent = newScope('parent', (builder) => builder.add('a', a))
+        const child = parent.extend('child', (_services, builder) => builder.add('bad', failing))
 
         await expect(child.start()).rejects.toThrow('child boom')
 
@@ -340,14 +312,14 @@ describe('Lifecycle', () => {
 
     it('reconstructs the child on each restart', async () => {
         const log: string[] = []
-        const a = makeService('a', log)
+        const a = makeManager('a', log)
         let buildCalls = 0
 
-        const parent = newScope('parent', (builder) => builder.add('a', adaptManagedService(a)))
+        const parent = newScope('parent', (builder) => builder.add('a', a))
         const child = parent.extend('child', (_services, builder) => {
             buildCalls++
-            const b = makeService(`b${buildCalls}`, log)
-            return builder.add('b', adaptManagedService(b))
+            const b = makeManager(`b${buildCalls}`, log)
+            return builder.add('b', b)
         })
 
         const h1 = await child.start()
