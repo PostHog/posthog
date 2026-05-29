@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated, ExperimentVariantResultFrequentist
 
 from posthog.models import Organization, Team, User
-from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.experiments.activities import _backfill_experiment_metric_sync
 
 from products.experiments.backend.models.experiment import (
@@ -16,6 +15,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentTimeseriesRecalculation,
 )
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @pytest.mark.django_db

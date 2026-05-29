@@ -6,7 +6,7 @@ from rest_framework import status
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
-from posthog.models import Insight, Tag, TaggedItem
+from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -14,6 +14,10 @@ from posthog.models.user import User
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountAssignment
+from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -943,8 +947,6 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.json()["notebooks"], [])
 
     def test_retrieve_returns_all_linked_notebooks(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         account = self._create_account()
         notebook_a = Notebook.objects.create(
             team=self.team, title="A", content=[], visibility=Notebook.Visibility.INTERNAL
@@ -961,8 +963,6 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(set(response.json()["notebooks"]), {notebook_a.short_id, notebook_b.short_id})
 
     def test_list_includes_notebooks_field(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         account = self._create_account()
         notebook = Notebook.objects.create(
             team=self.team, title="Existing", content=[], visibility=Notebook.Visibility.INTERNAL
@@ -983,8 +983,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.endpoint_base = f"/api/environments/{self.team.id}/accounts/{self.account.id}/notebooks/"
 
     def test_create_account_notebook_uses_internal_visibility(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         response = self.client.post(
             self.endpoint_base,
             {"title": "Q3 call", "content": {"type": "doc", "content": []}},
@@ -1007,8 +1005,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         )
 
     def test_list_returns_only_notebooks_for_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         account_notebook = Notebook.objects.create(
             team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1029,8 +1025,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(short_ids, [account_notebook.short_id])
 
     def test_retrieve_returns_notebook_for_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Note", content={"foo": "bar"}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1045,8 +1039,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(data["content"], {"foo": "bar"})
 
     def test_retrieve_notebook_not_linked_to_account_returns_404(self):
-        from products.notebooks.backend.models import Notebook
-
         unrelated = Notebook.objects.create(
             team=self.team, title="Unrelated", content={}, visibility=Notebook.Visibility.DEFAULT
         )
@@ -1056,8 +1048,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     def test_destroy_notebook_for_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1088,8 +1078,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     def test_internal_account_notebooks_do_not_appear_in_notebooks_list(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         notebook = Notebook.objects.create(
             team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1114,8 +1102,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
                 self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_list_excludes_non_internal_notebooks_linked_to_account(self):
-        from products.notebooks.backend.models import Notebook, ResourceNotebook
-
         internal_notebook = Notebook.objects.create(
             team=self.team, title="Internal", content={}, visibility=Notebook.Visibility.INTERNAL
         )
@@ -1132,6 +1118,115 @@ class TestAccountNotebookViewSet(APIBaseTest):
         short_ids = [n["short_id"] for n in response.json()["results"]]
         self.assertIn(internal_notebook.short_id, short_ids)
         self.assertNotIn(default_notebook.short_id, short_ids)
+
+    def test_create_derives_content_from_markdown_text_content(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Call notes", "text_content": "# Heading\n\nSome **bold** text."},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.text_content, "# Heading\n\nSome **bold** text.")
+        self.assertIsInstance(notebook.content, dict)
+        self.assertEqual(notebook.content["type"], "doc")
+        first_node = notebook.content["content"][0]
+        self.assertEqual(first_node["type"], "heading")
+        self.assertEqual(first_node["attrs"]["level"], 1)
+        self.assertEqual(first_node["content"][0]["text"], "Heading")
+
+    def test_create_preserves_caller_supplied_content(self):
+        explicit_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
+        }
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Provided", "content": explicit_content, "text_content": "# ignored"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.content, explicit_content)
+
+    def test_create_with_neither_field_leaves_content_null(self):
+        response = self.client.post(self.endpoint_base, {"title": "Empty"}, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertIsNone(notebook.content)
+
+    def test_create_with_empty_text_content_does_not_synthesize_content(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Empty body", "text_content": ""},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertIsNone(notebook.content)
+
+    def test_create_with_empty_dict_content_falls_back_to_markdown(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Plain", "content": {}, "text_content": "Just a sentence."},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.content["type"], "doc")
+        first_node = notebook.content["content"][0]
+        self.assertEqual(first_node["type"], "paragraph")
+        self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
+
+    def test_create_with_empty_valid_prosemirror_doc_respects_caller(self):
+        empty_doc = {"type": "doc", "content": []}
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Empty doc", "content": empty_doc, "text_content": "ignored"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.content, empty_doc)
+
+    def test_notebook_detail_includes_parent_resource_for_linked_account(self):
+        notebook = Notebook.objects.create(
+            team=self.team, title="Account note", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+
+        # The frontend NotebookScene fetches via /api/projects/{team}/notebooks/{short_id}/
+        # (not the customer-analytics nested endpoint), so the parent_resource field must be
+        # present on NotebookSerializer responses.
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(
+            response.json()["parent_resource"],
+            {"type": "account", "id": str(self.account.id)},
+        )
+
+    def test_notebook_detail_parent_resource_is_null_for_standalone(self):
+        notebook = Notebook.objects.create(
+            team=self.team, title="Standalone", content={}, visibility=Notebook.Visibility.DEFAULT
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertIsNone(response.json()["parent_resource"])
 
 
 @pytest.mark.ee
@@ -1176,8 +1271,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
         try:
-            from ee.models.rbac.access_control import AccessControl
-
             membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
             AccessControl.objects.create(
                 team=self.team,
@@ -1371,8 +1464,6 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
     # -- Account notebooks inherit object-level access from the parent account --
 
     def test_account_notebooks_404_when_parent_account_access_denied(self):
-        from ee.models.rbac.access_control import AccessControl
-
         AccessControl.objects.create(
             team=self.team,
             resource="account",

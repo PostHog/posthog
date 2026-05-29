@@ -29,7 +29,6 @@ from ..ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
 
@@ -40,7 +39,6 @@ from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
-from .feature_flag import FeatureFlag
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -48,13 +46,7 @@ from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
-from .hog_flow import HogFlow
-from .hog_functions import HogFunction
-from .hog_function_template import HogFunctionTemplate
 from .health_issue import HealthIssue
-from .insight import Insight, InsightViewed
-from .insight_caching_state import InsightCachingState
-from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .integration_repository_cache import IntegrationRepositoryCacheEntry
@@ -69,7 +61,6 @@ from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
-from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
@@ -78,7 +69,6 @@ from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
-from .scheduled_change import ScheduledChange
 from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
@@ -141,9 +131,6 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
-    "EvaluationContext",
-    "FeatureFlagEvaluationContext",
-    "TeamDefaultEvaluationContext",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -151,7 +138,6 @@ __all__ = [
     "RoleExternalReference",
     "ExportedAsset",
     "ExportedRecording",
-    "FeatureFlag",
     "FileSystem",
     "FileSystemViewLog",
     "Filter",
@@ -159,15 +145,8 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HealthIssue",
-    "HogFlow",
-    "HogFunction",
-    "HogFunctionTemplate",
     "LLMPrompt",
     "HostDefinition",
-    "Insight",
-    "InsightCachingState",
-    "InsightVariable",
-    "InsightViewed",
     "InstanceSetting",
     "Integration",
     "IntegrationRepositoryCacheEntry",
@@ -195,11 +174,6 @@ __all__ = [
     "ProjectSecretAPIKey",
     "PersonOverride",
     "PersonOverrideMapping",
-    "Plugin",
-    "PluginAttachment",
-    "PluginConfig",
-    "PluginLogEntry",
-    "PluginSourceFile",
     "ProductIntent",
     "Project",
     "Property",
@@ -235,6 +209,8 @@ __all__ = [
     "UserGroupMembership",
     "UserIntegration",
     "UserPushToken",
+    "DataWarehouseTable",
+    "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
     # Deprecated models here for backwards compatibility

@@ -277,17 +277,17 @@ describe('hog-charts interaction', () => {
             { index: 1, desc: 'dataIndex equal to labels.length' },
         ])('returns null for $desc', ({ index }) => {
             const series = [makeSeries({ key: 's1', data: [10] })]
-            expect(buildPointClickData(index, series, ['a'], defaultResolveValue)).toBeNull()
+            expect(buildPointClickData(index, series, ['a'], defaultResolveValue, null)).toBeNull()
         })
 
         it('returns null when all series have visibility.excluded', () => {
             const series = [makeSeries({ key: 's1', data: [10], visibility: { excluded: true } })]
-            expect(buildPointClickData(0, series, ['a'], defaultResolveValue)).toBeNull()
+            expect(buildPointClickData(0, series, ['a'], defaultResolveValue, null)).toBeNull()
         })
 
         it('returns click data for a valid index with a single visible series', () => {
             const series = [makeSeries({ key: 's1', data: [42] })]
-            const result = buildPointClickData(0, series, ['a'], defaultResolveValue)
+            const result = buildPointClickData(0, series, ['a'], defaultResolveValue, null)
             expect(result).not.toBeNull()
             expect(result?.label).toBe('a')
             expect(result?.dataIndex).toBe(0)
@@ -299,7 +299,7 @@ describe('hog-charts interaction', () => {
         it('uses the first visible series when multiple series are present', () => {
             const hidden = makeSeries({ key: 'h', data: [1], visibility: { excluded: true } })
             const visible = makeSeries({ key: 'v', data: [2] })
-            const result = buildPointClickData(0, [hidden, visible], ['a'], defaultResolveValue)
+            const result = buildPointClickData(0, [hidden, visible], ['a'], defaultResolveValue, null)
             expect(result?.series.key).toBe('v')
             expect(result?.seriesIndex).toBe(1)
         })
@@ -308,7 +308,7 @@ describe('hog-charts interaction', () => {
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [20] })
             const hidden = makeSeries({ key: 'h', data: [30], visibility: { excluded: true } })
-            const result = buildPointClickData(0, [s1, s2, hidden], ['a'], defaultResolveValue)
+            const result = buildPointClickData(0, [s1, s2, hidden], ['a'], defaultResolveValue, null)
             expect(result?.crossSeriesData.length).toBe(2)
             expect(result?.crossSeriesData.map((d) => d.series.key)).toEqual(['s1', 's2'])
         })
@@ -317,7 +317,7 @@ describe('hog-charts interaction', () => {
             const s1 = makeSeries({ key: 's1', data: [0] })
             const s2 = makeSeries({ key: 's2', data: [0] })
             const customResolve: ResolveValueFn = (s) => (s.key === 's1' ? 111 : 222)
-            const result = buildPointClickData(0, [s1, s2], ['a'], customResolve)
+            const result = buildPointClickData(0, [s1, s2], ['a'], customResolve, null)
             expect(result?.value).toBe(111)
             expect(result?.crossSeriesData[0].value).toBe(111)
             expect(result?.crossSeriesData[1].value).toBe(222)
@@ -325,7 +325,7 @@ describe('hog-charts interaction', () => {
 
         it('returns the correct label for a non-zero dataIndex', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const result = buildPointClickData(2, series, ['x', 'y', 'z'], defaultResolveValue)
+            const result = buildPointClickData(2, series, ['x', 'y', 'z'], defaultResolveValue, null)
             expect(result?.label).toBe('z')
             expect(result?.value).toBe(30)
         })

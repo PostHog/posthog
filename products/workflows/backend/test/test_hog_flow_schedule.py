@@ -9,8 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.hog_flow.hog_flow import HogFlow
-
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
@@ -391,7 +390,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("posthog.api.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 

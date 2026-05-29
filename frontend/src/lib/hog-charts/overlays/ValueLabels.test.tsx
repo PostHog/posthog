@@ -106,6 +106,31 @@ describe('ValueLabels', () => {
         })
     })
 
+    it('vertical: flips a top-clipping label inside the bar instead of expanding margins', () => {
+        // yScale(100) = 16, so an above-placed label would render with top=16-22=-6 and get
+        // clipped by the wrapper's `overflow: hidden`. The overlay flips it below the bar top.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [100] }]
+        const { container } = renderInChart(makeContext(series, { labels: ['Mon'] }), <ValueLabels />)
+        const divs = labelDivs(container)
+        expect(divs).toHaveLength(1)
+        expect(divs[0].style.transform).toBe('translateX(-50%)')
+        expect(divs[0].style.top).toBe('16px')
+    })
+
+    it('horizontal: flips a right-clipping label inside the bar instead of expanding margins', () => {
+        // Place the value-coord 4px from the right wrapper edge so the label (>4px wide) would
+        // overflow when anchored on its leading edge; flip to anchor on its trailing edge instead.
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [1] }]
+        const ctx = makeContext(series, {
+            axisOrientation: 'horizontal',
+            labels: ['Mon'],
+            scales: { x: () => 60, y: () => 796, yTicks: () => [0, 1] },
+        })
+        const divs = labelDivs(renderInChart(ctx, <ValueLabels />).container)
+        expect(divs).toHaveLength(1)
+        expect(divs[0].style.transform).toBe('translate(-100%, -50%)')
+    })
+
     it('drops overlapping labels via greedy collision avoidance', () => {
         // Two points at the same x: only one should survive.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]

@@ -113,7 +113,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
               )
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
-    const { series, labels } = useMemo(() => {
+    const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
@@ -126,7 +126,11 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             getHidden: getTrendsHidden,
             buildMeta: buildTrendsSeriesMeta,
         })
-        return { series: timeSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
+        return {
+            series: timeSeries,
+            labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+            displayLabels: undefined,
+        }
     }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
 
     const valueLabelFormatter = useCallback(
@@ -152,6 +156,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                xAxisLabel: trendsFilter?.xAxisLabel,
+                yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: TIME_SERIES_TOOLTIP_CONFIG,
@@ -165,6 +171,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             interval,
             timezone,
             currentPeriodResult?.days,
+            trendsFilter?.xAxisLabel,
+            trendsFilter?.yAxisLabel,
             goalLines,
             showValuesOnSeries,
             valueLabelFormatter,
@@ -176,17 +184,39 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const aggregatedConfig: BarChartConfig = useMemo(
-        () => ({
+    const aggregatedConfig: BarChartConfig = useMemo(() => {
+        // Band keys are synthetic per-series; render the human label via the categorical-axis
+        // formatter and skip repeats so band-shared breakdown rows don't double-paint.
+        let xTickFormatter: BarChartConfig['xTickFormatter']
+        if (displayLabels && labels) {
+            const firstIndexOf = new Map<string, number>()
+            labels.forEach((l, i) => {
+                if (!firstIndexOf.has(l)) {
+                    firstIndexOf.set(l, i)
+                }
+            })
+            xTickFormatter = (label: string, i: number) =>
+                firstIndexOf.get(label) === i ? (displayLabels[i] ?? null) : null
+        }
+        return {
             showGrid: true,
             tooltip: AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
             yTickFormatter: aggregatedYTickFormatter,
-        }),
-        [yAxisScaleType, aggregatedYTickFormatter]
-    )
+            xTickFormatter,
+            xAxisLabel: trendsFilter?.xAxisLabel,
+            yAxisLabel: trendsFilter?.yAxisLabel,
+        }
+    }, [
+        yAxisScaleType,
+        aggregatedYTickFormatter,
+        trendsFilter?.xAxisLabel,
+        trendsFilter?.yAxisLabel,
+        displayLabels,
+        labels,
+    ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -236,14 +266,11 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // Sparse-stacked: drop sibling series with data=0 at this band so the tooltip shows one row.
+            // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,
-                      seriesData: ctx.seriesData.filter((entry) => {
-                          const raw = entry.series.data[ctx.dataIndex]
-                          return typeof raw === 'number' && raw !== 0
-                      }),
+                      seriesData: ctx.seriesData.slice(0, 1),
                   }
                 : ctx
             const onRowClick = canHandleClick

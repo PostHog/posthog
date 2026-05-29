@@ -40,32 +40,26 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
 
     # Imported lazily: HogQL pulls in the full schema graph, which we don't want
     # to load for every model import (admin registration, migrations, etc.).
-    from posthog.hogql import ast
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.hogql import translate_hogql
     from posthog.hogql.parser import parse_expr
-    from posthog.hogql.visitor import TraversingVisitor
-
-    class _RejectSubqueries(TraversingVisitor):
-        def visit_select_query(self, node: ast.SelectQuery) -> None:
-            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
-
-        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
 
     try:
-        parsed = parse_expr(predicate)
+        parse_expr(predicate)
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not parse HogQL: {exc}"}) from exc
-
-    _RejectSubqueries().visit(parsed)
 
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
+    # Subqueries are allowed (e.g. ``person_id IN (SELECT id FROM persons WHERE …)``).
+    # HogQL's table resolver injects ``team_id`` guards into each referenced table,
+    # so cross-team data cannot leak through a subquery — the team-scoping test
+    # in test_data_deletion_request.py is the regression net for that invariant.
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
-    # references — both for regular fields and for materialized-column shortcuts.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
+    # references for the outer expression so the fragment splices into both the
+    # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:
