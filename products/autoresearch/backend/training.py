@@ -196,6 +196,7 @@ class ModelRecipeOutput(BaseModel):
 def build_agent_description(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
+    training_run_id: str,
     pending_suggestions: list[AutoresearchSuggestion] | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
@@ -203,7 +204,6 @@ def build_agent_description(
     if pipeline.training_population:
         pop_clause = f"\n- **Training population filter**: `{json.dumps(pipeline.training_population)}`"
 
-    schema_json = json.dumps(ModelRecipeOutput.model_json_schema(), indent=2)
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
     labeled_anchors_cte = _resolve_labeled_anchors_cte_for_prompt(pipeline)
@@ -211,8 +211,10 @@ def build_agent_description(
     prompt = textwrap.dedent(f"""
         # PostHog Autoresearch Agent
 
-        Your goal is to discover predictive features for a prediction pipeline and output a
-        portable model recipe as structured JSON.
+        Your goal is to discover predictive features for a prediction pipeline and author a
+        **runnable model bundle** — four files the framework runs in a sandbox to score users
+        daily. You do NOT emit a JSON recipe and you do NOT call set_output. You upload the
+        bundle files through MCP tools and finalize the run.
 
         ## Pipeline specification
 
@@ -222,21 +224,28 @@ def build_agent_description(
         - **Iteration budget**: {iteration_budget}{pop_clause}
         - **Today's date**: {today_iso}
 
+        ## Identifiers for every tool call
+
+        - **Pipeline ID**: `{pipeline.pk}` (pass as `pipeline_id`)
+        - **Training run ID**: `{training_run_id}` (pass as `id` to the training-runs tools)
+
+        The training run is already open. Record iterations against it, upload the bundle to
+        it, then complete it — all via the `autoresearch-training-runs-*` tools using the two
+        IDs above.
+
         ## Step 0 — Load live pipeline context (do this first, before any SQL)
 
-        Pipeline ID: `{pipeline.pk}`
-
         1. **Find the champion model**: call `autoresearch-models-list` with `pipeline_id = "{pipeline.pk}"`.
-           Look for an entry with `role = "champion"`. Note its `id` and `holdout_score`.
+           Look for `role = "champion"`. Note its `id`, `holdout_score`, and `source_training_run`.
 
-        2. **Load the champion recipe** (if a champion exists): call `autoresearch-models-retrieve`
-           with the champion `id`. Read `model_recipe.feature_sql` — this is the current best
-           feature set. Your primary goal is to produce a recipe that beats `holdout_score`.
-           Start from a meaningfully different hypothesis, not a trivial variant.
+        2. **Load the champion's bundle** (if one exists): call `autoresearch-models-retrieve`
+           on the champion `id`. If it has a `source_training_run`, pull its prior code as a
+           starting point — call `autoresearch-training-runs-artifacts-get-create` with
+           `id = "<source_training_run>"`, `path = "features.sql"` (and `train.py`). Your goal is
+           to beat `holdout_score`. Start from a meaningfully different hypothesis, not a trivial variant.
 
         3. **Review training history**: call `autoresearch-training-runs-list` with `pipeline_id = "{pipeline.pk}"`.
-           Check `best_holdout_score` and `iteration_count` from prior runs to avoid repeating
-           approaches that were already tried and discarded.
+           Check `best_holdout_score` and `iteration_count` to avoid repeating discarded approaches.
 
         If no champion exists you are establishing the baseline — aim for AUC > 0.6.
 
@@ -249,190 +258,238 @@ def build_agent_description(
           T0_user   = a per-user deterministic random point in their history
           label     = 1 if `{pipeline.target_event}` fires in [T0_user, T0_user + {pipeline.horizon_days}), else 0
 
-        This means features for each user MUST be computed strictly as of THAT
-        user's T0 — never using events from on/after T0_user. Otherwise the model
-        peeks at the label window and the holdout AUC is fiction.
+        Features for each user MUST be computed strictly as of THAT user's T0 — never
+        using events on/after T0_user, or the model peeks at the label window and the
+        holdout AUC is fiction.
 
-        At inference time the same feature SQL runs with cutoff_ts = now() per
-        user. Train and inference become byte-identical operations on different
-        anchor tables — that is the only way the holdout AUC means anything.
+        At inference time the framework runs the SAME `features.sql` with cutoff_ts = now()
+        per user, re-fits `train.py` on fresh data, and scores with `predict.py`. Train and
+        inference are byte-identical operations on different anchor tables — that is the only
+        way the holdout AUC means anything. Leakage vigilance is YOUR job: if a feature looks
+        too predictive, suspect it reads the label window and fix it.
+
+        ## The bundle you will produce
+
+        Four files, uploaded via `autoresearch-training-runs-artifacts-upload-create` (one call
+        per file, contents base64-encoded in `content_base64`):
+
+        | path           | what it is                                                            |
+        |----------------|-----------------------------------------------------------------------|
+        | `features.sql` | HogQL feature query with `{{anchors}}` + `{{lookback_days}}` placeholders |
+        | `train.py`     | standalone sklearn fit script (any model you like inside)             |
+        | `predict.py`   | standalone scoring script                                            |
+        | `recipe.yml`   | informational metadata for the model card                            |
+
+        The framework runs train.py + predict.py in a locked-down sandbox with NO network and
+        NO credentials. `NOTEBOOK_BASE` ships pandas / numpy / scikit-learn — import only those.
 
         ## Research loop (perform at least {min_iters} iterations)
 
         ### Step 1 — Explore the data
 
-        Use the PostHog `execute-sql` MCP tool to understand what's available:
+        Use the `execute-sql` MCP tool to see what events exist:
 
         ```sql
-        -- What events exist and how often?
         SELECT event, count() AS cnt
         FROM events
         WHERE timestamp >= now() - toIntervalDay(30)
         GROUP BY event ORDER BY cnt DESC LIMIT 30
         ```
 
-        Note: the base rate of the prediction task (random-T0 conversion rate)
-        is already computed and shown to the user in the wizard — you don't need
-        to estimate it yourself. If you want to sanity-check the data, query
-        event volumes, not "did target fire in last N days" style proxies.
+        The base rate is already shown to the user in the wizard — don't estimate it. Sanity-check
+        with event-volume queries, not "did target fire in last N days" proxies.
 
-        ### Step 2 — Design feature SQL (the leakage-safe contract)
-
-        Your feature SQL MUST follow this contract. Recipes that violate it are
-        rejected at submission with a clear error — fix and resubmit within your
-        iteration budget.
+        ### Step 2 — Design `features.sql` (the leakage-safe contract)
 
         **Hard rules:**
 
-        1. Select `FROM {{anchors}} a` — the framework provides this table with
-           columns `(person_id, cutoff_ts)`. At training cutoff_ts is per-user T0;
-           at inference cutoff_ts = now(). Same SQL, two anchor tables.
-        2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` —
-           strict `<`, not `<=`. This is the leakage guard. Any feature that
-           reads events at or after cutoff_ts is invalid.
-        3. Window the lookback against the cutoff:
-           `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
+        1. Select `FROM {{anchors}} a` — the framework supplies columns `(person_id, cutoff_ts)`.
+           At training cutoff_ts is per-user T0; at inference cutoff_ts = now(). Same SQL, two tables.
+        2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` — strict `<`. The leakage guard.
+        3. Window the lookback: `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
         4. Output `a.person_id AS distinct_id` as the first column.
-        5. `GROUP BY a.person_id`.
-        6. **Never** call `now()` in feature SQL — use `a.cutoff_ts` instead.
-           The framework's static validator rejects `now()` outright.
+        5. `GROUP BY a.person_id, a.cutoff_ts` — ClickHouse needs cutoff_ts in the GROUP BY to
+           select it (no Postgres-style functional-dependency inference). Still one row per person.
+        6. **Never** call `now()` — use `a.cutoff_ts`. The framework rejects `now()` outright.
+        7. Keep `{{anchors}}` and `{{lookback_days}}` OUT of SQL comments — the framework string-
+           substitutes them everywhere, and a multi-line substitution inside a `--` comment breaks the parse.
 
-        **Worked example:**
+        **Worked `features.sql` (a correct, runnable starting point):**
 
         ```sql
         SELECT
             a.person_id AS distinct_id,
-            countIf(e.event = '$pageview') AS pageviews_in_window,
-            countIf(e.event = 'uploaded_file') AS uploads_in_window,
+            count(e.uuid) AS events_total,
             uniqIf(e.event, e.event NOT LIKE '$%') AS unique_user_events,
-            dateDiff(
-                'day',
-                max(e.timestamp),
-                fromUnixTimestamp(a.cutoff_ts)
-            ) AS days_since_last_event
+            countIf(e.event = '$pageview') AS pageviews,
+            countIf(e.event = 'uploaded_file') AS uploads,
+            dateDiff('day', max(e.timestamp), fromUnixTimestamp(a.cutoff_ts)) AS days_since_last_event
         FROM {{anchors}} a
         LEFT JOIN events e
             ON e.person_id = a.person_id
             AND e.timestamp <  fromUnixTimestamp(a.cutoff_ts)
             AND e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})
-        GROUP BY a.person_id
+        GROUP BY a.person_id, a.cutoff_ts
         ```
-
-        Good features to consider:
-        - Event count aggregates (`countIf(e.event = 'X')`)
-        - Recency signals (`dateDiff('day', max(e.timestamp), fromUnixTimestamp(a.cutoff_ts))`)
-        - Event diversity (`uniqIf(e.event, ...)`)
-        - Property features if meaningful
 
         ### Step 3 — Fit and evaluate (in your sandbox)
 
-        For each iteration, run one composite `execute-sql` query that returns one row
-        per labeled user with feature columns + `__label` + `__fold`. Then fit sklearn
-        locally on `__fold != 0` and evaluate on `__fold == 0`. This is the real
-        holdout AUC — no proxies, no `corr()` shortcuts.
+        For each iteration, run one composite `execute-sql` query returning one row per labeled
+        user with feature columns + `__label` + `__fold`, then fit on `__fold != 0` and evaluate
+        on `__fold == 0`. This is the real holdout AUC — no proxies.
 
-        **Paste-in `labeled_anchors` CTE for THIS pipeline** (uses your real
-        horizon, training lookback, target event, and population filter):
+        **Paste-in `labeled_anchors` CTE for THIS pipeline:**
 
         ```sql
         WITH {labeled_anchors_cte}
         ```
 
-        **The composite query template you run each iteration:**
+        **Composite query each iteration** (substitute `{{anchors}}` with
+        `(SELECT person_id, t0_ts AS cutoff_ts FROM labeled_anchors)` and `{{lookback_days}}` with
+        an integer, e.g. {max(30, pipeline.horizon_days * 4)}):
 
         ```sql
         WITH {labeled_anchors_cte}
-        SELECT
-            f.*,
-            la.positive AS __label,
-            la.fold AS __fold
-        FROM (
-            -- ↓↓↓ YOUR feature_sql, with {{anchors}} substituted with
-            --     (SELECT person_id, t0_ts AS cutoff_ts FROM labeled_anchors)
-            <your feature SQL>
-        ) f
+        SELECT f.*, la.positive AS __label, la.fold AS __fold
+        FROM ( <your features.sql, placeholders substituted> ) f
         LEFT JOIN labeled_anchors la ON f.distinct_id = la.person_id
         ```
 
-        **The Python fit + eval pattern:**
+        **Python fit + eval pattern:**
 
         ```python
         import pandas as pd
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import roc_auc_score
 
-        # `rows` is whatever execute-sql returned for the composite query above.
-        df = pd.DataFrame(rows)
-
+        df = pd.DataFrame(rows)  # rows = execute-sql output for the composite query
         feature_cols = [c for c in df.columns if c not in ('distinct_id', '__label', '__fold')]
         X = df[feature_cols].fillna(0).astype(float)
         y = df['__label'].astype(int)
         fold = df['__fold'].astype(int)
-
         train, holdout = fold != 0, fold == 0
         if y[holdout].nunique() < 2 or y[train].sum() < 5:
-            # Skip this iteration — not enough signal to fit/evaluate honestly.
-            holdout_auc = None
+            holdout_auc = None  # not enough signal — skip
         else:
             model = LogisticRegression(C=1.0, max_iter=200, random_state=42)
             model.fit(X[train], y[train])
-            p_holdout = model.predict_proba(X[holdout])[:, 1]
-            holdout_auc = float(roc_auc_score(y[holdout], p_holdout))
+            holdout_auc = float(roc_auc_score(y[holdout], model.predict_proba(X[holdout])[:, 1]))
         ```
 
-        **Recording each iteration:** call `autoresearch-training-runs-iterations-create`
-        with the iteration's feature_sql, model_class, model_params, holdout_score (the
-        AUC you just computed), and a one-line agent_description of what you tried.
-        Status: `"kept"` if it beats your best so far, `"discarded"` otherwise.
+        **Record each iteration:** call `autoresearch-training-runs-iterations-create` with
+        `pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, the iteration_number,
+        recipe_snapshot (`{{"feature_sql": "..."}}`), model_spec (`{{"model_class": "...", "model_params": {{...}}}}`),
+        holdout_score (the AUC you computed), status (`"kept"` if it beats your best so far, else `"discarded"`),
+        and a one-line agent_description. These drive champion selection at completion.
 
         ### Step 4 — Iterate
 
-        Try at least {min_iters} distinct feature hypotheses. Vary along axes that
-        actually matter for predictive signal:
-        - Which events you count (engagement, conversion-adjacent, friction)
-        - Recency vs frequency (counts in last 7d vs 30d, time-since-last)
-        - Cross-event ratios and diversity (uniqIf)
-        - Property-conditioned counts (countIf with a property filter)
+        Try at least {min_iters} distinct hypotheses — vary which events you count, recency vs
+        frequency, cross-event ratios/diversity, property-conditioned counts. Pick the highest
+        holdout AUC as your winner.
 
-        Pick the iteration with the highest holdout AUC as your final submission.
+        ## Author and upload the winning bundle
 
-        ## Submitting your recipe
+        Write the four files so they run STANDALONE in the sandbox under these exact CLI
+        contracts, then upload each with `autoresearch-training-runs-artifacts-upload-create`
+        (`pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, `path`, `content_base64`).
 
-        When you have finished iterating, write your recipe to `recipe.json` and submit it:
+        **train.py** — invoked as:
 
-        ```bash
-        # Write the recipe JSON to a file first
-        cat > recipe.json << 'RECIPE_EOF'
-        {{
-          "feature_sql": "SELECT person_id AS distinct_id, ... FROM events ...",
-          ...
-        }}
-        RECIPE_EOF
-
-        # Validate it parses correctly
-        python3 -c "import json; json.load(open('recipe.json')); print('OK')"
-
-        # Submit to PostHog
-        curl -s -X POST \\
-          -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
-          -H "Content-Type: application/json" \\
-          -d "$(cat recipe.json)" \\
-          "$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/task-runs/$POSTHOG_RESUME_RUN_ID/set_output/"
+        ```
+        python train.py <train_features.csv> <train_labels.csv> <model.pkl> <output.json> \\
+                        <holdout_features.csv> <holdout_labels.csv> --random-state 42
         ```
 
-        A `200` response means success. A non-200 response means the JSON didn't match the
-        required schema — check the error message and fix your recipe.json.
+        - Features CSVs: first column `distinct_id`, rest numeric. Labels CSVs: `distinct_id`, `__label` (0/1).
+        - Merge features⋈labels on `distinct_id`, fit your model on train, pickle
+          `{{"model": ..., "feature_cols": [...]}}` to `<model.pkl>` (pin `random_state` from the arg).
+        - Write `<output.json>`: `{{"holdout_auc": <float|null>, "n_train": <int>, "n_features": <int>}}`.
+          The framework reads this FILE — print nothing structured to stdout. Exit non-zero on degenerate data.
 
-        ## Required output schema
+        **predict.py** — invoked as:
 
-        Your `recipe.json` MUST match this JSON schema exactly:
-
-        ```json
-        {schema_json}
+        ```
+        python predict.py <score_features.csv> <model.pkl> <scores.csv>
         ```
 
-        **Honesty note**: `holdout_score` is validated against realized outcomes after inference.
-        An AUC of 0.55 that reflects real data beats a fabricated 0.80.
+        - Load the pickle, align score features to `feature_cols` (missing → 0), write `<scores.csv>`
+          with header `distinct_id,p_y`. Print NOTHING to stdout — the framework reads scores.csv back.
+
+        **Reference `train.py`** (edit the model; keep the I/O contract exactly):
+
+        ```python
+        import sys, json, pickle, argparse
+        import pandas as pd
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import roc_auc_score
+
+        def load_xy(fpath, lpath):
+            f = pd.read_csv(fpath); l = pd.read_csv(lpath)
+            m = f.merge(l[["distinct_id", "__label"]], on="distinct_id", how="inner")
+            cols = [c for c in f.columns if c != "distinct_id"]
+            return pd.DataFrame(m[cols]).fillna(0).astype(float), pd.Series(m["__label"]).fillna(0).astype(int), cols
+
+        p = argparse.ArgumentParser()
+        for a in ["train_features","train_labels","model_out","output_json","holdout_features","holdout_labels"]:
+            p.add_argument(a, nargs="?" if "holdout" in a else None)
+        p.add_argument("--random-state", type=int, default=42)
+        args = p.parse_args()
+
+        Xtr, ytr, cols = load_xy(args.train_features, args.train_labels)
+        if int(ytr.sum()) < 5 or int(len(ytr) - ytr.sum()) < 5:
+            print("degenerate training data", file=sys.stderr); sys.exit(1)
+        model = LogisticRegression(C=1.0, max_iter=200, random_state=args.random_state)
+        model.fit(Xtr.to_numpy(), ytr.to_numpy())
+        pickle.dump({{"model": model, "feature_cols": cols}}, open(args.model_out, "wb"))
+
+        auc = None
+        if args.holdout_features and args.holdout_labels:
+            Xh, yh, _ = load_xy(args.holdout_features, args.holdout_labels)
+            if len(Xh) and yh.nunique() >= 2:
+                Xh = Xh.reindex(columns=cols, fill_value=0)
+                auc = float(roc_auc_score(yh.to_numpy(), model.predict_proba(Xh.to_numpy())[:, 1]))
+        json.dump({{"holdout_auc": round(auc,4) if auc is not None else None,
+                   "n_train": int(len(ytr)), "n_features": len(cols)}}, open(args.output_json, "w"))
+        ```
+
+        **Reference `predict.py`** (keep exactly; it just applies the model):
+
+        ```python
+        import sys, pickle
+        import pandas as pd
+        score_path, model_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+        b = pickle.load(open(model_path, "rb"))
+        f = pd.read_csv(score_path)
+        X = f.reindex(columns=b["feature_cols"], fill_value=0).fillna(0).astype(float)
+        p = b["model"].predict_proba(X.to_numpy())[:, 1]
+        pd.DataFrame({{"distinct_id": f["distinct_id"], "p_y": p.round(6)}}).to_csv(out_path, index=False)
+        ```
+
+        **recipe.yml** — informational metadata for the model card. Example:
+
+        ```yaml
+        model_class: sklearn.linear_model.LogisticRegression
+        model_params: {{C: 1.0, max_iter: 200, random_state: 42}}
+        features:
+            source_sql: features.sql
+            description: <one line on your feature set>
+        agent:
+            description: <what you tried, what won, top features and why>
+        ```
+
+        ## Finalize
+
+        When all four files are uploaded for the winning iteration:
+
+        1. (Optional) confirm with `autoresearch-training-runs-artifacts-retrieve` that
+           features.sql, train.py, predict.py, and recipe.yml are all present.
+        2. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
+           and `id = "{training_run_id}"`. The backend picks the best iteration, decides
+           champion vs challenger, and attaches your uploaded bundle as the model's artifact.
+
+        **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
+        AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.
     """).strip()
 
     if pending_suggestions:  # noqa: SIM102
@@ -443,12 +500,12 @@ def build_agent_description(
             "",
             "The following suggestions have been queued by users or agents. At the start of your",
             "first iteration, decide for each:",
-            "- **Translate to a recipe** — spawn one or more iterations. Set status to acted_on.",
+            "- **Translate to an iteration** — spawn one or more iterations. Set status to acted_on.",
             "- **Apply as a constraint** — use as context across your iterations. Set status to picked_up.",
             "- **Reject** — violates a guardrail or is irrelevant. Set status to dismissed with rationale.",
             "",
-            "For each suggestion you act on, include a brief `agent_response` in your recipe output's",
-            "`agent_description` field explaining how you interpreted it.",
+            "For each suggestion you act on, note how you interpreted it in the relevant iteration's",
+            "agent_description and in recipe.yml's agent.description.",
             "",
         ]
         for s in pending_suggestions:
@@ -496,6 +553,7 @@ def run_training(
         description = build_agent_description(
             pipeline=pipeline,
             iteration_budget=iteration_budget,
+            training_run_id=str(training_run.id),
             pending_suggestions=pending_suggestions or None,
         )
 

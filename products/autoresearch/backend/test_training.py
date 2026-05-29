@@ -77,7 +77,7 @@ class TestBuildAgentDescription(BaseTest):
 
     def test_prompt_renders_without_unresolved_placeholders(self) -> None:
         pipeline = self._make_pipeline()
-        prompt = build_agent_description(pipeline=pipeline, iteration_budget=5)
+        prompt = build_agent_description(pipeline=pipeline, iteration_budget=5, training_run_id="run-123")
         # `{anchors}` and `{lookback_days}` are intentional — they are documented
         # placeholders the agent is taught to use inside its own SQL. Anything
         # else with single-curly-braces is a Python interpolation bug.
@@ -88,12 +88,24 @@ class TestBuildAgentDescription(BaseTest):
 
     def test_prompt_includes_pipeline_specifics(self) -> None:
         pipeline = self._make_pipeline()
-        prompt = build_agent_description(pipeline=pipeline, iteration_budget=5)
+        prompt = build_agent_description(pipeline=pipeline, iteration_budget=5, training_run_id="run-123")
         assert pipeline.target_event in prompt
         assert str(pipeline.horizon_days) in prompt
         assert str(pipeline.pk) in prompt
+        # The training run id is injected so the agent can address the nested tools.
+        assert "run-123" in prompt
         # The "Step 3 — Fit and evaluate" section is the new sandbox loop.
         assert "Fit and evaluate" in prompt
         assert "roc_auc_score" in prompt
-        # Old corr() heuristic should be gone.
-        assert "0.5 + 0.25 × Σ|corr_i|" not in prompt
+
+    def test_prompt_drives_artifact_bundle_flow_not_set_output(self) -> None:
+        pipeline = self._make_pipeline()
+        prompt = build_agent_description(pipeline=pipeline, iteration_budget=5, training_run_id="run-123")
+        # New flow: upload a runnable bundle + finalize. The legacy set_output/recipe.json
+        # path must be gone from the prompt.
+        assert "autoresearch-training-runs-artifacts-upload-create" in prompt
+        assert "autoresearch-training-runs-complete-create" in prompt
+        assert "train.py" in prompt and "predict.py" in prompt and "features.sql" in prompt
+        # The legacy curl-to-set_output submission and recipe.json must be gone.
+        assert "set_output/" not in prompt
+        assert "recipe.json" not in prompt
