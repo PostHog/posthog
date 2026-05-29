@@ -1,6 +1,7 @@
 import pytest
 
 from posthog.temporal.ai.pulse.detectors import DetectionResult, PulseDetector, get_detector, register_detector
+from posthog.temporal.ai.pulse.types import DetectChangesInputs, EnrichedFinding, Finding
 
 
 class TestDetectorRegistry:
@@ -38,3 +39,17 @@ class TestDetectorRegistry:
         assert result.baseline_median == 100.0
         assert result.impact == 5.0
         assert result.robust_z == 3.2
+
+
+class TestNoStaleZScoreReferences:
+    def test_finding_has_no_z_score_field(self):
+        assert "z_score" not in Finding.model_fields
+        assert "robust_z" in Finding.model_fields
+        assert "impact" in Finding.model_fields
+        assert "z_score" not in EnrichedFinding.model_fields
+        assert "robust_z" in EnrichedFinding.model_fields
+        assert "impact" in EnrichedFinding.model_fields
+
+    def test_detect_changes_inputs_uses_robust_z_threshold(self):
+        assert "z_threshold" not in DetectChangesInputs.model_fields
+        assert "robust_z_threshold" in DetectChangesInputs.model_fields
