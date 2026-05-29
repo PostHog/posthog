@@ -203,7 +203,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
                 <p className="text-secondary text-xs mt-1 mb-0">
-                    Only the first 200 channels are shown — type to search for a specific channel.
+                    Only the first page of channels is shown — type to search for a specific channel.
                 </p>
             ) : null}
 
