@@ -8,8 +8,10 @@
 //!   `routing_processor.rs` + `partition_router.rs` (PR 1.5)
 //! - `offset_tracker` — per-partition commit tracking plus the per-key replay primitive,
 //!   lifted/extended from `kafka-deduplicator` `offset_tracker.rs` for replay idempotence (PR 1.5)
-//! - `worker` — long-lived per-partition task that owns the `Receiver` returned by
-//!   [`router::PartitionRouter::add_partition`] and runs the Stage 1 processing loop (PR 1.6)
+//!
+//! The long-lived per-partition worker that owns the `Receiver` returned by
+//! [`router::PartitionRouter::add_partition`] and runs the Stage 1 processing loop lives in
+//! [`crate::workers`] (PR 1.6).
 
 pub mod offset_tracker;
 pub mod router;

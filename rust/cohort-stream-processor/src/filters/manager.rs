@@ -196,12 +196,10 @@ mod tests {
                 "type": "AND",
                 "values": [{
                     "type": "behavioral",
-                    "value": "performed_event_multiple",
+                    "value": "performed_event",
                     "key": "$pageview",
                     "time_value": 7,
                     "time_interval": "day",
-                    "operator": "gte",
-                    "operator_value": 3,
                     "conditionHash": "0123456789abcdef",
                     "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
                 }],

@@ -23,23 +23,22 @@ fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
     }
 }
 
-/// A `performed_event_multiple` leaf on `$pageview` with a fixed conditionHash and a tunable
-/// window/threshold (the fields that the conditionHash does *not* encode).
 /// A compiled program shared by every leaf with `BEHAVIORAL_HASH` (the conditionHash encodes only
-/// the event matcher, so the window/threshold do not change it — nor the bytecode).
+/// the event matcher, so the window does not change it — nor the bytecode).
 fn behavioral_bytecode() -> Value {
     json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
 }
 
-fn behavioral_multiple(time_value: i64, operator_value: i64) -> Value {
+/// A `performed_event` leaf on `$pageview` with a fixed conditionHash and a tunable window (the
+/// `time_value`, which the conditionHash does *not* encode). `performed_event_multiple` is the
+/// bucket-state path deferred to PR 2.1, so PR 1.6's catalog uses `performed_event`.
+fn behavioral_performed_event(time_value: i64) -> Value {
     json!({
         "type": "behavioral",
-        "value": "performed_event_multiple",
+        "value": "performed_event",
         "key": "$pageview",
         "time_value": time_value,
         "time_interval": "day",
-        "operator": "gte",
-        "operator_value": operator_value,
         "conditionHash": "0123456789abcdef",
         "bytecode": behavioral_bytecode(),
     })
@@ -64,14 +63,14 @@ fn cohort(values: Vec<Value>) -> Value {
     json!({ "properties": { "type": "AND", "values": values } })
 }
 
-/// The explicit PR-1.3 acceptance test: two cohorts on the same team, both
-/// `performed_event_multiple` on `$pageview` with the **same** conditionHash but different
-/// windows/thresholds, must produce two distinct leaf state keys under one conditionHash.
+/// The C1 regression / PR-1.3 acceptance test: two cohorts on the same team, both
+/// `performed_event` on `$pageview` with the **same** conditionHash but different windows, must
+/// produce two distinct leaf state keys under one conditionHash.
 #[test]
 fn same_hash_different_windows_produce_distinct_leaf_state_keys() {
     let catalog = build_catalog_from_rows(vec![
-        row(1, 7, cohort(vec![behavioral_multiple(7, 3)])),
-        row(2, 7, cohort(vec![behavioral_multiple(30, 5)])),
+        row(1, 7, cohort(vec![behavioral_performed_event(7)])),
+        row(2, 7, cohort(vec![behavioral_performed_event(30)])),
     ]);
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
@@ -93,7 +92,7 @@ fn behavioral_and_person_indexed_cohort_ref_kept_in_tree_only() {
         1,
         7,
         cohort(vec![
-            behavioral_multiple(7, 3),
+            behavioral_performed_event(7),
             person_leaf(),
             cohort_ref(99),
         ]),
@@ -128,7 +127,7 @@ fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
         1,
         7,
         cohort(vec![
-            behavioral_multiple(7, 3),
+            behavioral_performed_event(7),
             json!({ "type": "behavioral", "value": "performed_event", "key": "$click" }),
             json!({
                 "type": "behavioral",
@@ -156,8 +155,12 @@ fn bytecode_is_captured_and_deduped_by_condition_hash() {
     // Same conditionHash across two cohorts (different windows) → one bytecode entry; the person
     // leaf adds a second, distinct one. This is what PR 1.6 fetches to feed the HogVM.
     let catalog = build_catalog_from_rows(vec![
-        row(1, 7, cohort(vec![behavioral_multiple(7, 3), person_leaf()])),
-        row(2, 7, cohort(vec![behavioral_multiple(30, 5)])),
+        row(
+            1,
+            7,
+            cohort(vec![behavioral_performed_event(7), person_leaf()]),
+        ),
+        row(2, 7, cohort(vec![behavioral_performed_event(30)])),
     ]);
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
@@ -194,7 +197,7 @@ fn leaf_without_bytecode_is_dropped() {
 #[test]
 fn teams_are_isolated() {
     let catalog = build_catalog_from_rows(vec![
-        row(1, 7, cohort(vec![behavioral_multiple(7, 3)])),
+        row(1, 7, cohort(vec![behavioral_performed_event(7)])),
         row(2, 8, cohort(vec![person_leaf()])),
     ]);
 

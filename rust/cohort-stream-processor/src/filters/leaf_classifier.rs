@@ -17,6 +17,7 @@ use crate::filters::tree::{
 };
 use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
+use crate::stage1::pick_state::pick_state_variant;
 
 /// Why a leaf was dropped during parse. Doubles as the `reason` label on the skip counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,12 @@ pub enum LeafDropReason {
     UnsupportedBehavioralValue,
     /// A behavioral leaf keyed by an action id (integer `key`) — never produced bytecode.
     BehavioralActionKey,
+    /// A supported, bytecode-bearing behavioral leaf whose Stage 1 state variant is not
+    /// implemented in PR 1.6 — `performed_event_multiple` (bucket variants are PR 2.1) or a
+    /// `performed_event` with no resolvable window. Dropping it here upholds the parity invariant
+    /// that an unsupported variant never reaches the worker
+    /// ([`pick_state_variant`](crate::stage1::pick_state::pick_state_variant)).
+    UnsupportedStateVariant,
     /// A leaf that matches none of the recognized shapes.
     MalformedLeaf,
 }
@@ -42,6 +49,7 @@ impl LeafDropReason {
             Self::MissingBytecode => "missing_bytecode",
             Self::UnsupportedBehavioralValue => "unsupported_behavioral_value",
             Self::BehavioralActionKey => "behavioral_action_key",
+            Self::UnsupportedStateVariant => "unsupported_state_variant",
             Self::MalformedLeaf => "malformed_leaf",
         }
     }
@@ -119,7 +127,15 @@ fn classify_behavioral(node: &Value) -> LeafClass {
     }
     .with_state_key();
 
-    LeafClass::Keep(CohortLeaf::Behavioral(leaf))
+    // 6. Resolve the Stage 1 state variant. Variants PR 1.6 cannot represent yet
+    //    (`performed_event_multiple`, windowless `performed_event`) are dropped here so they never
+    //    reach the worker.
+    match pick_state_variant(&leaf) {
+        Ok((variant, _window)) => {
+            LeafClass::Keep(CohortLeaf::Behavioral(leaf.with_state_variant(variant)))
+        }
+        Err(_) => LeafClass::Drop(LeafDropReason::UnsupportedStateVariant),
+    }
 }
 
 fn classify_cohort_ref(node: &Value) -> LeafClass {
@@ -223,7 +239,36 @@ mod tests {
     }
 
     #[test]
-    fn behavioral_multiple_is_kept_with_cached_key() {
+    fn performed_event_is_kept_with_cached_key_and_variant() {
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+        });
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            panic!("expected a kept behavioral leaf");
+        };
+        assert_eq!(leaf.condition_hash, hash_bytes());
+        assert_eq!(leaf.value, BehavioralValue::PerformedEvent);
+        assert_eq!(leaf.event_key, "$pageview");
+        assert_eq!(leaf.time_value, Some(7));
+        assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
+        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
+        // PR 1.6 resolves and caches the variant; performed_event → BehavioralSingle.
+        assert_eq!(
+            leaf.state_variant,
+            Some(crate::stage1::state::StateVariant::BehavioralSingle),
+        );
+    }
+
+    #[test]
+    fn performed_event_multiple_is_dropped_as_unsupported_variant() {
+        // The bucket variants are PR 2.1; in PR 1.6 the leaf is dropped at classify so it never
+        // reaches the worker.
         let node = json!({
             "type": "behavioral",
             "value": "performed_event_multiple",
@@ -235,16 +280,27 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
-            panic!("expected a kept behavioral leaf");
-        };
-        assert_eq!(leaf.condition_hash, hash_bytes());
-        assert_eq!(leaf.value, BehavioralValue::PerformedEventMultiple);
-        assert_eq!(leaf.event_key, "$pageview");
-        assert_eq!(leaf.time_value, Some(7));
-        assert_eq!(leaf.operator.as_deref(), Some("gte"));
-        assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
-        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
+        assert!(matches!(
+            classify_leaf(&node),
+            LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
+        ));
+    }
+
+    #[test]
+    fn performed_event_without_window_is_dropped_as_unsupported_variant() {
+        // A performed_event with neither relative window nor explicit datetime has no derivable
+        // window, so its state variant cannot be resolved.
+        let node = json!({
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "conditionHash": HASH,
+            "bytecode": bytecode(),
+        });
+        assert!(matches!(
+            classify_leaf(&node),
+            LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
+        ));
     }
 
     #[test]

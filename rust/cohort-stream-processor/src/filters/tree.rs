@@ -3,8 +3,8 @@
 //! These types deliberately do **not** depend on the feature-flags crate — they borrow only
 //! the serde field names. The tree is parsed **as-is**: no `_merge_sibling_single_property_groups`
 //! and no `_preprocess_property_groups`, so Stage 2 can re-walk the original leaves later. Each
-//! kept leaf caches its derived [`LeafStateKey`] (and reserves a `state_variant` slot PR 1.6
-//! fills in) so the hot path never re-derives it.
+//! kept leaf caches its derived [`LeafStateKey`] and (for behavioral leaves) its resolved
+//! [`StateVariant`] so the hot path never re-derives them.
 
 use std::sync::Arc;
 
@@ -14,10 +14,7 @@ use serde_json::Value;
 use crate::filters::leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::stage1::key::LeafStateKey;
-
-/// Reserved slot for the per-leaf Stage 1 state variant. PR 1.6 (D-6) swaps the alias to a
-/// real `StateVariant` enum without touching any constructor or the leaf struct shape.
-pub type StateVariantSlot = ();
+use crate::stage1::state::StateVariant;
 
 /// The seven cohort behavioral predicate types (`BehavioralPropertyType` in
 /// `posthog/models/property/property.py`). Only [`PerformedEvent`](Self::PerformedEvent) and
@@ -90,7 +87,11 @@ pub struct BehavioralLeafConfig {
     /// Derived once at parse time via [`with_state_key`](Self::with_state_key) and then
     /// immutable for the lifetime of the snapshot.
     pub leaf_state_key: LeafStateKey,
-    pub state_variant: Option<StateVariantSlot>,
+    /// Resolved once at classify time via [`pick_state_variant`](crate::stage1::pick_state::pick_state_variant)
+    /// and recorded by [`with_state_variant`](Self::with_state_variant). [`None`] only while the
+    /// struct is mid-construction (the literal-then-builder pattern); a kept leaf always carries
+    /// `Some`, since a leaf whose variant is unsupported is dropped rather than kept.
+    pub state_variant: Option<StateVariant>,
     /// The leaf's inline compiled bytecode (sibling to `conditionHash` in the filter JSON), the
     /// program PR 1.6 feeds to [`crate::hogvm::evaluate`]. `Arc` so tree clones / ArcSwap snapshots
     /// share one allocation. Excluded from [`LeafStateKey`] (the LSK hashes `condition_hash`, which
@@ -105,6 +106,15 @@ impl BehavioralLeafConfig {
     #[must_use]
     pub fn with_state_key(mut self) -> Self {
         self.leaf_state_key = LeafStateKey::for_behavioral(&self);
+        self
+    }
+
+    /// Record the leaf's resolved [`StateVariant`]. The classifier calls this after
+    /// [`pick_state_variant`](crate::stage1::pick_state::pick_state_variant) accepts the leaf, so a
+    /// kept behavioral leaf always carries `Some(variant)`.
+    #[must_use]
+    pub fn with_state_variant(mut self, variant: StateVariant) -> Self {
+        self.state_variant = Some(variant);
         self
     }
 }

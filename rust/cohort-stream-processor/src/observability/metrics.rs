@@ -51,6 +51,41 @@ pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// per-partition backpressure; rising depth means a worker is falling behind the consumer.
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 
+// ── Stage 1 worker (PR 1.6) ────────────────────────────────────────────────────
+/// Events the worker fully processed (passed preflight + applied state). Together with
+/// [`STAGE1_EVENTS_SKIPPED`] this accounts for every event the worker dequeued (counter).
+pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
+/// Events skipped whole, labelled by `reason`
+/// (`null_person_id`|`unparseable_person_id`|`no_team_filters`|`no_conditions`|
+/// `globals_parse_error`|`bad_timestamp`) (counter).
+pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
+/// HogVM evaluations performed, labelled by `kind` (`behavioral`|`person_property`) — one per
+/// unique conditionHash per event, preserving the Node consumer's dedup unit (counter).
+pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
+/// Leaf membership flips emitted, labelled by `kind`
+/// (`behavioral_entered`|`person_entered`|`person_left`). `behavioral_left` is intentionally
+/// omitted until sweep eviction (PR 2.2–2.3) so it cannot appear prematurely (counter).
+pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
+/// `cf_stage1` records written, labelled by `variant` (counter).
+pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
+/// First-time `cf_person_index` appends (one per newly-seen `(person, leaf_state_key)`) (counter).
+pub const STAGE1_PERSON_INDEX_APPENDS: &str = "stage1_person_index_appends_total";
+/// Per-key applies skipped because the source `(partition, offset)` was already folded in — Kafka
+/// replay idempotence. Labelled by `variant` (counter).
+pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
+/// Person-property applies dropped by the event-time argMax tiebreaker (an out-of-order event
+/// older than the last write) (counter).
+pub const STAGE1_ARGMAX_STALE: &str = "stage1_argmax_stale_total";
+/// Applies skipped because the leaf's resolved variant is not one PR 1.6 can apply — a
+/// belt-and-suspenders guard against a stale catalog once PR 2.1 lands. Labelled by `variant`
+/// (counter).
+pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
+/// Stored `cf_stage1` values that failed to decode; the offending key is skipped, never panicked
+/// (counter).
+pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
+/// End-to-end per-event processing latency in the worker (histogram, seconds).
+pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics

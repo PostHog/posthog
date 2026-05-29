@@ -26,3 +26,4 @@ pub mod stage1;
 pub mod stage2;
 pub mod store;
 pub mod sweep;
+pub mod workers;
