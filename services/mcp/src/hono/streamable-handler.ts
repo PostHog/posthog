@@ -1,43 +1,25 @@
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-
-import type { ContextMillResource } from '@/resources/manifest-types'
-
 import type { Lifecycle } from './app'
 import type { RedisLike } from './cache/RedisCache'
-import { HonoMcpServer } from './mcp-server'
-import { authenticateAndParse, handleCatchError, passThrough } from './request-utils'
+import { McpDispatcher } from './dispatcher'
+import { buildRateLimitResponse, DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT, RateLimiter } from './rate-limiter'
+import { authenticateAndParse, handleCatchError } from './request-utils'
 import { ToolCatalog } from './tool-catalog'
 import type { HonoCtx } from './types'
 
 export class StreamableMcpHandler {
-    private readonly catalog = new ToolCatalog()
-    private _resourceEntries: readonly ContextMillResource[] = []
+    private readonly dispatcher: McpDispatcher
+    private readonly rateLimiter: RateLimiter
 
     constructor(
-        private readonly redis: RedisLike,
+        redis: RedisLike,
         private readonly lifecycle: Lifecycle
-    ) {}
-
-    get resourceEntries(): readonly ContextMillResource[] {
-        return this._resourceEntries
+    ) {
+        this.dispatcher = new McpDispatcher(new ToolCatalog(), redis)
+        this.rateLimiter = new RateLimiter(redis, [DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT])
     }
 
     async warmup(): Promise<void> {
-        await Promise.all([this.catalog.warmup(), this._warmupResources()])
-    }
-
-    private async _warmupResources(): Promise<void> {
-        try {
-            const { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } =
-                await import('@/resources/internals')
-            const archive = await fetchContextMillResources()
-            const manifest = loadManifestFromArchive(archive)
-            this._resourceEntries = filterValidEntries(manifest.resources, archive)
-            clearResourceCache()
-        } catch (error) {
-            console.error('[StreamableMcpHandler] Failed to pre-load context-mill resources:', error)
-            this._resourceEntries = []
-        }
+        await this.dispatcher.warmup()
     }
 
     fetch = async (c: HonoCtx): Promise<Response> => {
@@ -53,20 +35,17 @@ export class StreamableMcpHandler {
             return auth.error
         }
 
-        let mcpServer: HonoMcpServer | undefined
+        // After auth so the bucket is keyed per token, not per IP — corporate
+        // NATs shouldn't share buckets across unrelated users.
+        const rateLimit = await this.rateLimiter.check(auth.props.userHash)
+        if (rateLimit && !rateLimit.allowed) {
+            return buildRateLimitResponse(rateLimit)
+        }
+
         try {
-            mcpServer = new HonoMcpServer(this.redis, auth.props, {
-                catalog: this.catalog,
-                resourceEntries: this._resourceEntries,
-            })
-            await mcpServer.init()
-            const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true })
-            await mcpServer.server.connect(transport)
-            return passThrough(await transport.handleRequest(c.req.raw))
+            return await this.dispatcher.handleRequest(c.req.raw, auth.props)
         } catch (error) {
             return handleCatchError(error, auth.props)
-        } finally {
-            await mcpServer?.server.close().catch(() => {})
         }
     }
 }

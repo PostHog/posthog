@@ -13,6 +13,8 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
+from products.cdp.backend.api import hooks
+
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
@@ -27,7 +29,6 @@ from .api import (
     conversation,
     core_memory,
     dashboard_collaborator,
-    hooks,
     license,
     sentry_stats,
     subscription,
@@ -46,7 +47,7 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import max_tools, session_summaries
+    from ee.api import hands_free, max_tools, session_summaries
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -99,6 +100,10 @@ def extend_api_router() -> None:
     environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
     environments_router.register(
+        r"max_hands_free", hands_free.MaxHandsFreeViewSet, "environment_max_hands_free", ["team_id"]
+    )
+
+    environments_router.register(
         r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
     )
 
@@ -117,7 +122,11 @@ if settings.ADMIN_PORTAL_ENABLED:
         backfill_precalculated_person_properties_view,
     )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
+    from posthog.admin.admins.email_mfa_bypass_admin import (
+        EmailMFABypassViewSet,
+        EmailMFAGlobalDisableViewSet,
+        email_mfa_bypass_view,
+    )
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
@@ -171,6 +180,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/api/email-mfa-bypass/<str:email>/",
             EmailMFABypassViewSet.as_view({"delete": "destroy"}),
             name="email-mfa-bypass-api-detail",
+        ),
+        path(
+            "admin/api/email-mfa-global-disable/",
+            EmailMFAGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
+            name="email-mfa-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",

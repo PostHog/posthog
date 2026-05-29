@@ -86,4 +86,16 @@ def self_capture_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(self_capture_wrapper(get_asgi_application()))
+def task_run_event_ingest_wrapper(func):
+    async def inner(scope, receive, send):
+        from products.tasks.backend.stream.event_ingest import handle_task_run_event_ingest
+
+        if await handle_task_run_event_ingest(scope, receive, send):
+            return
+
+        return await func(scope, receive, send)
+
+    return inner
+
+
+application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))

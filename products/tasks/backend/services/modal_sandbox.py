@@ -53,6 +53,7 @@ from products.tasks.backend.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    redact_sandbox_command,
     wait_for_health_check,
 )
 from products.tasks.backend.temporal.exceptions import (
@@ -419,6 +420,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -443,12 +445,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
     def execute_stream(
@@ -467,6 +472,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
@@ -476,12 +482,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
         class _ModalExecutionStream:
@@ -596,6 +605,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -603,6 +613,7 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
@@ -646,6 +657,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -683,6 +695,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

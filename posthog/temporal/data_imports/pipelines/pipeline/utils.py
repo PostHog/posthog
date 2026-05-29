@@ -28,7 +28,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP: dict[
     Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"], pa.DataType

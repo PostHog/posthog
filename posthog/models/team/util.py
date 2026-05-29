@@ -27,13 +27,13 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
     from posthog.models.cohort import Cohort
-    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.file_system.file_system_view_log import FileSystemViewLog
-    from posthog.models.insight_caching_state import InsightCachingState
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+    from products.feature_flags.backend.models.feature_flag import FeatureFlagHashKeyOverride
+    from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
     # Delete data modeling nodes and edges first to not block Team deletion.
     # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
@@ -316,7 +316,7 @@ def delete_data_modeling_schedules(team_ids: list[int]) -> None:
 
     from posthog.temporal.common.schedule import delete_schedule
 
-    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     saved_queries = list(
         DataWarehouseSavedQuery.objects.filter(

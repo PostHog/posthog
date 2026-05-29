@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -203,8 +202,6 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    const showReleaseModeChoice = useFeatureFlag('EXPERIMENTS_SHIP_VARIANT_RELEASE_MODE', 'test')
-
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
 
@@ -228,11 +225,9 @@ export function FinishExperimentModal(): JSX.Element {
         if (isSingleVariantShipped || !selectedVariantKey) {
             endExperimentWithoutShipping()
         } else {
-            // Control variant: preserve pre-flag behavior (prepend catch-all release condition).
-            // Test variant: honor the user's radio choice.
             finishExperiment({
                 selectedVariantKey,
-                releaseToEveryone: showReleaseModeChoice ? releaseToEveryone : true,
+                releaseToEveryone,
             })
         }
     }
@@ -300,12 +295,6 @@ export function FinishExperimentModal(): JSX.Element {
                         <>
                             <div>
                                 <LemonLabel>Variant to keep</LemonLabel>
-                                {!showReleaseModeChoice && (
-                                    <div className="text-sm text-secondary mb-2">
-                                        The selected variant will be rolled out to{' '}
-                                        <b>100% of {aggregationTargetName}</b>.
-                                    </div>
-                                )}
                                 <div className="w-1/2 mt-1">
                                     <LemonSelect
                                         className="w-full"
@@ -329,7 +318,7 @@ export function FinishExperimentModal(): JSX.Element {
                                     />
                                 </div>
                             </div>
-                            {showReleaseModeChoice && selectedVariantKey && (
+                            {selectedVariantKey && (
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel>How to release this variant</LemonLabel>
                                     <div

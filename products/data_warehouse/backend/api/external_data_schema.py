@@ -20,6 +20,9 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
+from posthog.temporal.data_imports.sources.common.sql import (
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+)
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 from products.data_warehouse.backend.data_load.service import (
@@ -38,20 +41,77 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
 )
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-    sync_frequency_to_sync_frequency_interval,
-)
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.postgres_helpers import (
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_postgres_source_location,
     reproject_direct_postgres_table,
 )
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
+
+
+_CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
+    "consolidated": frozenset({"consolidated"}),
+    "cdc_only": frozenset({"cdc_history"}),
+    "both": frozenset({"consolidated", "cdc_history"}),
+}
+
+
+def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str | None) -> bool:
+    """True when the new mode adds a physical write target (consolidated and/or cdc history table)."""
+    if old_mode == new_mode:
+        return False
+    old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
+    new_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(new_mode or "", frozenset())
+    return bool(new_targets - old_targets)
+
+
+def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
+    """Cancel any running workflow and reset schema state so the next run does a full snapshot.
+
+    Must save before triggering: the workflow reloads the schema and bails via
+    `CDCHandledExternally` if it sees `cdc_mode='streaming'`.
+    """
+    latest_running_job = (
+        ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id).order_by("-created_at").first()
+    )
+    if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+        try:
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+        except temporalio.service.RPCError as e:
+            logger.exception(
+                "Could not cancel running workflow before re-snapshot",
+                schema_id=str(instance.id),
+                exc_info=e,
+            )
+
+    instance.sync_type_config["reset_pipeline"] = True
+    instance.sync_type_config["cdc_mode"] = "snapshot"
+    instance.sync_type_config.pop("cdc_last_log_position", None)
+    instance.sync_type_config.pop("cdc_deferred_runs", None)
+    instance.initial_sync_complete = False
+    instance.status = ExternalDataSchema.Status.RUNNING
+    instance.save()
+
+    try:
+        trigger_external_data_workflow(instance)
+    except temporalio.service.RPCError as e:
+        logger.exception(
+            "Could not trigger external data workflow after re-snapshot reset",
+            schema_id=str(instance.id),
+            exc_info=e,
+        )
+        # Roll the status back so the Syncs UI doesn't show RUNNING for a workflow that never started.
+        # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
+        instance.status = ExternalDataSchema.Status.FAILED
+        instance.save(update_fields=["status"])
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -242,6 +302,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
 
+        # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
+        # whether the change adds a new physical write target (and therefore needs a re-snapshot).
+        previous_cdc_table_mode = instance.cdc_table_mode
+
+        # Refuse cdc_table_mode transitions that would kick a re-snapshot when the team is over its
+        # monthly sync billing limit. Checked here (pre-save) so we don't end up with the new mode
+        # persisted but no resnapshot triggered. Mirrors the gate in `resync` / `reload`.
+        if (
+            instance.sync_type == ExternalDataSchema.SyncType.CDC
+            and "cdc_table_mode" in data
+            and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            and is_any_external_data_schema_paused(instance.team_id)
+        ):
+            raise ValidationError(
+                "Monthly sync limit reached. Please increase your billing limit before changing "
+                "the CDC table mode — a full re-snapshot would be required."
+            )
+
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
         validated_data.pop("sync_frequency", None)
@@ -341,6 +419,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             cdc_table_mode = data.get("cdc_table_mode")
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
+
+            # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
+            # discovery already stored; refuse the switch when neither is set.
+            new_pk = data.get("primary_key_columns")
+            if new_pk:
+                payload["primary_key_columns"] = new_pk
+            elif not payload.get("primary_key_columns"):
+                raise ValidationError(
+                    f"CDC requires a primary key on table '{instance.name}'. "
+                    "Provide primary_key_columns or refresh schema discovery to pick one up."
+                )
+
             validated_data["sync_type_config"] = payload
         else:
             # For CDC schemas where sync_type isn't being changed, still allow cdc_table_mode updates
@@ -385,6 +475,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
+
+        # Catches a CDC schema being flipped on later when sync_type isn't changing — the
+        # sync_type branch above doesn't run, so PK presence isn't enforced there.
+        effective_sync_type = sync_type or instance.sync_type
+        if (
+            should_sync is True
+            and not instance.should_sync
+            and effective_sync_type == ExternalDataSchema.SyncType.CDC
+            and not instance.primary_key_columns
+        ):
+            raise ValidationError(
+                f"CDC requires a primary key on table '{instance.name}'. "
+                "Add a primary key on the source table and retry."
+            )
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
@@ -481,6 +585,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     logger.exception("Failed to sync CDC extraction schedule", exc_info=e)
 
             self._run_temporal_side_effect(sync_cdc_schedule)
+
+        # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
+        # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
+        # automatically once the snapshot completes via `run_post_load_operations`.
+        if is_cdc and "cdc_table_mode" in data:
+            new_cdc_table_mode = data.get("cdc_table_mode")
+            if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
+                logger.info(
+                    "cdc_table_mode_changed_resnapshot_triggered",
+                    schema_id=str(updated_instance.id),
+                    old_cdc_table_mode=previous_cdc_table_mode,
+                    new_cdc_table_mode=new_cdc_table_mode,
+                )
+                self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
 
         return updated_instance
 
@@ -843,7 +961,7 @@ def handle_external_data_schema_change(
 
     sync_frequency = None
     if external_data_schema.sync_frequency_interval:
-        from products.data_warehouse.backend.models.external_data_schema import (
+        from products.warehouse_sources.backend.models.external_data_schema import (
             sync_frequency_interval_to_sync_frequency,
         )
 

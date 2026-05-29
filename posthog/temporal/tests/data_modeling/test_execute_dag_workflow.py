@@ -36,7 +36,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 
 from products.data_modeling.backend.models import Edge, Node, NodeType
 from products.data_modeling.backend.models.dag import DAG
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

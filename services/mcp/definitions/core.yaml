@@ -164,6 +164,9 @@ tools:
     dashboards-create-from-template-json-create:
         operation: dashboards_create_from_template_json_create
         enabled: false
+    dashboards-create-text-tile-create:
+        operation: dashboards_create_text_tile_create
+        enabled: false
     dashboards-create-unlisted-dashboard-create:
         operation: dashboards_create_unlisted_dashboard_create
         enabled: false
@@ -208,6 +211,9 @@ tools:
         enabled: false
     dashboards-update:
         operation: dashboards_update
+        enabled: false
+    dashboards-update-text-tile-create:
+        operation: dashboards_update_text_tile_create
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
@@ -784,6 +790,9 @@ tools:
                 description: User UUID, or `@me` to target the authenticated user.
     users-cancel-email-change-request-partial-update:
         operation: users_cancel_email_change_request_partial_update
+        enabled: false
+    users-credentials-review-complete-create:
+        operation: users_credentials_review_complete_create
         enabled: false
     users-destroy:
         operation: users_destroy

@@ -1878,6 +1878,133 @@ async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
             await combine_patterns_from_chunks_activity(inputs)
 
 
+def test_get_persons_for_sessions_from_distinct_ids_maps_session_to_person():
+    from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
+    from ee.models.session_summaries import SingleSessionSummary
+
+    person = MagicMock()
+    person.uuid = "person-uuid-1"
+
+    summary = MagicMock(spec=SingleSessionSummary)
+    summary.distinct_id = "distinct-1"
+
+    mapping: dict[str, SingleSessionSummary] = {"session-1": summary}
+    with patch(
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
+        return_value={"distinct-1": person},
+    ):
+        result = get_persons_for_sessions_from_distinct_ids(
+            session_id_to_ready_summaries_mapping=mapping,
+            team_id=1,
+        )
+
+    assert result == {"session-1": person}
+
+
+def test_get_persons_for_sessions_from_distinct_ids_handles_multiple_sessions_same_distinct_id():
+    from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
+    from ee.models.session_summaries import SingleSessionSummary
+
+    person = MagicMock()
+    person.uuid = "person-uuid-shared"
+
+    summary_a = MagicMock(spec=SingleSessionSummary)
+    summary_a.distinct_id = "shared-distinct-id"
+    summary_b = MagicMock(spec=SingleSessionSummary)
+    summary_b.distinct_id = "shared-distinct-id"
+
+    mapping: dict[str, SingleSessionSummary] = {"session-a": summary_a, "session-b": summary_b}
+    with patch(
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
+        return_value={"shared-distinct-id": person},
+    ):
+        result = get_persons_for_sessions_from_distinct_ids(
+            session_id_to_ready_summaries_mapping=mapping,
+            team_id=1,
+        )
+
+    assert result == {"session-a": person, "session-b": person}
+
+
+def test_get_persons_for_sessions_from_distinct_ids_excludes_sessions_with_no_distinct_id():
+    from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
+    from ee.models.session_summaries import SingleSessionSummary
+
+    person = MagicMock()
+    person.uuid = "person-uuid-1"
+
+    summary_with_id = MagicMock(spec=SingleSessionSummary)
+    summary_with_id.distinct_id = "distinct-1"
+    summary_no_id = MagicMock(spec=SingleSessionSummary)
+    summary_no_id.distinct_id = None
+
+    mapping: dict[str, SingleSessionSummary] = {
+        "session-with-id": summary_with_id,
+        "session-no-id": summary_no_id,
+    }
+    with patch(
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
+        return_value={"distinct-1": person},
+    ) as mock_rpc:
+        result = get_persons_for_sessions_from_distinct_ids(
+            session_id_to_ready_summaries_mapping=mapping,
+            team_id=1,
+        )
+
+    # Session with no distinct_id is omitted from result and from RPC call
+    assert "session-no-id" not in result
+    assert result == {"session-with-id": person}
+    passed_ids = mock_rpc.call_args.kwargs["distinct_ids"]
+    assert "distinct-1" in passed_ids
+    assert len(passed_ids) == 1
+
+
+def test_get_persons_for_sessions_from_distinct_ids_returns_empty_when_all_sessions_lack_distinct_id():
+    from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
+    from ee.models.session_summaries import SingleSessionSummary
+
+    summary = MagicMock(spec=SingleSessionSummary)
+    summary.distinct_id = None
+
+    mapping: dict[str, SingleSessionSummary] = {"session-1": summary}
+    with patch(
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
+    ) as mock_rpc:
+        result = get_persons_for_sessions_from_distinct_ids(
+            session_id_to_ready_summaries_mapping=mapping,
+            team_id=1,
+        )
+
+    assert result == {}
+    mock_rpc.assert_not_called()
+
+
+def test_get_persons_for_sessions_from_distinct_ids_deduplicates_distinct_ids_sent_to_rpc():
+    from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
+    from ee.models.session_summaries import SingleSessionSummary
+
+    person = MagicMock()
+    summaries: dict[str, SingleSessionSummary] = {}
+    for i in range(5):
+        s = MagicMock(spec=SingleSessionSummary)
+        s.distinct_id = "same-id"
+        summaries[f"session-{i}"] = s
+
+    with patch(
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
+        return_value={"same-id": person},
+    ) as mock_rpc:
+        result = get_persons_for_sessions_from_distinct_ids(
+            session_id_to_ready_summaries_mapping=summaries,
+            team_id=1,
+        )
+
+    assert mock_rpc.call_count == 1
+    passed_ids = mock_rpc.call_args.kwargs["distinct_ids"]
+    assert passed_ids == ["same-id"]
+    assert len(result) == 5
+
+
 def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
     """Test that get_persons_for_sessions_from_distinct_ids returns empty dict on DB failure."""
     from ee.hogai.session_summaries.session_group.patterns import get_persons_for_sessions_from_distinct_ids
@@ -1887,7 +2014,7 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
     mock_summary.distinct_id = "test-distinct-id"
     session_id_to_summaries: dict[str, SingleSessionSummary] = {"session-1": mock_summary}
     with patch(
-        "ee.hogai.session_summaries.session_group.patterns.get_persons_by_distinct_ids",
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
         side_effect=Exception('relation "posthog_person" does not exist'),
     ):
         result = get_persons_for_sessions_from_distinct_ids(

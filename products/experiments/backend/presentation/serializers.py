@@ -20,7 +20,6 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.llm_prompt import LLMPrompt
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -30,6 +29,7 @@ from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -290,7 +290,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
     @extend_schema_field(OpenApiTypes.OBJECT)
     def get_feature_flag(self, obj):
-        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+        from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 

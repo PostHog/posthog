@@ -11,6 +11,8 @@ import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
+    MCP_SERVER_NAME,
+    MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
     getBaseUrlForRegion,
@@ -73,6 +75,10 @@ export type RequestProperties = {
     mcpClientName?: string
     mcpClientVersion?: string
     mcpProtocolVersion?: string
+    // Per-request `x-anthropic-client` value. Identifies the live inner client
+    // on pooled MCP transports — distinct from `mcpClientName` (session-pinned
+    // from the initialize body's `clientInfo.name`).
+    mcpVendorClient?: string
     readOnly?: boolean
     mode?: McpMode
     transport?: 'streamable-http' | 'sse'
@@ -86,7 +92,7 @@ export type RequestProperties = {
 
 export class MCP extends McpAgent<Env> {
     server = new McpServer(
-        { name: 'PostHog', version: '1.0.0' },
+        { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
         { instructions: instructionsFormatter.buildV1Instructions() }
     )
 
@@ -97,6 +103,11 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        mcpClientName: undefined,
+        mcpClientVersion: undefined,
+        mcpProtocolVersion: undefined,
+        mcpConsumer: undefined,
+        mcpVendorClient: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -387,6 +398,9 @@ export class MCP extends McpAgent<Env> {
                     ...(this.mcpClientName ? { mcp_client_name: this.mcpClientName } : {}),
                     ...(this.mcpClientVersion ? { mcp_client_version: this.mcpClientVersion } : {}),
                     ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.mcpVendorClient
+                        ? { mcp_vendor_client: this.requestProperties.mcpVendorClient }
+                        : {}),
                     ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...(this.requestProperties.mcpSessionId
@@ -489,7 +503,10 @@ export class MCP extends McpAgent<Env> {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params,
-                    clientName: this.mcpClientName,
+                    suppressStructuredContentForFormattedResults: new MCPClientProfile({
+                        clientName: this.mcpClientName,
+                        vendorClient: this.requestProperties.mcpVendorClient,
+                    }).isCodingAgent(),
                     distinctId,
                 })
             } catch (error: any) {
@@ -567,7 +584,6 @@ export class MCP extends McpAgent<Env> {
         // User-level flags resolve in parallel with cache seeding. Tool flags are
         // deferred until orgId is known so org-group rollouts evaluate correctly.
         const flagPromise = this.resolveVersionFlag()
-        const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -602,10 +618,9 @@ export class MCP extends McpAgent<Env> {
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, _apiKey] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
-            singleExecPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
@@ -617,11 +632,11 @@ export class MCP extends McpAgent<Env> {
             clientVersion: this.mcpClientVersion,
             consumer: this.requestProperties.mcpConsumer,
             oauthClientName,
+            vendorClient: this.requestProperties.mcpVendorClient,
         })
 
         const { useSingleExec, version } = this.resolveModeAndVersion({
             mode,
-            singleExecFlagOn,
             clientProfile,
             flagVersion,
             clientVersion,
@@ -712,7 +727,7 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        this.server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { instructions })
 
         // Register prompts and resources
         await Promise.all([
@@ -782,6 +797,7 @@ export class MCP extends McpAgent<Env> {
             getMcpClientName: async () => this.mcpClientName,
             getMcpClientVersion: async () => this.mcpClientVersion,
             getMcpProtocolVersion: async () => this.mcpProtocolVersion,
+            getMcpVendorClient: async () => this.requestProperties.mcpVendorClient,
             // Prefer the cached region (set on init after detection) so we don't miss it
             // when the inbound request didn't include the `region` hint.
             getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
@@ -874,21 +890,19 @@ export class MCP extends McpAgent<Env> {
      * wrapped client's reported name. Vibe-coding platforms (Lovable, Replit)
      * are detected by OAuth client name since they typically connect through a
      * generic MCP client wrapper. An explicit `mode` from the caller (header
-     * `x-posthog-mcp-mode` or query param `mode`) wins over the flag +
-     * client-profile heuristic.
+     * `x-posthog-mcp-mode` or query param `mode`) wins over the client-profile
+     * heuristic.
      */
     private resolveModeAndVersion(args: {
         mode: McpMode | undefined
-        singleExecFlagOn: boolean
         clientProfile: MCPClientProfile
         flagVersion: number | undefined
         clientVersion: number | undefined
     }): { useSingleExec: boolean; version: number } {
-        const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+        const { mode, clientProfile, flagVersion, clientVersion } = args
         const useSingleExec =
             mode === 'cli' ||
             (mode !== 'tools' &&
-                singleExecFlagOn &&
                 (clientProfile.isCodingAgent() ||
                     clientProfile.isPostHogCodeConsumer() ||
                     clientProfile.isVibeCodingClient()))
@@ -906,15 +920,6 @@ export class MCP extends McpAgent<Env> {
             return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
         } catch {
             return undefined
-        }
-    }
-
-    private async resolveSingleExecFlag(): Promise<boolean> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
-        } catch {
-            return false
         }
     }
 

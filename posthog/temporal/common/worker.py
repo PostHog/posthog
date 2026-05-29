@@ -13,6 +13,23 @@ from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
+from posthog.temporal.ai_observability.eval_reports.metrics import (
+    EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
+    EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
+    EvalReportsMetricsInterceptor,
+)
+from posthog.temporal.ai_observability.metrics import EvalsMetricsInterceptor
+from posthog.temporal.ai_observability.sentiment.metrics import (
+    SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
+    SENTIMENT_LATENCY_HISTOGRAM_METRICS,
+    SentimentMetricsInterceptor,
+)
+from posthog.temporal.ai_observability.trace_clustering.metrics import (
+    CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
+    CLUSTERING_LATENCY_HISTOGRAM_METRICS,
+    ClusteringMetricsInterceptor,
+)
+from posthog.temporal.ai_observability.trace_summarization.metrics import SummarizationMetricsInterceptor
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
@@ -24,23 +41,6 @@ from posthog.temporal.data_modeling.metrics import (
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
 )
-from posthog.temporal.llm_analytics.eval_reports.metrics import (
-    EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
-    EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
-    EvalReportsMetricsInterceptor,
-)
-from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
-from posthog.temporal.llm_analytics.sentiment.metrics import (
-    SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
-    SENTIMENT_LATENCY_HISTOGRAM_METRICS,
-    SentimentMetricsInterceptor,
-)
-from posthog.temporal.llm_analytics.trace_clustering.metrics import (
-    CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
-    CLUSTERING_LATENCY_HISTOGRAM_METRICS,
-    ClusteringMetricsInterceptor,
-)
-from posthog.temporal.llm_analytics.trace_summarization.metrics import SummarizationMetricsInterceptor
 from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
@@ -305,6 +305,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            plugins=plugins,
         )
     else:
         worker = Worker(

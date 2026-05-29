@@ -47,9 +47,9 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
@@ -120,11 +120,13 @@ jobs:
                         - 'ee/billing/**'
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
-                        # --- Only the 8 products that DAGs actually import from ---
+                        # --- Only the products that DAGs actually import from ---
+                        - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/ai_observability/backend/**/*.py'
                         - 'products/llm_analytics/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'
@@ -152,6 +154,10 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
+                        # hogli db commands used for test database setup
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/hogli/**'
+                        - hogli.yaml
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -257,9 +263,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -276,7 +282,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: stable
                   components: cargo

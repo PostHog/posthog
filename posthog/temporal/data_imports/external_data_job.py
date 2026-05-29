@@ -54,9 +54,10 @@ from posthog.utils import get_machine_id
 from products.data_warehouse.backend.data_load.service import a_unpause_external_data_schedule
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import update_should_sync
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
 
@@ -377,8 +378,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if skip_post_import_activities:
                 workflow.logger.info(
                     "Skipping post-import activities for externally managed schema",
-                    schema_id=str(inputs.external_data_schema_id),
-                    source_id=str(inputs.external_data_source_id),
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "source_id": str(inputs.external_data_source_id),
+                    },
                 )
                 return
 
@@ -438,7 +441,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 workflow.logger.warning(
                     "DuckLake copy already running, skipping",
-                    schema_id=str(inputs.external_data_schema_id),
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
 
         except exceptions.ActivityError as e:
