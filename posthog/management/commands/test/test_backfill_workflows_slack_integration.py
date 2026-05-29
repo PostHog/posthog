@@ -6,6 +6,7 @@ from django.core.management import call_command
 from posthog.management.commands import backfill_workflows_slack_integration as backfill
 from posthog.management.commands.backfill_workflows_slack_integration import _rewrite_slack_workspace_in_actions
 from posthog.models import Team
+
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
