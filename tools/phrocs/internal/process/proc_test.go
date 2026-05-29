@@ -290,13 +290,31 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 		fmt.Fprintf(&input, "line %d\r\n", i)
 	}
 
-	// Use runReadLoop to feed data directly, avoiding the Linux kernel PTY
-	// race (commit 1a48632ffed6) where close() can discard unread data.
-	runReadLoop(t, p, input.String())
+	// Use runReadLoopCollect to feed data directly, avoiding the Linux kernel
+	// PTY race (commit 1a48632ffed6) where close() can discard unread data.
+	msgs := runReadLoopCollect(t, p, input.String())
 
 	lines := p.Lines()
-	if len(lines) < totalLines/2 {
-		t.Fatalf("expected at least %d buffered lines, got %d", totalLines/2, len(lines))
+	if len(lines) < totalLines {
+		t.Fatalf("expected all %d buffered lines, got %d", totalLines, len(lines))
+	}
+
+	// Count OutputMsg notifications — should be far fewer than totalLines.
+	var outputMsgCount int
+	for _, msg := range msgs {
+		if _, ok := msg.(OutputMsg); ok {
+			outputMsgCount++
+		}
+	}
+
+	t.Logf("lines=%d, OutputMsg count=%d (%.1fx reduction)",
+		totalLines, outputMsgCount, float64(totalLines)/float64(outputMsgCount))
+
+	if outputMsgCount >= totalLines {
+		t.Errorf("expected batching to reduce OutputMsg count below %d, got %d", totalLines, outputMsgCount)
+	}
+	if outputMsgCount > totalLines/5 {
+		t.Errorf("batching not effective enough: %d OutputMsgs for %d lines", outputMsgCount, totalLines)
 	}
 }
 
@@ -305,6 +323,12 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 // 1a48632ffed6) where data written and immediately followed by close() on the
 // child's PTY end can be dropped before the parent's read is scheduled.
 func runReadLoop(t *testing.T, p *Process, input string) {
+	t.Helper()
+	runReadLoopCollect(t, p, input)
+}
+
+// runReadLoopCollect is like runReadLoop but returns all messages emitted.
+func runReadLoopCollect(t *testing.T, p *Process, input string) []tea.Msg {
 	t.Helper()
 	outChannel := make(chan tea.Msg, 64)
 	done := make(chan struct{})
@@ -317,6 +341,13 @@ func runReadLoop(t *testing.T, p *Process, input string) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("readLoop did not return")
 	}
+	// Drain remaining messages from the channel.
+	close(outChannel)
+	var msgs []tea.Msg
+	for msg := range outChannel {
+		msgs = append(msgs, msg)
+	}
+	return msgs
 }
 
 func TestHasPrompt_partialLine(t *testing.T) {
