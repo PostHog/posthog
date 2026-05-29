@@ -182,13 +182,21 @@ async function executeQuery<N extends DataNode>(
             limitContext,
         })
 
-        if (response.detail) {
-            throw new Error(response.detail)
+        if (response == null || typeof response !== 'object') {
+            throw new Error('Query returned an empty response')
+        }
+
+        if ('detail' in response && response.detail) {
+            throw new Error(response.detail as string)
         }
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
             return response
+        }
+
+        if (!response.query_status?.id) {
+            throw new Error('Async query response is missing a query status id')
         }
 
         queryId = response.query_status.id

@@ -110,6 +110,18 @@ describe('query', () => {
         })
     })
 
+    it('throws a clean error when api.query resolves to null', async () => {
+        const querySpy = jest.spyOn(api, 'query').mockResolvedValueOnce(null as any)
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            limit: 100,
+        })
+
+        await expect(performQuery(q)).rejects.toThrow('Query returned an empty response')
+        querySpy.mockRestore()
+    })
+
     it('emits an event when a query errors', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
