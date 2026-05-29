@@ -166,10 +166,18 @@ export const pulseLogic = kea<pulseLogicType>([
         ],
     }),
     listeners(() => ({
-        saveSubscriptionSuccess: () => lemonToast.success('Pulse settings saved'),
-        saveSubscriptionFailure: () => lemonToast.error('Failed to save Pulse settings'),
-        submitFeedbackSuccess: () => lemonToast.success('Feedback recorded'),
-        submitFeedbackFailure: () => lemonToast.error('Failed to record feedback'),
+        saveSubscriptionSuccess: () => {
+            lemonToast.success('Pulse settings saved')
+        },
+        saveSubscriptionFailure: () => {
+            lemonToast.error('Failed to save Pulse settings')
+        },
+        submitFeedbackSuccess: () => {
+            lemonToast.success('Feedback recorded')
+        },
+        submitFeedbackFailure: () => {
+            lemonToast.error('Failed to record feedback')
+        },
     })),
     selectors({
         latestDigest: [
