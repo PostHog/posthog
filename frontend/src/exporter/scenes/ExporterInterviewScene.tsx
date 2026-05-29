@@ -12,11 +12,7 @@ import { InterviewExportPayload } from '../types'
 // Vapi surfaces several normal-completion signals through its `error` channel because
 // the underlying Daily.co transport reports the local participant being evicted as
 // an error. Treat these as expected end-of-call events rather than failures.
-const BENIGN_END_OF_CALL_MESSAGES = [
-    'Meeting has ended',
-    'Meeting ended due to ejection',
-    'Worker has ended call',
-]
+const BENIGN_END_OF_CALL_MESSAGES = ['Meeting has ended', 'Meeting ended due to ejection', 'Worker has ended call']
 
 const isBenignEndOfCallError = (message: string): boolean =>
     BENIGN_END_OF_CALL_MESSAGES.some((pattern) => message.includes(pattern))
