@@ -28,21 +28,21 @@ describe('createClientWarningsConsumer', () => {
         // type-correct — the Managers' bodies don't run.
         return newScope('shared-test', (b) =>
             b
-                .register('postgres', {
+                .add('postgres', {
                     start: () => Promise.resolve({ value: {} as PostgresRouter, stop: () => Promise.resolve() }),
                 })
-                .register('redisPool', {
+                .add('redisPool', {
                     start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
                 })
-                .register('teamManager', new TeamManagerScope({} as PostgresRouter))
-                .register('producerRegistry', {
+                .add('teamManager', new TeamManagerScope({} as PostgresRouter))
+                .add('producerRegistry', {
                     start: () =>
                         Promise.resolve({
                             value: {} as KafkaProducerRegistry<ProducerName>,
                             stop: () => Promise.resolve(),
                         }),
                 })
-                .register('staticDropEventTokens', {
+                .add('staticDropEventTokens', {
                     start: () => Promise.resolve({ value: [] as string[], stop: () => Promise.resolve() }),
                 })
         )

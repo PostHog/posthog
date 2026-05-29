@@ -142,8 +142,8 @@ export class IngestionGeneralServer implements NodeServer {
 
         const sharedInfraScope = newScope('shared-infra', (builder) =>
             builder
-                .register('postgres', new PostgresRouterScope(this.config, this.config.PLUGIN_SERVER_MODE!))
-                .register(
+                .add('postgres', new PostgresRouterScope(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .add(
                     'redisPool',
                     new RedisPoolScope({
                         connection: createIngestionRedisConnectionConfig(this.config),
@@ -151,10 +151,7 @@ export class IngestionGeneralServer implements NodeServer {
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
-                .register(
-                    'producerRegistry',
-                    new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config)
-                )
+                .add('producerRegistry', new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config))
         )
 
         // `teamManager` is built inside the extension via its Manager so
@@ -163,11 +160,9 @@ export class IngestionGeneralServer implements NodeServer {
         // started container to pass on to CDP services etc.
         const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         const sharedServicesScope = sharedInfraScope.extend('shared', (container, builder) =>
-            builder
-                .register('teamManager', new TeamManagerScope(container.postgres))
-                .register('staticDropEventTokens', {
-                    start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
-                })
+            builder.add('teamManager', new TeamManagerScope(container.postgres)).add('staticDropEventTokens', {
+                start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
+            })
         )
 
         const sharedServices = await sharedServicesScope.start()

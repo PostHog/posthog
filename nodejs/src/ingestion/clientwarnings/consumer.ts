@@ -29,16 +29,16 @@ export function createClientWarningsConsumer(
 ) {
     const scope = sharedScope.extend('clientwarnings', (container, builder) =>
         builder
-            .register('promiseScheduler', new PromiseSchedulerScope())
-            .register(
+            .add('promiseScheduler', new PromiseSchedulerScope())
+            .add(
                 'eventIngestionRestrictionManager',
                 new EventIngestionRestrictionManagerScope(container.redisPool, {
                     pipeline: 'clientwarnings',
                     staticDropEventTokens: container.staticDropEventTokens,
                 })
             )
-            .register('eventFilterManager', new EventFilterManagerScope(container.postgres))
-            .register(
+            .add('eventFilterManager', new EventFilterManagerScope(container.postgres))
+            .add(
                 'outputs',
                 new IngestionOutputsScope(() => createOutputsRegistry().build(container.producerRegistry, config))
             )

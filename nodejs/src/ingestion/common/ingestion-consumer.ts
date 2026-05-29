@@ -73,7 +73,7 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
         this.innerScope = scope.extend('common-consumer', (container, builder) => {
             const pipeline = pipelineFactory({ container })
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
-            return builder.register(
+            return builder.add(
                 'kafkaConsumer',
                 new KafkaConsumerScope(
                     config.INGESTION_CONSUMER_GROUP_ID,

@@ -14,37 +14,36 @@ export interface Manager<T> {
 
 type ValueOf<M> = M extends Manager<infer T> ? T : never
 
-/** Internal entry captured at registration time. */
-interface RegisteredManager {
-    name: string
-    manager: Manager<unknown>
-}
+/** Maps each container key to the `Manager` that produces its value. */
+type ManagerMap<S> = { [K in keyof S]: Manager<S[K]> }
 
 /**
- * Per-scope accumulator. `register` records a `Manager` for each entry;
+ * Per-scope accumulator. `add` records a `Manager` for each entry;
  * the corresponding value lands in the container only after the scope
  * starts. Until then, the builder is just a typed recipe.
  */
 export class ScopeBuilder<S extends Record<string, object> = Record<never, object>> {
-    private constructor(readonly managers: ReadonlyArray<RegisteredManager>) {}
+    private constructor(private readonly managers: ManagerMap<S>) {}
 
     static empty(): ScopeBuilder<Record<never, object>> {
-        return new ScopeBuilder<Record<never, object>>([])
+        return new ScopeBuilder<Record<never, object>>({})
     }
 
-    register<Name extends string, M extends Manager<object>>(
+    add<Name extends string, M extends Manager<object>>(
         name: Name & (Name extends keyof S ? never : Name),
         manager: M
     ): ScopeBuilder<S & Record<Name, ValueOf<M>>> {
-        return new ScopeBuilder<S & Record<Name, ValueOf<M>>>([
-            ...this.managers,
-            { name, manager: manager as Manager<unknown> },
-        ])
+        // Adding the `name` key with its `manager` produces exactly
+        // `ManagerMap<S & Record<Name, ValueOf<M>>>`, but a computed-key
+        // spread only types as a string index signature, so assert the shape
+        // the method signature already guarantees.
+        const managers: Record<string, Manager<object>> = { ...this.managers, [name]: manager }
+        return new ScopeBuilder<S & Record<Name, ValueOf<M>>>(managers as ManagerMap<S & Record<Name, ValueOf<M>>>)
     }
 
     build(name: string): Scope<S> {
-        const runner = new ManagerRunner(name, this.managers)
-        return new Scope<S>(name, () => runner.getContainer() as S, runner)
+        const runner = new ManagerRunner<S>(name, this.managers)
+        return new Scope<S>(name, () => runner.getContainer(), runner)
     }
 }
 
@@ -69,7 +68,7 @@ export function adaptManagedService<T extends ConsumerManagedService>(svc: T): M
         async start() {
             await svc.start()
             return {
-                value: svc as Omit<T, 'start' | 'stop'>,
+                value: svc,
                 stop: () => svc.stop(),
             }
         },
@@ -96,27 +95,26 @@ interface Runner {
 }
 
 /**
- * Boots and tears down the ordered list of managers. Tracks which managers
- * successfully started so `stop` only tears those down. The started
- * container is populated incrementally during start and torn down in
- * reverse on stop.
+ * Boots and tears down the map of managers. They start in parallel, so
+ * order is irrelevant; `stop` tears down only the ones that started.
  */
-class ManagerRunner implements Runner {
+class ManagerRunner<S extends Record<string, object>> implements Runner {
     private started: Array<{ name: string; value: object; stop: () => Promise<void> }> = []
-    private containerCache?: Record<string, object>
+    private containerCache?: S
 
     constructor(
         private readonly scopeName: string,
-        private readonly entries: ReadonlyArray<RegisteredManager>
+        private readonly managers: ManagerMap<S>
     ) {}
 
     async start(): Promise<void> {
-        logger.info(`Scope[${this.scopeName}]: starting ${this.entries.length} entries in parallel`)
+        const entries: Array<[string, Manager<object>]> = Object.entries(this.managers)
+        logger.info(`Scope[${this.scopeName}]: starting ${entries.length} entries in parallel`)
 
         const results = await Promise.allSettled(
-            this.entries.map(async (entry) => {
-                logger.info(`Scope[${this.scopeName}]: starting ${entry.name}`)
-                return await entry.manager.start()
+            entries.map(async ([name, manager]) => {
+                logger.info(`Scope[${this.scopeName}]: starting ${name}`)
+                return await manager.start()
             })
         )
 
@@ -125,9 +123,9 @@ class ManagerRunner implements Runner {
 
         for (let i = 0; i < results.length; i++) {
             const result = results[i]
-            const name = this.entries[i].name
+            const name = entries[i][0]
             if (result.status === 'fulfilled') {
-                started.push({ name, value: result.value.value as object, stop: result.value.stop })
+                started.push({ name, value: result.value.value, stop: result.value.stop })
             } else {
                 failures.push({ name, error: result.reason })
             }
@@ -151,7 +149,10 @@ class ManagerRunner implements Runner {
         }
 
         this.started = started
-        this.containerCache = Object.fromEntries(started.map((s) => [s.name, s.value]))
+        // `managers` is typed `ManagerMap<S>`, so each entry's value is the
+        // `S[K]` for its key — the assembled record is therefore `S`. The
+        // assertion only bridges `Object.fromEntries` erasing per-key types.
+        this.containerCache = Object.fromEntries(started.map((s) => [s.name, s.value])) as S
     }
 
     async stop(): Promise<void> {
@@ -169,7 +170,7 @@ class ManagerRunner implements Runner {
         }
     }
 
-    getContainer(): Record<string, object> {
+    getContainer(): S {
         if (!this.containerCache) {
             throw new Error('scope not started')
         }
