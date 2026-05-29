@@ -1,9 +1,12 @@
 import json
 
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Prefetch, Q
+from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
-from rest_framework import viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import mixins, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -12,8 +15,16 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
-from .serializers import AccountSerializer, CustomerJourneySerializer, CustomerProfileConfigSerializer
+from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+
+from .serializers import (
+    AccountNotebookSerializer,
+    AccountSerializer,
+    CustomerJourneySerializer,
+    CustomerProfileConfigSerializer,
+)
 from .utils import log_customer_profile_config_activity
 
 
@@ -138,7 +149,9 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).prefetch_related(
+            Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook"))
+        )
 
         search = self.request.query_params.get("search", "").strip()
         if search:
@@ -210,3 +223,79 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
     def perform_destroy(self, instance):
         log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
         super().perform_destroy(instance)
+
+
+@extend_schema(
+    tags=["customer_analytics"],
+    parameters=[
+        OpenApiParameter(
+            name="account_id",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.PATH,
+            description="UUID of the parent account.",
+        ),
+    ],
+)
+class AccountNotebookViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "account"
+    serializer_class = AccountNotebookSerializer
+    queryset = Notebook.objects.all()
+    lookup_field = "short_id"
+    filter_rewrite_rules = {"account_id": "resources__account_id"}
+
+    def _get_account(self) -> Account:
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team_id=self.team.id),
+        )
+        return get_object_or_404(queryset, id=self.parents_query_dict["account_id"])
+
+    def safely_get_queryset(self, queryset):
+        self._get_account()
+        return (
+            queryset.filter(deleted=False, visibility=Notebook.Visibility.INTERNAL)
+            .select_related("created_by", "last_modified_by")
+            .order_by("-last_modified_at")
+        )
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        account = self._get_account()
+        save_kwargs: dict = {
+            "team": self.team,
+            "created_by": self.request.user,
+            "last_modified_by": self.request.user,
+            "visibility": Notebook.Visibility.INTERNAL,
+        }
+
+        # Agents calling the MCP `accounts-notebooks-create` tool typically pass `text_content`
+        # (Markdown) without a ProseMirror `content` tree, since hand-writing ProseMirror is
+        # awkward. NotebookScene only renders `content`, so the result is a blank page. Treat
+        # `text_content` as Markdown and synthesize `content` from it when the caller hasn't.
+        validated = serializer.validated_data
+        text_content = validated.get("text_content")
+        existing_content = validated.get("content")
+        has_usable_content = (
+            isinstance(existing_content, dict)
+            and existing_content.get("type") == "doc"
+            and isinstance(existing_content.get("content"), list)
+        )
+        if text_content and not has_usable_content:
+            save_kwargs["content"] = {
+                "type": "doc",
+                "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}],
+            }
+
+        notebook = serializer.save(**save_kwargs)
+        ResourceNotebook.objects.create(notebook=notebook, account=account)
+
+    @transaction.atomic
+    def perform_destroy(self, instance: Notebook):
+        instance.delete()

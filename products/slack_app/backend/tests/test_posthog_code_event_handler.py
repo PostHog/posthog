@@ -245,6 +245,121 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         else:
             assert pending_picker is None
 
+    @parameterized.expand(
+        [
+            ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}),
+            ("message_changed_subtype", {"subtype": "message_changed"}),
+            ("bot_id", {"bot_id": "B0ALERT"}),
+            ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}),
+            ("app_id", {"app_id": "A0ALERT"}),
+            ("bot_message_subtype", {"subtype": "bot_message"}),
+            ("slackbot_user", {"user": "USLACKBOT"}),
+        ]
+    )
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_ignored_does_not_start_workflow(
+        self,
+        _name,
+        ignore_marker: dict,
+        mock_sync_connect,
+        mock_asyncio_run,
+        _mock_flag,
+    ):
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        ignored_event = {**self.event, **ignore_marker}
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, ignored_event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_command_text_routes_to_command_workflow(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
+        # Command text in a mention must dispatch the command workflow, never the agent
+        # mention workflow — even when a single coding-agent integration exists.
+        from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        event = {**self.event, "text": "<@UBOT123> project 2"}
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
+        assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
+        mock_asyncio_run.assert_called_once()
+
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_command_workflow_receives_all_workspace_candidates(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
+        # When multiple coding-agent integrations exist for the same workspace, all of
+        # their IDs must be forwarded to the command workflow so it can handle project
+        # commands without the caller having to pre-resolve a single target.
+        from posthog.models.team.team import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        event = {**self.event, "text": "<@UBOT123> project 2"}
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert set(workflow_inputs.integration_ids) == {
+            self.posthog_code_integration.id,
+            other_integration.id,
+        }
+
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_rules_add_without_repo_routes_to_command_workflow_for_picker(
+        self, mock_sync_connect, mock_asyncio_run, _mock_flag
+    ):
+        # ``rules add "description"`` with no inline repo is still a command, so
+        # the webhook hands it to the command workflow. The command workflow
+        # itself drives the interactive repo picker (its own signal handlers and
+        # wait_condition); the agent mention workflow is never involved.
+        from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        event = {**self.event, "text": '<@UBOT123> rules add "investigate flaky tests"'}
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
+        assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
+
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
@@ -259,6 +374,63 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_command_text_with_flag_off_skips_command_workflow(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
+        # Command text from an org outside the rollout must not spawn the command
+        # workflow either — the whole @PostHog surface is gated, not just the agent.
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        event = {**self.event, "text": "<@UBOT123> help"}
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_partial_flag_enable_filters_candidates(self, mock_sync_connect, mock_asyncio_run):
+        # Two integrations in the same workspace, only one in the rollout. The
+        # command workflow should receive only the enabled integration's id.
+        from posthog.models.team.team import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        disabled_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+        enabled_id = self.posthog_code_integration.id
+
+        def flag_for(integration):
+            return integration.id == enabled_id
+
+        with patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", side_effect=flag_for):
+            from products.slack_app.backend.api import (
+                ROUTE_HANDLED_LOCALLY,
+                route_posthog_code_event_to_relevant_region,
+            )
+
+            request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+            event = {**self.event, "text": "<@UBOT123> help"}
+
+            result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert workflow_inputs.integration_ids == [enabled_id]
+        assert disabled_integration.id not in workflow_inputs.integration_ids
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False)
@@ -467,3 +639,44 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert "app_mentions:read" in feedback_text
         if scope_value and "chat:write.customize" in scope_value:
             assert "chat:write.customize" not in feedback_text
+
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_over_quota_team_still_starts_workflow_for_in_workflow_enforcement(
+        self,
+        mock_sync_connect,
+        mock_asyncio_run,
+        mock_slack_cls,
+        _mock_flag,
+        _mock_is_team_limited,
+        mock_post_feedback,
+    ):
+        mock_slack_instance = mock_slack_cls.return_value
+        mock_slack_instance.missing_scopes.return_value = set()
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        event = {
+            "type": "app_mention",
+            "channel": "C001",
+            "user": "U123",
+            "ts": "1234.5678",
+            "thread_ts": "1234.5678",
+        }
+
+        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        # Quota enforcement now lives entirely inside the workflow — the webhook
+        # always schedules it, and the activity-level gate posts the denial
+        # before any billable LLM call. This guarantees a single owner for the
+        # quota decision instead of dual gating.
+        mock_sync_connect.assert_called_once()
+        mock_asyncio_run.assert_called_once()
+        mock_post_feedback.assert_not_called()

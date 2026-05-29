@@ -13,7 +13,11 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE, TYPES_WITH_TRANSPILED_FILTERS
+
+from products.cdp.backend.models.hog_functions.hog_function import (
+    TYPES_WITH_JAVASCRIPT_SOURCE,
+    TYPES_WITH_TRANSPILED_FILTERS,
+)
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -222,6 +226,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     key = serializers.CharField()
     label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
+    # For `choice` inputs: render as a searchable select on the frontend.
+    searchable = serializers.BooleanField(required=False)
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)

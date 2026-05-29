@@ -36,19 +36,30 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
 
         breadcrumbs: [
             (s) => [s.notebook, s.loading],
-            (notebook, loading): Breadcrumb[] => [
-                {
-                    key: Scene.Notebooks,
-                    name: 'Notebooks',
-                    path: urls.notebooks(),
-                    iconType: 'notebook',
-                },
-                {
-                    key: [Scene.Notebook, notebook?.short_id || 'new'],
-                    name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
-                    iconType: 'notebook',
-                },
-            ],
+            (notebook, loading): Breadcrumb[] => {
+                const parent: Breadcrumb =
+                    notebook?.parent_resource?.type === 'account'
+                        ? {
+                              key: Scene.CustomerAnalytics,
+                              name: 'Accounts',
+                              path: urls.customerAnalyticsAccounts(),
+                              iconType: 'group',
+                          }
+                        : {
+                              key: Scene.Notebooks,
+                              name: 'Notebooks',
+                              path: urls.notebooks(),
+                              iconType: 'notebook',
+                          }
+                return [
+                    parent,
+                    {
+                        key: [Scene.Notebook, notebook?.short_id || 'new'],
+                        name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
+                        iconType: 'notebook',
+                    },
+                ]
+            },
         ],
 
         projectTreeRef: [

@@ -10,7 +10,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
 from posthog.clickhouse.preaggregation.experiment_metric_events_sql import TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL
 from posthog.hogql_queries.experiments.experiment_query_runner import MIN_PRECOMPUTATION_DURATION_SECONDS
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -18,6 +17,7 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
 

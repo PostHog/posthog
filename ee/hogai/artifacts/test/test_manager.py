@@ -26,7 +26,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Insight
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import StoredNotebookArtifactContent

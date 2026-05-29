@@ -73,7 +73,20 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             <div>
                                 <div className="text-sm font-medium">Allow multiple tags per session</div>
                                 <div className="text-xs text-muted">
-                                    When off, the model picks exactly one tag. When on, it can pick zero or more.
+                                    Otherwise the model picks exactly one tag from your vocabulary.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </Field>
+                <Field name="scanner_config.allow_freeform_tags">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch checked={!!value} onChange={onChange} />
+                            <div>
+                                <div className="text-sm font-medium">Allow freeform tags</div>
+                                <div className="text-xs text-muted">
+                                    Lets the model emit tags outside your tag vocabulary.
                                 </div>
                             </div>
                         </div>
