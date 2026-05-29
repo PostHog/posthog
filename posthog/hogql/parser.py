@@ -207,11 +207,17 @@ _BACKEND_VERSION: dict[HogQLParserBackend, str] = {
     "python": "n/a",
 }
 
+# Parse durations span ~10μs (rust-py) to a few ms (cpp typical) to seconds (pathological queries). Default Prometheus
+# buckets bottom out at 5ms, so every sub-ms parse lands in the lowest bucket and histogram_quantile is useless at this
+# scale; the 1-2-5 progression below gives usable resolution from 5μs through 10s.
+_PARSE_DURATION_BUCKETS = (5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1, 5, 10)
+
 RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
     rule: Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
         labelnames=["backend", "version"],
+        buckets=_PARSE_DURATION_BUCKETS,
     )
     for rule in (ParseRule.EXPR, ParseRule.ORDER_EXPR, ParseRule.SELECT, ParseRule.FULL_TEMPLATE_STRING)
 }

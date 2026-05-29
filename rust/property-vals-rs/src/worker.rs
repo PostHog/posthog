@@ -24,10 +24,11 @@ pub async fn worker_loop<E, P, F>(
     producer: P,
     handle: lifecycle::Handle,
     fan_out_fn: F,
+    worker: &'static str,
 ) where
     E: IngestableEvent,
     P: Producer,
-    F: Fn(&E) -> Vec<TupleKey>,
+    F: Fn(&E) -> Vec<(TupleKey, u64)>,
 {
     let _guard = handle.process_scope();
 
@@ -45,7 +46,7 @@ pub async fn worker_loop<E, P, F>(
         tokio::select! {
             _ = handle.shutdown_recv() => {
                 info!("worker received shutdown; draining final flush");
-                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_SHUTDOWN).await;
+                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_SHUTDOWN, worker).await;
                 if let Err(e) = consumer.commit() {
                     warn!(error = %e, "kafka sync commit at shutdown failed; falling back to broker auto-commit");
                 }
@@ -53,22 +54,22 @@ pub async fn worker_loop<E, P, F>(
             }
             _ = flush_timer.tick() => {
                 handle.report_healthy();
-                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER).await;
+                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker).await;
             }
             recv = consumer.json_recv::<E>() => {
                 handle.report_healthy();
                 match recv {
                     Ok((event, offset)) => {
-                        metrics::counter!(EVENTS_RECEIVED).increment(1);
+                        metrics::counter!(EVENTS_RECEIVED, "worker" => worker).increment(1);
 
                         if config.should_process(event.team_id()) {
                             let tuples = fan_out_fn(&event);
-                            metrics::counter!(TUPLES_AGGREGATED).increment(tuples.len() as u64);
-                            for t in tuples {
-                                aggregator.add(t, 1);
+                            metrics::counter!(TUPLES_AGGREGATED, "worker" => worker).increment(tuples.len() as u64);
+                            for (t, count) in tuples {
+                                aggregator.add(t, count);
                             }
                         } else {
-                            metrics::counter!(EVENTS_FILTERED).increment(1);
+                            metrics::counter!(EVENTS_FILTERED, "worker" => worker).increment(1);
                         }
 
                         pending_offsets.insert(offset.partition(), offset);
@@ -79,6 +80,7 @@ pub async fn worker_loop<E, P, F>(
                                 &mut pending_offsets,
                                 &producer,
                                 FLUSH_REASON_BACKPRESSURE,
+                                worker,
                             ).await;
                         }
                     }
@@ -86,7 +88,7 @@ pub async fn worker_loop<E, P, F>(
                         // SingleTopicConsumer auto-stores poison-pill offsets.
                     }
                     Err(RecvErr::Kafka(e)) => {
-                        metrics::counter!(KAFKA_RECV_ERRORS).increment(1);
+                        metrics::counter!(KAFKA_RECV_ERRORS, "worker" => worker).increment(1);
                         warn!(error = %e, "kafka recv error");
                     }
                 }
@@ -104,6 +106,7 @@ pub(crate) async fn flush<P: Producer>(
     pending_offsets: &mut HashMap<i32, Offset>,
     producer: &P,
     reason: &'static str,
+    worker: &'static str,
 ) {
     if aggregator.is_empty() && pending_offsets.is_empty() {
         return;
@@ -111,11 +114,15 @@ pub(crate) async fn flush<P: Producer>(
 
     let snapshot: Vec<(TupleKey, u64)> = aggregator.drain().into_iter().collect();
 
-    metrics::counter!(FLUSH_TOTAL, "reason" => reason).increment(1);
-    metrics::histogram!(FLUSH_TUPLES).record(snapshot.len() as f64);
+    metrics::counter!(FLUSH_TOTAL, "reason" => reason, "worker" => worker).increment(1);
+    metrics::histogram!(FLUSH_TUPLES, "worker" => worker).record(snapshot.len() as f64);
+
+    for (_, count) in &snapshot {
+        metrics::histogram!(FLUSH_TUPLE_COUNT, "worker" => worker).record(*count as f64);
+    }
 
     if let Err(e) = producer.produce(snapshot.clone()).await {
-        metrics::counter!(PRODUCER_FLUSH_FAILED).increment(1);
+        metrics::counter!(PRODUCER_FLUSH_FAILED, "worker" => worker).increment(1);
         error!(error = %e, "produce failed; restoring counts, retrying next flush");
         for (tuple, count) in snapshot {
             aggregator.add(tuple, count);
@@ -128,7 +135,7 @@ pub(crate) async fn flush<P: Producer>(
     // within ~5s; shutdown forces a sync commit.
     for (_partition, offset) in pending_offsets.drain() {
         if let Err(e) = offset.store() {
-            metrics::counter!(OFFSET_STORE_FAILED).increment(1);
+            metrics::counter!(OFFSET_STORE_FAILED, "worker" => worker).increment(1);
             warn!(error = %e, "failed to store offset; auto-commit will be a no-op for this partition until the next successful flush");
         }
     }
@@ -225,7 +232,14 @@ mod tests {
 
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new();
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
 
         assert!(agg.is_empty());
         assert_eq!(producer.call_count(), 1);
@@ -239,7 +253,14 @@ mod tests {
 
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
 
         assert_eq!(
             agg.len(),
@@ -256,10 +277,24 @@ mod tests {
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
 
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
         assert!(!agg.is_empty());
 
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
         assert!(agg.is_empty());
         assert_eq!(producer.call_count(), 2);
     }
@@ -269,7 +304,14 @@ mod tests {
         let mut agg = Aggregator::new();
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new();
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
         assert_eq!(producer.call_count(), 0);
     }
 
@@ -280,11 +322,25 @@ mod tests {
 
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
 
         agg.add(tuple(2, "k1", "v1"), 1);
 
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+        )
+        .await;
 
         let batch = producer.last_items();
         assert_eq!(batch.len(), 1);
@@ -300,7 +356,14 @@ mod tests {
         let producer = MockProducer::new().fail_on(1).fail_on(2).fail_on(3);
 
         for _ in 0..3 {
-            flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+            flush(
+                &mut agg,
+                &mut pending,
+                &producer,
+                FLUSH_REASON_TIMER,
+                "test",
+            )
+            .await;
         }
 
         assert_eq!(agg.len(), 1);
@@ -373,6 +436,7 @@ mod tests {
                             &mut pending,
                             &producer,
                             FLUSH_REASON_TIMER,
+                            "test",
                         ));
                     }
                 }
