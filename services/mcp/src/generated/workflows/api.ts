@@ -225,13 +225,6 @@ export const hogFlowsPartialUpdateBodyActionsItemTypeMax = 100
 export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
     description: zod.string().optional().describe('Optional description.'),
-    status: zod
-        .enum(['draft', 'active', 'archived'])
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived')
-        .optional()
-        .describe(
-            'draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'
-        ),
     trigger_masking: zod
         .union([
             zod.object({

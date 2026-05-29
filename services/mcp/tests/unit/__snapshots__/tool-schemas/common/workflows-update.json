@@ -184,11 +184,6 @@
             ],
             "description": "Workflow name."
         },
-        "status": {
-            "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
-            "enum": ["draft", "active", "archived"],
-            "type": "string"
-        },
         "trigger_masking": {
             "anyOf": [
                 {
