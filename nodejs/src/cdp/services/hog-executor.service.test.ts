@@ -1170,6 +1170,55 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toBeUndefined()
         })
 
+        it('does not set result.error for a non-retriable 4xx response', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(404, { 'Content-Type': 'text/plain' })
+                res.end('not found')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const vmStateStackLength = invocation.state.vmState!.stack.length
+
+            const result = await executor.executeFetch(invocation)
+
+            // A 4xx is the hog function's to handle - it must not count as a destination failure
+            expect(result.error).toBeUndefined()
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            expect(result.invocation.state.attempts).toBe(0)
+
+            // The response is still delivered to the VM stack so the hog code can react to it
+            expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength + 1)
+            expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                status: 404,
+                body: 'not found',
+            })
+        })
+
+        it('reports succeeded when a hog function handles a 404 and returns normally', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(404, { 'Content-Type': 'text/plain' })
+                res.end('not found')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+
+            // Mirror hog-function-monitoring.service: the metric is derived from result.error
+            const metricName = result.error ? 'failed' : 'succeeded'
+            expect(metricName).toBe('succeeded')
+        })
+
         it('respects maxFetchRetries option to disable retries', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })

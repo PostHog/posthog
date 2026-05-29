@@ -713,7 +713,10 @@ export class HogExecutorService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
                 return result
-            } else {
+            } else if (fetchError || (fetchResponse?.status ?? 500) >= 500) {
+                // Only a network/security/timeout error or a server-side (5xx) response is a real
+                // destination failure. A non-retriable 4xx is delivered to the VM stack below so the
+                // hog function can handle it (e.g. a 404 on an existence check) and still report success.
                 result.error = new Error(message)
             }
         }
