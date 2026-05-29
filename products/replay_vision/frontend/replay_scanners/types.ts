@@ -3,7 +3,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
-export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -131,6 +131,11 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
+    {
+        value: 'indexer',
+        label: 'Indexer',
+        description: 'Indexes sessions to produce embeddings for similarity search.',
+    },
 ]
 
 export type EditorTab = 'observations' | 'configuration'
@@ -159,11 +164,17 @@ export interface ScorerScannerConfig {
     scale: { min: number; max: number; label?: string }
 }
 
+export interface IndexerScannerConfig {
+    prompt: string
+    emits_embeddings: boolean
+}
+
 export type ScannerConfig =
     | MonitorScannerConfig
     | SummarizerScannerConfig
     | ClassifierScannerConfig
     | ScorerScannerConfig
+    | IndexerScannerConfig
 
 export interface BaseReplayScanner {
     id: string
@@ -203,7 +214,12 @@ export interface ScorerScanner extends BaseReplayScanner {
     scanner_config: ScorerScannerConfig
 }
 
-export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+export interface IndexerScanner extends BaseReplayScanner {
+    scanner_type: 'indexer'
+    scanner_config: IndexerScannerConfig
+}
+
+export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | IndexerScanner
 
 export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
 
