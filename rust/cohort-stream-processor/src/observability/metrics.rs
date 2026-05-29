@@ -15,6 +15,18 @@ pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_t
 /// Cohorts skipped because their filter tree failed to parse (counter).
 pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
 
+// ── Store (PR 1.2) ─────────────────────────────────────────────────────────────
+/// RocksDB batch commits (multi-CF `WriteBatch`, `delete_partition`, …), labelled by
+/// `op` (counter).
+pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
+/// Latency of a committed RocksDB write, labelled by `op` (histogram, seconds).
+pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
+/// RocksDB operations that returned an error, labelled by `op` (counter).
+pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
+/// Malformed inputs the `cf_person_index` merge operator skipped instead of panicking
+/// (a panic on a compaction thread is FFI UB), labelled by `kind` (counter).
+pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics
