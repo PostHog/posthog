@@ -129,7 +129,7 @@ class DashboardTile(models.Model):
                 condition=Q(("button_tile__isnull", False)),
             ),
             models.CheckConstraint(
-                condition=build_unique_relationship_check(("insight", "text", "button_tile")),
+                condition=build_unique_relationship_check(("insight", "text", "button_tile", "widget")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
@@ -174,10 +174,11 @@ class DashboardTile(models.Model):
     def clean(self):
         super().clean()
 
-        # Widget exclusivity lands with the 4-way DB check in migration 0009 (PR #60491).
-        related_fields = sum(map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile")]))
+        related_fields = sum(
+            map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile", "widget")])
+        )
         if related_fields != 1:
-            raise ValidationError("Can only set exactly one of insight, text, or button_tile for this tile")
+            raise ValidationError("Can only set exactly one of insight, text, button_tile, or widget for this tile")
 
         if self.insight is None and (
             self.filters_hash is not None

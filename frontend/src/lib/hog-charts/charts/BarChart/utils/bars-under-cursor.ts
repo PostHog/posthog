@@ -119,9 +119,19 @@ export function resolveBarsAtCursor(
     return { hits, strictHit }
 }
 
+/** Pixel coordinate of a bar's baseline (value-0) edge — the side the bar grows from. */
+function barBaseline(bar: BarRect, isHorizontal: boolean): number {
+    return isHorizontal ? bar.x : bar.y + bar.height
+}
+
 /** Visible stacked segment under the cursor — last-drawn bar whose rect contains it.
  *  Also returns the next-smaller extent (the far edge of the bar that overdraws this
- *  segment's near side); callers clip the highlight rect there so hover preserves z-order. */
+ *  segment's near side); callers clip the highlight rect there so hover preserves z-order.
+ *
+ *  Overdraw only occurs in the sparse "overlap" layout where sibling segments share a
+ *  baseline (each series drawn from value 0, smallest on top). Properly stacked segments
+ *  each start where the previous ends, so no sibling shares the hovered segment's baseline
+ *  and `nextSmallerExtent` is 0 — the segment's own rect is already the visible slice. */
 export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series' | 'label' | 'dataIndex'> & {
         series: readonly S[]
@@ -131,8 +141,8 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
     }
 ): { series: S; bar: BarRect; dataIndex: number; nextSmallerExtent: number } | null {
     const { labels, hoveredLabel, cursor, isHorizontal } = args
-    let visible: { series: S; bar: BarRect; dataIndex: number; extent: number } | null = null
-    const allExtents: number[] = []
+    let visible: { series: S; bar: BarRect; dataIndex: number; extent: number; baseline: number } | null = null
+    const candidates: { extent: number; baseline: number }[] = []
     for (let dataIndex = 0; dataIndex < labels.length; dataIndex++) {
         if (labels[dataIndex] !== hoveredLabel) {
             continue
@@ -142,17 +152,27 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
             if (extent <= 0) {
                 continue
             }
-            allExtents.push(extent)
+            const baseline = barBaseline(bar, isHorizontal)
+            candidates.push({ extent, baseline })
             if (!barContainsPoint(bar, cursor)) {
                 continue
             }
             // Overwrite so the last-drawn (smallest, painted on top) candidate wins.
-            visible = { series: s, bar, dataIndex, extent }
+            visible = { series: s, bar, dataIndex, extent, baseline }
         }
     }
     if (!visible) {
         return null
     }
-    const nextSmallerExtent = allExtents.reduce((max, ext) => (ext < visible!.extent && ext > max ? ext : max), 0)
+    // Largest sibling that shares this baseline and is smaller — i.e. overdraws the
+    // segment's near side. Non-overlapping siblings sit on different baselines and are skipped.
+    const BASELINE_EPSILON = 0.5
+    const nextSmallerExtent = candidates.reduce(
+        (max, c) =>
+            Math.abs(c.baseline - visible!.baseline) <= BASELINE_EPSILON && c.extent < visible!.extent && c.extent > max
+                ? c.extent
+                : max,
+        0
+    )
     return { series: visible.series, bar: visible.bar, dataIndex: visible.dataIndex, nextSmallerExtent }
 }
