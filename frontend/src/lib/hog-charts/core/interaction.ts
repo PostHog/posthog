@@ -135,7 +135,10 @@ export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
     series: ResolvedSeries<Meta>[],
     labels: string[],
-    resolveValue: ResolveValueFn
+    resolveValue: ResolveValueFn,
+    // Required — callers pass `null` explicitly when cursor isn't available. No implicit default
+    // because losing the cursor silently breaks downstream click routing.
+    cursor: { x: number; y: number } | null
 ): PointClickData<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -158,5 +161,6 @@ export function buildPointClickData<Meta = unknown>(
             series: s,
             value: resolveValue(s, dataIndex),
         })),
+        cursor,
     }
 }

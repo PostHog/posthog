@@ -96,6 +96,12 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen } = useValues(logic)
     const { setDockOpen } = useActions(logic)
+    // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
+    // player by its bound props rather than a propless default instance.
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const seekToTime = (ms: number): void => {
+        sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
+    }
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -151,7 +157,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationDockCard key={observation.id} observation={observation} />
+                            <ObservationDockCard key={observation.id} observation={observation} onSeek={seekToTime} />
                         ))
                     )}
                 </div>

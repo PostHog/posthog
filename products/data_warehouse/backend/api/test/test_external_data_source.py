@@ -1129,6 +1129,7 @@ class TestExternalDataSource(APIBaseTest):
                 "revenue_analytics_config",
                 "user_access_level",
                 "supports_webhooks",
+                "supports_column_selection",
             ],
         )
         self.assertIsNone(payload["engine"])
@@ -2303,6 +2304,156 @@ class TestExternalDataSource(APIBaseTest):
 
         mock_add_table_to_cdc_publication.assert_called_once()
         assert mock_add_table_to_cdc_publication.call_args.args[1:] == ("test_pub", "analytics", "events")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._add_table_to_cdc_publication"
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_rejects_table_without_primary_key(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_slot,
+        mock_add_table_to_cdc_publication,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        # CDC (logical replication) cannot identify rows on UPDATE/DELETE without a primary key.
+        # Frontend gates on `supports_cdc`, but the backend must enforce too — direct API/MCP
+        # callers, or a UI that lost track of `supports_cdc`, would otherwise create a schema
+        # that enters streaming mode and breaks downstream.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="tracking_link",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=False,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="tracking_link",
+            )
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+        # Source DB reports no PK for the table.
+        mock_get_primary_key_columns.return_value = {}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "tracking_link", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "primary key" in response.json()["message"].lower()
+        assert "tracking_link" in response.json()["message"]
+        # No source row left behind on validation failure.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        # CDC slot setup must not run when validation rejects — otherwise we'd leave a
+        # replication slot + publication on the source for a config we're about to refuse.
+        mock_setup_cdc_slot.assert_not_called()
+        mock_add_table_to_cdc_publication.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_rejects_cdc_schemas_when_source_cdc_disabled(
+        self,
+        mock_get_source,
+        mock_setup_cdc_slot,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        # If the user never toggled CDC on at the source-setup step, `payload.cdc_enabled` is
+        # False and `_setup_cdc_slot` never runs — so no replication slot/publication exists
+        # on the source. Accepting per-schema `sync_type=cdc` in that state would persist
+        # broken configs (no slot, empty PKs, snapshot→streaming flip leaving everything
+        # Failed). Backend must reject up front.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="borrower",
+                supports_incremental=True,
+                supports_append=True,
+                supports_cdc=True,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="borrower",
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    # Note: no cdc_enabled flag here — source-level CDC is off.
+                    "schemas": [
+                        {"name": "borrower", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "cdc must be enabled" in response.json()["message"].lower()
+        assert "borrower" in response.json()["message"]
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        mock_setup_cdc_slot.assert_not_called()
 
     @parameterized.expand(
         [

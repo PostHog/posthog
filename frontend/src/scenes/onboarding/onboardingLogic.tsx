@@ -450,7 +450,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     return
                 case ProductKey.FEATURE_FLAGS:
                     return
-                case ProductKey.LLM_ANALYTICS:
+                case ProductKey.AI_OBSERVABILITY:
                     return
                 default:
                     return
