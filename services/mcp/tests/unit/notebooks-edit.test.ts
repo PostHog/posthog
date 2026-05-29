@@ -356,7 +356,7 @@ describe('notebooks-edit', () => {
         await tool.handler(context, {
             short_id: 'abc123',
             max_retries: 3,
-            edits: [{ type: 'replace_text', find: 'world', replace: 'PostHog', all_occurrences: false }],
+            edits: [{ type: 'replace_text', find: 'world', replace: 'PostHog', all_occurrences: false, occurrence: 1 }],
         })
 
         const body = bodyForCall(requestMock, 1)
