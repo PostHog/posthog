@@ -3,7 +3,7 @@ from typing import get_args
 import pytest
 from unittest.mock import patch
 
-from posthog.llm.gateway_client import Product, get_llm_client
+from posthog.llm.gateway_client import Product, get_async_llm_client, get_llm_client
 
 
 class TestGetLlmClient:
@@ -17,7 +17,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
         with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
-            get_llm_client()
+            get_llm_client(product="django", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
     def test_raises_when_gateway_api_key_missing(self, mock_settings):
@@ -25,14 +25,14 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_API_KEY = ""
 
         with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
-            get_llm_client()
+            get_llm_client(product="django", team_id=1)
 
     @patch("posthog.llm.gateway_client.settings")
     def test_returns_client_with_correct_base_url(self, mock_settings):
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        client = get_llm_client()
+        client = get_llm_client(product="django", team_id=1)
 
         assert str(client.base_url) == "http://gateway:8080/django/v1/"
         assert client.api_key == "test-key"
@@ -44,6 +44,7 @@ class TestGetLlmClient:
             ("llm_gateway", "/llm_gateway/v1/"),
             ("posthog_code", "/posthog_code/v1/"),
             ("wizard", "/wizard/v1/"),
+            ("signals", "/signals/v1/"),
         ],
     )
     @patch("posthog.llm.gateway_client.settings")
@@ -51,7 +52,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        client = get_llm_client(product=product)
+        client = get_llm_client(product=product, team_id=1)
 
         assert expected_path in str(client.base_url)
 
@@ -60,6 +61,32 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080/"
         mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-        client = get_llm_client()
+        client = get_llm_client(product="django", team_id=1)
 
         assert str(client.base_url) == "http://gateway:8080/django/v1/"
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_attaches_team_id_default_header(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_llm_client(product="signals", team_id=42)
+
+        assert client.default_headers.get("x-posthog-property-team_id") == "42"
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_async_client_attaches_team_id_default_header(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_async_llm_client(product="signals", team_id=42)
+
+        assert client.default_headers.get("x-posthog-property-team_id") == "42"
+
+    def test_team_id_is_required(self):
+        with pytest.raises(TypeError):
+            get_llm_client(product="django")  # type: ignore[call-arg]
+
+    def test_product_is_required(self):
+        with pytest.raises(TypeError):
+            get_llm_client(team_id=1)  # type: ignore[call-arg]

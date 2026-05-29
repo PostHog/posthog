@@ -27,7 +27,7 @@ def summarize_with_openai(
     system_prompt = load_summarization_template(f"prompts/system_{mode}.djt", {})
     user_prompt = load_summarization_template("prompts/user.djt", {"text_repr": text_repr})
 
-    client = get_llm_client("llma_summarization")
+    client = get_llm_client(product="llma_summarization", team_id=team_id)
 
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},

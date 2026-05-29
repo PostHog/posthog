@@ -9,19 +9,20 @@ from .constants import SUPPORTED_LANGUAGES, TRANSLATION_MODEL
 logger = structlog.get_logger(__name__)
 
 
-def translate_text(text: str, target_language: str, user_distinct_id: str | None = None) -> str:
+def translate_text(text: str, target_language: str, team_id: int, user_distinct_id: str | None = None) -> str:
     """
     Translate text to target language using the LLM gateway.
 
     Args:
         text: The text to translate
         target_language: Target language code (e.g., 'en', 'es', 'fr')
+        team_id: PostHog team for LLM cost attribution
         user_distinct_id: The user's distinct_id for analytics attribution
 
     Returns:
         Translated text
     """
-    client = get_llm_client("llma_translation")
+    client = get_llm_client(product="llma_translation", team_id=team_id)
 
     target_name = SUPPORTED_LANGUAGES.get(target_language, target_language)
 

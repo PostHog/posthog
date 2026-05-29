@@ -1183,6 +1183,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
 def classify_task_needs_repo(
     event_text: str,
     thread_messages: list[dict[str, str]],
+    team_id: int,
 ) -> bool:
     """Classify whether a Slack conversation requires code repository access.
 
@@ -1259,7 +1260,7 @@ def classify_task_needs_repo(
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
     )
     try:
-        client = get_llm_client("slack_app_routing")
+        client = get_llm_client(product="slack_app_routing", team_id=team_id)
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],

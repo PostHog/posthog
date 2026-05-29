@@ -3,11 +3,10 @@
 from typing import Any, cast
 
 import structlog
-from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from rest_framework import exceptions
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import get_async_llm_client
 
 from ..constants import SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel
@@ -86,10 +85,7 @@ async def summarize_evaluation_runs(
 
 {runs_text}"""
 
-    sync_client = get_llm_client("llma_eval_summary")
-    client = AsyncOpenAI(
-        base_url=sync_client.base_url,
-        api_key=sync_client.api_key,
+    client = get_async_llm_client(product="llma_eval_summary", team_id=team_id).with_options(
         timeout=SUMMARIZATION_TIMEOUT,
     )
 

@@ -726,5 +726,5 @@ class TestClassifyTaskNeedsRepo:
         ]
     )
     def test_heuristic_classification(self, _name, text, expected):
-        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}], team_id=1)
         assert result is expected

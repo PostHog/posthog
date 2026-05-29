@@ -395,6 +395,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         classify_posthog_code_task_needs_repo_activity,
                         event.get("text", ""),
                         thread_messages,
+                        inputs.integration_id,
                     )
                     if not needs_repo:
                         repository = None
@@ -471,6 +472,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             classify_posthog_code_task_needs_repo_activity,
                             event.get("text", ""),
                             thread_messages,
+                            inputs.integration_id,
                         )
                         if not needs_repo:
                             await _execute_posthog_code_activity(
@@ -863,10 +865,19 @@ async def discover_posthog_code_repository_via_agent_activity(
 def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
     thread_messages: list[dict[str, str]],
+    integration_id: int,
 ) -> bool:
     from products.slack_app.backend.api import classify_task_needs_repo
 
-    return classify_task_needs_repo(event_text, thread_messages)
+    try:
+        integration = Integration.objects.only("team_id").get(id=integration_id)
+    except Integration.DoesNotExist:
+        # Integration removed mid-flight: default to picker (matches classify_task_needs_repo's
+        # own error contract) instead of raising and burning retries on a workflow that can no
+        # longer reach Slack anyway.
+        logger.warning("classify_posthog_code_task_needs_repo_integration_missing", integration_id=integration_id)
+        return True
+    return classify_task_needs_repo(event_text, thread_messages, team_id=integration.team_id)
 
 
 @activity.defn

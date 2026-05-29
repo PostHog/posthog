@@ -436,7 +436,7 @@ class Command:
             return CaseResult(case=case, actual_stage="skipped", actual_outcome="skipped")
 
         # Stage 2: Haiku gate (heuristic + LLM)
-        needs_repo = classify_task_needs_repo(text, thread_messages)
+        needs_repo = classify_task_needs_repo(text, thread_messages, team_id=ctx.team_id)
         if not needs_repo:
             self.stdout.write(self.style.SUCCESS("  haiku → no_repo (task doesn't need code)"))
             return CaseResult(case=case, actual_stage="haiku", actual_outcome="no_repo")

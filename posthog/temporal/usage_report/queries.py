@@ -76,7 +76,12 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
+<<<<<<< New base: feat(llma): per-team gateway attribution and signals usage reporting
     get_teams_with_sdk_logs_records_in_period,
+||||||| Common ancestor
+=======
+    get_teams_with_signals_credits_used_in_period,
+>>>>>>> Current commit: feat(llma): per-team gateway attribution and signals usage reporting
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
@@ -423,6 +428,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_ai_credits_used_in_period",
         fn=get_teams_with_ai_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_signals_credits_used_in_period",
+        fn=get_teams_with_signals_credits_used_in_period,
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
