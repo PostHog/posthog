@@ -131,6 +131,39 @@ export const NewBAATrial: Story = {
 }
 
 /**
+ * New-document page for a BAA when the org is on a sales-managed Enterprise
+ * trial. The billing page hides the cancel-trial button for these, so the
+ * banner directs users to contact billing support instead of cancelling on
+ * billing.
+ */
+export const NewBAAEnterpriseTrial: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('BAA'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/billing/': {
+                    products: [
+                        {
+                            type: 'platform_and_support',
+                            addons: [{ type: 'enterprise', subscribed: false }],
+                        },
+                    ],
+                    trial: {
+                        type: 'standard',
+                        status: 'active',
+                        target: 'enterprise',
+                        expires_at: '2026-06-15T00:00:00Z',
+                    },
+                    has_active_subscription: false,
+                },
+            },
+        }),
+    ],
+}
+
+/**
  * New-document page for a DPA in the default "pretty" mode (legally binding,
  * rendered with a color PostHog logo at the top).
  */

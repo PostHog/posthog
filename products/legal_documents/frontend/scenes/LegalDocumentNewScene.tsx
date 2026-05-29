@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconBalance, IconSend } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -75,6 +76,7 @@ export function LegalDocumentNewScene(): JSX.Element {
         isLegalDocumentSubmitting,
         hasQualifyingBaaAddon,
         isOnQualifyingAddonTrial,
+        isOnEnterpriseStandardTrial,
         isDpaModeSubmittable,
         existingDocumentOfCurrentType,
         existingDocumentTypes,
@@ -82,6 +84,7 @@ export function LegalDocumentNewScene(): JSX.Element {
     const { isAdminOrOwner } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { setDocumentType, setDpaMode } = useActions(legalDocumentsLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
 
     if (!isCloudOrDev) {
@@ -199,7 +202,25 @@ export function LegalDocumentNewScene(): JSX.Element {
 
                         {baaBlocked && (
                             <LemonBanner type="warning">
-                                {isOnQualifyingAddonTrial ? (
+                                {isOnEnterpriseStandardTrial ? (
+                                    <>
+                                        A BAA requires an active paid subscription. Your Enterprise trial is
+                                        sales-managed, so please{' '}
+                                        <Link
+                                            to=""
+                                            onClick={() =>
+                                                openSupportForm({
+                                                    target_area: 'billing',
+                                                    isEmailFormOpen: true,
+                                                })
+                                            }
+                                        >
+                                            contact billing support
+                                        </Link>{' '}
+                                        to convert your trial into a subscription, then come back here to generate your
+                                        BAA.
+                                    </>
+                                ) : isOnQualifyingAddonTrial ? (
                                     <>
                                         A BAA requires an active paid subscription. Cancel your trial and subscribe on
                                         your <Link to={urls.organizationBilling()}>billing page</Link>, then come back
