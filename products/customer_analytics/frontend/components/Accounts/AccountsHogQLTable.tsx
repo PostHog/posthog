@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
@@ -338,19 +338,11 @@ export function AccountsHogQLTable(): JSX.Element {
     const { hogqlQuery } = useValues(accountsLogic)
 
     return (
-        <BindLogic
-            logic={dataNodeLogic}
-            props={{
-                key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                query: hogqlQuery.source,
-            }}
-        >
-            <div className="flex flex-col gap-2">
-                <div className="flex justify-end">
-                    <AccountsColumnConfigurator />
-                </div>
-                <AccountsHogQLDataTable query={hogqlQuery} />
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-end">
+                <AccountsColumnConfigurator />
             </div>
-        </BindLogic>
+            <AccountsHogQLDataTable query={hogqlQuery} />
+        </div>
     )
 }
