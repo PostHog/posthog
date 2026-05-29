@@ -126,28 +126,20 @@ export interface RunSessionDeps {
      * Per-session static HTTP headers stamped on every outbound model call.
      * On the llm-gateway path this carries `X-PostHog-Distinct-Id` +
      * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
-     * attribute correctly.
-     *
-     * **NOT YET CONSUMED** by the pi-agent-core driver — the old loop pushed
-     * these into `PiAiClient.invoke({ headers })`. To restore, the `streamFn`
-     * wrapper needs to inject these into the per-call options. Accepted on
-     * the deps for API-shape stability with the worker; until ported, the
-     * presence of this field is the signal `errorContext()` uses to mark
+     * attribute correctly. The `gatewayMetadataStreamFn` wrapper merges
+     * these with a per-turn `Idempotency-Key` + `X-Request-Id` of the form
+     * `agent:<session>:<turn>` and forwards them to pi-ai's per-call
+     * `options.headers`. Presence also signals `errorContext()` to mark
      * failures as `source: llm_gateway`.
      */
     gatewayHeaders?: Record<string, string>
     /**
      * Gateway read client + the team's `phc_` bearer. When set, after every
-     * pi-ai turn the runner is expected to fetch
-     * `GET /v1/usage/<request_id>` and merge gateway-computed cost into
-     * `usage_total.cost_total`.
-     *
-     * **NOT YET CONSUMED** by the pi-agent-core driver — the old loop did
-     * this in run-turn.ts's per-turn block. Needs porting into the
-     * `turn_end` branch of the sink (the per-turn `request_id` would need
-     * to be stamped by the same streamFn wrapper that injects
-     * gatewayHeaders). Accepted on the deps for API-shape stability;
-     * gateway-path cost stays zero on the session row until ported.
+     * pi-ai turn the runner fetches `GET /v1/usage/<request_id>` (using the
+     * id stamped by `gatewayMetadataStreamFn`) and merges the
+     * gateway-computed cost into `usage_total.cost_total`. Best-effort: a
+     * transient fetch failure or NaN body is logged + skipped so a gateway
+     * blip can't strand the turn.
      */
     gatewayUsage?: {
         client: GatewayClient
@@ -410,6 +402,41 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     }
                 }
 
+                // Gateway settled-cost recovery: pi-ai's `usage.cost.*` numbers
+                // are client-side estimates on the gateway path (zeroed by
+                // `accumulateUsage` when `useGatewayCost`), so fetch the real
+                // cost from `GET /v1/usage/<request_id>` and merge it. Best-
+                // effort — a transient fetch failure leaves cost_total
+                // unchanged for that turn (the gateway also emits its own
+                // `$ai_generation` event with the cost, so the loss is
+                // bounded to the session row's running total).
+                if (deps.gatewayUsage) {
+                    const requestId = turnRequestIds.get(turn)
+                    if (requestId) {
+                        try {
+                            const usage = await deps.gatewayUsage.client.getUsage(requestId, {
+                                phc: deps.gatewayUsage.phc,
+                            })
+                            if (usage) {
+                                const cost = Number(usage.cost_usd)
+                                if (Number.isFinite(cost)) {
+                                    session.usage_total = {
+                                        ...session.usage_total,
+                                        cost_total: session.usage_total.cost_total + cost,
+                                    }
+                                } else {
+                                    runLog.warn({ turn, cost_usd: usage.cost_usd, requestId }, 'gateway.usage.cost_nan')
+                                }
+                            }
+                        } catch (err) {
+                            runLog.warn({ turn, requestId, err: (err as Error).message }, 'gateway.usage.fetch_failed')
+                        }
+                    }
+                    // Always clear the entry so the map can't accumulate across a
+                    // long-running session — we don't need it after this turn.
+                    turnRequestIds.delete(turn)
+                }
+
                 await analytics.write([
                     {
                         kind: 'generation',
@@ -451,12 +478,28 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         tools,
     }
 
+    // Per-turn gateway metadata: an `agent:<session>:<turn>` request id stamped
+    // on every outbound call, exposed back into the sink via this map so
+    // `turn_end` can read the settled cost (cleared per turn after the fetch
+    // so the map can't grow unbounded). Populated on the gateway path only.
+    const turnRequestIds = new Map<number, string>()
+
     // Tools are registered under their original ids so the loop matches calls
     // by name. Sanitize names on the wire (strict providers reject `@`/`/`) and
     // translate provider-echoed names back to the original before the loop sees
     // the assistant message. The faux provider echoes the script's (original)
     // name verbatim — the reverse map misses and leaves it unchanged.
-    const streamFn = sanitizingStreamFn(deps.streamFn ?? streamSimple, nameToId)
+    //
+    // Two wrappers compose: the gateway-metadata wrapper (when active) stamps
+    // per-call request ids + headers; the sanitizing wrapper rewrites tool
+    // names. Order doesn't change behaviour — both touch separate fields —
+    // but gateway is outer so the request id is generated at the top of the
+    // chain, before name sanitization mutates the context payload pi-ai sees.
+    let baseStreamFn: StreamFn = deps.streamFn ?? streamSimple
+    if (deps.gatewayHeaders || deps.gatewayUsage) {
+        baseStreamFn = gatewayMetadataStreamFn(baseStreamFn, session.id, deps.gatewayHeaders, turnRequestIds)
+    }
+    const streamFn = sanitizingStreamFn(baseStreamFn, nameToId)
 
     try {
         await runAgentLoop(
@@ -689,6 +732,38 @@ function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>)
                 return typeof value === 'function' ? value.bind(target) : value
             },
         })
+    }
+}
+
+/**
+ * Stamp `Idempotency-Key` + `X-Request-Id` (both `agent:<session>:<turn>`)
+ * on every outbound model call, plus any caller-supplied gateway headers
+ * (`X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`). The id is recorded in
+ * `turnRequestIds` keyed by the loop's outbound-call counter so the sink
+ * can fetch settled cost via `GET /v1/usage/<request_id>` after `turn_end`.
+ *
+ * Idempotency on this exact id buys gateway-side dedupe for pi-ai's own
+ * retries on transient 5xx — the gateway collapses both attempts onto the
+ * same usage row and bills the team once.
+ */
+function gatewayMetadataStreamFn(
+    base: StreamFn,
+    sessionId: string,
+    gatewayHeaders: Record<string, string> | undefined,
+    turnRequestIds: Map<number, string>
+): StreamFn {
+    let outboundTurn = 0
+    return async (model, context, options) => {
+        outboundTurn++
+        const requestId = `agent:${sessionId}:${outboundTurn}`
+        turnRequestIds.set(outboundTurn, requestId)
+        const headers = {
+            ...gatewayHeaders,
+            ...options?.headers,
+            'Idempotency-Key': requestId,
+            'X-Request-Id': requestId,
+        }
+        return base(model, context, { ...options, headers })
     }
 }
 

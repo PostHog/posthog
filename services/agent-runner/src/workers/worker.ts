@@ -75,26 +75,18 @@ export interface WorkerDeps {
      * Per-session static HTTP headers stamped on every outbound pi-ai call.
      * On the llm-gateway path this carries `X-PostHog-Distinct-Id` +
      * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
-     * attribute correctly.
-     *
-     * NOTE: not yet consumed by the pi-agent-core driver — the previous
-     * hand-rolled loop pushed these into `PiAiClient.invoke({ headers })`.
-     * To restore on the driver path, the loop's `streamFn` wrapper needs to
-     * inject these into per-call options. Tracked as a follow-up; the field
-     * is kept on the deps for API-shape stability with `index.ts`.
+     * attribute correctly. The driver's `gatewayMetadataStreamFn` wrapper
+     * merges these with a per-turn `Idempotency-Key` + `X-Request-Id` of
+     * the form `agent:<session>:<turn>` before pi-ai sees them.
      */
     resolveGatewayHeaders?: (session: AgentSession) => Record<string, string> | undefined
     /**
      * Per-session gateway read client + the team's `phc_` bearer. When set,
-     * after every pi-ai turn the runner is expected to fetch
-     * `GET /v1/usage/<request_id>` and merge gateway-computed cost into
-     * `usage_total.cost_total`.
-     *
-     * NOTE: not yet consumed by the pi-agent-core driver — the old loop did
-     * this in run-turn.ts's per-turn block. Needs porting into the `turn_end`
-     * branch of driver.ts's sink (the per-turn `request_id` would also need to
-     * be stamped by the same streamFn wrapper that injects gatewayHeaders).
-     * Until then, gateway-path cost stays zero on the session row.
+     * the driver fetches `GET /v1/usage/<request_id>` after every turn
+     * (using the id stamped by `gatewayMetadataStreamFn`) and merges
+     * gateway-computed cost into `usage_total.cost_total`. Best-effort:
+     * transient fetch failures + NaN bodies are logged and skipped so a
+     * gateway blip can't strand a turn.
      */
     resolveGatewayUsage?: (
         session: AgentSession
