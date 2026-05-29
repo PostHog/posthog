@@ -118,3 +118,41 @@ export function resolveBarsAtCursor(
     }
     return { hits, strictHit }
 }
+
+/** Visible stacked segment under the cursor — last-drawn bar whose rect contains it.
+ *  Also returns the next-smaller extent (the far edge of the bar that overdraws this
+ *  segment's near side); callers clip the highlight rect there so hover preserves z-order. */
+export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
+    args: Omit<BarsAtCursorArgs, 'series' | 'label' | 'dataIndex'> & {
+        series: readonly S[]
+        labels: readonly string[]
+        hoveredLabel: string
+        cursor: { x: number; y: number }
+    }
+): { series: S; bar: BarRect; dataIndex: number; nextSmallerExtent: number } | null {
+    const { labels, hoveredLabel, cursor, isHorizontal } = args
+    let visible: { series: S; bar: BarRect; dataIndex: number; extent: number } | null = null
+    const allExtents: number[] = []
+    for (let dataIndex = 0; dataIndex < labels.length; dataIndex++) {
+        if (labels[dataIndex] !== hoveredLabel) {
+            continue
+        }
+        for (const { series: s, bar } of iterBarsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
+            const extent = isHorizontal ? bar.width : bar.height
+            if (extent <= 0) {
+                continue
+            }
+            allExtents.push(extent)
+            if (!barContainsPoint(bar, cursor)) {
+                continue
+            }
+            // Overwrite so the last-drawn (smallest, painted on top) candidate wins.
+            visible = { series: s, bar, dataIndex, extent }
+        }
+    }
+    if (!visible) {
+        return null
+    }
+    const nextSmallerExtent = allExtents.reduce((max, ext) => (ext < visible!.extent && ext > max ? ext : max), 0)
+    return { series: visible.series, bar: visible.bar, dataIndex: visible.dataIndex, nextSmallerExtent }
+}
