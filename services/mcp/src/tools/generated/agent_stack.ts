@@ -544,26 +544,6 @@ const agentApplicationsRevisionsRetrieve = (): ToolBase<
     },
 })
 
-const AgentApplicationsRevisionsValidateCreateSchema = AgentApplicationsRevisionsValidateCreateParams.omit({
-    project_id: true,
-})
-
-const agentApplicationsRevisionsValidateCreate = (): ToolBase<
-    typeof AgentApplicationsRevisionsValidateCreateSchema,
-    Schemas.AgentRevisionValidateResponse
-> => ({
-    name: 'agent-applications-revisions-validate-create',
-    schema: AgentApplicationsRevisionsValidateCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsValidateCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentRevisionValidateResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/validate/`,
-        })
-        return result
-    },
-})
-
 const AgentApplicationsRevisionsSystemPromptSchema = AgentApplicationsRevisionsSystemPromptParams.omit({
     project_id: true,
 })
@@ -579,6 +559,26 @@ const agentApplicationsRevisionsSystemPrompt = (): ToolBase<
         const result = await context.api.request<Schemas.AgentRevisionSystemPromptResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/system_prompt/`,
+        })
+        return result
+    },
+})
+
+const AgentApplicationsRevisionsValidateCreateSchema = AgentApplicationsRevisionsValidateCreateParams.omit({
+    project_id: true,
+})
+
+const agentApplicationsRevisionsValidateCreate = (): ToolBase<
+    typeof AgentApplicationsRevisionsValidateCreateSchema,
+    Schemas.AgentRevisionValidateResponse
+> => ({
+    name: 'agent-applications-revisions-validate-create',
+    schema: AgentApplicationsRevisionsValidateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsValidateCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentRevisionValidateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/validate/`,
         })
         return result
     },
@@ -701,8 +701,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-partial-update': agentApplicationsRevisionsPartialUpdate,
     'agent-applications-revisions-promote-create': agentApplicationsRevisionsPromoteCreate,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
-    'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
     'agent-applications-revisions-system-prompt': agentApplicationsRevisionsSystemPrompt,
+    'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
     'agent-applications-set-env-create': agentApplicationsSetEnvCreate,
