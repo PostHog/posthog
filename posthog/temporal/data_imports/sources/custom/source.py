@@ -2,6 +2,8 @@ import json
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
+
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from posthog.schema import (
@@ -26,6 +28,17 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
+
+
+def is_custom_source_available_for_team(team_id: int | None) -> bool:
+    # While the custom source is in development it is restricted to a single
+    # pilot team on PostHog Cloud US. The wizard listing is gated client-side by
+    # the `dwh_custom_source` feature flag; this is the server-side enforcement
+    # that rejects creation from anywhere else (other cloud regions, self-hosted).
+    # Temporary: remove this gate once SSRF protection for arbitrary user-supplied
+    # URLs is enabled, after which the source can open up to all teams.
+    allowed_team_id = 2
+    return settings.CLOUD_DEPLOYMENT == "US" and team_id == allowed_team_id
 
 
 class ManifestValidationError(ValueError):
