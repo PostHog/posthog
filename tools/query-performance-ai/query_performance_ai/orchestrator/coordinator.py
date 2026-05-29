@@ -7,7 +7,7 @@ to ``localhost:$PORT`` (best-effort iptables; see run_campaign.py).
 Run:
 
     # --query-log-database-id 142 is ClickHouse PROD US - OFFLINE
-    python -m products.query_performance_ai.orchestrator.coordinator \\
+    python -m query_performance_ai.orchestrator.coordinator \\
         --target test_cluster \\
         --metabase-region us \\
         --query-log-database-id 142 \\
@@ -16,7 +16,7 @@ Run:
 
 Or just stand the server up for manual experimentation:
 
-    python -m products.query_performance_ai.orchestrator.coordinator --target local --no-spawn
+    python -m query_performance_ai.orchestrator.coordinator --target local --no-spawn
 """
 
 from __future__ import annotations
@@ -212,12 +212,13 @@ def _spawn_one_sandbox(
     # Lazy import: SandboxBase pulls in Django settings, structlog, etc.
     # Keeping it inside the worker means `--no-spawn` doesn't pay for it.
     _ensure_django_setup()
-    from products.query_performance_ai.orchestrator.harvest import harvest_artifacts  # noqa: PLC0415
     from products.tasks.backend.services.sandbox import (  # noqa: PLC0415
         SandboxConfig,
         SandboxTemplate,
         get_sandbox_class_for_backend,
     )
+
+    from query_performance_ai.orchestrator.harvest import harvest_artifacts  # noqa: PLC0415
 
     sandbox_name = f"qp-autoresearch-{query.query_id[:12]}-{uuid.uuid4().hex[:6]}"
     sandbox_env: dict[str, str] = {
@@ -319,7 +320,7 @@ def _spawn_one_sandbox(
             # `-m` (not direct script invocation) so relative imports inside
             # the package resolve. `python3 path/to/run_campaign.py` runs the
             # file with no parent package, which breaks `from .runtime import …`.
-            f"python3 -m products.query_performance_ai.sandboxed_autoresearch_agent.driver.run_campaign 2>&1"
+            f"python3 -m query_performance_ai.sandboxed_autoresearch_agent.driver.run_campaign 2>&1"
         )
 
         _log(f"[{query.query_id}] running run_campaign.py inside sandbox {sandbox.id}")

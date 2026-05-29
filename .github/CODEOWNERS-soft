@@ -195,6 +195,7 @@ AGENTS.md @PostHog/team-devex
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
 tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
+tools/query-performance-ai/ @PostHog/team-analytics-platform
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
 

@@ -10,6 +10,8 @@ The agent is [pi-coding-agent](https://pi.dev) running the [pi-autoresearch](htt
 - A docker daemon (Orbstack etc).
 - `ANTHROPIC_API_KEY` in your `.env`.
 
+The `python -m query_performance_ai.…` commands below need this bundle on `PYTHONPATH` (the inner `query_performance_ai` package imports `products.tasks` from the repo root, so both must be importable). Run from the repo root with `PYTHONPATH=.:tools/query-performance-ai`, or `cd tools/query-performance-ai` with the repo root on the path.
+
 ## What happens when you run it
 
 1. Fetch slow queries from Metabase's prod `system.query_log` (filtered hard to `ai_data_processing_approved = true` — we only ever feed the agent queries that the customer explicitly approved for AI analysis).
@@ -22,14 +24,14 @@ The agent is [pi-coding-agent](https://pi.dev) running the [pi-autoresearch](htt
 
 ```bash
 # Replay candidates against a Metabase-fronted test cluster:
-python -m products.query_performance_ai.orchestrator.coordinator \
+python -m query_performance_ai.orchestrator.coordinator \
     --target test_cluster --metabase-region us \
     --query-log-database-id 142 --test-cluster-database-id 146 \
     --team-id 2 --max-queries 5
 # Requires `hogli metabase:login --region us` first.
 
 # Replay candidates against your local dev ClickHouse:
-python -m products.query_performance_ai.orchestrator.coordinator --target local
+python -m query_performance_ai.orchestrator.coordinator --target local
 ```
 
 `--target` decides where candidate SQL runs. Slow queries are always sourced from Metabase regardless; only the execution destination differs.
@@ -37,7 +39,7 @@ python -m products.query_performance_ai.orchestrator.coordinator --target local
 ## Smoke test
 
 ```bash
-python -m products.query_performance_ai.orchestrator.coordinator --target local --test-query
+python -m query_performance_ai.orchestrator.coordinator --target local --test-query
 ```
 
 `--test-query` skips Metabase and feeds `SELECT 1, sleep(1)` as the campaign SQL. End-to-end smoke — the agent should drop the `sleep` within a couple of iterations.
