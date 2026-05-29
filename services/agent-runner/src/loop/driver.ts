@@ -697,32 +697,17 @@ function resultText(result: { content?: Array<{ type: string; text?: string }> }
  * provider echoes back in tool calls are translated to the original ids the
  * loop matches against.
  *
- * Three sites need rewriting on every call:
- *   1. `context.tools[].name` — the declarations the provider validates against.
- *   2. `context.messages[]` — historical assistant `toolCall` names and the
- *      paired `toolResult.toolName` from prior turns. Strict providers
- *      (e.g. OpenAI Responses, `^[a-zA-Z0-9_-]+$`) reject the original
- *      `@posthog/query` shape in this position too, so without rewriting them
- *      turn 2 fails with a 400 even though turn 1 went through fine.
- *   3. The materialized `result()` — tool calls on the assistant reply get
- *      their names translated BACK to the original ids the loop matches
- *      against. The faux provider echoes the script's original name verbatim
- *      so the reverse-map miss just leaves it unchanged.
+ * The actual mutation lives in `sanitizeOutboundContext` (every outbound
+ * surface that carries a tool id) and `translateAssistantNamesBack` (the
+ * result echo). Routing them through these two functions means every new
+ * tool-id-bearing field a provider starts validating gets caught in one
+ * place — the `sanitizingStreamFn` itself is just composition.
  */
 function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>): StreamFn {
     return async (model, context, options) => {
-        const tools = context.tools?.map((t) => ({ ...t, name: providerSafeName(t.name) }))
-        const messages = context.messages?.map(sanitizeMessageNames)
-        const stream = await base(model, { ...context, tools, messages }, options)
-        const result = async (): Promise<AssistantMessage> => {
-            const msg = await stream.result()
-            return {
-                ...msg,
-                content: msg.content.map((b) =>
-                    b.type === 'toolCall' ? { ...b, name: safeToOriginal.get(b.name) ?? b.name } : b
-                ),
-            }
-        }
+        const stream = await base(model, sanitizeOutboundContext(context), options)
+        const result = async (): Promise<AssistantMessage> =>
+            translateAssistantNamesBack(await stream.result(), safeToOriginal)
         return new Proxy(stream, {
             get(target, prop, receiver) {
                 if (prop === 'result') {
@@ -732,6 +717,51 @@ function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>)
                 return typeof value === 'function' ? value.bind(target) : value
             },
         })
+    }
+}
+
+/**
+ * Rewrite every tool-id-bearing field in an outbound context to the
+ * provider-safe form. Currently:
+ *   - `context.tools[].name` — declarations the provider validates against.
+ *   - `context.messages[]` — historical assistant `toolCall` names + the
+ *     paired `toolResult.toolName` from prior turns. Strict providers
+ *     (e.g. OpenAI Responses, `^[a-zA-Z0-9_-]+$`) reject the original
+ *     `@posthog/query` shape in this position too, so without rewriting
+ *     turn 2 fails with a 400 even though turn 1 went through fine.
+ *
+ * Any new tool-id-bearing field a future pi-ai version starts sending must
+ * be added here — that's the load-bearing point of the consolidation.
+ * `provider-safe-names-coverage.test.ts` runs a worst-case fixture (tool
+ * declaration + historical toolCall + historical toolResult) through this
+ * function to lock the contract.
+ */
+export function sanitizeOutboundContext<T extends { tools?: Array<{ name: string }>; messages?: Message[] }>(
+    context: T
+): T {
+    return {
+        ...context,
+        tools: context.tools?.map((t) => ({ ...t, name: providerSafeName(t.name) })),
+        messages: context.messages?.map(sanitizeMessageNames),
+    }
+}
+
+/**
+ * Inverse of the outbound name rewrite for the assistant's own reply: the
+ * loop matches tool calls by their ORIGINAL id, so any `toolCall.name` the
+ * provider echoed back in the assistant message needs to be translated
+ * before the loop sees it. Anything not in the map (e.g. the faux provider
+ * echoing the original verbatim) passes through unchanged.
+ */
+export function translateAssistantNamesBack(
+    msg: AssistantMessage,
+    safeToOriginal: Map<string, string>
+): AssistantMessage {
+    return {
+        ...msg,
+        content: msg.content.map((b) =>
+            b.type === 'toolCall' ? { ...b, name: safeToOriginal.get(b.name) ?? b.name } : b
+        ),
     }
 }
 
