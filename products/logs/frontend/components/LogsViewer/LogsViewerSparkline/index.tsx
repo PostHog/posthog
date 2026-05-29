@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -8,6 +9,8 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 
@@ -106,6 +109,40 @@ export function LogsSparkline({
         return sparklineData.dates.map((date) => dayjs(date).toISOString())
     }, [sparklineData.dates])
 
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+
+    // Map the visible-row date range onto bucket indices in `dates`. Buckets are
+    // anchored at their start time; the date_to range edge belongs to the bucket
+    // whose start is the last one <= date_to.
+    const highlightedRange = useMemo(() => {
+        if (!visibleRowDateRange || sparklineData.dates.length === 0) {
+            return null
+        }
+        const fromMs = dayjs(visibleRowDateRange.date_from).valueOf()
+        const toMs = dayjs(visibleRowDateRange.date_to).valueOf()
+        let startIndex = -1
+        let endIndex = -1
+        for (let i = 0; i < sparklineData.dates.length; i++) {
+            const bucketMs = dayjs(sparklineData.dates[i]).valueOf()
+            if (bucketMs <= fromMs) {
+                startIndex = i
+            }
+            if (bucketMs <= toMs) {
+                endIndex = i
+            } else {
+                break
+            }
+        }
+        // Fall back to the first bucket when the range starts before any bucket.
+        if (startIndex === -1) {
+            startIndex = 0
+        }
+        if (endIndex === -1 || endIndex < startIndex) {
+            return null
+        }
+        return { startIndex, endIndex }
+    }, [visibleRowDateRange, sparklineData.dates])
+
     const onSelectionChange = useCallback(
         (selection: { startIndex: number; endIndex: number }): void => {
             const dates = sparklineData.dates
@@ -159,6 +196,7 @@ export function LogsSparkline({
                             tooltipRowCutoff={100}
                             hideZerosInTooltip
                             sortTooltipByCount
+                            highlightedRange={highlightedRange}
                         />
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">

@@ -781,4 +781,61 @@ describe('logsViewerLogic', () => {
             expect(logic.values.prettifiedLogIds.size).toBe(0)
         })
     })
+
+    describe('visible row range tracking', () => {
+        const rawLogsWithTimestamps: LogMessage[] = [
+            { ...createMockRawLog('log-1'), timestamp: '2024-01-01T00:00:00Z' },
+            { ...createMockRawLog('log-2'), timestamp: '2024-01-01T01:00:00Z' },
+            { ...createMockRawLog('log-3'), timestamp: '2024-01-01T02:00:00Z' },
+            { ...createMockRawLog('log-4'), timestamp: '2024-01-01T03:00:00Z' },
+        ]
+
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs(rawLogsWithTimestamps))
+        })
+
+        it('defaults to null', () => {
+            expect(logic.values.visibleRowRange).toBeNull()
+            expect(logic.values.visibleRowDateRange).toBeNull()
+        })
+
+        it('records the visible row index range', () => {
+            logic.actions.setVisibleRowRange(1, 2)
+            expect(logic.values.visibleRowRange).toEqual({ startIndex: 1, stopIndex: 2 })
+        })
+
+        it('derives a date range ordered from earliest to latest', () => {
+            // The viewer renders rows 1..2; logs[1] is at 01:00, logs[2] at 02:00.
+            logic.actions.setVisibleRowRange(1, 2)
+            expect(logic.values.visibleRowDateRange).toEqual({
+                date_from: '2024-01-01T01:00:00.000Z',
+                date_to: '2024-01-01T02:00:00.000Z',
+            })
+        })
+
+        it('orders the date range earliest-first even when logs are sorted descending', () => {
+            // Simulate "latest first" — startIndex points at a later timestamp than stopIndex.
+            logic.actions.setLogs([...rawLogsWithTimestamps].reverse())
+            logic.actions.setVisibleRowRange(0, 1)
+            const range = logic.values.visibleRowDateRange
+            expect(range).not.toBeNull()
+            expect(new Date(range!.date_from).getTime()).toBeLessThan(new Date(range!.date_to).getTime())
+        })
+
+        it('clamps indices that fall outside the loaded logs', () => {
+            logic.actions.setVisibleRowRange(0, 999)
+            expect(logic.values.visibleRowDateRange).toEqual({
+                date_from: '2024-01-01T00:00:00.000Z',
+                date_to: '2024-01-01T03:00:00.000Z',
+            })
+        })
+
+        it('clears when logs are replaced', () => {
+            logic.actions.setVisibleRowRange(0, 2)
+            expect(logic.values.visibleRowRange).not.toBeNull()
+            logic.actions.setLogs([createMockRawLog('new-log')])
+            expect(logic.values.visibleRowRange).toBeNull()
+            expect(logic.values.visibleRowDateRange).toBeNull()
+        })
+    })
 })

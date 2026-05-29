@@ -74,6 +74,13 @@ export interface SparklineProps {
     referenceLines?: SparklineReferenceLine[]
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
+    /**
+     * Inclusive label-index range to highlight as a translucent box behind the bars.
+     * Used to mirror an external selection (e.g. the rows currently visible in a
+     * paired virtualized list) onto the chart. Out-of-range or inverted ranges are
+     * clamped; pass `null`/`undefined` to clear.
+     */
+    highlightedRange?: { startIndex: number; endIndex: number } | null
 }
 
 export function Sparkline({
@@ -96,6 +103,7 @@ export function Sparkline({
     sortTooltipByCount = false,
     referenceLines,
     renderTooltipValue,
+    highlightedRange,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -242,43 +250,61 @@ export function Sparkline({
                                 setTooltip({ ...tooltip } as TooltipModel<'bar'>)
                             },
                         },
-                        ...(referenceLines && referenceLines.length > 0
-                            ? {
-                                  annotation: {
-                                      annotations: Object.fromEntries(
-                                          referenceLines.map((line, i) => {
-                                              const lineColor = getColorVar(line.color || 'danger')
-                                              return [
-                                                  `referenceLine${i}`,
-                                                  {
-                                                      type: 'line',
-                                                      yMin: line.value,
-                                                      yMax: line.value,
-                                                      borderColor: lineColor,
-                                                      borderWidth: 1.5,
-                                                      borderDash: [5, 4],
-                                                      ...(line.label
-                                                          ? {
-                                                                label: {
-                                                                    display: true,
-                                                                    content: line.label,
-                                                                    position: line.labelPosition || 'end',
-                                                                    font: { size: 9 },
-                                                                    color: lineColor,
-                                                                    backgroundColor: 'transparent',
-                                                                    // Sit the label just above the line so it doesn't render on top of it.
-                                                                    // The 20% y-axis headroom set above guarantees it stays inside the chart.
-                                                                    yAdjust: -8,
-                                                                },
-                                                            }
-                                                          : {}),
+                        ...(() => {
+                            const annotations: Record<string, any> = {}
+
+                            if (referenceLines && referenceLines.length > 0) {
+                                referenceLines.forEach((line, i) => {
+                                    const lineColor = getColorVar(line.color || 'danger')
+                                    annotations[`referenceLine${i}`] = {
+                                        type: 'line',
+                                        yMin: line.value,
+                                        yMax: line.value,
+                                        borderColor: lineColor,
+                                        borderWidth: 1.5,
+                                        borderDash: [5, 4],
+                                        ...(line.label
+                                            ? {
+                                                  label: {
+                                                      display: true,
+                                                      content: line.label,
+                                                      position: line.labelPosition || 'end',
+                                                      font: { size: 9 },
+                                                      color: lineColor,
+                                                      backgroundColor: 'transparent',
+                                                      // Sit the label just above the line so it doesn't render on top of it.
+                                                      // The 20% y-axis headroom set above guarantees it stays inside the chart.
+                                                      yAdjust: -8,
                                                   },
-                                              ]
-                                          })
-                                      ),
-                                  },
-                              }
-                            : {}),
+                                              }
+                                            : {}),
+                                    }
+                                })
+                            }
+
+                            if (highlightedRange && labels && labels.length > 0) {
+                                const lastIdx = labels.length - 1
+                                const lo = Math.max(0, Math.min(highlightedRange.startIndex, highlightedRange.endIndex))
+                                const hi = Math.min(
+                                    lastIdx,
+                                    Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
+                                )
+                                if (lo <= hi) {
+                                    annotations.highlightedRange = {
+                                        type: 'box',
+                                        xMin: labels[lo],
+                                        xMax: labels[hi],
+                                        // Drawn under the bars so the data stays legible.
+                                        drawTime: 'beforeDatasetsDraw',
+                                        backgroundColor: 'rgba(0, 0, 0, 0.06)',
+                                        borderColor: 'rgba(0, 0, 0, 0.2)',
+                                        borderWidth: 1,
+                                    }
+                                }
+                            }
+
+                            return Object.keys(annotations).length > 0 ? { annotation: { annotations } } : {}
+                        })(),
                     },
                     maintainAspectRatio: false,
                     interaction: {
@@ -289,7 +315,18 @@ export function Sparkline({
                 },
             }
         },
-        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type, referenceLines],
+        deps: [
+            labels,
+            adjustedData,
+            withXScale,
+            withYScale,
+            renderLabel,
+            data,
+            maximumIndicator,
+            type,
+            referenceLines,
+            highlightedRange,
+        ],
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
