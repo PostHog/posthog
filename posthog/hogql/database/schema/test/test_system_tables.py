@@ -22,8 +22,6 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
 from products.actions.backend.models.action import Action
@@ -31,6 +29,7 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue, 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.conversations.backend.models import Ticket
 from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -51,6 +50,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
