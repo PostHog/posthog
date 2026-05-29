@@ -167,8 +167,7 @@ impl RawProxyInner {
                 if is_strong {
                     (self.handle_get_person_strong(req).await, "leader", None)
                 } else {
-                    let (resp, call_ms) =
-                        self.raw_proxy_to_replica(req, method.clone()).await;
+                    let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                     (resp, "replica", call_ms)
                 }
             }
