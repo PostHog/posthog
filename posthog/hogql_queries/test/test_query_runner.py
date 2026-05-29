@@ -355,7 +355,10 @@ class TestQueryRunner(BaseTest):
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
 
-        TestHogQLRunner = self.setup_test_query_runner_class(base=QueryRunnerWithHogQLContext)
+        # ``QueryRunnerWithHogQLContext`` is abstract via its ``QueryRunner`` chain;
+        # ``setup_test_query_runner_class`` clears ``__abstractmethods__`` on the subclass it
+        # returns, so the abstract-class check here is a false positive.
+        TestHogQLRunner = self.setup_test_query_runner_class(base=QueryRunnerWithHogQLContext)  # type: ignore[type-abstract]
 
         baseline_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
         baseline_key = baseline_runner.get_cache_key()

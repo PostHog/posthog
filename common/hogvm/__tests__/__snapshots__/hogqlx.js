@@ -81,7 +81,7 @@ let b = {"__hx_tag": "div", "children": ["outer. ", Hello({"value": "hello"})]};
 print(b);
 print({"__hx_tag": "hr"});
 let Filter = __lambda((props) => {
-    let query = {"__hx_ast": "Constant", "value": true};
+    let query = {"__hx_ast": "Constant", "value": true, "is_sensitive": false};
     if (__getProperty(props, "name", true)) {
             query = {"__hx_ast": "And", "exprs": [query, {"__hx_ast": "CompareOperation", "left": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "right": __getProperty(props, "name", true), "op": "=="}]}
         }
@@ -92,10 +92,10 @@ let Filter = __lambda((props) => {
 });
 let query1 = Filter({"name": "John", "email": "john@gmail.com"});
 printQ(query1);
-let query2 = {"__hx_ast": "And", "exprs": [{"__hx_ast": "Constant", "value": true}, Filter({"name": {"__hx_ast": "Constant", "value": "John"}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com"}})]};
+let query2 = {"__hx_ast": "And", "exprs": [{"__hx_ast": "Constant", "value": true, "is_sensitive": false}, Filter({"name": {"__hx_ast": "Constant", "value": "John", "is_sensitive": false}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com", "is_sensitive": false}})]};
 printQ(query2);
 let query3a = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "hidden": false, "from_asterisk": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"], "from_asterisk": false}], "distinct": false}, "hidden": false, "from_asterisk": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"], "from_asterisk": false}}, "where": Filter({"name": "John", "email": "john@gmail.com"})};
-let query3b = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "hidden": false, "from_asterisk": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"], "from_asterisk": false}], "distinct": false}, "hidden": false, "from_asterisk": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"], "from_asterisk": false}}, "where": Filter({"name": {"__hx_ast": "Constant", "value": "John"}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com"}})};
+let query3b = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "hidden": false, "from_asterisk": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"], "from_asterisk": false}], "distinct": false}, "hidden": false, "from_asterisk": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"], "from_asterisk": false}}, "where": Filter({"name": {"__hx_ast": "Constant", "value": "John", "is_sensitive": false}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com", "is_sensitive": false}})};
 printQ(query3a);
 printQ(query3b);
 print(((jsonStringify(query3b).includes("HogQLXAttribute")) ? "FAILED" : "PASSED"));
