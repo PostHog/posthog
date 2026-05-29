@@ -55,7 +55,7 @@ class UserAccessInfoSerializer(serializers.Serializer):
     user_id = serializers.UUIDField()
     access_level = serializers.CharField()
     access_source = serializers.CharField(
-        help_text="How the user got access: 'explicit_member', 'explicit_role', 'organization_admin', 'project_admin', 'creator', 'default'"
+        help_text="How the user got access: 'explicit_member', 'explicit_role', 'organization_admin', 'project_admin', 'default'"
     )
     organization_membership_id = serializers.UUIDField(allow_null=True)
     organization_membership_level = serializers.CharField(allow_null=True)

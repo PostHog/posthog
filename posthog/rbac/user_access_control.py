@@ -555,11 +555,13 @@ class UserAccessControl:
         if not resource or not org_membership:
             return None
 
-        # Creators always have highest access
-        if getattr(obj, "created_by", None) == self._user:
-            return highest_access_level(resource)
-
-        # Org admins always have highest access
+        # Org admins always have highest access. We intentionally do NOT have a
+        # creator bypass here: implicit access based on `created_by` made the
+        # effective access level disagree with the AC rows, broke "who has
+        # access to X?" introspection, and forced every surface (resource list,
+        # object detail, queryset filter) to special-case the creator. The only
+        # universal escape hatch is org admin / owner; the UI prevents
+        # non-admins from accidentally locking themselves out at write time.
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return highest_access_level(resource)
 
@@ -620,17 +622,12 @@ class UserAccessControl:
         """
         Special case for checking if the user can modify the access levels for an object.
         Unlike check_access_level_for_object, this requires that one of these conditions is true:
-        1. The user is the creator of the object
-        2. The user is explicitly a project admin
-        3. The user is an org admin
-        4. The user has "manager" access to the resource
+        1. The user is explicitly a project admin
+        2. The user is an org admin
+        3. The user has "manager" access to the resource
         """
 
-        if getattr(obj, "created_by", None) == self._user:
-            # TODO: Should this always be the case, even for projects?
-            return True
-
-        # If they aren't the creator then they need to be a project admin, org admin, or have "manager" access to the resource
+        # If they need to be a project admin, org admin, or have "manager" access to the resource
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
         resource = model_to_resource(obj)
         project_admin_check = self.check_access_level_for_object(
@@ -657,10 +654,6 @@ class UserAccessControl:
 
         if not resource or not org_membership:
             return None
-
-        # Check if user is the creator
-        if getattr(obj, "created_by", None) == self._user:
-            return AccessSource.CREATOR
 
         # Check if user is org admin
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
@@ -892,8 +885,6 @@ class UserAccessControl:
         resource_access_level = self.access_level_for_resource(resource)
         has_resource_access = resource_access_level and resource_access_level != NO_ACCESS_LEVEL
 
-        model_has_creator = hasattr(model, "created_by")
-
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
@@ -931,24 +922,18 @@ class UserAccessControl:
         # Apply filtering logic based on resource-level access
         if not has_resource_access and allowed_resource_ids:
             # User has "none" resource access but specific object access
-            # Only show objects they have explicit access to (plus created objects)
-            if model_has_creator:
-                queryset = queryset.filter(Q(id__in=allowed_resource_ids) | Q(created_by=self._user))
-            else:
-                queryset = queryset.filter(id__in=allowed_resource_ids)
+            # Only show objects they have explicit access to
+            queryset = queryset.filter(id__in=allowed_resource_ids)
         elif blocked_resource_ids:
             # Standard case: exclude explicitly blocked objects
-            if model_has_creator:
-                queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
-            else:
-                queryset = queryset.exclude(id__in=blocked_resource_ids)
+            queryset = queryset.exclude(id__in=blocked_resource_ids)
 
         return queryset
 
     def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
-        and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
+        and exclude items that end up with 'none', unless the user is project-admin or org-admin/staff.
         """
         user = self._user
         org_membership = self._organization_membership
@@ -1010,9 +995,9 @@ class UserAccessControl:
             )
         )
 
-        # 4) Exclude items that are "none" if the user is not the creator,
-        #    not a project admin, and not an org-admin/staff (already handled in step #1).
-        queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False) & ~Q(created_by=user))
+        # 4) Exclude items that are "none" if the user is not a project admin
+        #    and not an org-admin/staff (already handled in step #1).
+        queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False))
 
         return queryset
 

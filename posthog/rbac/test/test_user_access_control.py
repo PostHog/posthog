@@ -348,11 +348,7 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
         """
         Test that the new 'manager' access level works correctly and is above 'editor' in the hierarchy.
         """
-        # Test that creators have "manager" access to their files by default:
-        # - User is creator of dashboard -> has "manager" access
-        # Create an AccessControl entry giving other_user "editor" access to the dashboard
-        # to verify they can edit but not manage it
-
+        # Give other_user "editor" access to the dashboard so we can verify they can edit but not manage it.
         self._create_access_control(
             resource_id=self.dashboard.id,
             access_level="editor",
@@ -419,30 +415,29 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         self.assertEqual(a_for_user.effective_access_level, "some")  # type: ignore
         self.assertEqual(b_for_user.effective_access_level, "some")  # type: ignore
 
-    def test_none_access_on_resource_excludes_items_for_non_creator(self):
+    def test_none_access_on_resource_excludes_items_for_everyone_except_admin(self):
         """
         If an AccessControl row specifically sets "none" for a resource_id,
-        the user shouldn't see that FileSystem object, unless they are the creator or admin/staff.
+        nobody (including the creator) sees that FileSystem object unless they are project admin or org admin/staff.
         """
-        # Mark file_b as "none" for self.user
+        # Mark file_b as "none" for everyone (no creator bypass anymore).
         AccessControl.objects.create(
             team=self.team,
             resource="my_resource",
             resource_id="def",
             access_level="none",
-            organization_member=None,  # global "none"
+            organization_member=None,
         )
 
         queryset = FileSystem.objects.all()
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
-
-        # user is the creator of file_a => sees it
-        # user is NOT the creator of file_b => 'none' access => excluded
+        # user is not the creator of file_b => excluded
+        # user is not subject to "none" on file_a => sees it
         self.assertCountEqual([self.file_a], filtered_for_user)
 
-        # Meanwhile, other_user is the *creator* of file_b => they still see it
+        # Even other_user (the *creator* of file_b) is excluded — creator bypass was removed.
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_other)
+        self.assertCountEqual([self.file_a], filtered_for_other)
 
     def test_org_admin_sees_all_even_if_none(self):
         # Make "def" = none for everyone
@@ -469,19 +464,19 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         """
         # Set "def" => "viewer" for self.user
         self._create_access_control(resource_id="def", access_level="viewer", resource="my_resource")
-        # self._create_access_control_file_system(resource_id="def", access_level="viewer")
         # Set "abc" => "none" globally
         self._create_access_control(resource_id="abc", access_level="none", resource="my_resource")
 
         queryset = FileSystem.objects.all()
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
 
-        # file_a => "abc" => default is "none" from that row, but user is also the creator of file_a => sees it anyway
+        # file_a => "abc" => "none" row => excluded (creator bypass was removed)
         # file_b => "def" => explicit "viewer" => user sees it
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+        self.assertCountEqual([self.file_b], filtered_for_user)
 
-        # Meanwhile, other_user is the creator of file_b, but for file_a there's a "none" row
-        # and other_user is not the creator of file_a => "none" excludes them from file_a
+        # other_user is the creator of file_b but creator bypass was removed.
+        # file_a => "abc" => "none" globally => excluded for other_user too.
+        # file_b => "def" => explicit "viewer" applies to everyone => visible.
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
         self.assertCountEqual([self.file_b], filtered_for_other)
 
@@ -524,7 +519,7 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
 
         queryset = FileSystem.objects.all()
         filtered_for_user_after_removal = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
+        # Now user is no longer project admin and creator bypass was removed, so file_b is excluded.
         self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
 
 
@@ -583,10 +578,10 @@ class TestUserAccessControlAccessSource(BaseUserAccessControlTest):
         super().setUp()
         self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
 
-    def test_creator_access_source(self):
-        """Test that creator gets 'creator' access source"""
+    def test_creator_no_longer_gets_creator_access_source(self):
+        """Creator bypass was removed; creators of an object get the default access source."""
         access_source = self.user_access_control.get_access_source_for_object(self.dashboard)
-        assert access_source == AccessSource.CREATOR
+        assert access_source == AccessSource.DEFAULT
 
     def test_organization_admin_access_source(self):
         """Test that org admins get 'organization_admin' access source"""
@@ -765,11 +760,11 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         assert access_level == "editor"
 
     def test_object_general_access_as_fallback(self):
-        """Test that object general access is used as final fallback"""
-        # No specific or resource-level access controls
-        # Should fall back to object general access (creator gets highest level)
+        """Test that object general access is used as final fallback (creator no longer gets a bypass)"""
+        # No specific or resource-level access controls; creator bypass was removed,
+        # so the user gets the resource default (editor) for their own dashboard.
         access_level = self.user_access_control.get_user_access_level(self.dashboard)
-        assert access_level == "manager"  # Creator gets highest access level
+        assert access_level == "editor"
 
     def test_org_admin_gets_highest_access_level(self):
         """Test that org admins get highest access level regardless of other controls"""
@@ -787,10 +782,10 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
         assert access_level == "manager"  # Org admin gets highest level
 
-    def test_creator_gets_highest_access_level(self):
-        """Test that creators get highest access level for their objects"""
+    def test_creator_no_longer_gets_highest_access_level(self):
+        """Creator bypass was removed; creators just get the resource default like everyone else."""
         access_level = self.user_access_control.get_user_access_level(self.dashboard)
-        assert access_level == "manager"  # Creator gets highest level
+        assert access_level == "editor"  # default access level, not "manager"
 
     def test_no_access_controls_returns_default(self):
         """Test that when no access controls exist, default access level is returned"""
@@ -1173,10 +1168,11 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         queryset = Notebook.objects.all()
         filtered_queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
-        # Should only include notebook_1 (specific access) and notebook_3 (created by user)
+        # Should only include notebook_1 (specific access). notebook_3 is created by user but
+        # creator bypass was removed, so it's not visible without resource-level or specific access.
         notebook_ids = list(filtered_queryset.values_list("id", flat=True))
         assert self.notebook_1.id in notebook_ids
-        assert self.notebook_3.id in notebook_ids  # Created by user
+        assert self.notebook_3.id not in notebook_ids
         assert self.notebook_2.id not in notebook_ids  # No access
 
     def test_filter_queryset_by_access_level_with_resource_access(self):

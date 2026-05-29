@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { LemonSelectOption } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSelectOption } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -10,6 +10,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     APIScopeObject,
@@ -49,6 +50,8 @@ export const accessControlLogic = kea<accessControlLogicType>([
             ['roles'],
             upgradeModalLogic,
             ['guardAvailableFeature'],
+            userLogic,
+            ['user'],
         ],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     })),
@@ -56,6 +59,9 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
         ) => ({ accessControl }),
+        attemptUpdateAccessControlDefault: (level: AccessControlLevel) => ({
+            level,
+        }),
         updateAccessControlDefault: (level: AccessControlLevel) => ({
             level,
         }),
@@ -155,10 +161,47 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateAccessControlDefaultSuccess: () => actions.loadAccessControls(),
         updateAccessControlRolesSuccess: () => actions.loadAccessControls(),
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
+
+        attemptUpdateAccessControlDefault: ({ level }) => {
+            // Project-wide defaults are applied via a different surface (not this object panel).
+            // The lockout warning only matters for object-level defaults — bail otherwise.
+            if (values.resource === 'project' || !values.canLockSelfOutByDefault(level)) {
+                actions.updateAccessControlDefault(level)
+                return
+            }
+
+            const { humanReadableResource, currentUserMembershipId } = values
+
+            LemonDialog.open({
+                title: `You may lose access to this ${humanReadableResource}`,
+                description: `Setting the default access for this ${humanReadableResource} to "No access" will remove your own access (you are not an organization admin). Add yourself as a manager to keep access — only organization admins can recover access if everyone gets locked out.`,
+                primaryButton: {
+                    children: 'Set No access',
+                    status: 'danger',
+                    onClick: () => actions.updateAccessControlDefault(level),
+                },
+                secondaryButton: currentUserMembershipId
+                    ? {
+                          children: 'Add me as a manager',
+                          type: 'primary',
+                          onClick: () => {
+                              actions.updateAccessControlMembers([
+                                  { member: currentUserMembershipId, level: AccessControlLevel.Manager },
+                              ])
+                              actions.updateAccessControlDefault(level)
+                          },
+                      }
+                    : undefined,
+                tertiaryButton: {
+                    children: 'Cancel',
+                    onClick: () => {},
+                },
+            })
+        },
     })),
     selectors({
         resource: [(_, p) => [p.resource], (resource) => resource],
@@ -175,6 +218,53 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
 
         humanReadableResource: [(_, p) => [p.resource], (resource) => resource.replace(/_/g, ' ')],
+
+        isCurrentUserOrgAdmin: [
+            (s) => [s.user],
+            (user): boolean => {
+                const level = user?.organization?.membership_level
+                return level !== null && level !== undefined && level >= OrganizationMembershipLevel.Admin
+            },
+        ],
+
+        currentUserMembershipId: [
+            (s) => [s.sortedMembers, s.user],
+            (members, user): string | null => {
+                if (!user?.uuid || !members) {
+                    return null
+                }
+                const membership = members.find((m) => m.user.uuid === user.uuid)
+                return membership?.id ?? null
+            },
+        ],
+
+        canLockSelfOutByDefault: [
+            (s) => [s.isCurrentUserOrgAdmin, s.accessControlMembers, s.currentUserMembershipId],
+            (isOrgAdmin, accessControlMembers, currentUserMembershipId) =>
+                (level: AccessControlLevel | null): boolean => {
+                    // Org admins always bypass via highest_access_level — they can't lock themselves out.
+                    if (isOrgAdmin) {
+                        return false
+                    }
+                    // Only "no access" is destructive in this context.
+                    if (level !== AccessControlLevel.None) {
+                        return false
+                    }
+                    if (!currentUserMembershipId) {
+                        return false
+                    }
+                    // If the user already has an explicit member-level grant on this object that survives a "none" default,
+                    // don't pester them. Role-based access and project-admin status would still be footguns; we err on the
+                    // side of warning unless we can prove they're safe via a member-level grant.
+                    const ownGrant = accessControlMembers.find(
+                        (ac) => 'organization_member' in ac && ac.organization_member === currentUserMembershipId
+                    )
+                    if (ownGrant && ownGrant.access_level && ownGrant.access_level !== AccessControlLevel.None) {
+                        return false
+                    }
+                    return true
+                },
+        ],
 
         minimumAccessLevel: [
             (s) => [s.accessControls],

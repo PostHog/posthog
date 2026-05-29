@@ -247,9 +247,9 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.json() == {
             "access_controls": [],
             "available_access_levels": ["none", "viewer", "editor", "manager"],
-            "user_access_level": "manager",
+            "user_access_level": "editor",
             "default_access_level": "editor",
-            "user_can_edit_access_levels": True,
+            "user_can_edit_access_levels": False,
             "minimum_access_level": "none",
             "maximum_access_level": "manager",
         }
@@ -264,10 +264,11 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         res = self._put_access_control(notebook_id=self.other_user_notebook.short_id)
         assert res.status_code == status.HTTP_200_OK, res.json()
 
-    def test_change_accepted_if_creator_of_the_resource(self):
+    def test_change_rejected_if_creator_but_not_admin(self):
+        # Creator bypass was removed: a plain member, even of their own object, can't edit ACs.
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control(notebook_id=self.notebook.short_id)
-        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
 
 class TestResourceAccessControlsSecurityValidation(BaseAccessControlTest):
@@ -512,10 +513,10 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert str(self.user3.uuid) in user_ids
         assert str(self.user4.uuid) in user_ids
 
-        # Check that creator has highest access level
+        # Creator no longer gets a bypass — they show up with the default access level like everyone else.
         creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
-        assert creator_user["access_level"] == "manager"
-        assert creator_user["access_source"] == AccessSource.CREATOR.value
+        assert creator_user["access_level"] == "editor"
+        assert creator_user["access_source"] == AccessSource.DEFAULT.value
 
         # Check that other users have default access level (not "none")
         other_users = [user for user in data["users"] if user["user_id"] != str(self.user.uuid)]
@@ -619,11 +620,12 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
         data = res.json()
-        # Only creator should have access (others are excluded due to "none" access level)
-        assert data["total_count"] == 1  # Only creator has access
-        creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
-        assert creator_user["access_level"] == "manager"
-        assert creator_user["access_source"] == AccessSource.CREATOR.value
+        # Only the org admin (self.user) survives the "none" default — creator bypass was removed,
+        # and other users get "none" via the default and are excluded.
+        assert data["total_count"] == 1  # Only the org admin has access
+        admin_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
+        assert admin_user["access_level"] == "manager"
+        assert admin_user["access_source"] == AccessSource.ORGANIZATION_ADMIN.value
 
         # Other users should be excluded entirely
         other_user_ids = [str(self.user2.uuid), str(self.user3.uuid), str(self.user4.uuid)]
@@ -684,8 +686,9 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
         data = res.json()
-        # Should be sorted: manager (creator), editor (user3), editor (user4 default), viewer (user2)
-        assert data["users"][0]["access_level"] == "manager"  # creator
+        # Sorted by access level. self.user is org admin in this test (set above), so they come first as manager.
+        # Then editor (user3 explicit + user4 default), then viewer (user2 explicit). No more creator bypass.
+        assert data["users"][0]["access_level"] == "manager"  # self.user (org admin)
         assert data["users"][1]["access_level"] == "editor"  # user3
         assert data["users"][2]["access_level"] == "editor"  # user4 (default)
         assert data["users"][3]["access_level"] == "viewer"  # user2
@@ -779,18 +782,19 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
         data = res.json()
-        # Creator and user2 should have access, others should be excluded due to project-level "none" access
+        # self.user (org admin) and user2 should have access; others are excluded due to project-level "none" access.
+        # Creator bypass was removed, so what saves self.user here is being an org admin.
         assert data["total_count"] == 2
         user_ids = [user["user_id"] for user in data["users"]]
-        assert str(self.user.uuid) in user_ids  # creator
+        assert str(self.user.uuid) in user_ids  # org admin
         assert str(self.user2.uuid) in user_ids  # explicit project access
         assert str(self.user3.uuid) not in user_ids  # no project access
         assert str(self.user4.uuid) not in user_ids  # no project access
 
-        # Check that creator has highest access level
-        creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
-        assert creator_user["access_level"] == "manager"
-        assert creator_user["access_source"] == AccessSource.CREATOR.value
+        # Org admin gets the highest access level.
+        admin_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
+        assert admin_user["access_level"] == "manager"
+        assert admin_user["access_source"] == AccessSource.ORGANIZATION_ADMIN.value
 
         # Check that user2 has project-level access
         user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
@@ -962,9 +966,9 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
         assert self._post_notebook().status_code == status.HTTP_201_CREATED
 
-    def test_rejects_view_access_if_not_creator(self):
+    def test_rejects_view_access_for_everyone_when_default_is_none(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        # Set other notebook to only allow view access by default
+        # Set other notebook and own notebook to "none" by default
         assert (
             self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
             == status.HTTP_200_OK
@@ -978,9 +982,9 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         # Access to other notebook is denied
         assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
         assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
-        # As creator, access to my notebook is still permitted
-        assert self._get_notebook(self.notebook.short_id).status_code == status.HTTP_200_OK
-        assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
+        # Creator bypass was removed: the creator gets locked out of their own notebook too.
+        assert self._get_notebook(self.notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
+        assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
 
     def test_org_level_endpoints_work(self):
         assert self.client.get("/api/organizations/@current/plugins").status_code == status.HTTP_200_OK

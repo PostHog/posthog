@@ -61,7 +61,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                         {canEditAccessControls === false ? (
                             <LemonBanner type="warning">
                                 <Tooltip
-                                    title={`You don't have permission to edit access controls for ${suffix}. You must be the creator of it, a Project admin, an Organization admin, or have manager access to the resource.`}
+                                    title={`You don't have permission to edit access controls for ${suffix}. You must be a Project admin, an Organization admin, or have manager access to the resource.`}
                                 >
                                     <span className="font-medium">Permission required</span>
                                 </Tooltip>
@@ -89,7 +89,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 function AccessControlObjectDefaults(): JSX.Element | null {
     const { accessControlDefault, accessControlDefaultOptions, accessControlsLoading, canEditAccessControls } =
         useValues(accessControlLogic)
-    const { updateAccessControlDefault } = useActions(accessControlLogic)
+    const { attemptUpdateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
@@ -98,7 +98,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
             value={accessControlDefault?.access_level ?? undefined}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => {
-                    updateAccessControlDefault(newValue as AccessControlLevel)
+                    attemptUpdateAccessControlDefault(newValue as AccessControlLevel)
                 })
             }}
             disabledReason={

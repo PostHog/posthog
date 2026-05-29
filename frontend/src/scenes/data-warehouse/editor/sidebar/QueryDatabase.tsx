@@ -107,8 +107,7 @@ export const QueryDatabase = ({
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
-    // resource level regardless of per-object creator bypass. Per-object actions like
-    // Edit view use the view's own user_access_level inline below.
+    // resource level. Per-object actions like Edit view use the view's own user_access_level inline below.
     const resourceLevelEditorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
@@ -673,7 +672,7 @@ export const QueryDatabase = ({
                         item.name,
                         item.record.type === 'endpoint' ? item.record.tableName : undefined
                     )
-                    // Edit view is per-object — creators can edit their own views.
+                    // Edit view is per-object — gated by the view's own access level.
                     const editViewAccessDisabledReason =
                         item.record.type !== 'endpoint'
                             ? getAccessControlDisabledReason(
