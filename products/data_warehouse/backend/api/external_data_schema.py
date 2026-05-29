@@ -661,12 +661,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         should_sync: bool | None,
         sync_type: str | None,
     ) -> None:
-        """Manage CDC capture-set membership when a schema is toggled or newly set to CDC.
-
-        The engine-side operation (PG: ALTER PUBLICATION) lives on the CDC adapter, which
-        no-ops for self-managed publications. We still gate here to avoid resolving the
-        physical table location for sources that have nothing to do.
-        """
+        """Add/remove the table from the CDC capture set when a schema is toggled or set to CDC."""
         adapter = get_cdc_adapter(source)
         cdc_config = adapter.parse_cdc_config(source)
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:

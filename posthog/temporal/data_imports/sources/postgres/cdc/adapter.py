@@ -112,10 +112,7 @@ class PostgresCDCAdapter:
         if management_mode == "posthog":
             try:
                 with cdc_pg_connection(source) as conn:
-                    # Refuse to touch names that already exist — otherwise a failure mid-create
-                    # would trigger a rollback that drops a slot/publication PostHog never created
-                    # (an editor could supply the name of an existing one). Bailing here also means
-                    # the rollback below only ever drops resources we just created.
+                    # Bail on pre-existing names so the rollback below only ever drops what we created.
                     if slot_exists(conn, slot_name):
                         return {}, f"A replication slot named '{slot_name}' already exists on your database."
                     if publication_exists(conn, pub_name):
@@ -125,11 +122,7 @@ class PostgresCDCAdapter:
                     )
             except Exception as e:
                 logger.exception("Failed to create CDC slot and publication: %s", e)
-                # Safe rollback — we verified above that neither the slot nor the publication
-                # existed before, so anything present now is ours. `create_slot_and_publication`
-                # commits the publication before creating the slot, so a slot failure can leave a
-                # leaked publication; this drops both. `drop_slot_and_publication` swallows
-                # UndefinedObject, so it's a no-op when neither was created.
+                # Both verified absent above, so dropping anything present now is safe.
                 try:
                     with cdc_pg_connection(source, connect_timeout=10) as conn:
                         drop_slot_and_publication(conn, slot_name, pub_name)
@@ -154,8 +147,7 @@ class PostgresCDCAdapter:
                 resource_fields["cdc_consistent_point"] = create_slot(conn, slot_name)
         except Exception as e:
             logger.exception("Failed to set up self-managed CDC slot: %s", e)
-            # Drop only the slot (verified absent before, so it's ours) — never the
-            # customer-owned publication.
+            # Slot only — the publication is customer-owned.
             try:
                 with cdc_pg_connection(source, connect_timeout=10) as conn:
                     drop_slot(conn, slot_name)
@@ -201,18 +193,11 @@ class PostgresCDCAdapter:
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort add a table to the capture set (PG: ALTER PUBLICATION ADD TABLE).
-
-        No-op for self-managed mode (the customer owns the publication) or when there's
-        no publication to alter. Logs and continues on errors.
-        """
+        """Best-effort ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication."""
         self._alter_publication_membership(source, schema, table, add=True)
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort remove a table from the capture set (PG: ALTER PUBLICATION DROP TABLE).
-
-        No-op for self-managed mode or when there's no publication to alter.
-        """
+        """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
         self._alter_publication_membership(source, schema, table, add=False)
 
     def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:

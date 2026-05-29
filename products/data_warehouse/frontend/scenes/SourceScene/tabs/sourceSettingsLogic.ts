@@ -337,9 +337,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         cdcStatus: [
             null as CdcStatus | null,
             {
-                // Opens a short connection to the customer DB to read slot/publication
-                // existence + WAL lag, so this is on-demand (mount + manual refresh), never
-                // polled. Triggered from `loadSourceSuccess` so the team context is set.
+                // Opens a connection to the customer DB, so it's on-demand (never polled).
                 loadCdcStatus: async () => {
                     return await api.externalDataSources.cdc_status(values.sourceId)
                 },
@@ -626,9 +624,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
 
-                // Fetch live CDC status once per source — it opens a connection to the
-                // customer DB, so it must not ride the 5s source poll. Runs here (not a React
-                // effect) so the team context is guaranteed set by the successful source load.
+                // Fetch CDC status once per source — here (not a React effect) so team context is set.
                 const ji = (values.source?.job_inputs ?? {}) as Record<string, any>
                 const cdcEnabled = ji.cdc_enabled === true || ji.cdc_enabled === 'True' || ji.cdc_enabled === 'true'
                 if (cdcEnabled && cache.cdcStatusFetchedForSourceId !== values.source?.id) {

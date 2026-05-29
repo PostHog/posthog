@@ -2081,10 +2081,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not cdc_config.enabled:
             return Response(status=status.HTTP_200_OK, data={"success": True, "already_disabled": True})
 
-        # Cancel ALL running extraction workflows before dropping engine resources —
-        # Postgres refuses pg_drop_replication_slot while any session holds the slot, and
-        # overlapping retries/triggers can leave more than one job Running. Cancelling only
-        # the latest would let a concurrent job keep the slot busy and fail the teardown.
+        # Cancel ALL running workflows first — any one holding the slot fails pg_drop_replication_slot.
         running_jobs = ExternalDataJob.objects.filter(
             pipeline_id=instance.pk, team_id=instance.team_id, status="Running"
         ).exclude(workflow_id__isnull=True)

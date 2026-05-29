@@ -112,19 +112,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         ...
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort include a table in the source's change-capture set.
-
-        For Postgres this is ``ALTER PUBLICATION ... ADD TABLE``. Implementations
-        no-op when PostHog doesn't own the capture definition (e.g. self-managed
-        publications) and log-and-continue on errors.
-        """
+        """Best-effort include a table in the change-capture set (PG: ALTER PUBLICATION ADD TABLE).
+        No-op when PostHog doesn't own the capture definition (e.g. self-managed)."""
         ...
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort exclude a table from the source's change-capture set.
-
-        The inverse of ``add_table``; same ownership/no-op rules apply.
-        """
+        """Best-effort exclude a table from the change-capture set. Inverse of ``add_table``."""
         ...
 
 

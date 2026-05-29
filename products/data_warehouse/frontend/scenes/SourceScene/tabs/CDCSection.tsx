@@ -79,19 +79,15 @@ function quoteTable(name: string, defaultSchema: string): string {
     return `"${defaultSchema}"."${name}"`
 }
 
-// Build the self-managed CDC setup SQL the customer's DBA must run before PostHog can
-// create the replication slot. Mirrors the creation wizard's dialog. Connection details
-// (schema, user) come from `job_inputs` — these are non-secret so they survive the
-// secret-stripping on API reads, unlike the password.
+// Self-managed CDC setup SQL the customer's DBA runs before PostHog creates the slot.
+// schema/user come from `job_inputs` (non-secret, unlike the password).
 function buildSelfManagedCdcSql(source: ExternalDataSource, publicationName: string): string {
     const ji = (source.job_inputs ?? {}) as Record<string, any>
     const schema = (ji.schema as string) || 'public'
     const dbUser = (ji.user as string) || '<your_user>'
     const pubName = publicationName.trim() || 'posthog_pub'
 
-    // No CDC tables are selected yet at enable time (schemas switch to CDC afterward on the
-    // Schemas tab), so default the publication to the source's currently-synced tables — the
-    // realistic CDC candidates — falling back to a placeholder when nothing is synced yet.
+    // No CDC tables picked yet at enable time, so default to the source's synced tables.
     const syncedTables = (source.schemas ?? []).filter((s) => s.should_sync).map((s) => s.name)
     const tableList =
         syncedTables.length > 0 ? syncedTables.map((t) => quoteTable(t, schema)).join(', ') : `"${schema}"."your_table"`
@@ -415,9 +411,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
             setSetupModalOpen(false)
             loadSource()
         } catch (e: any) {
-            // enable_cdc re-validates prerequisites server-side and 400s with an `errors`
-            // list when the publication/grants aren't in place yet — surface those inline
-            // in the modal so the user can fix their SQL and retry without losing context.
+            // enable_cdc re-validates server-side; surface its `errors` list inline for retry.
             const errs = e?.data?.errors
             if (Array.isArray(errs) && errs.length > 0) {
                 setModalErrors(errs)
@@ -609,9 +603,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
                             disabledReason={
                                 thresholdsInvalid
                                     ? 'Fix lag threshold validation before enabling'
-                                    : // For self-managed the modal walks the user through the publication SQL and
-                                      // verifies on enable, so a failed standalone check (no publication yet) must
-                                      // not block opening it.
+                                    : // Self-managed verifies in the modal, so a failed check must not block it.
                                       mode === 'posthog' && prereqResult && !prereqResult.valid
                                       ? 'Resolve database prerequisites before enabling'
                                       : undefined
