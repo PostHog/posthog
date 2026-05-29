@@ -1,6 +1,6 @@
 ---
 name: setting-up-devbox
-description: Guide a PostHog engineer through spinning up, connecting to, and running commands on a remote devbox (a Coder workspace running the full PostHog stack). Use when asked to set up a devbox, start or connect to a devbox, configure remote dev, get gh CLI / Claude Code authed on a devbox, run a command on a devbox, or diagnose why a devbox command fails. Covers the tailnet prerequisite, hogli devbox commands, Coder user secrets for auth, and verifying with devbox:exec. How each dev personalizes their box is left to them.
+description: Guide a PostHog engineer or agent through spinning up, connecting to, running commands on, and mirroring local code to a remote devbox (a Coder workspace running the full PostHog stack). Use when asked to set up a devbox, start or connect to a devbox, configure remote dev, get gh CLI / Claude Code authed on a devbox, run a command on a devbox, mirror or sync a local checkout to a devbox so you can edit locally while the stack runs remotely (devbox:sync), or diagnose why a devbox command fails. Covers the tailnet prerequisite, hogli devbox commands, Coder user secrets for auth, one-way local->remote file sync via mutagen, and verifying with devbox:exec. How each dev personalizes their box is left to them.
 ---
 
 # Setting up a PostHog devbox
@@ -25,7 +25,7 @@ A safe probe — it never prompts or mutates host config (unlike `devbox:setup`)
 
 ### 2. One-time local setup — `hogli devbox:setup`
 
-Interactive: checks Tailscale + Coder reachability, installs and authenticates the `coder` CLI, and writes the SSH host entries that `devbox:ssh`/`devbox:exec` rely on. It then _offers_ git identity, git signing, a dotfiles repo, and your Claude token — all optional; `--skip-*` anything you don't want. Re-run one step with its flag, e.g. `hogli devbox:setup --configure-git-signing`.
+Interactive: checks Tailscale + Coder reachability, installs and authenticates the `coder` CLI (plus the pinned mutagen binary that backs `devbox:sync`), and writes the SSH host entries that `devbox:ssh`/`devbox:exec` rely on. It then _offers_ git identity, git signing, a dotfiles repo, and your Claude token — all optional; `--skip-*` anything you don't want. Re-run one step with its flag, e.g. `hogli devbox:setup --configure-git-signing`.
 
 ### 3. Start and connect — `hogli devbox:start`
 
@@ -68,6 +68,28 @@ hogli devbox:exec -n api -- bash -lc 'uname -a'    # -n targets a labeled box
 Wrap commands in `bash -lc '...'`: a non-login shell doesn't reliably source `~/.bashrc`/`~/.zshrc`, so a bare `gh auth status` can report "command not found" for anything on a login-shell `PATH` (e.g. `~/.local/bin`) — a false negative. The login shell also keeps the exit code trustworthy, so `&&` chaining and `if` checks work. Use `--` to separate hogli's flags from the command's own.
 
 `devbox:exec` is not side-effect-free: like every `devbox:*` command it runs the reachability check first, which on Linux may `sudo tailscale set --accept-routes` and prompt for a password. Run `hogli devbox:setup` once interactively so routes and SSH config are in place before an agent drives `devbox:exec` unattended.
+
+## Editing locally, running on the box — `hogli devbox:sync`
+
+When you want your fast local checkout to stay the place you edit, but the heavy stack (`hogli up`) to run on the box, `hogli devbox:sync` mirrors your local repo onto the box over [mutagen](https://mutagen.io). It is **one-way**: local is the source of truth, changes flow local→remote only, nothing comes back. This is the pattern to reach for in an agentic loop — edit with your normal local file tools, let the mirror carry each change to the box, and drive the remote stack with `devbox:exec` — instead of committing and pushing every iteration or editing over Remote-SSH.
+
+```bash
+hogli devbox:start                                   # the box must be running first
+hogli devbox:sync                                    # create the mirror (idempotent: re-run just reports status)
+# edit files locally — changes propagate within seconds
+hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend typescript:check'
+hogli devbox:sync --status                           # watching / paused / conflicts
+hogli devbox:sync --terminate                        # tear the mirror down when done
+```
+
+The non-obvious parts:
+
+- **It runs on your machine and pushes to the box — not the reverse.** Don't invoke it through `devbox:exec`. It mirrors whichever checkout you run it from (it walks up from the cwd for `hogli.yaml` + `.git`), so run it from the repo root you are editing — including a `/wt` worktree.
+- **`one-way-safe` preserves remote-only files.** The AMI's prewarmed `node_modules`, venv, and `target/` are never deleted — they aren't in your local checkout and the mode leaves remote-only content alone. Lockfiles _do_ sync, so the box reconciles deps on its next start.
+- **The first sync of a feature branch conflicts per diverged file.** The AMI is always on `master`; every file your branch changed relative to the box's `master` surfaces as a conflict in `--status`. That is expected one-way-safe behavior, and it is per-path — non-conflicting files (including brand-new ones) still sync. Resolve a path, or check the matching branch out on the box, only if you specifically need that file mirrored.
+- **Don't also edit those files on the box.** Editing over Remote-SSH while the mirror is live fights the local source of truth; `devbox:open --vscode|--cursor` warns when a sync is active for exactly this reason.
+
+The packaged ignore defaults are seeded once to `~/.hogli/mutagen.yml` and never overwritten — it is yours to tweak. If a newer hogli ships updated ignore defaults, `rm ~/.hogli/mutagen.yml` and re-run `devbox:setup` to pick them up.
 
 ## Persistence & multiple boxes
 
