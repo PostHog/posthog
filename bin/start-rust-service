@@ -157,10 +157,8 @@ case "$RS_SVC" in
     # default would silently inherit that and match no cymbal modules.
     export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
     export RUST_BACKTRACE=1
-    # S3 / MinIO for symbol-file fetches.
+    # S3 / MinIO bucket for symbol-file fetches.
     export OBJECT_STORAGE_BUCKET=posthog
-    export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-    export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     # Frame cache tuning — values are intentionally tiny in dev so cache
     # behaviour is observable without warming.
     export FRAME_CACHE_TTL_SECONDS=1
