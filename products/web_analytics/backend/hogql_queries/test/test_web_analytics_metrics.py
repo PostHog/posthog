@@ -7,6 +7,15 @@ from parameterized import parameterized
 
 from posthog.schema import WebStatsBreakdown
 
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    create_base_tags,
+    get_query_tag_value,
+    query_tags,
+    tag_queries,
+)
+
 from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_COUNTER,
     WEB_ANALYTICS_QUERY_DURATION,
@@ -44,6 +53,10 @@ def _make_runner(
     runner = MagicMock(spec=WebAnalyticsQueryRunner)
     runner.query = query
     runner.team = team
+    # The real `filters_eligibility_hash` is an Optional[str] cached_property; `spec` doesn't
+    # propagate the annotation so MagicMock would return a Mock object which fails
+    # the QueryTags pydantic validation in `tag_queries`. Pin a stable test value.
+    runner.filters_eligibility_hash = "test_filters_eligibility_hash"
     cast(MagicMock, runner.query_strategy).return_value = query_strategy
     cast(MagicMock, runner.clickhouse_query_type).return_value = (
         f"{query_strategy}_query" if query_strategy is not None else None
@@ -86,6 +99,11 @@ class TestWebAnalyticsMetrics(TestCase):
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED._metrics.clear()
         WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK._metrics.clear()
         WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS._metrics.clear()
+        # Reset `query_tags` ContextVar — it persists across tests in the same
+        # process and `tag_queries` only updates fields explicitly passed in,
+        # so a prior test's `breakdown_by` would leak into a runner whose
+        # query has no breakdown.
+        query_tags.set(create_base_tags())
 
     @parameterized.expand(
         [
@@ -302,6 +320,58 @@ class TestWebAnalyticsMetrics(TestCase):
 
     @parameterized.expand(
         [
+            # (name, query_kind, breakdown_with_value_or_none, expect_breakdown_by_tag)
+            ("overview_no_breakdown", "WebOverviewQuery", None, None),
+            ("stats_table_page", "WebStatsTableQuery", WebStatsBreakdown.PAGE, ["Page"]),
+            ("stats_table_browser", "WebStatsTableQuery", WebStatsBreakdown.BROWSER, ["Browser"]),
+            (
+                "stats_table_initial_channel",
+                "WebStatsTableQuery",
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                ["InitialChannelType"],
+            ),
+            ("goals", "WebGoalsQuery", None, None),
+            ("external_clicks", "WebExternalClicksTableQuery", None, None),
+            ("vitals_paths", "WebVitalsPathBreakdownQuery", None, None),
+            ("trends", "WebTrendsQuery", None, None),
+        ],
+    )
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
+    def test_tag_queries_payload_consistent_across_runners(
+        self, _name, query_kind, breakdown, expect_breakdown_by_tag, _mock_tag
+    ):
+        """Every web analytics query runner must land the same shape in
+        `system.query_log.log_comment` via `tag_queries` — `product`,
+        `feature`, `query`, and `breakdown_by` (when the query has a
+        `breakdownBy`). Drift here breaks downstream `query_log`-based
+        analysis (per-strategy latency, per-tile cost slicing).
+
+        `filters_eligibility_hash` is **not** in this payload — it stays on
+        the structlog contextvar only, see
+        `test_filters_eligibility_hash_not_in_query_tags`."""
+        runner = _make_runner(query_kind=query_kind, breakdown=breakdown)
+        # The real `WebQueryNode.model_dump(mode="json")` returns a dict; the
+        # MagicMock-backed `query` returns another Mock by default, which
+        # bypasses the dict-shape assertion below.
+        cast(MagicMock, runner.query.model_dump).return_value = {"kind": query_kind}
+
+        fake_response = MagicMock()
+        fake_response.usedPreAggregatedTables = False
+
+        with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
+            WebAnalyticsQueryRunner.calculate(runner)
+
+        assert get_query_tag_value("product") == Product.WEB_ANALYTICS
+        assert get_query_tag_value("feature") == Feature.QUERY
+        # `query` is the dumped query payload — a dict with at least `kind`.
+        query_tag = get_query_tag_value("query")
+        assert isinstance(query_tag, dict) and query_tag.get("kind") == query_kind
+        assert get_query_tag_value("breakdown_by") == expect_breakdown_by_tag
+
+    @parameterized.expand(
+        [
             ("web_overview", "web_overview"),
             ("web_stats", "web_stats"),
         ]
@@ -384,6 +454,38 @@ class TestWebAnalyticsMetrics(TestCase):
     def test_lazy_precompute_success_counter_label_space(self, family):
         WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=family).inc()
         assert _get_counter_value(WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS, {"family": family}) == 1.0
+
+    @parameterized.expand(
+        [
+            ("no_prior_tag", None),
+            (
+                "overwrites_wrapper_payload",
+                {"kind": "InsightVizNode", "source": {"kind": "WebOverviewQuery"}},
+            ),
+            (
+                "overwrites_prior_runner_payload",
+                {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-30d"}},
+            ),
+        ]
+    )
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
+    def test_calculate_tags_inner_query_payload(self, _name, prior_tag, _mock_tag):
+        query_tags.set(create_base_tags())
+        if prior_tag is not None:
+            tag_queries(query=prior_tag)
+
+        runner = _make_runner(query_kind="WebOverviewQuery", breakdown=None)
+        expected_payload = {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d", "date_to": None}}
+        cast(MagicMock, runner.query.model_dump).return_value = expected_payload
+
+        fake_response = MagicMock()
+        fake_response.usedPreAggregatedTables = False
+        with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
+            WebAnalyticsQueryRunner.calculate(runner)
+
+        self.assertEqual(get_query_tag_value("query"), expected_payload)
 
     @patch(
         "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None

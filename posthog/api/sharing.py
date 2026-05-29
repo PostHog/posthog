@@ -9,6 +9,7 @@ from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+import jwt
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
@@ -24,8 +25,6 @@ from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
-from posthog.api.insight import InsightSerializer
-from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -35,10 +34,15 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Cohort, InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
+from posthog.models import Cohort, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
-from posthog.models.insight import Insight
+from posthog.models.exported_asset import (
+    EXPORTED_ASSET_PURPOSE_RENDER,
+    EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
+    ExportedAsset,
+    asset_for_token,
+    get_content_response,
+)
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -53,6 +57,9 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
+from products.product_analytics.backend.api.insight import InsightSerializer
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
 
@@ -697,6 +704,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     permission_classes = []
     serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
 
+    # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
+    _token_purpose: str | None = None
+
     def initial(self, request, *args, **kwargs):
         """Override to ensure we don't apply any session authentication."""
         # Save and clear any existing user to ensure we start fresh
@@ -718,10 +728,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         token = self.request.query_params.get("token")
         if token:
             try:
-                asset = asset_for_token(token)
+                asset, self._token_purpose = asset_for_token(token)
                 if asset:
                     return asset
-            except ExportedAsset.DoesNotExist:
+            except (ExportedAsset.DoesNotExist, jwt.InvalidTokenError):
                 raise NotFound()
 
         # Path based access (SharingConfiguration only)
@@ -771,6 +781,35 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         return self.retrieve(request, *args, **kwargs)
 
+    def _is_blocked_by_exported_asset_token_surface(
+        self, resource: SharingConfiguration | ExportedAsset, request: Request, token_purpose: str | None
+    ) -> bool:
+        if not isinstance(resource, ExportedAsset):
+            return False
+
+        if token_purpose == EXPORTED_ASSET_PURPOSE_RENDER:
+            return request.path != "/exporter"
+        if token_purpose == EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY:
+            return not request.path.endswith(f".{resource.file_ext}")
+        return False
+
+    def _is_blocked_by_public_sharing_setting(
+        self, resource: SharingConfiguration | ExportedAsset, request: Request, token_purpose: str | None
+    ) -> bool:
+        organization = resource.team.organization
+        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+            return False
+        if organization.allow_publicly_shared_resources:
+            return False
+
+        if token_purpose in (
+            EXPORTED_ASSET_PURPOSE_RENDER,
+            EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
+        ):
+            return False
+
+        return True
+
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         try:
@@ -781,10 +820,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not resource:
             return custom_404_response(self.request)
 
-        if (
-            resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
-            and not resource.team.organization.allow_publicly_shared_resources
-        ):
+        if self._is_blocked_by_exported_asset_token_surface(resource, request, self._token_purpose):
+            return custom_404_response(self.request)
+
+        if self._is_blocked_by_public_sharing_setting(resource, request, self._token_purpose):
             return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path

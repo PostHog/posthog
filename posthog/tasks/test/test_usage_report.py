@@ -38,12 +38,10 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Organization, Plugin, Team
+from posthog.models import Organization, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
-from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
@@ -63,10 +61,12 @@ from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1457,7 +1457,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def test_active_hog_destinations_and_transformations_per_team(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
-        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
         self._setup_teams()
 

@@ -288,6 +288,10 @@ export const urls = {
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
+    healthAlerts: (presetKinds?: string[]): string =>
+        presetKinds && presetKinds.length > 0
+            ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
+            : '/health/alerts',
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',

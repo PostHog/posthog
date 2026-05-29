@@ -15,6 +15,7 @@ use super::error::StorageError;
 pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_ms";
 pub(crate) const DB_POOL_ACQUIRE_DURATION: &str = "personhog_replica_db_pool_acquire_duration_ms";
 pub(crate) const DB_ROWS_RETURNED: &str = "personhog_replica_db_rows_returned";
+pub(crate) const DB_BULK_CHUNKS: &str = "personhog_replica_db_bulk_chunks";
 
 /// Consistency level for read operations
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -38,6 +39,8 @@ pub struct PostgresStorage {
     pub bulk_primary_pool: PgPool,
     /// Bulk pool for the replica database (large batch reads)
     pub bulk_replica_pool: PgPool,
+    pub(crate) bulk_chunk_size: usize,
+    pub(crate) bulk_max_concurrent_chunks: usize,
 }
 
 impl PostgresStorage {
@@ -47,22 +50,16 @@ impl PostgresStorage {
         replica_pool: PgPool,
         bulk_primary_pool: PgPool,
         bulk_replica_pool: PgPool,
+        bulk_chunk_size: usize,
+        bulk_max_concurrent_chunks: usize,
     ) -> Self {
         Self {
             primary_pool,
             replica_pool,
             bulk_primary_pool,
             bulk_replica_pool,
-        }
-    }
-
-    /// Create a new PostgresStorage with a single pool used for everything.
-    pub fn new_single_pool(pool: PgPool) -> Self {
-        Self {
-            primary_pool: pool.clone(),
-            replica_pool: pool.clone(),
-            bulk_primary_pool: pool.clone(),
-            bulk_replica_pool: pool,
+            bulk_chunk_size,
+            bulk_max_concurrent_chunks,
         }
     }
 

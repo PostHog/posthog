@@ -440,6 +440,7 @@ def team_api_test_factory():
                     },
                     "client": None,
                     "created_at": ANY,
+                    "ip_address": None,
                 },
                 {
                     "_state": ANY,
@@ -462,6 +463,7 @@ def team_api_test_factory():
                     "user_id": self.user.pk,
                     "was_impersonated": False,
                     "client": None,
+                    "ip_address": "127.0.0.1",
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -488,6 +490,7 @@ def team_api_test_factory():
                         "user_id": self.user.pk,
                         "was_impersonated": False,
                         "client": None,
+                        "ip_address": "127.0.0.1",
                     },
                 )
             assert activity == expected_activity
@@ -559,10 +562,11 @@ def team_api_test_factory():
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             from posthog.models.cohort import Cohort, CohortPeople
-            from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
+
+            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
             person = Person.objects.create(

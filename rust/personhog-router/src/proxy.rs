@@ -9,7 +9,9 @@ use http::{HeaderMap, HeaderValue};
 use http_body::Frame;
 use http_body_util::{BodyExt, Empty, Full};
 use metrics::{counter, histogram};
-use personhog_common::grpc::{current_client_name, ClientInFlightGuard, PROCESSING_TIME_HEADER};
+use personhog_common::grpc::{
+    current_caller_tag, current_client_name, ClientInFlightGuard, PROCESSING_TIME_HEADER,
+};
 use personhog_proto::personhog::types::v1::{GetPersonRequest, UpdatePersonPropertiesRequest};
 use prost::Message;
 use rand::Rng;
@@ -75,6 +77,7 @@ struct RawProxyInner {
     leader: Option<Arc<LeaderBackend>>,
     retry_config: RetryConfig,
     max_recv_message_size: usize,
+    response_size_warn_bytes: usize,
 }
 
 impl RawProxyService {
@@ -83,6 +86,7 @@ impl RawProxyService {
         leader: Option<Arc<LeaderBackend>>,
         retry_config: RetryConfig,
         max_recv_message_size: usize,
+        response_size_warn_bytes: usize,
     ) -> Self {
         Self {
             inner: Arc::new(RawProxyInner {
@@ -90,6 +94,7 @@ impl RawProxyService {
                 leader,
                 retry_config,
                 max_recv_message_size,
+                response_size_warn_bytes,
             }),
         }
     }
@@ -142,6 +147,7 @@ impl RawProxyInner {
 
         let method = method_name.to_string();
         let client = current_client_name();
+        let caller_tag = current_caller_tag();
         let start = Instant::now();
 
         let (mut response, backend) = match method_name {
@@ -177,6 +183,7 @@ impl RawProxyInner {
             "method" => method.clone(),
             "backend" => backend,
             "client" => client.clone(),
+            "caller_tag" => caller_tag.clone(),
         )
         .record(duration_ms);
 
@@ -207,7 +214,14 @@ impl RawProxyInner {
         }
 
         let (parts, body) = response.into_parts();
-        let counted = ByteCountedBody::new(body, method, backend, client);
+        let counted = ByteCountedBody::new(
+            body,
+            method,
+            backend,
+            client,
+            caller_tag,
+            self.response_size_warn_bytes,
+        );
         http::Response::from_parts(parts, BoxBody::new(counted))
     }
 
@@ -466,23 +480,35 @@ fn percent_encode_grpc(s: &str) -> String {
 }
 
 /// Response body wrapper that counts bytes from DATA frames and records
-/// the total to a histogram on drop.
+/// the total to a histogram on drop. Emits a structured warning when the
+/// response exceeds `warn_threshold` bytes.
 struct ByteCountedBody {
     inner: BoxBody,
     bytes_counted: usize,
     method: String,
     backend: &'static str,
     client: Arc<str>,
+    caller_tag: Arc<str>,
+    warn_threshold: usize,
 }
 
 impl ByteCountedBody {
-    fn new(inner: BoxBody, method: String, backend: &'static str, client: Arc<str>) -> Self {
+    fn new(
+        inner: BoxBody,
+        method: String,
+        backend: &'static str,
+        client: Arc<str>,
+        caller_tag: Arc<str>,
+        warn_threshold: usize,
+    ) -> Self {
         Self {
             inner,
             bytes_counted: 0,
             method,
             backend,
             client,
+            caller_tag,
+            warn_threshold,
         }
     }
 }
@@ -513,8 +539,20 @@ impl Drop for ByteCountedBody {
             "method" => self.method.clone(),
             "backend" => self.backend,
             "client" => self.client.clone(),
+            "caller_tag" => self.caller_tag.clone(),
         )
         .record(self.bytes_counted as f64);
+
+        if self.warn_threshold > 0 && self.bytes_counted > self.warn_threshold {
+            tracing::warn!(
+                response_size_bytes = self.bytes_counted,
+                method = %self.method,
+                backend = self.backend,
+                client = %self.client,
+                caller_tag = %self.caller_tag,
+                "oversized gRPC response"
+            );
+        }
     }
 }
 

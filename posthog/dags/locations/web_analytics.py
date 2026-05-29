@@ -5,6 +5,7 @@ from posthog.settings import TEST
 from products.web_analytics.dags import (
     cache_favicons,
     cache_warming,
+    eager_web_analytics_precompute,
     web_analytics_watchdog,
     web_pre_aggregated_accuracy,
     web_preaggregated,
@@ -20,6 +21,7 @@ schedules = [
     web_preaggregated.web_pre_aggregate_current_day_schedule,
     web_preaggregated_team_selection.web_analytics_team_candidates_schedule,
     cache_warming.web_analytics_cache_warming_schedule,
+    eager_web_analytics_precompute.web_analytics_eager_baseline_warming_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
     web_analytics_watchdog.web_analytics_watchdog_schedule,
 ]
@@ -48,6 +50,7 @@ defs = dagster.Definitions(
         web_preaggregated_team_selection.web_analytics_team_candidates_job,
         web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
+        eager_web_analytics_precompute.web_analytics_eager_baseline_warming_job,
         cache_favicons.cache_authorized_domain_favicons_job,
     ],
     schedules=schedules,
