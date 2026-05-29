@@ -1092,15 +1092,25 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 within the rollout percentage.
             </p>
 
-            <div className="flex items-center gap-2 mb-2">
-                <LemonCheckbox
-                    data-attr="flag-early-exit"
-                    checked={releaseFilters.early_exit ?? false}
-                    onChange={(checked) => setEarlyExit(checked)}
-                    label="Stop evaluation at first matching group"
-                    info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
-                />
-            </div>
+            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && (
+                <div className="flex flex-col gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                        <LemonCheckbox
+                            data-attr="flag-early-exit"
+                            checked={releaseFilters.early_exit ?? false}
+                            onChange={(checked) => setEarlyExit(checked)}
+                            label="Stop evaluation at first matching group"
+                            info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
+                        />
+                    </div>
+                    {releaseFilters.early_exit && evaluationRuntime !== FeatureFlagEvaluationRuntime.SERVER && (
+                        <LemonBanner type="warning" className="mt-1">
+                            <b>Not supported with local evaluation.</b> Client-side and local evaluation SDKs evaluate
+                            all condition groups — early exit only takes effect for server-side evaluation.
+                        </LemonBanner>
+                    )}
+                </div>
+            )}
 
             {isDisabled && (
                 <LemonBanner type="info" className="mb-3">
