@@ -4836,8 +4836,10 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             hogql_query_modifiers=None,
             session_ids_to_exclude=[session_ids[0]],
         )
+        # the printer renders NOT IN as the function form notin(...), and it must sit inside the
+        # top-level and(...) so the OR operand can't cancel the exclusion
         printed_query = self._print_query(instance.get_query())
-        assert "not in" in printed_query.lower()
+        assert "notin(s.session_id" in printed_query.lower()
 
         result = instance.run()
         assert [r["session_id"] for r in result.results] == [session_ids[1]]
