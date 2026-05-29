@@ -16,6 +16,7 @@
  * `survey` - SURVEY
  * `experiment` - EXPERIMENT
  * `error_tracking` - ERROR_TRACKING
+ * `pulse` - PULSE
  */
 export type NotificationEventSourceTypeEnumApi =
     (typeof NotificationEventSourceTypeEnumApi)[keyof typeof NotificationEventSourceTypeEnumApi]
@@ -29,6 +30,7 @@ export const NotificationEventSourceTypeEnumApi = {
     Survey: 'survey',
     Experiment: 'experiment',
     ErrorTracking: 'error_tracking',
+    Pulse: 'pulse',
 } as const
 
 export interface NotificationEventApi {

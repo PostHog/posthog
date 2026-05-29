@@ -1020,20 +1020,6 @@ export namespace Schemas {
       actionId: number;
     }
 
-    /**
-     * * `add` - add
-    * `remove` - remove
-    * `set` - set
-     */
-    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
-
-
-    export const ActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
-
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -6830,6 +6816,20 @@ export namespace Schemas {
       tags: string[];
     }
 
+    /**
+     * * `add` - add
+    * `remove` - remove
+    * `set` - set
+     */
+    export type BulkUpdateTagsRequestActionEnum = typeof BulkUpdateTagsRequestActionEnum[keyof typeof BulkUpdateTagsRequestActionEnum];
+
+
+    export const BulkUpdateTagsRequestActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface BulkUpdateTagsRequest {
       /**
          * List of object IDs to update tags on.
@@ -6841,7 +6841,7 @@ export namespace Schemas {
       * `add` - add
       * `remove` - remove
       * `set` - set */
-      action: ActionEnum;
+      action: BulkUpdateTagsRequestActionEnum;
       /** Tag names to add, remove, or set. */
       tags: string[];
     }
@@ -13532,6 +13532,18 @@ export namespace Schemas {
          */
       framework: string | null;
     }
+
+    /**
+     * * `change_v1` - Change V1
+    * `discovery` - Discovery
+     */
+    export type DetectionModeEnum = typeof DetectionModeEnum[keyof typeof DetectionModeEnum];
+
+
+    export const DetectionModeEnum = {
+      ChangeV1: 'change_v1',
+      Discovery: 'discovery',
+    } as const;
 
     /**
      * * `Desktop` - Desktop
@@ -22116,6 +22128,7 @@ export namespace Schemas {
     * `survey` - SURVEY
     * `experiment` - EXPERIMENT
     * `error_tracking` - ERROR_TRACKING
+    * `pulse` - PULSE
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -22129,6 +22142,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      Pulse: 'pulse',
     } as const;
 
     export interface NotificationEvent {
@@ -23898,6 +23912,233 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ProjectSecretAPIKey[];
+    }
+
+    /**
+     * * `pending` - Pending
+    * `generating` - Generating
+    * `delivered` - Delivered
+    * `failed` - Failed
+     */
+    export type PulseDigestStatusEnum = typeof PulseDigestStatusEnum[keyof typeof PulseDigestStatusEnum];
+
+
+    export const PulseDigestStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      Delivered: 'delivered',
+      Failed: 'failed',
+    } as const;
+
+    export interface PulseDigestList {
+      readonly id: string;
+      readonly period_start: string;
+      readonly period_end: string;
+      /** Lifecycle of this scan run (pending, generating, delivered, failed).
+
+      * `pending` - Pending
+      * `generating` - Generating
+      * `delivered` - Delivered
+      * `failed` - Failed */
+      readonly status: PulseDigestStatusEnum;
+      readonly created_at: string;
+      /** Number of findings in this digest. */
+      readonly finding_count: number;
+    }
+
+    export interface PaginatedPulseDigestListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PulseDigestList[];
+    }
+
+    /**
+     * * `pending` - Pending
+    * `up` - Thumbs Up
+    * `down` - Thumbs Down
+    * `dismissed` - Dismissed
+    * `snoozed` - Snoozed
+     */
+    export type PulseFindingFeedbackEnum = typeof PulseFindingFeedbackEnum[keyof typeof PulseFindingFeedbackEnum];
+
+
+    export const PulseFindingFeedbackEnum = {
+      Pending: 'pending',
+      Up: 'up',
+      Down: 'down',
+      Dismissed: 'dismissed',
+      Snoozed: 'snoozed',
+    } as const;
+
+    export interface PulseFinding {
+      readonly id: string;
+      readonly digest: string;
+      /** Human-readable name of the metric this finding is about. */
+      readonly metric_label: string;
+      /** Opaque descriptor (source, label, query) Pulse re-evaluates. */
+      readonly metric_descriptor: unknown;
+      /** Metric value for the current period. */
+      readonly current_value: number;
+      /** Baseline median over the configured baseline window. */
+      readonly baseline_value: number;
+      /** Fractional change vs baseline median, e.g. 0.5 means +50%. */
+      readonly change_pct: number;
+      /** Robust z-score (median/MAD based). Secondary signal only, never a sole trigger. */
+      readonly robust_z: number;
+      /** Ranking score: abs(change_pct) * sqrt(baseline_median). */
+      readonly impact: number;
+      readonly attribution_breakdown: unknown;
+      /** LLM-generated explanation of the change. */
+      readonly narrative: string;
+      readonly chart_thumbnail_url: string;
+      /** User feedback state for this finding.
+
+      * `pending` - Pending
+      * `up` - Thumbs Up
+      * `down` - Thumbs Down
+      * `dismissed` - Dismissed
+      * `snoozed` - Snoozed */
+      feedback?: PulseFindingFeedbackEnum;
+      /**
+         * When a snoozed finding should resurface.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      readonly rank: number;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedPulseFindingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PulseFinding[];
+    }
+
+    /**
+     * * `weekly` - Weekly
+    * `daily` - Daily
+     */
+    export type PulseSubscriptionFrequencyEnum = typeof PulseSubscriptionFrequencyEnum[keyof typeof PulseSubscriptionFrequencyEnum];
+
+
+    export const PulseSubscriptionFrequencyEnum = {
+      Weekly: 'weekly',
+      Daily: 'daily',
+    } as const;
+
+    /**
+     * * `conservative` - Conservative
+    * `balanced` - Balanced
+    * `sensitive` - Sensitive
+    * `custom` - Custom
+     */
+    export type SensitivityEnum = typeof SensitivityEnum[keyof typeof SensitivityEnum];
+
+
+    export const SensitivityEnum = {
+      Conservative: 'conservative',
+      Balanced: 'balanced',
+      Sensitive: 'sensitive',
+      Custom: 'custom',
+    } as const;
+
+    export interface PulseSubscription {
+      readonly id: string;
+      /** Whether Pulse runs scans for this team. */
+      enabled?: boolean;
+      /** Scan cadence (weekly or daily).
+
+      * `weekly` - Weekly
+      * `daily` - Daily */
+      frequency?: PulseSubscriptionFrequencyEnum;
+      /** Detection algorithm. Only 'change_v1' is available in v1.
+
+      * `change_v1` - Change V1
+      * `discovery` - Discovery */
+      detection_mode?: DetectionModeEnum;
+      /** Preset that derives thresholds, or 'custom' to use the raw knobs.
+
+      * `conservative` - Conservative
+      * `balanced` - Balanced
+      * `sensitive` - Sensitive
+      * `custom` - Custom */
+      sensitivity?: SensitivityEnum;
+      /**
+         * Primary gate: minimum absolute fractional change to flag (0.0-1.0).
+         * @minimum 0
+         * @maximum 1
+         */
+      min_change_pct?: number;
+      /**
+         * Number of completed weeks used to compute the baseline median.
+         * @minimum 1
+         * @maximum 52
+         */
+      baseline_weeks?: number;
+      /**
+         * Maximum findings surfaced per digest.
+         * @minimum 1
+         * @maximum 50
+         */
+      max_findings?: number;
+      /**
+         * Secondary informational threshold for the robust z-score. Never a sole trigger.
+         * @minimum 0.1
+         * @maximum 10
+         */
+      robust_z_threshold?: number;
+      /**
+         * When Pulse last completed a scan for this team.
+         * @nullable
+         */
+      readonly last_scan_at: string | null;
+      /**
+         * When the next scan is scheduled.
+         * @nullable
+         */
+      readonly next_scan_at: string | null;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedPulseSubscriptionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PulseSubscription[];
+    }
+
+    /**
+     * A single metric Pulse is currently watching (read-only transparency).
+     */
+    export interface PulseWatchedCandidate {
+      /** Where the candidate came from (dashboard_tile, recent_insight, top_event). */
+      source: string;
+      /**
+         * Underlying insight/event id, if any.
+         * @nullable
+         */
+      source_id: string | null;
+      /** Human-readable metric name. */
+      label: string;
+      /** TrendsQuery-shaped dict Pulse re-evaluates. */
+      query: unknown;
+    }
+
+    export interface PaginatedPulseWatchedCandidateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PulseWatchedCandidate[];
     }
 
     export interface QuarantinedIdentifierEntry {
@@ -30441,6 +30682,64 @@ export namespace Schemas {
       scopes?: string[];
     }
 
+    export interface PatchedPulseSubscription {
+      readonly id?: string;
+      /** Whether Pulse runs scans for this team. */
+      enabled?: boolean;
+      /** Scan cadence (weekly or daily).
+
+      * `weekly` - Weekly
+      * `daily` - Daily */
+      frequency?: PulseSubscriptionFrequencyEnum;
+      /** Detection algorithm. Only 'change_v1' is available in v1.
+
+      * `change_v1` - Change V1
+      * `discovery` - Discovery */
+      detection_mode?: DetectionModeEnum;
+      /** Preset that derives thresholds, or 'custom' to use the raw knobs.
+
+      * `conservative` - Conservative
+      * `balanced` - Balanced
+      * `sensitive` - Sensitive
+      * `custom` - Custom */
+      sensitivity?: SensitivityEnum;
+      /**
+         * Primary gate: minimum absolute fractional change to flag (0.0-1.0).
+         * @minimum 0
+         * @maximum 1
+         */
+      min_change_pct?: number;
+      /**
+         * Number of completed weeks used to compute the baseline median.
+         * @minimum 1
+         * @maximum 52
+         */
+      baseline_weeks?: number;
+      /**
+         * Maximum findings surfaced per digest.
+         * @minimum 1
+         * @maximum 50
+         */
+      max_findings?: number;
+      /**
+         * Secondary informational threshold for the robust z-score. Never a sole trigger.
+         * @minimum 0.1
+         * @maximum 10
+         */
+      robust_z_threshold?: number;
+      /**
+         * When Pulse last completed a scan for this team.
+         * @nullable
+         */
+      readonly last_scan_at?: string | null;
+      /**
+         * When the next scan is scheduled.
+         * @nullable
+         */
+      readonly next_scan_at?: string | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedQueryTabState {
       readonly id?: string;
       /**
@@ -33652,6 +33951,45 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface PulseDigest {
+      readonly id: string;
+      readonly period_start: string;
+      readonly period_end: string;
+      /** Lifecycle of this scan run (pending, generating, delivered, failed).
+
+      * `pending` - Pending
+      * `generating` - Generating
+      * `delivered` - Delivered
+      * `failed` - Failed */
+      readonly status: PulseDigestStatusEnum;
+      /** Temporal workflow run id that produced this digest. */
+      readonly workflow_run_id: string;
+      /** Error payload if the scan run failed, otherwise null. */
+      readonly error: unknown;
+      readonly created_at: string;
+      readonly finding_count: number;
+      readonly findings: readonly PulseFinding[];
+    }
+
+    /**
+     * Request body for submitting feedback on a single Pulse finding.
+     */
+    export interface PulseFeedback {
+      /** The feedback to record for this finding (e.g. up, down, dismissed, snoozed).
+
+      * `pending` - Pending
+      * `up` - Thumbs Up
+      * `down` - Thumbs Down
+      * `dismissed` - Dismissed
+      * `snoozed` - Snoozed */
+      action: PulseFindingFeedbackEnum;
+      /**
+         * When the finding should resurface. Only meaningful when action is 'snoozed'.
+         * @nullable
+         */
+      snoozed_until?: string | null;
     }
 
     /**
@@ -41566,6 +41904,39 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsPulseDigestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsPulseFindingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsPulseSubscriptionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -47194,6 +47565,39 @@ export namespace Schemas {
       Group: 'group',
       Session: 'session',
     } as const;
+
+    export type PulseDigestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PulseFindingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PulseSubscriptionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 

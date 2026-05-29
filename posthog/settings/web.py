@@ -446,6 +446,8 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "PulseDigestStatusEnum": "posthog.models.pulse.PulseDigestStatus",
+        "PulseFindingFeedbackEnum": "posthog.models.pulse.PulseFindingFeedback",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",

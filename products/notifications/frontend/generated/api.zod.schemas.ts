@@ -10,9 +10,19 @@
 import { z as zod } from 'zod'
 
 export const NotificationEventSourceTypeEnumApi = zod
-    .enum(['replay', 'notebook', 'insight', 'feature_flag', 'dashboard', 'survey', 'experiment', 'error_tracking'])
+    .enum([
+        'replay',
+        'notebook',
+        'insight',
+        'feature_flag',
+        'dashboard',
+        'survey',
+        'experiment',
+        'error_tracking',
+        'pulse',
+    ])
     .describe(
-        '\* `replay` - REPLAY\n\* `notebook` - NOTEBOOK\n\* `insight` - INSIGHT\n\* `feature_flag` - FEATURE_FLAG\n\* `dashboard` - DASHBOARD\n\* `survey` - SURVEY\n\* `experiment` - EXPERIMENT\n\* `error_tracking` - ERROR_TRACKING'
+        '\* `replay` - REPLAY\n\* `notebook` - NOTEBOOK\n\* `insight` - INSIGHT\n\* `feature_flag` - FEATURE_FLAG\n\* `dashboard` - DASHBOARD\n\* `survey` - SURVEY\n\* `experiment` - EXPERIMENT\n\* `error_tracking` - ERROR_TRACKING\n\* `pulse` - PULSE'
     )
 
 export type NotificationEventSourceTypeEnumApi = zod.input<typeof NotificationEventSourceTypeEnumApi>
@@ -41,9 +51,10 @@ export const NotificationEventApi = zod.object({
                 'survey',
                 'experiment',
                 'error_tracking',
+                'pulse',
             ])
             .describe(
-                '\* `replay` - REPLAY\n\* `notebook` - NOTEBOOK\n\* `insight` - INSIGHT\n\* `feature_flag` - FEATURE_FLAG\n\* `dashboard` - DASHBOARD\n\* `survey` - SURVEY\n\* `experiment` - EXPERIMENT\n\* `error_tracking` - ERROR_TRACKING'
+                '\* `replay` - REPLAY\n\* `notebook` - NOTEBOOK\n\* `insight` - INSIGHT\n\* `feature_flag` - FEATURE_FLAG\n\* `dashboard` - DASHBOARD\n\* `survey` - SURVEY\n\* `experiment` - EXPERIMENT\n\* `error_tracking` - ERROR_TRACKING\n\* `pulse` - PULSE'
             ),
         zod.null(),
     ]),
@@ -82,9 +93,10 @@ export const PaginatedNotificationEventListApi = zod.object({
                         'survey',
                         'experiment',
                         'error_tracking',
+                        'pulse',
                     ])
                     .describe(
-                        '\* `replay` - REPLAY\n\* `notebook` - NOTEBOOK\n\* `insight` - INSIGHT\n\* `feature_flag` - FEATURE_FLAG\n\* `dashboard` - DASHBOARD\n\* `survey` - SURVEY\n\* `experiment` - EXPERIMENT\n\* `error_tracking` - ERROR_TRACKING'
+                        '\* `replay` - REPLAY\n\* `notebook` - NOTEBOOK\n\* `insight` - INSIGHT\n\* `feature_flag` - FEATURE_FLAG\n\* `dashboard` - DASHBOARD\n\* `survey` - SURVEY\n\* `experiment` - EXPERIMENT\n\* `error_tracking` - ERROR_TRACKING\n\* `pulse` - PULSE'
                     ),
                 zod.null(),
             ]),
