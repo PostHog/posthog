@@ -685,13 +685,20 @@ const ConditionContent = ({
                                                     <Tooltip
                                                         title={
                                                             <>
-                                                                A user may have{' '}
-                                                                <Link
-                                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                                    target="_blank"
-                                                                >
-                                                                    multiple profiles
-                                                                </Link>
+                                                                <div>
+                                                                    A user may have{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                                                        target="_blank"
+                                                                    >
+                                                                        multiple profiles
+                                                                    </Link>
+                                                                </div>
+                                                                <div className="mt-1">
+                                                                    Estimated from identified persons; does not include
+                                                                    anonymous visitors evaluated via SDK-passed
+                                                                    properties
+                                                                </div>
                                                             </>
                                                         }
                                                         interactive
