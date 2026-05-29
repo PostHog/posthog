@@ -238,6 +238,7 @@ dev = [
     "pytest-aiohttp~=1.1.0",
     "pytest-cov~=7.0.0",
     "pytest-django~=4.11.1",
+    "pytest-durations~=1.6.2",
     "pytest-env~=1.2.0",
     "pytest-icdiff~=0.9",
     "pytest-mock~=3.15.1",
