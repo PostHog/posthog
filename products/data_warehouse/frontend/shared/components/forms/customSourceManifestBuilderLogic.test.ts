@@ -60,6 +60,14 @@ describe('customSourceManifestBuilderLogic', () => {
             expect(pushed['payload.auth_token']).toBe('tok_secret')
             expect(pushed['payload.manifest_json']).not.toContain('tok_secret')
         })
+
+        it('clears the bearer token in the outer form after switching auth away from bearer', () => {
+            logic.actions.updateState({ auth_type: 'bearer', auth_token: 'tok_secret' })
+            expect(pushedFields(setValue)['payload.auth_token']).toBe('tok_secret')
+
+            logic.actions.updateState({ auth_type: 'api_key' })
+            expect(pushedFields(setValue)['payload.auth_token']).toBe('')
+        })
     })
 
     describe('configuration page (initial manifest present)', () => {
@@ -75,7 +83,10 @@ describe('customSourceManifestBuilderLogic', () => {
         })
 
         it('mirrors the saved manifest into the outer form on mount', () => {
-            expect(Object.keys(pushedFields(setValue))).toContain('payload.manifest_json')
+            const pushed = pushedFields(setValue)
+            expect(JSON.parse(pushed['payload.manifest_json'] as string).client.base_url).toBe(
+                'https://saved.example.com'
+            )
         })
     })
 
@@ -140,7 +151,8 @@ describe('customSourceManifestBuilderLogic', () => {
         it('adds, edits, and removes headers', () => {
             logic.actions.addHeader()
             logic.actions.updateHeader(0, { key: 'X-Workspace', value: 'acme' })
-            expect(logic.values.manifestState.headers).toEqual([{ key: 'X-Workspace', value: 'acme' }])
+            expect(logic.values.manifestState.headers).toMatchObject([{ key: 'X-Workspace', value: 'acme' }])
+            expect(logic.values.manifestState.headers[0].id).toBeTruthy()
             logic.actions.removeHeader(0)
             expect(logic.values.manifestState.headers).toEqual([])
         })

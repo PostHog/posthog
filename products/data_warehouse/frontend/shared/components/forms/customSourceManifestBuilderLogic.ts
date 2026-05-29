@@ -14,6 +14,7 @@ import type { FieldName } from 'kea-forms'
 
 import {
     buildManifest,
+    emptyHeader,
     emptyStream,
     extractAuthSecrets,
     type HeaderEntry,
@@ -46,6 +47,13 @@ export interface CustomSourceManifestBuilderLogicProps {
  * Keeping credentials out of the manifest lets the generic API layer redact them
  * with no Custom-source-specific serializer code.
  */
+// Intentionally keyless (singleton): the wizard and the configuration tab are
+// separate scenes and never mounted at the same time, so kea's mount refcount
+// drops to zero between them and `manifestState` / `userHasEdited` reset from
+// props on the next mount. If a future caller keeps this logic mounted across
+// that transition (e.g. a persistent parent or a second consumer), add a `key()`
+// — otherwise the latched `userHasEdited` would make `propsChanged` skip
+// re-parsing the new manifest.
 export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderLogicType>([
     props({} as CustomSourceManifestBuilderLogicProps),
     path(['products', 'dataWarehouse', 'customSourceManifestBuilderLogic']),
@@ -62,6 +70,9 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         // Fires the push listener without changing state — used on mount to mirror the
         // already-parsed initial manifest into the outer form without re-parsing.
         syncToOuterForm: true,
+        // UI-only: tracks the generated-manifest <details> disclosure so the
+        // CodeSnippet (and its syntax highlighting) only renders while expanded.
+        setManifestPreviewOpen: (open: boolean) => ({ open }),
     }),
     reducers(({ props }) => ({
         manifestState: [
@@ -82,7 +93,7 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                     ...state,
                     streams: state.streams.filter((_, i) => i !== index),
                 }),
-                addHeader: (state) => ({ ...state, headers: [...state.headers, { key: '', value: '' }] }),
+                addHeader: (state) => ({ ...state, headers: [...state.headers, emptyHeader()] }),
                 removeHeader: (state, { index }) => ({
                     ...state,
                     headers: state.headers.filter((_, i) => i !== index),
@@ -126,6 +137,12 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 addHeader: () => true,
                 removeHeader: () => true,
                 updateHeader: () => true,
+            },
+        ],
+        manifestPreviewOpen: [
+            false,
+            {
+                setManifestPreviewOpen: (_, { open }) => open,
             },
         ],
     })),

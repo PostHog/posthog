@@ -12,6 +12,7 @@ const baseState = (): ManifestState => ({
     headers: [],
     streams: [
         {
+            id: 'stream-base',
             name: 'users',
             path: '/v1/users',
             method: 'GET',
@@ -73,9 +74,9 @@ describe('buildManifest', () => {
     it('serializes non-empty headers into client.headers as a map', () => {
         const state = baseState()
         state.headers = [
-            { key: 'X-Workspace', value: 'acme' },
-            { key: '', value: 'ignored' },
-            { key: '  ', value: 'also ignored' },
+            { id: 'h1', key: 'X-Workspace', value: 'acme' },
+            { id: 'h2', key: '', value: 'ignored' },
+            { id: 'h3', key: '  ', value: 'also ignored' },
         ]
         const manifest = buildManifest(state) as any
         expect(manifest.client.headers).toEqual({ 'X-Workspace': 'acme' })
@@ -83,7 +84,7 @@ describe('buildManifest', () => {
 
     it('omits client.headers entirely when no real entries are present', () => {
         const state = baseState()
-        state.headers = [{ key: '', value: 'whatever' }]
+        state.headers = [{ id: 'h1', key: '', value: 'whatever' }]
         const manifest = buildManifest(state) as any
         expect('headers' in manifest.client).toBe(false)
     })
@@ -146,6 +147,38 @@ describe('buildManifest', () => {
             type: 'cursor',
             cursor_path: 'meta.next_cursor',
             cursor_param: 'cursor',
+        })
+    })
+
+    it('serializes json_response with an explicit and a default next_url_path', () => {
+        const explicit = baseState()
+        explicit.streams[0].paginator = { type: 'json_response', next_url_path: 'paging.next' }
+        expect((buildManifest(explicit) as any).resources[0].endpoint.paginator).toEqual({
+            type: 'json_response',
+            next_url_path: 'paging.next',
+        })
+
+        const blank = baseState()
+        blank.streams[0].paginator = { type: 'json_response' }
+        expect((buildManifest(blank) as any).resources[0].endpoint.paginator).toEqual({
+            type: 'json_response',
+            next_url_path: 'links.next',
+        })
+    })
+
+    it('serializes header_link with an explicit and a default links_next_key', () => {
+        const explicit = baseState()
+        explicit.streams[0].paginator = { type: 'header_link', links_next_key: 'successor' }
+        expect((buildManifest(explicit) as any).resources[0].endpoint.paginator).toEqual({
+            type: 'header_link',
+            links_next_key: 'successor',
+        })
+
+        const blank = baseState()
+        blank.streams[0].paginator = { type: 'header_link' }
+        expect((buildManifest(blank) as any).resources[0].endpoint.paginator).toEqual({
+            type: 'header_link',
+            links_next_key: 'next',
         })
     })
 
@@ -218,17 +251,20 @@ describe('parseManifestIntoState', () => {
 
     it('round-trips a manifest through build → parse → build without drift', () => {
         const original = baseState()
-        original.headers = [{ key: 'X-Workspace', value: 'acme' }]
+        original.headers = [{ id: 'h1', key: 'X-Workspace', value: 'acme' }]
         original.streams = [
             {
+                id: 'stream-orders',
                 name: 'orders',
                 path: '/orders',
                 method: 'POST',
                 data_selector: 'records',
                 primary_key: 'order_id, line_no',
                 paginator: { type: 'cursor', cursor_path: 'meta.next', cursor_param: 'after' },
+                sort_mode: 'asc',
                 incremental_enabled: true,
                 cursor_path: 'updated_at',
+                cursor_type: 'datetime',
                 start_param: 'since',
             },
         ]
@@ -236,6 +272,19 @@ describe('parseManifestIntoState', () => {
         const firstJson = JSON.stringify(buildManifest(original))
         const reparsed = parseManifestIntoState(firstJson)
         const secondJson = JSON.stringify(buildManifest(reparsed))
+        expect(secondJson).toBe(firstJson)
+    })
+
+    it.each([
+        ['offset', { type: 'offset', limit: 50, offset_param: 'o', limit_param: 'l' }],
+        ['page_number (base_page 0)', { type: 'page_number', page_param: 'p', base_page: 0 }],
+        ['json_response', { type: 'json_response', next_url_path: 'paging.next' }],
+        ['header_link', { type: 'header_link', links_next_key: 'successor' }],
+    ] as const)('round-trips the %s paginator without drift', (_name, paginator) => {
+        const original = baseState()
+        original.streams[0].paginator = { ...paginator }
+        const firstJson = JSON.stringify(buildManifest(original))
+        const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
         expect(secondJson).toBe(firstJson)
     })
 
@@ -342,6 +391,7 @@ describe('parseManifestIntoState', () => {
         original.auth_api_key_location = 'query'
         original.streams = [
             {
+                id: 'stream-events',
                 name: 'events',
                 path: '/events',
                 method: 'GET',
@@ -387,7 +437,10 @@ describe('extractAuthSecrets', () => {
     it('returns all-empty for none auth, ignoring stale credential state', () => {
         const state = baseState()
         state.auth_type = 'none'
+        // All three stale so each ternary's false-arm is genuinely exercised.
         state.auth_token = 'tok_123'
+        state.auth_api_key = 'sk_test'
+        state.auth_password = 'hunter2'
         expect(extractAuthSecrets(state)).toEqual({ auth_token: '', auth_api_key: '', auth_password: '' })
     })
 })

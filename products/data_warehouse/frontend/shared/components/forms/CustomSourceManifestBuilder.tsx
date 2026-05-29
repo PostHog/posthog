@@ -7,54 +7,69 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import {
-    ApiKeyLocation,
-    AuthType,
-    CursorType,
-    HeaderEntry,
-    ManifestState,
-    Paginator,
-    SortMode,
-    StreamForm,
+    API_KEY_LOCATIONS,
+    type ApiKeyLocation,
+    AUTH_TYPES,
+    type AuthType,
+    CURSOR_TYPES,
+    type CursorType,
+    type HeaderEntry,
+    type ManifestState,
+    type Paginator,
+    PAGINATOR_DEFAULTS,
+    PAGINATOR_TYPES,
+    type PaginatorType,
+    SORT_MODES,
+    type SortMode,
+    type StreamForm,
 } from './customSourceManifest'
 import {
     customSourceManifestBuilderLogic,
     type CustomSourceManifestBuilderLogicProps,
 } from './customSourceManifestBuilderLogic'
 
-const PAGINATOR_OPTIONS: { value: Paginator['type']; label: string }[] = [
-    { value: 'auto', label: 'Auto-detect' },
-    { value: 'single_page', label: 'Single page (no pagination)' },
-    { value: 'json_response', label: 'JSON body next-URL' },
-    { value: 'cursor', label: 'Cursor in JSON body' },
-    { value: 'offset', label: 'Offset / limit query params' },
-    { value: 'page_number', label: 'Page number query param' },
-    { value: 'header_link', label: 'Link header (RFC 5988)' },
-]
+// Option lists derive their value set from the single-source `as const` tuples in
+// customSourceManifest.ts; only the labels live here, so the allowed values can't
+// drift between the type, the parser, and these selects.
+const PAGINATOR_LABELS: Record<PaginatorType, string> = {
+    auto: 'Auto-detect',
+    single_page: 'Single page (no pagination)',
+    json_response: 'JSON body next-URL',
+    cursor: 'Cursor in JSON body',
+    offset: 'Offset / limit query params',
+    page_number: 'Page number query param',
+    header_link: 'Link header (RFC 5988)',
+}
+const PAGINATOR_OPTIONS = PAGINATOR_TYPES.map((value) => ({ value, label: PAGINATOR_LABELS[value] }))
 
-const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
-    { value: 'none', label: 'No auth' },
-    { value: 'bearer', label: 'Bearer token' },
-    { value: 'api_key', label: 'API key' },
-    { value: 'http_basic', label: 'HTTP basic auth' },
-]
+const AUTH_LABELS: Record<AuthType, string> = {
+    none: 'No auth',
+    bearer: 'Bearer token',
+    api_key: 'API key',
+    http_basic: 'HTTP basic auth',
+}
+const AUTH_OPTIONS = AUTH_TYPES.map((value) => ({ value, label: AUTH_LABELS[value] }))
 
-const API_KEY_LOCATION_OPTIONS: { value: ApiKeyLocation; label: string }[] = [
-    { value: 'header', label: 'Header' },
-    { value: 'query', label: 'Query parameter' },
-    { value: 'cookie', label: 'Cookie' },
-]
+const API_KEY_LOCATION_LABELS: Record<ApiKeyLocation, string> = {
+    header: 'Header',
+    query: 'Query parameter',
+    cookie: 'Cookie',
+}
+const API_KEY_LOCATION_OPTIONS = API_KEY_LOCATIONS.map((value) => ({ value, label: API_KEY_LOCATION_LABELS[value] }))
 
-const CURSOR_TYPE_OPTIONS: { value: CursorType; label: string }[] = [
-    { value: 'datetime', label: 'Datetime' },
-    { value: 'date', label: 'Date' },
-    { value: 'timestamp', label: 'Timestamp (epoch)' },
-    { value: 'integer', label: 'Integer' },
-]
+const CURSOR_TYPE_LABELS: Record<CursorType, string> = {
+    datetime: 'Datetime',
+    date: 'Date',
+    timestamp: 'Timestamp (epoch)',
+    integer: 'Integer',
+}
+const CURSOR_TYPE_OPTIONS = CURSOR_TYPES.map((value) => ({ value, label: CURSOR_TYPE_LABELS[value] }))
 
-const SORT_MODE_OPTIONS: { value: SortMode; label: string }[] = [
-    { value: 'asc', label: 'Ascending (oldest first)' },
-    { value: 'desc', label: 'Descending (newest first)' },
-]
+const SORT_MODE_LABELS: Record<SortMode, string> = {
+    asc: 'Ascending (oldest first)',
+    desc: 'Descending (newest first)',
+}
+const SORT_MODE_OPTIONS = SORT_MODES.map((value) => ({ value, label: SORT_MODE_LABELS[value] }))
 
 /**
  * Visual builder for the Custom REST source's manifest. State and the
@@ -66,7 +81,7 @@ export function CustomSourceManifestBuilder({
     setValue,
 }: CustomSourceManifestBuilderLogicProps): JSX.Element {
     const logic = customSourceManifestBuilderLogic({ initialManifestJson, setValue })
-    const { manifestState, manifestJson } = useValues(logic)
+    const { manifestState, manifestJson, manifestPreviewOpen } = useValues(logic)
     const {
         updateState,
         updateStream,
@@ -76,6 +91,7 @@ export function CustomSourceManifestBuilder({
         addHeader,
         removeHeader,
         updateHeader,
+        setManifestPreviewOpen,
     } = useActions(logic)
 
     return (
@@ -114,7 +130,7 @@ export function CustomSourceManifestBuilder({
                 </div>
                 {manifestState.streams.map((stream, index) => (
                     <StreamCard
-                        key={index}
+                        key={stream.id}
                         index={index}
                         stream={stream}
                         canRemove={manifestState.streams.length > 1}
@@ -125,11 +141,19 @@ export function CustomSourceManifestBuilder({
                 ))}
             </div>
 
-            <details className="rounded border border-border p-3">
+            <details
+                className="rounded border border-border p-3"
+                open={manifestPreviewOpen}
+                onToggle={(e) => setManifestPreviewOpen((e.target as HTMLDetailsElement).open)}
+            >
                 <summary className="cursor-pointer text-xs text-secondary">Show generated manifest</summary>
-                <CodeSnippet language={Language.JSON} className="mt-2 text-xs" wrap maxLinesWithoutExpansion={20}>
-                    {manifestJson}
-                </CodeSnippet>
+                {/* Only render (and syntax-highlight) the snippet while expanded — otherwise
+                    lowlight re-runs over the whole manifest on every keystroke even when collapsed. */}
+                {manifestPreviewOpen && (
+                    <CodeSnippet language={Language.JSON} className="mt-2 text-xs" wrap maxLinesWithoutExpansion={20}>
+                        {manifestJson}
+                    </CodeSnippet>
+                )}
             </details>
         </div>
     )
@@ -155,6 +179,7 @@ function AuthSection({
                 <LemonField.Pure label="Bearer token">
                     <LemonInput
                         type="password"
+                        autoComplete="off"
                         placeholder="ya29...."
                         value={state.auth_token}
                         onChange={(value) => update({ auth_token: value })}
@@ -182,6 +207,7 @@ function AuthSection({
                     <LemonField.Pure label="API key">
                         <LemonInput
                             type="password"
+                            autoComplete="off"
                             placeholder="sk_live_…"
                             value={state.auth_api_key}
                             onChange={(value) => update({ auth_api_key: value })}
@@ -193,6 +219,7 @@ function AuthSection({
                 <div className="grid grid-cols-2 gap-2">
                     <LemonField.Pure label="Username">
                         <LemonInput
+                            autoComplete="off"
                             value={state.auth_username}
                             onChange={(value) => update({ auth_username: value })}
                         />
@@ -200,6 +227,7 @@ function AuthSection({
                     <LemonField.Pure label="Password">
                         <LemonInput
                             type="password"
+                            autoComplete="off"
                             value={state.auth_password}
                             onChange={(value) => update({ auth_password: value })}
                         />
@@ -224,7 +252,7 @@ function HeadersSection({
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between">
-                <LemonField.Pure label="Default headers" />
+                <span className="text-sm font-medium">Default headers</span>
                 <LemonButton type="tertiary" size="small" icon={<IconPlus />} onClick={onAdd}>
                     Add header
                 </LemonButton>
@@ -236,7 +264,7 @@ function HeadersSection({
             ) : (
                 <div className="space-y-2">
                     {headers.map((header, index) => (
-                        <div key={index} className="flex items-center gap-2">
+                        <div key={header.id} className="flex items-center gap-2">
                             <LemonInput
                                 placeholder="Header name"
                                 value={header.key}
@@ -247,7 +275,12 @@ function HeadersSection({
                                 value={header.value}
                                 onChange={(value) => onUpdate(index, { value })}
                             />
-                            <LemonButton type="tertiary" icon={<IconTrash />} onClick={() => onRemove(index)} />
+                            <LemonButton
+                                type="tertiary"
+                                icon={<IconTrash />}
+                                tooltip="Remove header"
+                                onClick={() => onRemove(index)}
+                            />
                         </div>
                     ))}
                 </div>
@@ -347,19 +380,19 @@ function PaginatorSection({
                 onUpdate({ type })
                 return
             case 'json_response':
-                onUpdate({ type, next_url_path: 'links.next' })
+                onUpdate({ type, ...PAGINATOR_DEFAULTS.json_response })
                 return
             case 'cursor':
-                onUpdate({ type, cursor_path: 'meta.next_cursor', cursor_param: 'cursor' })
+                onUpdate({ type, ...PAGINATOR_DEFAULTS.cursor })
                 return
             case 'offset':
-                onUpdate({ type, limit: 100, offset_param: 'offset', limit_param: 'limit' })
+                onUpdate({ type, ...PAGINATOR_DEFAULTS.offset })
                 return
             case 'page_number':
-                onUpdate({ type, page_param: 'page', base_page: 1 })
+                onUpdate({ type, ...PAGINATOR_DEFAULTS.page_number })
                 return
             case 'header_link':
-                onUpdate({ type, links_next_key: 'next' })
+                onUpdate({ type, ...PAGINATOR_DEFAULTS.header_link })
                 return
         }
     }
@@ -376,7 +409,7 @@ function PaginatorSection({
             {paginator.type === 'json_response' && (
                 <LemonField.Pure label="Next-URL JSONPath">
                     <LemonInput
-                        placeholder="links.next"
+                        placeholder={PAGINATOR_DEFAULTS.json_response.next_url_path}
                         value={paginator.next_url_path ?? ''}
                         onChange={(value) => onUpdate({ ...paginator, next_url_path: value })}
                     />
@@ -386,14 +419,14 @@ function PaginatorSection({
                 <div className="grid grid-cols-2 gap-2">
                     <LemonField.Pure label="Cursor JSONPath">
                         <LemonInput
-                            placeholder="meta.next_cursor"
+                            placeholder={PAGINATOR_DEFAULTS.cursor.cursor_path}
                             value={paginator.cursor_path ?? ''}
                             onChange={(value) => onUpdate({ ...paginator, cursor_path: value })}
                         />
                     </LemonField.Pure>
                     <LemonField.Pure label="Cursor query param">
                         <LemonInput
-                            placeholder="cursor"
+                            placeholder={PAGINATOR_DEFAULTS.cursor.cursor_param}
                             value={paginator.cursor_param ?? ''}
                             onChange={(value) => onUpdate({ ...paginator, cursor_param: value })}
                         />
@@ -405,20 +438,22 @@ function PaginatorSection({
                     <LemonField.Pure label="Page size">
                         <LemonInput
                             type="number"
-                            value={paginator.limit ?? 100}
-                            onChange={(value) => onUpdate({ ...paginator, limit: value ?? 100 })}
+                            value={paginator.limit ?? PAGINATOR_DEFAULTS.offset.limit}
+                            onChange={(value) =>
+                                onUpdate({ ...paginator, limit: value ?? PAGINATOR_DEFAULTS.offset.limit })
+                            }
                         />
                     </LemonField.Pure>
                     <LemonField.Pure label="Offset param">
                         <LemonInput
-                            placeholder="offset"
+                            placeholder={PAGINATOR_DEFAULTS.offset.offset_param}
                             value={paginator.offset_param ?? ''}
                             onChange={(value) => onUpdate({ ...paginator, offset_param: value })}
                         />
                     </LemonField.Pure>
                     <LemonField.Pure label="Limit param">
                         <LemonInput
-                            placeholder="limit"
+                            placeholder={PAGINATOR_DEFAULTS.offset.limit_param}
                             value={paginator.limit_param ?? ''}
                             onChange={(value) => onUpdate({ ...paginator, limit_param: value })}
                         />
@@ -429,7 +464,7 @@ function PaginatorSection({
                 <div className="grid grid-cols-2 gap-2">
                     <LemonField.Pure label="Page query param">
                         <LemonInput
-                            placeholder="page"
+                            placeholder={PAGINATOR_DEFAULTS.page_number.page_param}
                             value={paginator.page_param ?? ''}
                             onChange={(value) => onUpdate({ ...paginator, page_param: value })}
                         />
@@ -437,8 +472,10 @@ function PaginatorSection({
                     <LemonField.Pure label="Initial page">
                         <LemonInput
                             type="number"
-                            value={paginator.base_page ?? 1}
-                            onChange={(value) => onUpdate({ ...paginator, base_page: value ?? 1 })}
+                            value={paginator.base_page ?? PAGINATOR_DEFAULTS.page_number.base_page}
+                            onChange={(value) =>
+                                onUpdate({ ...paginator, base_page: value ?? PAGINATOR_DEFAULTS.page_number.base_page })
+                            }
                         />
                     </LemonField.Pure>
                 </div>
@@ -446,7 +483,7 @@ function PaginatorSection({
             {paginator.type === 'header_link' && (
                 <LemonField.Pure label="rel= key in Link header">
                     <LemonInput
-                        placeholder="next"
+                        placeholder={PAGINATOR_DEFAULTS.header_link.links_next_key}
                         value={paginator.links_next_key ?? ''}
                         onChange={(value) => onUpdate({ ...paginator, links_next_key: value })}
                     />
@@ -488,6 +525,12 @@ function IncrementalSection({
                             />
                         </LemonField.Pure>
                     </div>
+                    {!stream.cursor_path.trim() && (
+                        <p className="m-0 text-xs text-danger">
+                            Set a cursor JSONPath — otherwise incremental sync is ignored and the stream does a full
+                            refresh every run.
+                        </p>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                         <LemonField.Pure label="Cursor type">
                             <LemonSelect
