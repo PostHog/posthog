@@ -115,12 +115,31 @@ function logAffectedReasons(label, tasks) {
 }
 
 function loadTestDurations() {
+    let parsed
     try {
-        return JSON.parse(fs.readFileSync('.test_durations', 'utf-8'))
+        parsed = JSON.parse(fs.readFileSync('.test_durations', 'utf-8'))
     } catch {
         console.error('Warning: .test_durations not found, sharding disabled')
         return null
     }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        console.error('Warning: .test_durations is not a JSON object, sharding disabled')
+        return null
+    }
+    // Strip non-finite values so a single corrupted entry can't NaN-poison the
+    // matrix (Math.ceil(NaN) silently propagates through sort/compare, making
+    // a product vanish from packing without an error).
+    let dropped = 0
+    for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) {
+            delete parsed[k]
+            dropped++
+        }
+    }
+    if (dropped > 0) {
+        console.error(`Warning: dropped ${dropped} non-numeric entries from .test_durations`)
+    }
+    return parsed
 }
 
 function getProductDuration(product, durations) {
@@ -223,7 +242,10 @@ function buildDjangoShards(durations) {
         const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
         const duration = getSegmentDuration(segment, durations)
         const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
-        const wall = overhead + duration / shards
+        // calculateShards applies DJANGO_SAFETY_FACTOR — mirror it in the
+        // wall estimate so the diagnostic matches the budget the shard count
+        // actually targets (was previously under-reporting by ~30%).
+        const wall = overhead + (duration * DJANGO_SAFETY_FACTOR) / shards
         result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
         const source = durations ? 'auto' : 'fallback'
         console.error(

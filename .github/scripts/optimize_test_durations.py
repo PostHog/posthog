@@ -19,6 +19,8 @@ carriers, subtracts the migration tax, and outputs clean durations
 for balanced pytest-split distribution.
 """
 
+import re
+import sys
 import glob
 import json
 import logging
@@ -62,50 +64,54 @@ class ShardTimings:
         return shards
 
 
+# Maps the script's segment names to the artifact-key fragment used by
+# ci-backend.yml ("junit-results-backend-<artifact-key>-<group>"). Add new
+# segments here when adding JUnit-mode carrier detection for them.
+_JUNIT_ARTIFACT_KEY = {"Core": "core", "CorePOE": "core-poe", "Temporal": "temporal"}
+
+
 @dataclass
 class JUnitShard:
     """JUnit results from a single CI shard."""
 
     name: str
     first_test_id: str
-    first_test_duration: float
 
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
         """Load JUnit XMLs and extract the first test (carrier) from each shard.
 
         JUnit artifact dirs are named like "junit-results-backend-core-1".
+        Segment match is anchored at the artifact prefix so "Core" doesn't
+        accidentally pick up "core-poe" or any future "*-core-*" name, and
+        "CorePOE" matches "core-poe" instead of the absent substring "corepoe".
         """
         shards = []
         for shard_dir in sorted(junit_dir.iterdir()):
             if not shard_dir.is_dir():
                 continue
 
-            # Filter by segment if specified
             if segment:
-                seg_lower = segment.lower()
-                dir_lower = shard_dir.name.lower()
-                # Match "junit-results-backend-core-1" for segment "Core"
-                # but not "core-poe-1" when looking for "Core"
-                if seg_lower == "core":
-                    if "core" not in dir_lower or "core-poe" in dir_lower:
-                        continue
-                elif f"-{seg_lower}" not in dir_lower:
+                artifact_key = _JUNIT_ARTIFACT_KEY.get(segment, segment.lower())
+                # Anchor with `\d+$` so the Core prefix doesn't accidentally
+                # eat core-poe-N (which also starts with junit-results-backend-core-).
+                pattern = re.compile(rf"^junit-results-backend-{re.escape(artifact_key)}-\d+$")
+                if not pattern.match(shard_dir.name.lower()):
                     continue
 
-            xml_files = list(shard_dir.glob("*.xml"))
+            xml_files = sorted(shard_dir.glob("*.xml"))
             if not xml_files:
                 continue
 
-            first = cls._find_first_test(xml_files[0])
-            if first:
-                shards.append(cls(name=shard_dir.name, **first))
+            first_test_id = cls._find_first_test(xml_files[0])
+            if first_test_id:
+                shards.append(cls(name=shard_dir.name, first_test_id=first_test_id))
 
         return shards
 
     @staticmethod
-    def _find_first_test(xml_path: Path) -> dict | None:
-        """Extract the first testcase from a JUnit XML file."""
+    def _find_first_test(xml_path: Path) -> str | None:
+        """Extract the first parseable testcase id from a JUnit XML file."""
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
@@ -114,10 +120,9 @@ class JUnitShard:
         for tc in tree.getroot().iter("testcase"):
             classname = tc.get("classname", "")
             name = tc.get("name", "")
-            duration = float(tc.get("time", 0))
             pytest_id = _junit_to_pytest_id(classname, name)
             if pytest_id:
-                return {"first_test_id": pytest_id, "first_test_duration": duration}
+                return pytest_id
         return None
 
 
@@ -440,7 +445,12 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
 
 
 def run_merge_files(input_files: list[Path], output_file: Path) -> None:
-    """Merge mode: outlier-merge already-merged per-segment files into one output."""
+    """Merge mode: outlier-merge already-merged per-segment files into one output.
+
+    Fails loudly if no inputs survive — silently emitting an empty file would
+    let a botched timing-update workflow commit an empty .test_durations to
+    master, wiping the sharding signal everywhere downstream.
+    """
     sources: list[dict[str, float]] = []
     for path in input_files:
         if not path.exists():
@@ -449,7 +459,8 @@ def run_merge_files(input_files: list[Path], output_file: Path) -> None:
         with open(path) as f:
             sources.append(json.load(f))
     if not sources:
-        logger.warning("No input files found to merge")
+        logger.error("No input files found to merge — refusing to write empty %s", output_file)
+        sys.exit(1)
 
     merged = outlier_merge_durations(sources)
     with open(output_file, "w") as f:

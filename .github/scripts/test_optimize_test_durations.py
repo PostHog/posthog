@@ -3,9 +3,17 @@
 Run with: uv run --with pytest --with defusedxml pytest .github/scripts/test_optimize_test_durations.py
 """
 
+from pathlib import Path
+
 import pytest
 
-from optimize_test_durations import _pick_outlier, outlier_merge_durations
+from optimize_test_durations import JUnitShard, _pick_outlier, outlier_merge_durations
+
+# Minimal valid JUnit XML — one testcase with a CamelCase classname so
+# _junit_to_pytest_id resolves cleanly.
+_MIN_JUNIT_XML = b"""<?xml version="1.0"?>
+<testsuite name="pytest"><testcase classname="posthog.test_foo.TestThing" name="test_one" time="0.5"/></testsuite>
+"""
 
 
 class TestPickOutlier:
@@ -64,6 +72,41 @@ class TestOutlierMergeDurations:
             {"test_a": 1.0},
         ]
         assert outlier_merge_durations(sources) == {"test_a": 1.0}
+
+
+class TestJUnitShardSegmentFilter:
+    """Pin the segment-prefix anchoring so `Core` can't eat `core-poe-N`."""
+
+    @pytest.fixture
+    def junit_dir(self, tmp_path: Path) -> Path:
+        for name in (
+            "junit-results-backend-core-1",
+            "junit-results-backend-core-2",
+            "junit-results-backend-core-poe-1",
+            "junit-results-backend-temporal-1",
+            "junit-results-backend-compat-1",  # unrelated, shouldn't match anything
+        ):
+            shard = tmp_path / name
+            shard.mkdir()
+            (shard / "junit.xml").write_bytes(_MIN_JUNIT_XML)
+        return tmp_path
+
+    def test_core_does_not_match_core_poe(self, junit_dir: Path):
+        names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Core")}
+        assert names == {"junit-results-backend-core-1", "junit-results-backend-core-2"}
+
+    def test_corepoe_matches_core_poe(self, junit_dir: Path):
+        names = {s.name for s in JUnitShard.load_all(junit_dir, segment="CorePOE")}
+        assert names == {"junit-results-backend-core-poe-1"}
+
+    def test_temporal_only_matches_temporal(self, junit_dir: Path):
+        names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Temporal")}
+        assert names == {"junit-results-backend-temporal-1"}
+
+    def test_unknown_segment_does_not_panic(self, junit_dir: Path):
+        # Unknown segments fall back to lowercase passthrough — should just
+        # match nothing in this fixture, not crash.
+        assert JUnitShard.load_all(junit_dir, segment="Bogus") == []
 
 
 if __name__ == "__main__":
