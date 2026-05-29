@@ -85,6 +85,13 @@ class _ManifestEndpoint(BaseModel):
     # PUT/PATCH/DELETE are excluded so a misconfigured manifest can't mutate or
     # delete upstream data.
     method: Literal["GET", "POST", "get", "post"] | None = None
+    # Query params and request body. Modelled only so a malformed `params`/`json`
+    # (e.g. a JSON array where an object is expected) is caught at manifest time;
+    # both still pass through untouched to the REST engine. `params` values may be
+    # plain scalars or the engine's incremental/resolver specs, so the type stays
+    # permissive. `json` is aliased because `json` shadows a `BaseModel` attribute.
+    params: dict[str, Any] | None = None
+    json_body: dict[str, Any] | None = Field(default=None, alias="json")
 
 
 class _ManifestResource(BaseModel):
@@ -305,8 +312,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
             url = path if path.startswith(("http://", "https://")) else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            # Replay the configured query params and request body so the probe
+            # matches what the sync sends — an endpoint that needs them shouldn't
+            # answer differently at probe vs sync time.
+            probe_params = _static_probe_params(endpoint.get("params"))
+            probe_json = endpoint.get("json")
             try:
-                response = session.request(method, url, auth=probe_auth, timeout=15)
+                response = session.request(
+                    method, url, params=probe_params or None, json=probe_json, auth=probe_auth, timeout=15
+                )
             except Exception as exc:
                 return False, f"Resource {resource['name']!r}: could not reach {url}: {exc}"
 
@@ -406,6 +420,19 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             partition_mode="md5",
             sort_mode=sort_mode,
         )
+
+
+def _static_probe_params(params: Any) -> dict[str, Any]:
+    """The literal query params safe to replay in the create-time probe.
+
+    A RESTAPIConfig ``params`` map can hold the engine's incremental / parent-
+    resolver specs (dict values) that are only resolved against cursor or parent
+    state at sync time — the probe has neither, so it forwards just the plain
+    (non-dict) values and lets the engine handle the rest on the first sync.
+    """
+    if not isinstance(params, dict):
+        return {}
+    return {key: value for key, value in params.items() if not isinstance(value, dict)}
 
 
 def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -> None:

@@ -92,6 +92,24 @@ class TestValidateManifest(SimpleTestCase):
         manifest["resources"][0]["endpoint"]["method"] = method
         validate_manifest(manifest)
 
+    def test_accepts_endpoint_params_and_json_body(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"] = {
+            "path": "/search",
+            "method": "POST",
+            "params": {"limit": 100},
+            "json": {"query": "foo"},
+        }
+        validate_manifest(manifest)
+
+    @parameterized.expand([("json", ["not", "an", "object"]), ("params", ["nope"])])
+    def test_rejects_non_object_params_or_json(self, field, value):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"][field] = value
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert field in str(ctx.exception)
+
     @parameterized.expand(
         [
             ("token", {"type": "bearer", "token": "leaked"}),
@@ -321,6 +339,50 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert isinstance(probe_auth, APIKeyAuth)
         assert probe_auth.location == "query"
         assert probe_auth.api_key == "sk_test"
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_replays_json_body(self, mock_session):
+        # A POST endpoint with a JSON body must send that body in the probe, so
+        # an endpoint that needs it doesn't answer differently at probe vs sync.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"] = {"path": "/search", "method": "POST", "json": {"query": "foo"}}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert mock_session.return_value.request.call_args.kwargs["json"] == {"query": "foo"}
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_replays_static_query_params(self, mock_session):
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["params"] = {"limit": 100, "order": "asc"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert mock_session.return_value.request.call_args.kwargs["params"] == {"limit": 100, "order": "asc"}
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_skips_incremental_param_specs(self, mock_session):
+        # Dict-valued params are the engine's incremental/resolver specs, resolved
+        # against cursor state at sync time — the probe has none, so it forwards
+        # only the plain scalar params and drops the spec.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["params"] = {
+            "limit": 100,
+            "since": {"type": "incremental", "cursor_path": "updated_at", "initial_value": "2020-01-01"},
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        assert mock_session.return_value.request.call_args.kwargs["params"] == {"limit": 100}
 
     @parameterized.expand(
         [
