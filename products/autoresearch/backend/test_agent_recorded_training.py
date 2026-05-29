@@ -76,12 +76,19 @@ class TestAgentRecordedTraining(APIBaseTest):
         assert resp.status_code == status.HTTP_201_CREATED, resp.json()
         assert AutoresearchIteration.objects.filter(training_run_id=run_id, iteration_number=0).exists()
 
-    def test_record_iteration_rejects_disallowed_model_class(self):
+    def test_record_iteration_accepts_any_model_class(self):
+        # model_class is informational at recording time — the agent's real model runs
+        # as arbitrary code in a sandbox. The allowlist is enforced only at the legacy
+        # in-process inference importlib site, not here.
         run_id = self._open_run()
-        resp = self._record(run_id, number=0, spec={"model_class": "os.system", "model_params": {}})
+        resp = self._record(run_id, number=0, spec={"model_class": "xgboost.XGBClassifier", "model_params": {}})
+        assert resp.status_code == status.HTTP_201_CREATED, resp.json()
+        assert AutoresearchIteration.objects.filter(training_run_id=run_id).exists()
+
+    def test_record_iteration_still_requires_model_class(self):
+        run_id = self._open_run()
+        resp = self._record(run_id, number=0, spec={"model_params": {}})
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not allowed" in str(resp.json())
-        assert not AutoresearchIteration.objects.filter(training_run_id=run_id).exists()
 
     def test_record_iteration_rejects_feature_sql_without_person_id(self):
         run_id = self._open_run()

@@ -357,8 +357,7 @@ class TestAutoresearchSuggestionAPI(APIBaseTest):
         )
         resp = self.client.get(self._suggestions_url(pipeline.id))
         assert resp.status_code == status.HTTP_200_OK
-        data = resp.json()
-        assert len(data) == 2
+        assert resp.json()["count"] == 2
 
     def test_suggestions_not_leaked_across_pipelines(self):
         pipeline_a = self._make_pipeline(name="Pipeline A")
@@ -371,7 +370,7 @@ class TestAutoresearchSuggestionAPI(APIBaseTest):
         )
         resp = self.client.get(self._suggestions_url(pipeline_b.id))
         assert resp.status_code == status.HTTP_200_OK
-        assert resp.json() == []
+        assert resp.json()["count"] == 0
 
     # ──────────────────────────────────────────── retrieve ────────────────────────────────────────
 

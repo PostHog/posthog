@@ -1,10 +1,15 @@
 """Server-side validation of agent-authored model recipes.
 
 Any agent — the in-house sandbox or an external bring-your-own agent — that records
-a training iteration goes through this gate. The recipe's ``model_class`` is resolved
-via ``importlib`` at inference time (a code-execution surface), so permitted classes
-are an explicit allowlist; the feature SQL must be a read-only ``SELECT`` keyed on
-``person_id`` (the one-row-per-person contract the inference compiler relies on).
+a training iteration goes through ``validate_recipe``: the iteration's feature SQL must
+be a read-only ``SELECT`` keyed on ``person_id`` (the one-row-per-person contract).
+
+The ``model_class`` allowlist (``validate_model_class``) is NOT applied at recording
+time — in the artifact-bundle world the agent's real model runs as arbitrary code in a
+sandbox, so the recorded ``model_class`` is informational. The allowlist is enforced
+where it actually matters: the legacy in-process inference path
+(``inference.py``) resolves ``model_class`` via ``importlib`` (a code-execution surface)
+and calls ``validate_model_class`` there before importing.
 """
 
 from posthog.hogql import ast
@@ -64,11 +69,14 @@ def _selected_names(node: ast.SelectQuery) -> set[str]:
 
 
 def validate_recipe(model_spec: dict, recipe_snapshot: dict) -> None:
-    """Validate an iteration's model class (in ``model_spec``) and feature SQL (in ``recipe_snapshot``)."""
-    model_class = (model_spec or {}).get("model_class")
-    if not model_class:
+    """
+    Validate one recorded iteration. The ``model_class`` (in ``model_spec``) is required
+    but not allowlisted — it is informational metadata; the agent's real model runs in a
+    sandbox. Only the feature SQL (in ``recipe_snapshot``) is sanity-checked: it must be a
+    read-only ``SELECT`` keyed on ``person_id``.
+    """
+    if not (model_spec or {}).get("model_class"):
         raise RecipeValidationError("model_spec.model_class is required.")
-    validate_model_class(model_class)
     feature_sql = (recipe_snapshot or {}).get("feature_sql")
     if feature_sql:
         validate_feature_sql(feature_sql)

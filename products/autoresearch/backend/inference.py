@@ -48,6 +48,7 @@ from products.autoresearch.backend.labeling import (
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
+from products.autoresearch.backend.recipe_validation import validate_model_class
 from products.autoresearch.backend.sandbox_inference import score_via_sandbox
 
 logger = structlog.get_logger(__name__)
@@ -577,6 +578,11 @@ def _fit_on_training_predict_on_inference(
     model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
     model_params = recipe.get("model_params", {})
     try:
+        # This is the in-process legacy path: model_class is resolved via importlib,
+        # an arbitrary-code surface. Gate it on the allowlist here, at the execution
+        # point (iteration recording no longer does — the agent's real model runs in
+        # the sandboxed bundle, where any class is fine).
+        validate_model_class(model_class_path)
         module_path, class_name = model_class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
         ModelClass = getattr(module, class_name)
@@ -690,6 +696,9 @@ def _fit_and_score(
     model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
     model_params = recipe.get("model_params", {})
     try:
+        # Legacy in-process path — gate the importlib resolution on the allowlist
+        # (see the matching guard in _score_via_anchors).
+        validate_model_class(model_class_path)
         module_path, class_name = model_class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
         ModelClass = getattr(module, class_name)

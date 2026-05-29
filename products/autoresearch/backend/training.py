@@ -1,23 +1,24 @@
 """
 Real sandbox training: launches the autoresearch agent loop in a PostHog Task sandbox.
 
-The agent explores correlations in the team's event data using HogQL, iterates on
-feature sets and model configs, and submits its best recipe as structured JSON via the
-set_output API endpoint. Recipe ingestion runs after TaskRun completion (see
-training_ingestion.py for the signal handler).
+The agent explores the team's event data with HogQL, iterates on feature sets and models
+in-sandbox, and authors a runnable bundle (features.sql / train.py / predict.py /
+recipe.yml) that it uploads via the autoresearch MCP write tools.
 
 Flow:
   1. run_training() creates an AutoresearchTrainingRun (status=RUNNING) and fires
-     Task.create_and_run() with internal=True, no repository, output_schema set.
-  2. The sandbox agent receives the description, runs the research loop, and calls
-     POST /api/projects/.../task-runs/$POSTHOG_RESUME_RUN_ID/set_output/ with the recipe.
-  3. The post_save signal on TaskRun (registered in apps.py → training_ingestion.py)
-     detects completion and ingests the recipe into AutoresearchModel.
+     Task.create_and_run() with internal=True, no repository.
+  2. The sandbox agent records each iteration (autoresearch-training-runs-iterations-create),
+     uploads the winning bundle (autoresearch-training-runs-artifacts-upload-create), and
+     finalizes the run (autoresearch-training-runs-complete-create), which selects the
+     champion via the promotion ladder and attaches the bundle as its artifact.
+  3. If the agent ends without finalizing, the post_save signal on TaskRun (apps.py →
+     training_ingestion.handle_task_run_completed) finalizes any recorded iterations, or
+     marks the run failed if none.
 """
 
 from __future__ import annotations
 
-import re
 import json
 import textwrap
 from datetime import date
@@ -25,20 +26,9 @@ from datetime import date
 from django.utils import timezone as django_timezone
 
 import structlog
-from pydantic import BaseModel, Field, field_validator
 
 from products.autoresearch.backend.labeling import NUM_FOLDS, _build_labeled_users_cte
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
-
-# Static contract enforced on the agent's feature_sql to prevent the most common
-# leakage patterns. See ModelRecipeOutput.feature_sql and the agent prompt for
-# the full contract; this list is the machine-checked subset.
-_FEATURE_SQL_ANCHORS_PLACEHOLDER = "{anchors}"
-_FEATURE_SQL_CUTOFF_REFERENCE = "cutoff_ts"
-# Match bare now() / now(0) / now(arg) — the leakage tell. Comments and string
-# literals can false-positive here, but agents don't typically use now() inside
-# strings; if they do, they can rephrase.
-_FEATURE_SQL_NOW_RE = re.compile(r"\bnow\s*\(", re.IGNORECASE)
 
 
 def _quote_for_inlined_sql(value: object) -> str:
@@ -93,101 +83,6 @@ def _resolve_labeled_anchors_cte_for_prompt(pipeline: AutoresearchPipeline) -> s
 
 
 logger = structlog.get_logger(__name__)
-
-
-# ── Pydantic output schema (also used in training_ingestion.py) ───────────────
-
-
-class IterationRecord(BaseModel):
-    iteration_number: int = Field(description="1-based iteration counter")
-    recipe_hash: str = Field(description="SHA-256 of the serialized recipe JSON for this iteration")
-    model_class: str = Field(description="sklearn model class, e.g. sklearn.linear_model.LogisticRegression")
-    model_params: dict = Field(description="Hyperparameters used in this iteration")
-    feature_summary: str = Field(description="Brief description of the features tried in this iteration")
-    holdout_score: float = Field(ge=0.0, le=1.0, description="Estimated holdout AUC (0–1)")
-    status: str = Field(description="'kept' if this recipe was carried forward, 'discarded' otherwise")
-    agent_description: str = Field(description="Why this iteration was kept or discarded")
-
-
-class ModelFeatureImportance(BaseModel):
-    name: str = Field(description="Feature column name")
-    importance: float = Field(ge=0.0, description="Relative importance weight (higher is more important)")
-    direction: str = Field(description="'positive' or 'negative' impact on predicted probability")
-
-
-class ModelExplanation(BaseModel):
-    top_features: list[ModelFeatureImportance] = Field(
-        description="Top feature importances sorted by importance descending"
-    )
-
-
-class ModelRecipeOutput(BaseModel):
-    feature_sql: str = Field(
-        description=(
-            "HogQL SELECT returning one row per anchor (person_id) with feature columns. "
-            "MUST contain the literal placeholder `{anchors}` — the framework substitutes it with a "
-            "per-user (person_id, cutoff_ts) table at runtime (per-user T0 during training; "
-            "now() during inference). MUST filter events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` "
-            "to prevent label leakage. MUST NOT call `now()` directly — use `a.cutoff_ts` instead. "
-            "Use {lookback_days} as a placeholder for the rolling-window size in days."
-        )
-    )
-    feature_transforms: list[dict] = Field(
-        default_factory=list,
-        description="Optional preprocessing transforms (e.g. log scale, clipping). Usually empty.",
-    )
-
-    @field_validator("feature_sql")
-    @classmethod
-    def _feature_sql_contract(cls, value: str) -> str:
-        """
-        Enforce the leakage-prevention contract on feature_sql at submission time.
-        Agents that violate the contract get a clear error from set_output and can
-        retry within their iteration budget.
-        """
-        if _FEATURE_SQL_ANCHORS_PLACEHOLDER not in value:
-            raise ValueError(
-                f"feature_sql must contain the placeholder {_FEATURE_SQL_ANCHORS_PLACEHOLDER!r}. "
-                "Select FROM {anchors} a (the framework-supplied per-user (person_id, cutoff_ts) "
-                "table) and join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)`. "
-                "See the agent prompt's worked example."
-            )
-        if _FEATURE_SQL_CUTOFF_REFERENCE not in value:
-            raise ValueError(
-                "feature_sql must reference `cutoff_ts` (e.g. `e.timestamp < "
-                "fromUnixTimestamp(a.cutoff_ts)`). Without this filter, features include events "
-                "from the label window — direct leakage."
-            )
-        if _FEATURE_SQL_NOW_RE.search(value):
-            raise ValueError(
-                "feature_sql must not call `now()` — use `fromUnixTimestamp(a.cutoff_ts)` as the "
-                "per-user cutoff. Calling `now()` breaks training (the cutoff varies per user) "
-                "and silently leaks label-window data into features."
-            )
-        return value
-
-    model_class: str = Field(
-        default="sklearn.linear_model.LogisticRegression",
-        description="sklearn model class path, e.g. sklearn.linear_model.LogisticRegression",
-    )
-    model_params: dict = Field(description="Hyperparameters for model_class, e.g. {C: 1.0, max_iter: 200}")
-    fit_signature: str = Field(
-        description="SHA-256 of (feature_sql + model_class + JSON-serialized model_params). Deduplication key."
-    )
-    trained_on: str = Field(description="Date range of training data, e.g. '2026-04-01 to 2026-05-01'")
-    holdout_score: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Estimated holdout AUC (0–1). Be honest — validated against realized outcomes later.",
-    )
-    agent_description: str = Field(
-        description="Plain-English summary of feature choices and why this recipe was selected"
-    )
-    model_explanation: ModelExplanation = Field(description="Top feature importances with direction of effect")
-    iterations: list[IterationRecord] = Field(
-        default_factory=list,
-        description="One record per iteration attempted (both kept and discarded).",
-    )
 
 
 # ── Agent prompt ───────────────────────────────────────────────────────────────
@@ -567,10 +462,10 @@ def run_training(
             create_pr=False,
             mode="background",
             internal=True,
-            output_schema=ModelRecipeOutput,
-            # "full" grants the agent autoresearch:write so it can record per-iteration
-            # progress via autoresearch-training-runs-iterations-create. Read-only would
-            # hide write tools and the iterations tab would stay empty.
+            # "full" grants the agent autoresearch:write so it can record iterations via
+            # autoresearch-training-runs-iterations-create, upload its bundle via
+            # autoresearch-training-runs-artifacts-upload-create, and finalize via
+            # autoresearch-training-runs-complete-create. Read-only would hide those tools.
             posthog_mcp_scopes="full",
         )
 

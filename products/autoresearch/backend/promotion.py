@@ -1,9 +1,10 @@
 """Champion selection and promotion for agent-recorded training runs.
 
 The agent records candidate iterations; the backend alone decides the champion. Used by
-the training-run ``complete`` action. Mirrors the champion-model shape in
-``training_ingestion._ingest_recipe`` (the set_output path) so both converge on the same
-``AutoresearchModel`` layout.
+the training-run ``complete`` action and by ``training_ingestion.handle_task_run_completed``
+when a run ends without the agent finalizing. When the agent has uploaded a runnable bundle
+for the run, the champion's ``artifact_prefix`` points at it (inference runs the bundle in a
+sandbox); otherwise the model carries only the recorded recipe (legacy in-process path).
 """
 
 from datetime import date
