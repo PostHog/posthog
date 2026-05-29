@@ -185,10 +185,17 @@ export const tasksCreateBodyTitleMax = 255
 export const tasksCreateBodyRepositoryMax = 255
 
 export const TasksCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(tasksCreateBodyTitleMax).optional(),
+    title: zod
+        .string()
+        .max(tasksCreateBodyTitleMax)
+        .optional()
+        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
     title_manually_set: zod.boolean().optional(),
-    description: zod.string().optional(),
-    origin_product: zod
+    description: zod
+        .string()
+        .optional()
+        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    origin_product:  zod
         .enum([
             'error_tracking',
             'eval_clusters',
@@ -200,11 +207,18 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'signal_report',
             'signals_scout',
         ])
-        .optional()
         .describe(
             '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+        )
+        .optional()
+        .describe(
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report'
         ),
-    repository: zod.string().max(tasksCreateBodyRepositoryMax).nullish(),
+    repository: zod
+        .string()
+        .max(tasksCreateBodyRepositoryMax)
+        .nullish()
+        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
     github_user_integration: zod
         .uuid()
@@ -240,10 +254,17 @@ export const tasksUpdateBodyTitleMax = 255
 export const tasksUpdateBodyRepositoryMax = 255
 
 export const TasksUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(tasksUpdateBodyTitleMax).optional(),
+    title: zod
+        .string()
+        .max(tasksUpdateBodyTitleMax)
+        .optional()
+        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
     title_manually_set: zod.boolean().optional(),
-    description: zod.string().optional(),
-    origin_product: zod
+    description: zod
+        .string()
+        .optional()
+        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    origin_product:  zod
         .enum([
             'error_tracking',
             'eval_clusters',
@@ -255,11 +276,18 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'signal_report',
             'signals_scout',
         ])
-        .optional()
         .describe(
             '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+        )
+        .optional()
+        .describe(
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report'
         ),
-    repository: zod.string().max(tasksUpdateBodyRepositoryMax).nullish(),
+    repository: zod
+        .string()
+        .max(tasksUpdateBodyRepositoryMax)
+        .nullish()
+        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
     github_user_integration: zod
         .uuid()
@@ -295,10 +323,17 @@ export const tasksPartialUpdateBodyTitleMax = 255
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
 export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(tasksPartialUpdateBodyTitleMax).optional(),
+    title: zod
+        .string()
+        .max(tasksPartialUpdateBodyTitleMax)
+        .optional()
+        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
     title_manually_set: zod.boolean().optional(),
-    description: zod.string().optional(),
-    origin_product: zod
+    description: zod
+        .string()
+        .optional()
+        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    origin_product:  zod
         .enum([
             'error_tracking',
             'eval_clusters',
@@ -310,11 +345,18 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'signal_report',
             'signals_scout',
         ])
-        .optional()
         .describe(
             '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+        )
+        .optional()
+        .describe(
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report'
         ),
-    repository: zod.string().max(tasksPartialUpdateBodyRepositoryMax).nullish(),
+    repository: zod
+        .string()
+        .max(tasksPartialUpdateBodyRepositoryMax)
+        .nullish()
+        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
     github_user_integration: zod
         .uuid()
