@@ -1133,17 +1133,6 @@
                                 "type": "string"
                             },
                             "type": "object"
-                        },
-                        "super_groups": {
-                            "description": "Additional super condition groups used by experiments.",
-                            "items": {
-                                "additionalProperties": {},
-                                "propertyNames": {
-                                    "type": "string"
-                                },
-                                "type": "object"
-                            },
-                            "type": "array"
                         }
                     },
                     "type": "object"

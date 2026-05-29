@@ -41,7 +41,7 @@ class CustomPromptSandboxContext:
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
-    """Override the agent model (e.g. ``"claude-opus-4-7"``). Falls back to the
+    """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
 

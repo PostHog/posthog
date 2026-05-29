@@ -213,7 +213,20 @@ tools:
                 input_schema: ExternalDataSourceTypeSchema
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List direct-query connections
+        description: >
+            List external data sources that can be used as a connectionId when running execute-sql against an external
+            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
+            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
+            discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
