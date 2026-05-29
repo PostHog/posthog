@@ -285,7 +285,14 @@ def _render_sync_status(workspace_name: str) -> str:
     session = sessions[0]
     if session.get("paused"):
         return click.style("⚠ paused", fg="yellow")
+    conflicts = session.get("conflicts") or []
+    if conflicts:
+        return click.style(f"⚠ {len(conflicts)} conflict{'s' if len(conflicts) != 1 else ''}", fg="red")
     status = str(session.get("status", "")).strip() or "running"
+    # mutagen reports a stalled sync (box stopped, remote root gone) as a
+    # `disconnected`/`halted-*` status; a green dot there would read as healthy.
+    if status == "disconnected" or status.startswith("halted"):
+        return click.style(f"✗ {status}", fg="red")
     return click.style(f"● {status}", fg="green")
 
 
@@ -1004,6 +1011,7 @@ def _confirm_run_setup() -> bool:
     click.echo("hogli devbox:setup will check or configure:")
     click.echo("  - Tailscale + Coder reachability")
     click.echo("  - Local SSH config for Coder hosts")
+    click.echo("  - File sync tooling (mutagen) for devbox:sync")
     click.echo("  - Git identity (name/email) for new workspaces")
     click.echo("  - Git commit signing key propagation")
     click.echo("  - Preferred region for new workspaces (optional)")

@@ -13,21 +13,17 @@ import shutil
 import platform
 import subprocess
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
 import click
+
+from .coder import _fail
 
 _MANAGED_MUTAGEN_DIR = Path.home() / ".hogli" / "bin"
 _MUTAGEN_VERSION = "0.18.1"
 _RELEASE_URL_TEMPLATE = (
     "https://github.com/mutagen-io/mutagen/releases/download/v{version}/mutagen_{os}_{arch}_v{version}.tar.gz"
 )
-
-
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
-    click.echo(click.style(message, fg="red"))
-    raise SystemExit(1)
 
 
 def _mutagen_release_url(version: str = _MUTAGEN_VERSION) -> str:
@@ -127,7 +123,13 @@ def ensure_mutagen_installed(*, verbose: bool = False) -> None:
         return
 
     installed = get_installed_mutagen_version()
-    if installed is not None and installed != _MUTAGEN_VERSION:
+    if installed is None:
+        # Binary is present but `mutagen version` failed -- treat it as broken
+        # (truncated download, incompatible libc) and reinstall rather than
+        # silently shipping a CLI that crashes on the next sync command.
+        click.echo("mutagen CLI is present but not runnable; reinstalling.")
+        _install_mutagen(verbose=verbose)
+    elif installed != _MUTAGEN_VERSION:
         click.echo(f"mutagen CLI v{installed} does not match expected v{_MUTAGEN_VERSION}.")
         _install_mutagen(verbose=verbose)
     else:
@@ -269,13 +271,22 @@ def sync_list(*, label_selector: str | None = None) -> list[dict[str, Any]]:
 
 
 def _label_op(verb: str, label_selector: str) -> None:
-    """Run a label-scoped sync lifecycle command (terminate/pause/resume/flush)."""
+    """Run a label-scoped sync lifecycle command (terminate/pause/resume/flush).
+
+    No-ops when nothing matches the selector. ``sync_list`` is resilient to a
+    missing binary or an offline daemon, so this both keeps "no session" a
+    silent success and prevents a raw ``FileNotFoundError`` crash on a machine
+    that never installed mutagen (the lifecycle flags skip the install step).
+    """
     if not label_selector:
         _fail(f"Refusing to {verb} sync sessions without a label selector.")
+    if not sync_list(label_selector=label_selector):
+        return
     args = ["mutagen", "sync", verb, "--label-selector", label_selector]
     result = _run(args, capture_output=True)
     if result.returncode != 0:
         combined = (result.stdout or "") + (result.stderr or "")
+        # The session may have vanished between the list and the op (a race).
         if any(marker in combined.lower() for marker in _NO_SESSIONS_MARKERS):
             return
         click.echo((result.stderr or result.stdout or "").strip(), err=True)

@@ -15,8 +15,8 @@ from typing import Any
 import click
 
 from . import mutagen
-from .cli import resolve_workspace_name, workspace_argument
-from .coder import _fail, ensure_coder_installed, ensure_runtime_ready, extract_workspace_label
+from .cli import _workspace_arg_suffix, resolve_workspace_name, workspace_argument
+from .coder import _fail, ensure_runtime_ready, get_workspace, get_workspace_status
 
 _REMOTE_REPO_PATH = "/home/coder/posthog"
 
@@ -66,14 +66,22 @@ def _format_session_status(session: dict[str, Any]) -> str:
     alpha_path = alpha.get("path", "?") if isinstance(alpha, dict) else "?"
     beta_path = beta.get("path", "?") if isinstance(beta, dict) else "?"
     state = "paused" if paused else (status or "running")
-    return "\n".join(
-        [
-            f"  {name}",
-            f"    state: {state}",
-            f"    alpha: {alpha_path}",
-            f"    beta:  {beta_path}",
-        ]
-    )
+    lines = [
+        f"  {name}",
+        f"    state: {state}",
+        f"    alpha: {alpha_path}",
+        f"    beta:  {beta_path}",
+    ]
+    # Conflicts are the whole point of one-way-safe: a remote file diverged and
+    # mutagen refused to overwrite it. Surface them or the sync looks healthy
+    # while the user's edits silently never land.
+    conflicts = session.get("conflicts") or []
+    if conflicts:
+        lines.append(f"    conflicts: {len(conflicts)} (remote diverged; resolve before edits will sync)")
+    last_error = session.get("lastError")
+    if last_error:
+        lines.append(f"    error: {last_error}")
+    return "\n".join(lines)
 
 
 def _print_sessions(sessions: list[dict[str, Any]]) -> None:
@@ -112,7 +120,7 @@ def cmd_sync(
     if chosen > 1:
         raise click.UsageError("Pick at most one of --status, --pause, --resume, --terminate, --flush.")
 
-    name, _ = resolve_workspace_name(workspace)
+    name, workspaces = resolve_workspace_name(workspace)
     label = mutagen.workspace_label_selector(name)
 
     # Lifecycle subcommands don't need the full runtime preflight -- they
@@ -137,20 +145,22 @@ def cmd_sync(
         click.echo(f"Flushed sync for {name}.")
         return
 
-    # Default path: idempotent create.
-    ensure_runtime_ready()
-    ensure_coder_installed(verbose=verbose)
+    # Default path: idempotent create. Install mutagen and bring the daemon up
+    # first so the existing-session check sees sessions persisted across daemon
+    # restarts; a re-run then short-circuits before the heavier coder/SSH
+    # preflight below. (ensure_runtime_ready covers the coder install check.)
     mutagen.ensure_mutagen_installed(verbose=verbose)
     mutagen.register_daemon()
-    _ensure_ssh_config_for_workspace(name)
-    config_path = mutagen.ensure_user_mutagen_config()
-
-    existing = mutagen.sync_list(label_selector=label)
-    if existing:
+    if mutagen.sync_list(label_selector=label):
         click.echo(
-            f"Sync already running for {name}. Use `hogli devbox:sync {_label_suffix(name)}--status` to inspect."
+            f"Sync already running for {name}. Use `hogli devbox:sync{_workspace_arg_suffix(name)} --status` to inspect."
         )
         return
+
+    ensure_runtime_ready()
+    _ensure_workspace_running(name, workspaces)
+    _ensure_ssh_config_for_workspace(name)
+    config_path = mutagen.ensure_user_mutagen_config()
 
     local_path = _detect_local_posthog_checkout()
     click.echo(f"Creating sync: {local_path} -> coder.{name}:{_REMOTE_REPO_PATH}")
@@ -162,10 +172,22 @@ def cmd_sync(
         labels={"hogli-workspace": name},
     )
     click.echo("Sync created. Initial scan and copy may take a few minutes for large checkouts.")
-    click.echo(f"Inspect: hogli devbox:sync {_label_suffix(name)}--status")
+    click.echo(f"Inspect: hogli devbox:sync{_workspace_arg_suffix(name)} --status")
 
 
-def _label_suffix(workspace_name: str) -> str:
-    """Render the workspace label suffix used by ``workspace_argument``-style CLIs."""
-    label = extract_workspace_label(workspace_name)
-    return f"{label} " if label else ""
+def _ensure_workspace_running(name: str, workspaces: list[dict[str, Any]] | None) -> None:
+    """Fail early with a clear message if the target devbox isn't running.
+
+    mutagen dials the box over SSH; a stopped box otherwise surfaces as an
+    opaque connection error partway through the sync. Best-effort: when the
+    workspace list is unavailable (e.g. a shared ``@user`` target) we skip the
+    check rather than block on an unknowable state.
+    """
+    if not workspaces:
+        return
+    workspace = get_workspace(name, workspaces)
+    if workspace is None:
+        return
+    status = get_workspace_status(workspace)
+    if status != "running":
+        _fail(f"Devbox '{name}' is {status}, not running. Run `hogli devbox:start` first.")
