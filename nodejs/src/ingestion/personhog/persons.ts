@@ -77,7 +77,8 @@ export class PersonHogPersonOperations {
     async getDistinctIdsForPersons(
         teamId: number,
         personIntIds: string[],
-        limitPerPerson?: number
+        limitPerPerson?: number,
+        callerTag?: string
     ): Promise<Record<string, string[]>> {
         if (personIntIds.length === 0) {
             return {}
