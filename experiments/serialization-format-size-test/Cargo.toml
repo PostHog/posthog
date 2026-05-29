@@ -12,7 +12,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 prost = "0.13"
 apache-avro = "0.17"
+rmp-serde = "1"
 rand = "0.8"
+
+# Compression codecs. gzip/snappy/lz4/zstd are exactly Kafka's native
+# `compression.type` options; brotli is a non-Kafka high-ratio reference.
+flate2 = "1"
+zstd = "0.13"
+lz4_flex = "0.11"
+snap = "1"
+brotli = "7"
 
 [profile.release]
 opt-level = 3
