@@ -134,6 +134,28 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertIn(8000, allow_rule["ports"])
         self.assertIn(8010, allow_rule["ports"])
 
+    @override_settings(DEBUG=True)
+    def test_debug_mode_allows_local_dev_hosts_on_any_port(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        dev_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-local-dev-hosts")
+        self.assertEqual(dev_rule["decision"], "allow")
+        self.assertIn("host.docker.internal", dev_rule["domains"])
+        self.assertIn("localhost", dev_rule["domains"])
+        self.assertNotIn("ports", dev_rule)
+
+    @override_settings(DEBUG=True)
+    def test_debug_mode_local_dev_rule_precedes_default_deny(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        rules = policy["network_rules"]
+        dev_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "allow-local-dev-hosts")
+        deny_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "default-deny-network")
+        self.assertLess(dev_idx, deny_idx)
+
+    def test_non_debug_mode_omits_local_dev_hosts_rule(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        rule_names = [r["name"] for r in policy["network_rules"]]
+        self.assertNotIn("allow-local-dev-hosts", rule_names)
+
     def test_allow_all_policy_when_no_domains(self):
         policy = yaml.safe_load(generate_policy_yaml(None))
         rules = policy["network_rules"]
