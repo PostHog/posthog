@@ -29,14 +29,14 @@ export const Default: Story = {
 export const FocusedOnSkill: Story = {
     args: {
         files: weeklyDigestBundle,
-        initialPath: 'skills/pr-callouts.md',
+        selectedPath: 'skills/pr-callouts.md',
     },
 }
 
 export const FocusedOnToolSchema: Story = {
     args: {
         files: weeklyDigestBundle,
-        initialPath: 'tools/in-app-helper/schema.json',
+        selectedPath: 'tools/in-app-helper/schema.json',
     },
 }
 

@@ -6,13 +6,17 @@
  * react-query is overkill for v0; if we need cache invalidation,
  * suspense, retries, etc. we'll swap to it later.
  *
- * The `reloadKey` is bumped externally to force a refetch (mutation
- * stream events use this to refresh underlying data).
+ * Implicitly subscribes to `useReloadKey()` so every read refetches
+ * when the dock's focus handler navigates (even when the URL is
+ * unchanged). Pass an explicit `deps` array for slug/id changes; the
+ * reload key is folded in automatically.
  */
 
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+
+import { useReloadKey } from './reloadSignal'
 
 export interface ResourceState<T> {
     data: T | null
@@ -22,10 +26,11 @@ export interface ResourceState<T> {
 }
 
 export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []): ResourceState<T> {
+    const reloadKey = useReloadKey()
     const [data, setData] = useState<T | null>(null)
     const [error, setError] = useState<Error | null>(null)
     const [loading, setLoading] = useState(true)
-    const [reloadKey, setReloadKey] = useState(0)
+    const [manualReloadKey, setManualReloadKey] = useState(0)
     const reqIdRef = useRef(0)
     const factoryRef = useRef(factory)
     factoryRef.current = factory
@@ -51,9 +56,9 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
                 setLoading(false)
             })
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [...deps, reloadKey])
+    }, [...deps, reloadKey, manualReloadKey])
 
-    const reload = useCallback(() => setReloadKey((k) => k + 1), [])
+    const reload = useCallback(() => setManualReloadKey((k) => k + 1), [])
 
     return { data, error, loading, reload }
 }

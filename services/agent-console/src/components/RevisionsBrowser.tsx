@@ -23,7 +23,10 @@
 import { useMemo, useState } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
-import type { AgentApplicationFixture, AgentRevisionFixture, BundleFile } from '@posthog/agent-chat/fixtures'
+import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
+
+import { getBundle } from '@/lib/apiClient'
+import { useResource } from '@/lib/useResource'
 
 import { BundleTree } from './BundleTree'
 import { ConfigPanel, KNOWN_SPEC_KEYS, UnstructuredFields } from './ConfigPanel'
@@ -33,24 +36,24 @@ type ConfigView = 'structured' | 'raw'
 export interface RevisionsBrowserProps {
     agent: AgentApplicationFixture
     revisions: AgentRevisionFixture[]
-    /** Bundle files for the *currently-selected* revision. v0.1: fetched per revision. */
-    bundle: BundleFile[]
     /** Controlled selection — parent owns the choice so deep links can pre-select. */
     selectedRevisionId: string | null
     onSelectRevision: (id: string) => void
-    /** External signal to open a specific bundle file, forwarded to BundleTree. */
+    /** Highlighted spec section (driven by `?section=` in the URL). */
+    highlightedSection?: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
+    /** Currently-open bundle file (driven by `?file=` in the URL). */
     focusedBundlePath?: string | null
-    focusedBundleTick?: number
+    onSelectBundleFile?: (path: string) => void
 }
 
 export function RevisionsBrowser({
     agent,
     revisions,
-    bundle,
     selectedRevisionId,
     onSelectRevision,
+    highlightedSection,
     focusedBundlePath,
-    focusedBundleTick,
+    onSelectBundleFile,
 }: RevisionsBrowserProps): React.ReactElement {
     const [configView, setConfigView] = useState<ConfigView>('structured')
 
@@ -63,6 +66,15 @@ export function RevisionsBrowser({
     }, [revisions, agent.live_revision])
 
     const selected = revisions.find((r) => r.id === selectedRevisionId) ?? sortedRevisions[0] ?? null
+
+    // Bundle is per-revision — fetch lazily for whichever revision is selected.
+    const bundleRes = useResource(
+        () => (selected ? getBundle(agent.slug, selected.id) : Promise.resolve([])),
+        [agent.slug, selected?.id ?? '']
+    )
+    const bundle = bundleRes.data ?? []
+    const bundleLoading = bundleRes.loading
+    const bundleError = bundleRes.error
 
     if (sortedRevisions.length === 0) {
         return (
@@ -100,7 +112,7 @@ export function RevisionsBrowser({
                                 <>
                                     <ConfigPanel
                                         spec={selected.spec as Record<string, unknown>}
-                                        entityKey={`revision-spec:${agent.slug}:${selected.id}`}
+                                        highlightedSection={highlightedSection}
                                     />
                                     <UnstructuredFields
                                         spec={selected.spec as Record<string, unknown>}
@@ -114,12 +126,21 @@ export function RevisionsBrowser({
 
                         <Section title="Bundle">
                             <div className="h-[480px]">
-                                <BundleTree
-                                    files={bundle}
-                                    focusedPath={focusedBundlePath ?? null}
-                                    focusedPathTick={focusedBundleTick}
-                                    agentSlug={agent.slug}
-                                />
+                                {bundleError ? (
+                                    <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive">
+                                        Failed to load bundle: {bundleError.message}
+                                    </div>
+                                ) : bundleLoading ? (
+                                    <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                                        Loading bundle…
+                                    </div>
+                                ) : (
+                                    <BundleTree
+                                        files={bundle}
+                                        selectedPath={focusedBundlePath ?? null}
+                                        onSelectPath={onSelectBundleFile}
+                                    />
+                                )}
                             </div>
                         </Section>
                     </>

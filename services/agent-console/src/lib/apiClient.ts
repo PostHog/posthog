@@ -1,33 +1,21 @@
 /**
  * Typed REST client for the agent console.
  *
- * Every read/write the console does goes through here. The shape
- * mirrors the real PostHog REST + agent-ingress surfaces; v0 runs
- * against MSW (Storybook only) and v0.1+ swaps in a Next.js rewrite
- * to the real backends without app-side changes.
+ * Every read the console does goes through here. Paths mirror the
+ * real PostHog Django REST surface (see
+ * `products/agent_stack/backend/api.py`). Storybook intercepts via
+ * MSW; production Next.js proxies via `next.config.mjs → rewrites()`.
  *
- * **Path conventions — same-origin to avoid CORS.** Two prefixes
- * Next.js proxies to different backends in prod (configured in
- * `next.config.ts → rewrites()`):
+ * Same-origin to avoid CORS. Next.js rewrites `/api/projects/...` to
+ * the PostHog Django REST surface. When chat send/listen lands later
+ * it'll add a `posthogAgentsUrl()` helper for `/api/agents/v1/*` →
+ * agent-ingress.
  *
- *   `posthogUrl()`        → `/api/projects/<projectId>/agent_*`
- *                            → PostHog Django REST
- *                            (persistent state: apps, revisions,
- *                             bundles, sessions, logs, stats)
- *   `posthogAgentsUrl()`  → `/api/agents/v1/*`
- *                            → agent-ingress (runtime + streaming:
- *                              session messages, /listen,
- *                              mutation event stream)
- *
- * App code has no awareness of MSW — these functions issue real
- * `fetch` calls. In Storybook they're intercepted; in production
- * they're proxied by Next.js. Same-origin everywhere.
- *
- * Conventions:
- *   - Lists return the inner array (the wire shape is `{ results: T[] }`).
- *   - Detail returns the inner record.
- *   - Writes return `{ mutationId }` and may emit a server-side
- *     mutation event picked up by the SSE stream (`subscribeMutations`).
+ * The console is read-mostly. Writes are the agent runner's job; when
+ * the user wants to change something they ask the concierge dock, the
+ * agent POSTs to the same Django endpoints via MCP, the console
+ * refetches on its next navigation. The agent navigates the console
+ * via the `@posthog/ui/focus` tool — see `Dock.tsx` for the URL map.
  */
 
 import type { ChatSession } from '@posthog/agent-chat'
@@ -36,6 +24,7 @@ import type {
     AgentRevisionFixture,
     AgentStats,
     BundleFile,
+    BundleFileLanguage,
     FleetStats,
     LogEntry,
 } from '@posthog/agent-chat/fixtures'
@@ -47,10 +36,6 @@ function posthogUrl(suffix: string): string {
     return `/api/projects/${PROJECT_ID}${suffix}`
 }
 
-function posthogAgentsUrl(suffix: string): string {
-    return `/api/agents/v1${suffix}`
-}
-
 async function getJson<T>(url: string): Promise<T> {
     const res = await fetch(url, { headers: { Accept: 'application/json' } })
     if (!res.ok) {
@@ -59,34 +44,10 @@ async function getJson<T>(url: string): Promise<T> {
     return (await res.json()) as T
 }
 
-async function patchJson<TBody, TResult>(url: string, body: TBody): Promise<TResult> {
-    const res = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-        throw new ApiError(res.status, await safeError(res))
-    }
-    return (await res.json()) as TResult
-}
-
-async function putJson<TBody, TResult>(url: string, body: TBody): Promise<TResult> {
-    const res = await fetch(url, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-        throw new ApiError(res.status, await safeError(res))
-    }
-    return (await res.json()) as TResult
-}
-
 async function safeError(res: Response): Promise<string> {
     try {
-        const body = (await res.json()) as { error?: string }
-        return body.error ?? `${res.status} ${res.statusText}`
+        const body = (await res.json()) as { error?: string; detail?: string }
+        return body.error ?? body.detail ?? `${res.status} ${res.statusText}`
     } catch {
         return `${res.status} ${res.statusText}`
     }
@@ -101,7 +62,7 @@ export class ApiError extends Error {
     }
 }
 
-/* ── Read endpoints ──────────────────────────────────────────────── */
+/* ── Applications ────────────────────────────────────────────────── */
 
 export async function listAgents(opts: { includeArchived?: boolean } = {}): Promise<AgentApplicationFixture[]> {
     const qs = opts.includeArchived ? '?include_archived=true' : ''
@@ -113,6 +74,8 @@ export async function getAgent(slug: string): Promise<AgentApplicationFixture> {
     return getJson<AgentApplicationFixture>(posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/`))
 }
 
+/* ── Revisions ───────────────────────────────────────────────────── */
+
 export async function listRevisions(slug: string): Promise<AgentRevisionFixture[]> {
     const { results } = await getJson<{ results: AgentRevisionFixture[] }>(
         posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/revisions/`)
@@ -120,16 +83,38 @@ export async function listRevisions(slug: string): Promise<AgentRevisionFixture[
     return results
 }
 
-export async function getBundle(slug: string): Promise<BundleFile[]> {
-    const { results } = await getJson<{ results: BundleFile[] }>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/bundle/`)
+/**
+ * Bulk-pull a revision's bundle. Django shape: `{ files: { path:
+ * content }, ... }`. Transformed here so consumers get the typed
+ * `BundleFile[]` array.
+ */
+export async function getBundle(slug: string, revisionId: string): Promise<BundleFile[]> {
+    const raw = await getJson<{ files: Record<string, string> }>(
+        posthogUrl(
+            `/agent_applications/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}/bundle/`
+        )
     )
-    return results
+    return Object.entries(raw.files).map(([path, content]) => ({
+        path,
+        content,
+        language: languageForPath(path),
+    }))
 }
 
-export async function getAgentStats(slug: string): Promise<AgentStats> {
-    return getJson<AgentStats>(posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/stats/`))
+function languageForPath(path: string): BundleFileLanguage {
+    if (path.endsWith('.md') || path.endsWith('.mdx')) {
+        return 'markdown'
+    }
+    if (path.endsWith('.ts') || path.endsWith('.tsx')) {
+        return 'typescript'
+    }
+    if (path.endsWith('.json')) {
+        return 'json'
+    }
+    return 'text'
 }
+
+/* ── Sessions ────────────────────────────────────────────────────── */
 
 export async function listSessionsForAgent(slug: string): Promise<ChatSession[]> {
     const { results } = await getJson<{ results: ChatSession[] }>(
@@ -138,22 +123,23 @@ export async function listSessionsForAgent(slug: string): Promise<ChatSession[]>
     return results
 }
 
-export async function getLiveSessionCountForAgent(slug: string): Promise<number> {
-    const { count } = await getJson<{ count: number }>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/live_session_count/`)
+export async function getSession(slug: string, sessionId: string): Promise<ChatSession> {
+    return getJson<ChatSession>(
+        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/sessions/${encodeURIComponent(sessionId)}/`)
     )
-    return count
 }
 
-export async function getSession(sessionId: string): Promise<ChatSession> {
-    return getJson<ChatSession>(posthogUrl(`/agent_sessions/${encodeURIComponent(sessionId)}/`))
-}
-
-export async function listLogsForSession(sessionId: string): Promise<LogEntry[]> {
+export async function listLogsForSession(slug: string, sessionId: string): Promise<LogEntry[]> {
     const { results } = await getJson<{ results: LogEntry[] }>(
-        posthogUrl(`/agent_sessions/${encodeURIComponent(sessionId)}/logs/`)
+        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/sessions/${encodeURIComponent(sessionId)}/logs/`)
     )
     return results
+}
+
+/* ── Read endpoints not yet served by Django — Phase C ───────────── */
+
+export async function getAgentStats(slug: string): Promise<AgentStats> {
+    return getJson<AgentStats>(posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/stats/`))
 }
 
 export async function getFleetStats(): Promise<FleetStats> {
@@ -163,73 +149,4 @@ export async function getFleetStats(): Promise<FleetStats> {
 export async function listLiveSessions(): Promise<ChatSession[]> {
     const { results } = await getJson<{ results: ChatSession[] }>(posthogUrl(`/agent_fleet/live_sessions/`))
     return results
-}
-
-/* ── Write endpoints ─────────────────────────────────────────────── */
-
-export interface BundleFileWriteRequest {
-    newContent: string
-    mutationId: string
-}
-
-export async function writeBundleFile(
-    slug: string,
-    path: string,
-    body: BundleFileWriteRequest
-): Promise<{ mutationId: string }> {
-    return putJson<BundleFileWriteRequest, { ok: true; mutationId: string }>(
-        posthogUrl(`/agent_applications/${encodeURIComponent(slug)}/bundle/files/?path=${encodeURIComponent(path)}`),
-        body
-    )
-}
-
-type RevisionSpec = AgentRevisionFixture['spec']
-
-export interface RevisionSpecPatchRequest {
-    /** Slug of the application this revision belongs to. The handler emits an
-     * entityKey scoped by it so consumers can subscribe without needing the
-     * internal application id. */
-    applicationSlug: string
-    patch: Partial<RevisionSpec>
-    mutationId: string
-}
-
-export async function patchRevisionSpec(
-    revisionId: string,
-    body: RevisionSpecPatchRequest
-): Promise<{ mutationId: string }> {
-    return patchJson<RevisionSpecPatchRequest, { ok: true; mutationId: string }>(
-        posthogUrl(`/agent_revisions/${encodeURIComponent(revisionId)}/spec/`),
-        body
-    )
-}
-
-/* ── Mutation event stream ───────────────────────────────────────── */
-
-export interface MutationEvent {
-    entityKey: string
-    mutationId: string
-    revision: number
-    at: number
-}
-
-/**
- * Subscribe to the server-side mutation event stream. Returns an
- * unsubscribe fn. Internally opens an EventSource that the real
- * backend serves as text/event-stream; in Storybook MSW intercepts.
- */
-export function subscribeMutations(listener: (event: MutationEvent) => void): () => void {
-    const source = new EventSource(posthogAgentsUrl(`/events/stream`))
-    const handler = (e: MessageEvent): void => {
-        try {
-            listener(JSON.parse(e.data) as MutationEvent)
-        } catch {
-            // Bad payload — skip; the stream itself is fine.
-        }
-    }
-    source.addEventListener('mutation', handler)
-    return () => {
-        source.removeEventListener('mutation', handler)
-        source.close()
-    }
 }

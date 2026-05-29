@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { weeklyDigest, weeklyDigestBundle, weeklyDigestRevisions } from '@posthog/agent-chat/fixtures'
+import { weeklyDigest, weeklyDigestRevisions } from '@posthog/agent-chat/fixtures'
 
 import { RevisionsBrowser } from './RevisionsBrowser'
 
@@ -28,7 +28,6 @@ export const Default: Story = {
             <RevisionsBrowser
                 agent={weeklyDigest}
                 revisions={weeklyDigestRevisions}
-                bundle={weeklyDigestBundle}
                 selectedRevisionId={selectedId}
                 onSelectRevision={setSelectedId}
             />
@@ -44,7 +43,6 @@ export const DraftSelected: Story = {
             <RevisionsBrowser
                 agent={weeklyDigest}
                 revisions={weeklyDigestRevisions}
-                bundle={weeklyDigestBundle}
                 selectedRevisionId={selectedId}
                 onSelectRevision={setSelectedId}
             />
@@ -60,7 +58,6 @@ export const NoLiveYet: Story = {
             <RevisionsBrowser
                 agent={{ ...weeklyDigest, live_revision: null }}
                 revisions={[draft]}
-                bundle={weeklyDigestBundle}
                 selectedRevisionId={selectedId}
                 onSelectRevision={setSelectedId}
             />
@@ -73,7 +70,6 @@ export const NoRevisions: Story = {
         <RevisionsBrowser
             agent={{ ...weeklyDigest, live_revision: null }}
             revisions={[]}
-            bundle={[]}
             selectedRevisionId={null}
             onSelectRevision={() => undefined}
         />

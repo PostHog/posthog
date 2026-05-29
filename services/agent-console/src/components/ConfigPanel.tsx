@@ -26,17 +26,13 @@ import type { ReactNode } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
 
-import { useMutationFlair } from './use-mutation-flair'
-
 export interface ConfigPanelProps {
     spec: Record<string, unknown>
     /**
-     * Used to scope mutation-registry entityKeys per spec field. For a
-     * revision spec this is `revision-spec:<applicationId>:<revisionId>`.
-     * When set, sections whose data moved flair as the new content lands.
-     * Optional — stories without an id still render correctly.
+     * Highlighted section — currently used for the in-page anchor /
+     * scroll target when the dock's focus call lands on a spec section.
      */
-    entityKey?: string
+    highlightedSection?: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
 }
 
 interface Trigger {
@@ -54,17 +50,12 @@ interface Auth {
     mode?: string
 }
 
-export function ConfigPanel({ spec, entityKey }: ConfigPanelProps): React.ReactElement {
+export function ConfigPanel({ spec, highlightedSection }: ConfigPanelProps): React.ReactElement {
     const model = typeof spec.model === 'string' ? spec.model : undefined
     const triggers = Array.isArray(spec.triggers) ? (spec.triggers as Trigger[]) : []
     const secrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
     const limits = (spec.limits && typeof spec.limits === 'object' ? spec.limits : {}) as Limits
     const auth = (spec.auth && typeof spec.auth === 'object' ? spec.auth : {}) as Auth
-
-    // For v0 we flair the whole spec when any field on it moves. v0.1
-    // splits this into per-field entityKeys (e.g. `…:triggers`,
-    // `…:limits`) so only the affected row pulses.
-    const { flair: specFlair } = useMutationFlair(entityKey ?? null)
 
     return (
         <div className="space-y-3">
@@ -72,7 +63,11 @@ export function ConfigPanel({ spec, entityKey }: ConfigPanelProps): React.ReactE
                 {model ? <Chip>{model}</Chip> : <Empty />}
             </Row>
 
-            <Row label="Triggers" icon={<ZapIcon className="h-3 w-3" />} flair={specFlair}>
+            <Row
+                label="Triggers"
+                icon={<ZapIcon className="h-3 w-3" />}
+                highlighted={highlightedSection === 'triggers'}
+            >
                 {triggers.length === 0 ? (
                     <Empty />
                 ) : (
@@ -84,7 +79,7 @@ export function ConfigPanel({ spec, entityKey }: ConfigPanelProps): React.ReactE
                 )}
             </Row>
 
-            <Row label="Secrets" icon={<KeyIcon className="h-3 w-3" />}>
+            <Row label="Secrets" icon={<KeyIcon className="h-3 w-3" />} highlighted={highlightedSection === 'secrets'}>
                 {secrets.length === 0 ? (
                     <Empty label="None required" />
                 ) : (
@@ -98,7 +93,7 @@ export function ConfigPanel({ spec, entityKey }: ConfigPanelProps): React.ReactE
                 )}
             </Row>
 
-            <Row label="Limits" icon={<TimerIcon className="h-3 w-3" />}>
+            <Row label="Limits" icon={<TimerIcon className="h-3 w-3" />} highlighted={highlightedSection === 'limits'}>
                 {Object.keys(limits).length === 0 ? (
                     <Empty />
                 ) : (
@@ -131,15 +126,20 @@ function Row({
     label,
     icon,
     children,
-    flair,
+    highlighted,
 }: {
     label: string
     icon: ReactNode
     children: ReactNode
-    flair?: boolean
+    highlighted?: boolean
 }): React.ReactElement {
     return (
-        <div className={'rounded-md border border-border bg-background' + (flair ? ' flair-pulse' : '')}>
+        <div
+            className={
+                'rounded-md border bg-background' +
+                (highlighted ? ' border-info ring-1 ring-info/30' : ' border-border')
+            }
+        >
             <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 px-3 py-2.5">
                 <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
                     {icon}

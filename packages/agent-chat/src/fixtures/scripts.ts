@@ -15,7 +15,6 @@
  */
 
 import type { Script } from '../fake-runner'
-import { weeklyDigest, weeklyDigestLiveRevision } from './agents'
 
 const matchesAny = (...needles: string[]) => (text: string): boolean =>
     needles.some((n) => text.toLowerCase().includes(n.toLowerCase()))
@@ -75,94 +74,18 @@ export const conciergeAgentExplain: Script = {
     ],
 }
 
-export const conciergeAgentMakeChange: Script = {
-    id: 'concierge.agent.make-change',
-    match: matchesAny('make a change', 'change something', 'help me plan'),
+export const conciergeAgentShowConfig: Script = {
+    id: 'concierge.agent.show-config',
+    match: matchesAny('show me the config', 'how is it configured', 'configuration'),
     steps: [
-        { kind: 'text', text: 'Sure. Let me show you the current bundle so we can decide what to touch.', chunkMs: 12 },
-        { kind: 'pause', ms: 250 },
+        { kind: 'text', text: 'Opening the configuration tab.', chunkMs: 12 },
+        { kind: 'pause', ms: 150 },
         {
             kind: 'tool_call',
             toolId: '@posthog/ui/focus',
             fulfillment: 'client',
-            args: { kind: 'file', path: 'skills/digest-shape.md' },
-            pendingMs: 250,
-        },
-        {
-            kind: 'text',
-            text: '\n\nThe `digest-shape` skill is the format spec — most "make the digest read better" changes start here. The `pr-callouts` skill (added in the draft) covers GitHub.\n\nWhat\'s the change you want?',
-            chunkMs: 12,
-        },
-    ],
-}
-
-/**
- * Demos the focus-with-mutation flow: the concierge re-times the cron
- * trigger so the digest fires at 10am instead of 9am, then focuses the
- * user on the triggers section. The tool call declares `mutations[]`,
- * so the console's mock-api overlay merges the new spec patch + bumps
- * the entity revision. With focus mode on, the Triggers row flairs as
- * the new schedule lands. With focus mode off, the data still updates
- * but the UI stays calm.
- */
-const moveCronMutationId = 'mut-move-cron-001'
-
-export const conciergeAgentMoveCron: Script = {
-    id: 'concierge.agent.move-cron',
-    match: matchesAny('move the cron', 'change the schedule', 'fire later', 'run at 10', '10am', '10 am'),
-    steps: [
-        { kind: 'thinking', text: 'Updating the cron trigger to fire at 10am instead of 9am…' },
-        { kind: 'pause', ms: 300 },
-        {
-            kind: 'tool_call',
-            toolId: 'posthog_update_revision_spec',
-            fulfillment: 'server',
-            args: {
-                application_id: weeklyDigest.id,
-                revision_id: weeklyDigestLiveRevision.id,
-                patch: {
-                    triggers: [{ type: 'cron', config: { schedule: '0 10 * * MON', timezone: 'US/Pacific' } }],
-                },
-                summary: 'Move cron from 0 9 * * MON to 0 10 * * MON',
-            },
-            result: {
-                ok: true,
-                body: {
-                    revision_id: weeklyDigestLiveRevision.id,
-                    mutation_id: moveCronMutationId,
-                },
-            },
-            pendingMs: 600,
-            mutations: [
-                {
-                    entityKey: `revision-spec:${weeklyDigest.slug}:${weeklyDigestLiveRevision.id}`,
-                    mutationId: moveCronMutationId,
-                    payload: {
-                        patch: {
-                            triggers: [
-                                { type: 'cron', config: { schedule: '0 10 * * MON', timezone: 'US/Pacific' } },
-                            ],
-                        },
-                    },
-                },
-            ],
-        },
-        {
-            kind: 'text',
-            text: 'Patched the live revision — cron now fires at `0 10 * * MON`.',
-            chunkMs: 14,
-        },
-        {
-            kind: 'tool_call',
-            toolId: '@posthog/ui/focus',
-            fulfillment: 'client',
-            args: { kind: 'spec_section', section: 'triggers', mutationId: moveCronMutationId },
-            pendingMs: 200,
-        },
-        {
-            kind: 'text',
-            text: "\n\nOpening Configuration — the Triggers row should flair as the new schedule lands.",
-            chunkMs: 14,
+            args: { kind: 'spec_section', section: 'triggers' },
+            pendingMs: 150,
         },
     ],
 }
@@ -250,9 +173,8 @@ export const fallbackScript: Script = {
  * first matching script wins, so put narrower matchers first.
  */
 export const conciergeScripts: Script[] = [
-    conciergeAgentMoveCron,
+    conciergeAgentShowConfig,
     conciergeAgentExplain,
-    conciergeAgentMakeChange,
     conciergeAgentRecentSessions,
     conciergeListWhatChanged,
 ]

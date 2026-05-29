@@ -22,14 +22,7 @@ export { describeContext, getStarterPrompts } from './context'
 export type { ChatContext, ConciergePageContext, StarterPrompt } from './context'
 
 export { useFakeRunner } from './fake-runner'
-export type {
-    FakeRunnerControls,
-    ResolvedMutation,
-    Script,
-    ScriptStep,
-    ToolMutation,
-    UseFakeRunnerOpts,
-} from './fake-runner'
+export type { FakeRunnerControls, Script, ScriptStep, UseFakeRunnerOpts } from './fake-runner'
 
 export type {
     AgentApplicationRef,

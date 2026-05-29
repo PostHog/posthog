@@ -1,106 +1,103 @@
 /**
  * Agent detail — read panel for one agent. The chat dock lives in the
- * app shell and gets its context from the route via dock-context.
+ * app shell; its `@posthog/ui/focus` handler navigates by pushing URL
+ * changes — this page reads its entire view state from `?tab=...` and
+ * friends so deep-linking, browser back/forward, and agent-driven
+ * navigation all share the same surface.
  *
  * Three tabs:
- *   - **Overview** — landing summary (stats + recent activity + trigger
- *     synopsis).
- *   - **Configuration** — app-level settings (top) + revisions browser
- *     (master-detail: list of revisions on the left, the selected
- *     revision's spec + bundle on the right). Configuration always
- *     belongs to a revision; this layout makes that explicit.
+ *   - **Overview** — landing summary (stats + recent activity + trigger synopsis).
+ *   - **Configuration** — app-level settings + revisions browser (master-detail).
  *   - **Sessions** — per-agent session list with filter chips.
  *
- * Tab state is internal; v0.1+ may promote to URL params for shareable
- * links. Inter-tab navigation: Overview cards have "Open config" /
- * "All sessions →" links that switch tabs.
+ * URL params honored:
+ *   `?tab=overview|configuration|sessions`
+ *   `?revision=<id>`          (configuration tab — selected revision)
+ *   `?section=<spec section>` (configuration tab — highlighted spec row)
+ *   `?file=<path>`            (configuration tab — selected bundle file)
  */
 
+'use client'
+
 import { ChevronRightIcon, PlayIcon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
-import type {
-    AgentApplicationFixture,
-    AgentRevisionFixture,
-    AgentStats,
-    BundleFile,
-} from '@posthog/agent-chat/fixtures'
+import type { AgentApplicationFixture, AgentRevisionFixture, AgentStats } from '@posthog/agent-chat/fixtures'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { AgentOverview } from '@/components/AgentOverview'
 import { ApplicationSettings } from '@/components/ApplicationSettings'
-import { useFocusStore, type FocusTarget } from '@/components/focus-context'
 import { RevisionsBrowser } from '@/components/RevisionsBrowser'
 import { SessionsList } from '@/components/SessionsList'
 
 type TabKey = 'overview' | 'configuration' | 'sessions'
 
+const TABS: TabKey[] = ['overview', 'configuration', 'sessions']
+
+export type AgentDetailUrlState = {
+    tab: TabKey
+    revisionId: string | null
+    section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
+    filePath: string | null
+}
+
+export function parseUrlState(searchParams: URLSearchParams, defaultRevisionId: string | null): AgentDetailUrlState {
+    const tabParam = searchParams.get('tab')
+    const tab: TabKey = TABS.includes(tabParam as TabKey) ? (tabParam as TabKey) : 'overview'
+    const revisionId = searchParams.get('revision') ?? defaultRevisionId
+    const sectionParam = searchParams.get('section')
+    const section =
+        sectionParam === 'triggers' ||
+        sectionParam === 'tools' ||
+        sectionParam === 'skills' ||
+        sectionParam === 'secrets' ||
+        sectionParam === 'limits'
+            ? sectionParam
+            : null
+    const filePath = searchParams.get('file')
+    return { tab, revisionId, section, filePath }
+}
+
 export interface AgentDetailProps {
     agent: AgentApplicationFixture
     revisions: AgentRevisionFixture[]
-    /** Bundle files for the currently-displayed revision. v0.1 fetches per revision. */
-    bundle: BundleFile[]
     stats: AgentStats
     sessions: ChatSession[]
-    /** Click to start a playground session against this agent. */
+    urlState: AgentDetailUrlState
+    /**
+     * Push a URL-state change. Implementations wrap `router.push(...)`
+     * but the page doesn't know about Next.js — the wrapper handles
+     * serializing the partial state onto whichever route owns the agent.
+     */
+    onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
     onTryAgent?: () => void
     onOpenSession?: (sessionId: string) => void
-    /** Click handler for the "Agents" crumb. Wired to router.push in Next.js, story-local nav in Storybook. */
     onBackToList?: () => void
 }
 
 export function AgentDetail({
     agent,
     revisions,
-    bundle,
     stats,
     sessions,
+    urlState,
+    onChangeUrlState,
     onTryAgent,
     onOpenSession,
     onBackToList,
 }: AgentDetailProps): React.ReactElement {
-    // The Configuration tab's master-detail picker — default to the live revision.
     const sortedRevisions = useMemo(
         () => [...revisions].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
         [revisions]
     )
     const defaultRevisionId = agent.live_revision ?? sortedRevisions[0]?.id ?? null
-
     const liveRevision = revisions.find((r) => r.id === agent.live_revision) ?? null
     const referenceRevision = liveRevision ?? sortedRevisions[0] ?? null
     const recentSessions = useMemo(() => sessions.slice(0, 5), [sessions])
 
-    /**
-     * Focus integration — instead of mirroring `focus.target` into local
-     * state via `useEffect` (which can race against the async script
-     * runner), we *derive* the active tab + selected revision from
-     * focus.target on render. User clicks update a separate `userTab` /
-     * `userRevId`; their click clears the focus target so user choice
-     * takes back over. Clean, race-free, no chained state updates.
-     */
-    const focus = useFocusStore()
-    const [userTab, setUserTab] = useState<TabKey>('overview')
-    const [userRevId, setUserRevId] = useState<string | null>(defaultRevisionId)
-
-    const tab: TabKey = useMemo(() => deriveTab(focus.target) ?? userTab, [focus.target, userTab])
-    const selectedRevId: string | null = useMemo(() => {
-        if (focus.target?.kind === 'revision') {
-            return focus.target.revisionId
-        }
-        return userRevId
-    }, [focus.target, userRevId])
-
-    const handleTabChange = (next: TabKey): void => {
-        setUserTab(next)
-        focus.clear()
-    }
-    const handleRevisionChange = (id: string): void => {
-        setUserRevId(id)
-        focus.clear()
-    }
-
-    const focusedBundlePath = focus.target?.kind === 'file' ? focus.target.path : null
+    const tab = urlState.tab
+    const selectedRevId = urlState.revisionId ?? defaultRevisionId
 
     return (
         <div className="mx-auto max-w-5xl px-6 py-6">
@@ -121,7 +118,7 @@ export function AgentDetail({
                 </button>
             </header>
 
-            <Tabs value={tab} onValueChange={(v) => handleTabChange(v as TabKey)} className="mt-5">
+            <Tabs value={tab} onValueChange={(v) => onChangeUrlState({ tab: v as TabKey })} className="mt-5">
                 <TabsList variant="line">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="configuration">Configuration</TabsTrigger>
@@ -140,8 +137,8 @@ export function AgentDetail({
                         stats={stats}
                         recentSessions={recentSessions}
                         onOpenSession={onOpenSession}
-                        onOpenConfiguration={() => handleTabChange('configuration')}
-                        onOpenSessions={() => handleTabChange('sessions')}
+                        onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })}
+                        onOpenSessions={() => onChangeUrlState({ tab: 'sessions' })}
                     />
                 </TabsContent>
 
@@ -161,11 +158,11 @@ export function AgentDetail({
                         <RevisionsBrowser
                             agent={agent}
                             revisions={revisions}
-                            bundle={bundle}
                             selectedRevisionId={selectedRevId}
-                            onSelectRevision={handleRevisionChange}
-                            focusedBundlePath={focusedBundlePath}
-                            focusedBundleTick={focus.tick}
+                            onSelectRevision={(id) => onChangeUrlState({ revisionId: id })}
+                            highlightedSection={urlState.section}
+                            focusedBundlePath={urlState.filePath}
+                            onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
                         />
                     </Section>
                 </TabsContent>
@@ -176,26 +173,6 @@ export function AgentDetail({
             </Tabs>
         </div>
     )
-}
-
-/* ── Helpers ────────────────────────────────────────────────────── */
-
-function deriveTab(target: FocusTarget | null): TabKey | null {
-    if (!target) {
-        return null
-    }
-    switch (target.kind) {
-        case 'tab':
-            return target.tab
-        case 'file':
-        case 'spec_section':
-        case 'revision':
-            return 'configuration'
-        case 'session':
-            return 'sessions'
-        default:
-            return null
-    }
 }
 
 /* ── Sub-components ─────────────────────────────────────────────── */

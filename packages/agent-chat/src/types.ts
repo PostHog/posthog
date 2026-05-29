@@ -159,22 +159,19 @@ export interface ClientToolHandler<Args = Record<string, unknown>, Result = Reco
  * ──────────────────────────────────────────────────────────────────────── */
 
 /**
- * Optional correlation token a focus call may carry to signal that the
- * underlying data the agent just touched moved at the same time. When
- * present, the consumer compares against its last-rendered revision for
- * that entity and re-fetches + flairs if the version is newer. The token
- * is also what the runner-side tool call returns from its `mutations[]`
- * declarations (see `fake-runner.ts → ToolMutation`).
+ * `@posthog/ui/focus` — drives URL navigation in the host console.
+ * The host maps each `kind` to a route + push it. After every
+ * successful navigation the host also refetches its data so pages
+ * already on the target URL pick up changes the agent just made.
  */
 export type FocusArgs =
-    | { kind: 'file'; path: string; mutationId?: string }
-    | { kind: 'revision'; revisionId: string; mutationId?: string }
-    | { kind: 'session'; sessionId: string; mutationId?: string }
-    | { kind: 'spec_section'; section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits'; mutationId?: string }
+    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'sessions' }
+    | { kind: 'file'; path: string }
+    | { kind: 'revision'; revisionId: string }
+    | { kind: 'session'; sessionId: string }
+    | { kind: 'spec_section'; section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' }
 
-export type FocusResult =
-    | { focused: true; kind: FocusArgs['kind']; mutationId?: string }
-    | { focused: false; reason: string }
+export type FocusResult = { focused: true; kind: FocusArgs['kind'] } | { focused: false; reason: string }
 
 export type ToastArgs = {
     level: 'info' | 'success' | 'warning' | 'error'

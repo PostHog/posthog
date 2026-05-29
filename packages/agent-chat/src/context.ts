@@ -68,13 +68,8 @@ export function getStarterPrompts(context: ChatContext): StarterPrompt[] {
                     label: 'Explain this agent',
                     prompt: `Give me a quick rundown of what ${context.page.agent.name} does and how it's wired up.`,
                 },
-                { id: 'a-2', label: 'Recent sessions', prompt: `Show me ${context.page.agent.name}'s recent sessions and call out anything unusual.` },
-                {
-                    id: 'a-3',
-                    label: 'Move the cron to 10am',
-                    prompt: 'Move the cron schedule from 9am to 10am Pacific.',
-                },
-                { id: 'a-4', label: 'Make a change', prompt: `I want to change something about ${context.page.agent.name}. Help me plan it.` },
+                { id: 'a-2', label: 'Show me the config', prompt: 'Show me the configuration.' },
+                { id: 'a-3', label: 'Recent sessions', prompt: `Show me ${context.page.agent.name}'s recent sessions and call out anything unusual.` },
             ]
         case 'agent-bundle':
             return [

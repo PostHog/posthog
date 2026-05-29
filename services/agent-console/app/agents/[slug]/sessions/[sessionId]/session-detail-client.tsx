@@ -11,8 +11,8 @@ export function SessionDetailClient({ slug, sessionId }: { slug: string; session
     const router = useRouter()
 
     const agent = useResource(() => getAgent(slug), [slug])
-    const session = useResource(() => getSession(sessionId), [sessionId])
-    const logs = useResource(() => listLogsForSession(sessionId), [sessionId])
+    const session = useResource(() => getSession(slug, sessionId), [slug, sessionId])
+    const logs = useResource(() => listLogsForSession(slug, sessionId), [slug, sessionId])
 
     if (
         (agent.error instanceof ApiError && agent.error.status === 404) ||
