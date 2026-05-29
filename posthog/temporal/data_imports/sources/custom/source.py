@@ -385,7 +385,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
 
         single_resource_manifest = cast(
             RESTAPIConfig,
-            {**manifest, "resources": [chosen]},
+            {**manifest, "resources": [_strip_engine_unsupported_incremental_keys(chosen)]},
         )
 
         resource = rest_api_resource(
@@ -483,6 +483,28 @@ def _incremental_field_type(raw: Any) -> IncrementalFieldType:
         except ValueError:
             pass
     return IncrementalFieldType.DateTime
+
+
+# Keys the Custom source understands on ``endpoint.incremental`` that the generic
+# REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
+# how the cursor is typed (see ``_incremental_field_type``) but must be removed
+# before the engine builds its incremental tracker, or it raises an unexpected
+# keyword-argument error at sync setup.
+_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type"})
+
+
+def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``resource`` with REST-engine-incompatible keys removed
+    from ``endpoint.incremental``. The input is left untouched so schema typing
+    can still read the full incremental config."""
+    endpoint = resource.get("endpoint")
+    if not isinstance(endpoint, dict):
+        return resource
+    incremental = endpoint.get("incremental")
+    if not isinstance(incremental, dict) or not _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS.intersection(incremental):
+        return resource
+    cleaned = {k: v for k, v in incremental.items() if k not in _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS}
+    return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
 
 
 def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:
