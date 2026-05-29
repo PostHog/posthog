@@ -88,7 +88,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "select 1",
                 "errors": [
                     {
-                        "message": "trailing tokens after expression: Number",
+                        "message": "trailing tokens after expression: '1' (Number)",
                         "start": 7,
                         "end": 8,
                         "fix": None,
