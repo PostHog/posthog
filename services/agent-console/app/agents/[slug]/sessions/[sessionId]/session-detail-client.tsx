@@ -10,21 +10,13 @@ import { SessionDetail } from '@/pages/SessionDetail'
 
 export function SessionDetailClient({ slug, sessionId }: { slug: string; sessionId: string }): React.ReactElement {
     const router = useRouter()
-    const teamId = useSessionTeamId()
+    // SessionGate (in AppShell) blocks rendering until teamId resolves.
+    const teamId = useSessionTeamId()!
 
-    const agent = useResource(() => (teamId == null ? pending() : getAgent(teamId, slug)), [teamId, slug])
-    const session = useResource(
-        () => (teamId == null ? pending() : getSession(teamId, slug, sessionId)),
-        [teamId, slug, sessionId]
-    )
-    const logs = useResource(
-        () => (teamId == null ? pending() : listLogsForSession(teamId, slug, sessionId)),
-        [teamId, slug, sessionId]
-    )
+    const agent = useResource(() => getAgent(teamId, slug), [teamId, slug])
+    const session = useResource(() => getSession(teamId, slug, sessionId), [teamId, slug, sessionId])
+    const logs = useResource(() => listLogsForSession(teamId, slug, sessionId), [teamId, slug, sessionId])
 
-    if (teamId == null) {
-        return <div className="px-6 py-6 text-sm text-muted-foreground">Resolving project…</div>
-    }
     if (
         (agent.error instanceof ApiError && agent.error.status === 404) ||
         (session.error instanceof ApiError && session.error.status === 404)
@@ -79,8 +71,4 @@ function SessionDetailInner({
             onBackToAgent={onBackToAgent}
         />
     )
-}
-
-function pending<T = never>(): Promise<T> {
-    return new Promise<T>(() => undefined)
 }

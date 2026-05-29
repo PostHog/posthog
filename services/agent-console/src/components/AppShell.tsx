@@ -20,7 +20,7 @@ import { Dock } from './Dock'
 import { DockContextProvider } from './dock-context'
 import { FocusContextProvider } from './focus-context'
 import { PostHogMark } from './PostHogMark'
-import { SessionProvider } from './session-context'
+import { SessionGate, SessionProvider } from './session-context'
 
 const DOCK_WIDTH = 360
 
@@ -31,7 +31,9 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
                 <FocusContextProvider>
                     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
                         <Sidebar />
-                        <main className="flex-1 overflow-y-auto">{children}</main>
+                        <main className="flex-1 overflow-y-auto">
+                            <SessionGate>{children}</SessionGate>
+                        </main>
                         <aside className="shrink-0 border-l border-border" style={{ width: DOCK_WIDTH }}>
                             <Dock />
                         </aside>

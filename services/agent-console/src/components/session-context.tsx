@@ -76,3 +76,60 @@ export function useSessionTeamId(): number | null {
     const { info } = useSession()
     return info?.teamId ?? null
 }
+
+/**
+ * `<SessionGate>` — blocks rendering until `/api/auth/me` resolves
+ * (or errors). Mount it once inside the AppShell so child pages can
+ * assume the session info is loaded and don't each need their own
+ * "Resolving project…" placeholder.
+ */
+export function SessionGate({ children }: { children: React.ReactNode }): React.ReactElement {
+    const { loading, error, info } = useSession()
+    if (loading) {
+        return (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading session…
+            </div>
+        )
+    }
+    if (error) {
+        return (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive">
+                <p>Couldn't reach the session endpoint: {error.message}</p>
+                <ServerAnchor href="/api/auth/login">Try logging in again</ServerAnchor>
+            </div>
+        )
+    }
+    if (!info || !info.authenticated) {
+        return (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+                <p>Not signed in.</p>
+                <ServerAnchor href="/api/auth/login">Sign in</ServerAnchor>
+            </div>
+        )
+    }
+    if (info.teamId == null) {
+        return (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive">
+                <p>Your account has no current project. Open PostHog and pick a project, then reload.</p>
+                <ServerAnchor href="/api/auth/logout">Sign out</ServerAnchor>
+            </div>
+        )
+    }
+    return <>{children}</>
+}
+
+/**
+ * Anchor for `/api/auth/*` routes — these must trigger a real HTTP
+ * request (server-side cookie reads, redirects), not Next.js's
+ * client-side navigation. Plain `<a>` is correct here; the linter
+ * rule that nudges toward `<Link>` doesn't know that.
+ */
+function ServerAnchor({ href, children }: { href: string; children: React.ReactNode }): React.ReactElement {
+    return (
+        // eslint-disable-next-line react/forbid-elements
+        <a href={href} className="underline">
+            {children}
+        </a>
+    )
+}

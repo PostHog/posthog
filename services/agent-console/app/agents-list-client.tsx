@@ -10,16 +10,13 @@ import { AgentsList } from '@/pages/AgentsList'
 
 export function AgentsListClient(): React.ReactElement {
     const router = useRouter()
-    const teamId = useSessionTeamId()
+    // SessionGate (in AppShell) blocks rendering until teamId resolves.
+    const teamId = useSessionTeamId()!
     useSetDockPage({ kind: 'agent-list' })
 
-    const agents = useResource(() => (teamId == null ? skip<never>() : listAgents(teamId)), [teamId])
-    const fleet = useResource(() => (teamId == null ? skip<never>() : getFleetStats(teamId)), [teamId])
-    const live = useResource(() => (teamId == null ? skip<never>() : listLiveSessions(teamId)), [teamId])
-
-    if (teamId == null) {
-        return <div className="px-6 py-6 text-sm text-muted-foreground">Resolving project…</div>
-    }
+    const agents = useResource(() => listAgents(teamId), [teamId])
+    const fleet = useResource(() => getFleetStats(teamId), [teamId])
+    const live = useResource(() => listLiveSessions(teamId), [teamId])
 
     const loading = agents.loading || fleet.loading || live.loading
     const error = agents.error ?? fleet.error ?? live.error
@@ -62,9 +59,4 @@ export function AgentsListClient(): React.ReactElement {
             }}
         />
     )
-}
-
-/** Pending promise that never resolves — keeps useResource in `loading` until deps change. */
-function skip<T>(): Promise<T> {
-    return new Promise<T>(() => undefined)
 }

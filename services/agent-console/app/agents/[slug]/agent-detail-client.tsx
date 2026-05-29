@@ -11,13 +11,11 @@ import { AgentDetail, parseUrlState, type AgentDetailUrlState } from '@/pages/Ag
 export function AgentDetailClient({ slug }: { slug: string }): React.ReactElement {
     const router = useRouter()
     const searchParams = useSearchParams()
-    const teamId = useSessionTeamId()
+    // SessionGate (in AppShell) blocks rendering until teamId resolves.
+    const teamId = useSessionTeamId()!
 
-    const agent = useResource(() => (teamId == null ? pending() : getAgent(teamId, slug)), [teamId, slug])
+    const agent = useResource(() => getAgent(teamId, slug), [teamId, slug])
 
-    if (teamId == null) {
-        return <div className="px-6 py-6 text-sm text-muted-foreground">Resolving project…</div>
-    }
     if (agent.error instanceof ApiError && agent.error.status === 404) {
         notFound()
     }
@@ -109,9 +107,4 @@ function AgentDetailInner({
             onOpenSession={onOpenSession}
         />
     )
-}
-
-/** Pending promise that never resolves — keeps useResource in `loading` until deps change. */
-function pending<T = never>(): Promise<T> {
-    return new Promise<T>(() => undefined)
 }

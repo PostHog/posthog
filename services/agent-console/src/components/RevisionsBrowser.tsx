@@ -67,16 +67,16 @@ export function RevisionsBrowser({
     }, [revisions, agent.live_revision])
 
     const selected = revisions.find((r) => r.id === selectedRevisionId) ?? sortedRevisions[0] ?? null
-    const teamId = useSessionTeamId()
+    // SessionGate (in AppShell) blocks rendering until teamId resolves.
+    const teamId = useSessionTeamId()!
 
-    // Bundle is per-revision — fetch lazily for whichever revision is
-    // selected. Waits for `teamId` to be available before issuing.
+    // Bundle is per-revision — fetch lazily for whichever revision is selected.
     const bundleRes = useResource(
-        () => (selected && teamId != null ? getBundle(teamId, agent.slug, selected.id) : Promise.resolve([])),
+        () => (selected ? getBundle(teamId, agent.slug, selected.id) : Promise.resolve([])),
         [teamId, agent.slug, selected?.id ?? '']
     )
     const bundle = bundleRes.data ?? []
-    const bundleLoading = bundleRes.loading || teamId == null
+    const bundleLoading = bundleRes.loading
     const bundleError = bundleRes.error
 
     if (sortedRevisions.length === 0) {
