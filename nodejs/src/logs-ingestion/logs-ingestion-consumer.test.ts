@@ -15,6 +15,7 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../ingestion/common/output
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
+import { getDefaultTracesIngestionConsumerConfig } from './config'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
@@ -33,6 +34,7 @@ import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outpu
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
+import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -1604,6 +1606,73 @@ describe('LogsIngestionConsumer', () => {
 
             console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
             expect(longestDelay).toBeLessThan(120)
+        })
+    })
+
+    describe('TracesIngestionConsumer billing identity', () => {
+        const createTracesIngestionConsumer = (): TracesIngestionConsumer => {
+            const tracesConsumer = new TracesIngestionConsumer(
+                // Blank the traces Redis host so it reuses the hub's pool (like the logs-consumer tests),
+                // avoiding a second eager pool that would keep handles open after the suite.
+                { ...hub, ...getDefaultTracesIngestionConsumerConfig(), TRACES_REDIS_HOST: '' },
+                {
+                    ...hub,
+                    outputs: new IngestionOutputs<AppMetricsOutput | LogsOutput | LogsDlqOutput>({
+                        [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
+                            APP_METRICS_OUTPUT,
+                            KAFKA_APP_METRICS_2,
+                            mockProducer,
+                            'test'
+                        ),
+                        [LOGS_OUTPUT]: new SingleIngestionOutput(
+                            LOGS_OUTPUT,
+                            KAFKA_LOGS_CLICKHOUSE,
+                            mockProducer,
+                            'test'
+                        ),
+                        [LOGS_DLQ_OUTPUT]: new SingleIngestionOutput(
+                            LOGS_DLQ_OUTPUT,
+                            KAFKA_LOGS_INGESTION_DLQ,
+                            mockProducer,
+                            'test'
+                        ),
+                    }),
+                }
+            )
+            tracesConsumer['kafkaConsumer'] = {
+                connect: jest.fn(),
+                disconnect: jest.fn(),
+                isHealthy: jest.fn().mockReturnValue({ status: 'healthy' }),
+            } as any
+            return tracesConsumer
+        }
+
+        it('meters usage as traces, not logs', async () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+            tracesConsumer['queueUsageMetric'](team.id, 'bytes_ingested', 500)
+            await tracesConsumer['appMetricsAggregator'].flush()
+
+            const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+            expect(messages).toHaveLength(1)
+            const value = Buffer.isBuffer(messages[0].value)
+                ? parseJSON(messages[0].value.toString())
+                : parseJSON(messages[0].value as string)
+            expect(value?.app_source).toBe('traces')
+        })
+
+        it('quota-limits against traces_mb_ingested, not logs_mb_ingested', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
+            const tracesConsumer = createTracesIngestionConsumer()
+
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+            const parsed = await tracesConsumer['_parseKafkaBatch'](messages)
+            await tracesConsumer['filterQuotaLimitedMessages'](parsed)
+
+            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'traces_mb_ingested')
         })
     })
 })
