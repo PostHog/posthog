@@ -151,5 +151,15 @@ class PulseSubscription(RootTeamMixin, ModelActivityMixin, CreatedMetaFields, UU
 
     objects = TeamScopedManager()  # type: ignore[misc]
 
+    def resolve_sensitivity(self) -> tuple[float, float]:
+        """Return effective (min_change_pct, robust_z_threshold).
+
+        Non-custom sensitivities derive from SENSITIVITY_PRESETS (single
+        source of truth); CUSTOM reads the model's own fields.
+        """
+        if self.sensitivity in SENSITIVITY_PRESETS:
+            return SENSITIVITY_PRESETS[self.sensitivity]
+        return (self.min_change_pct, self.robust_z_threshold)
+
     def __str__(self) -> str:
         return f"PulseSubscription(team={self.team_id}, {self.frequency}, enabled={self.enabled})"

@@ -154,3 +154,31 @@ class TestPulseSubscriptionConfig(BaseTest):
         with pytest.raises(TeamScopeError, match="No team context set"):
             list(PulseSubscription.objects.all())
         assert list(PulseSubscription.objects.for_team(self.team.id)) == [sub]
+
+
+class TestResolveSensitivity(BaseTest):
+    @pytest.mark.parametrize(
+        "sensitivity,expected",
+        [
+            (Sensitivity.CONSERVATIVE, (0.40, 3.5)),
+            (Sensitivity.BALANCED, (0.25, 3.5)),
+            (Sensitivity.SENSITIVE, (0.15, 3.0)),
+        ],
+    )
+    def test_preset_overrides_model_fields(self, sensitivity, expected):
+        sub = PulseSubscription.objects.create(
+            team=self.team,
+            sensitivity=sensitivity,
+            min_change_pct=0.99,  # ignored for presets
+            robust_z_threshold=99.0,
+        )
+        assert sub.resolve_sensitivity() == expected
+
+    def test_custom_uses_own_fields(self):
+        sub = PulseSubscription.objects.create(
+            team=self.team,
+            sensitivity=Sensitivity.CUSTOM,
+            min_change_pct=0.33,
+            robust_z_threshold=2.5,
+        )
+        assert sub.resolve_sensitivity() == (0.33, 2.5)
