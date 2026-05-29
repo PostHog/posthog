@@ -8,7 +8,10 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -26,6 +29,7 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { modelLabel, scannerTypeLabel } from '../replay_scanners/types'
+import { parseCitedText } from '../utils/citations'
 import { replayObservationLogic } from './replayObservationLogic'
 import { ReplayObservationSceneLogicProps, replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -71,11 +75,6 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
     const triggerLabel = observation.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'
     const snapshotConfig = readConfig(snapshot ?? null)
     const prompt = typeof snapshotConfig.prompt === 'string' ? snapshotConfig.prompt : null
-    const configuredTags =
-        scannerType === 'classifier' && Array.isArray(snapshotConfig.tags)
-            ? (snapshotConfig.tags as unknown[]).filter((t): t is string => typeof t === 'string')
-            : []
-    const multiLabel = scannerType === 'classifier' ? snapshotConfig.multi_label === true : false
     const summarizerLength =
         scannerType === 'summarizer' && typeof snapshotConfig.length === 'string' ? snapshotConfig.length : null
     const durationMs =
@@ -91,6 +90,15 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                   : `${Math.floor(durationMs / 60_000)}m ${Math.floor((durationMs % 60_000) / 1000)}s`
             : null
 
+    const seekEmbeddedPlayer = (ms: number): void => {
+        sessionRecordingPlayerLogic
+            .findMounted({
+                playerKey: `vision-observation-${observation.id}`,
+                sessionRecordingId: observation.session_id,
+            })
+            ?.actions.seekToTime(ms)
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -99,7 +107,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                 resourceType={{ type: 'replay_vision' }}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className={scannerType === 'summarizer' ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
                 <section className="border rounded p-4 bg-surface-primary space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -122,17 +130,11 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                             {prompt && scannerType !== 'summarizer' && (
                                 <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
                             )}
-                            <ObservationPrimaryOutput observation={observation} showPrompt={false} />
-                            {configuredTags.length > 0 && (
-                                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                                    <span>Allowed tags{multiLabel ? ' (multi-label)' : ''}:</span>
-                                    {configuredTags.map((tag) => (
-                                        <LemonTag key={tag} type="option" size="small">
-                                            {tag}
-                                        </LemonTag>
-                                    ))}
-                                </div>
-                            )}
+                            <ObservationPrimaryOutput
+                                observation={observation}
+                                showPrompt={false}
+                                onSeek={seekEmbeddedPlayer}
+                            />
                         </div>
                     )}
 
@@ -143,16 +145,21 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                     )}
                 </section>
 
-                <section className="border rounded p-4 bg-surface-primary space-y-2">
-                    <div className="text-sm font-medium">Reasoning</div>
-                    {reasoning ? (
-                        <p className="text-sm whitespace-pre-wrap m-0">
-                            <CitedText observation={observation} text={reasoning} />
-                        </p>
-                    ) : (
-                        <p className="text-muted text-sm m-0">No reasoning provided.</p>
-                    )}
-                </section>
+                {scannerType !== 'summarizer' && (
+                    <section className="border rounded p-4 bg-surface-primary space-y-2">
+                        <div className="text-sm font-medium">Reasoning</div>
+                        {reasoning ? (
+                            <p className="text-sm whitespace-pre-wrap m-0">
+                                <CitedText
+                                    parts={parseCitedText(reasoning, observation.scanner_result?.event_id_mapping)}
+                                    onSeek={seekEmbeddedPlayer}
+                                />
+                            </p>
+                        ) : (
+                            <p className="text-muted text-sm m-0">No reasoning provided.</p>
+                        )}
+                    </section>
+                )}
             </div>
 
             <section className="border rounded p-4 bg-surface-primary">

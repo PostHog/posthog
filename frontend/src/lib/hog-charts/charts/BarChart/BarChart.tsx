@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { type BarChartPrivate, computeBarAtIndex, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
+import { type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
@@ -14,9 +14,12 @@ import {
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
+import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
     buildStackedPositionValue,
+    type BarScaleSet,
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
@@ -40,7 +43,14 @@ import type {
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { BarTooltip } from './BarTooltip'
-import { cursorOutsideBarFillExtent, seriesKeysAtCursor } from './utils/bars-under-cursor'
+import {
+    type BarLayout,
+    barContainsPointOnBandAxis,
+    cursorOutsideBarFillExtent,
+    findVisibleStackedSegment,
+    iterBarsAtCursor,
+    isStackedLayout,
+} from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
@@ -75,6 +85,11 @@ export interface BarChartProps<Meta = unknown> {
 
 // Negative offsetY casts the shadow upward onto the visible track above the bar.
 const DEFAULT_BAR_SHADOW: BarShadow = { color: 'rgba(0,0,0,0.30)', blur: 12, offsetY: -4 }
+
+// Horizontal floor: each row gets at least this much px so tick labels don't crush; wrapper scrolls.
+const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
+// Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
+const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
 function resolveBarShadow(barShadow: BarChartConfig['barShadow']): BarShadow | undefined {
     if (barShadow === true) {
@@ -115,9 +130,23 @@ function BarChartInner<Meta = unknown>({
         xTickFormatter,
         divergingStack = false,
         maxBandRange,
+        bandPadding,
         barShadow,
+        minBandSize,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
+
+    const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
+    const wrapperMinHeight = useMemo(() => {
+        if (!isHorizontal || resolvedMinBandSize <= 0) {
+            return undefined
+        }
+        const uniqueBands = new Set(labels).size
+        if (uniqueBands === 0) {
+            return undefined
+        }
+        return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
+    }, [isHorizontal, resolvedMinBandSize, labels])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
@@ -188,15 +217,15 @@ function BarChartInner<Meta = unknown>({
                 axisOrientation,
                 stackedSeries,
                 maxBandRange,
+                bandPadding,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
 
-            // Stash the raw d3 scales in the private slot so drawStatic/drawHover can read them
-            // without a side-channel ref — every render gets a self-contained ChartScales object,
-            // which avoids strict-mode / concurrent-rendering races between createScales and the
-            // static-draw effect. See LineChart.tsx and ARCHITECTURE.md for the canonical pattern.
+            // Stash the raw d3 scales in the private slot so drawStatic/drawHover/click routing
+            // can read them from the committed ChartScales — every render gets a self-contained
+            // object, which avoids strict-mode / concurrent-rendering races.
             const barChartPrivate: BarChartPrivate = { __barChart: d3Scales }
 
             // For horizontal, expose the value scale as `y` (since AxisLabels horizontal mode
@@ -238,7 +267,7 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange]
+        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange, bandPadding]
     )
 
     const drawStatic = useCallback(
@@ -361,12 +390,19 @@ function BarChartInner<Meta = unknown>({
             }
             const hoveredLabel = drawLabels[hoverIndex]
             const [trackAxisStart = 0, trackAxisEnd = 0] = barTrack ? d3Scales.value.range() : []
-            let hitKeys: Set<string> | null = null
-            if (hoverPosition) {
-                const hits = seriesKeysAtCursor({
+            // Key includes bar-vs-track per series so bar → track moves at the same
+            // hoverIndex still trigger a fade restart.
+            type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
+            const items: DrawItem[] = []
+            let composition = ''
+            // Stacked: clip the highlight to the visible slice so hover only changes shade,
+            // never z-order. Grouped keeps band-axis containment for cursor-above-bar.
+            const stackedHighlight = isStackedLayout(barLayout)
+            if (stackedHighlight && hoverPosition) {
+                const visible = findVisibleStackedSegment({
                     series: coloredSeries,
-                    label: hoveredLabel,
-                    dataIndex: hoverIndex,
+                    labels: drawLabels,
+                    hoveredLabel,
                     cursor: hoverPosition,
                     scales: d3Scales,
                     layout: barLayout,
@@ -374,47 +410,39 @@ function BarChartInner<Meta = unknown>({
                     stackedData,
                     topStackedKeyByAxis,
                 })
-                if (hits.size === 0) {
-                    lastHoverKeyRef.current = null
-                    return false
+                if (visible) {
+                    const visibleExtent = isHorizontal ? visible.bar.width : visible.bar.height
+                    const { nextSmallerExtent } = visible
+                    const baselinePx = isHorizontal ? visible.bar.x : visible.bar.y + visible.bar.height
+                    const clippedExtent = Math.max(0, visibleExtent - nextSmallerExtent)
+                    const clipped: BarRect = isHorizontal
+                        ? { ...visible.bar, x: baselinePx + nextSmallerExtent, width: clippedExtent }
+                        : { ...visible.bar, y: baselinePx - visibleExtent, height: clippedExtent }
+                    items.push({ series: visible.series, bar: clipped, isTrackHighlight: false })
+                    composition += 'b'
                 }
-                hitKeys = hits
-            }
-            // Key includes bar-vs-track per series so bar → track moves at the same
-            // hoverIndex still trigger a fade restart.
-            type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
-            const items: DrawItem[] = []
-            let composition = ''
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
-                }
-                if (hitKeys && !hitKeys.has(s.key)) {
-                    continue
-                }
-                const stackedBand = stackedData?.get(s.key)
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                const isTop = topStackedKeyByAxis.get(axisId) === s.key
-                const bar = computeBarAtIndex({
-                    series: s,
+            } else {
+                for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
+                    series: coloredSeries,
                     label: hoveredLabel,
                     dataIndex: hoverIndex,
                     scales: d3Scales,
                     layout: barLayout,
                     isHorizontal,
-                    stackedBand,
-                    isTopOfStack: isTop,
-                })
-                if (!bar) {
-                    continue
+                    stackedData,
+                    topStackedKeyByAxis,
+                })) {
+                    if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
+                        continue
+                    }
+                    const isTrackHighlight =
+                        barTrack === true &&
+                        barLayout === 'grouped' &&
+                        hoverPosition != null &&
+                        cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
+                    items.push({ series: s, bar, isTrackHighlight })
+                    composition += isTrackHighlight ? 't' : 'b'
                 }
-                const isTrackHighlight =
-                    barTrack === true &&
-                    barLayout === 'grouped' &&
-                    hoverPosition != null &&
-                    cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
-                items.push({ series: s, bar, isTrackHighlight })
-                composition += isTrackHighlight ? 't' : 'b'
             }
             if (items.length === 0) {
                 lastHoverKeyRef.current = null
@@ -462,7 +490,34 @@ function BarChartInner<Meta = unknown>({
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
-    return (
+    const seriesRef = useLatest(series)
+    const labelsRef = useLatest(labels)
+
+    // Stacked/percent segments share a band slot — rewrite the click payload to the
+    // segment under the cursor so drop-off fillers and per-breakdown segments route correctly.
+    const wrapClickData = useCallback(
+        (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+            if (!d3Scales) {
+                return clickData
+            }
+            return (
+                resolveClickedStackedSegment({
+                    clickData,
+                    d3Scales,
+                    barLayout,
+                    isHorizontal,
+                    stackedData,
+                    topStackedKeyByAxis,
+                    series: seriesRef.current,
+                    labels: labelsRef.current,
+                }) ?? clickData
+            )
+        },
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+    )
+
+    const chart = (
         <Chart
             series={series}
             labels={labels}
@@ -475,6 +530,7 @@ function BarChartInner<Meta = unknown>({
                 <BarTooltip<Meta>
                     ctx={ctx}
                     userTooltip={tooltip}
+                    allSeries={series}
                     stackedData={stackedData}
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
@@ -482,6 +538,7 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            wrapClickData={onPointClick ? wrapClickData : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
@@ -490,4 +547,74 @@ function BarChartInner<Meta = unknown>({
             {children}
         </Chart>
     )
+
+    // Always wrap — switching shape (axisOrientation, empty labels) would otherwise remount Chart.
+    return (
+        <div className="flex flex-col flex-1" style={{ minHeight: wrapperMinHeight }}>
+            {chart}
+        </div>
+    )
+}
+
+/** Pure helper extracted so the click-rewrite is unit-testable and the component-level
+ *  callback has no logic of its own — it just plumbs in scales + refs. Returns `null`
+ *  when nothing in the layout/cursor configuration warrants rewriting, signalling the
+ *  caller to pass the original `clickData` through unchanged. */
+export function resolveClickedStackedSegment<Meta>({
+    clickData,
+    d3Scales,
+    barLayout,
+    isHorizontal,
+    stackedData,
+    topStackedKeyByAxis,
+    series,
+    labels,
+}: {
+    clickData: PointClickData<Meta>
+    d3Scales: BarScaleSet
+    barLayout: BarLayout
+    isHorizontal: boolean
+    stackedData: Map<string, StackedBand> | undefined
+    topStackedKeyByAxis: Map<string, string>
+    series: Series<Meta>[]
+    labels: readonly string[]
+}): PointClickData<Meta> | null {
+    if (!isStackedLayout(barLayout)) {
+        return null
+    }
+    const { cursor, label, crossSeriesData } = clickData
+    if (!cursor) {
+        return null
+    }
+    // Walk every dataIndex that maps to the clicked band — for sparse-stacked overlap the
+    // visible segment lives at a different dataIndex than `clickData.dataIndex` (the band).
+    const visible = findVisibleStackedSegment({
+        series: crossSeriesData.map((d) => d.series),
+        labels,
+        hoveredLabel: label,
+        cursor,
+        scales: d3Scales,
+        layout: barLayout,
+        isHorizontal,
+        stackedData,
+        topStackedKeyByAxis,
+    })
+    if (!visible) {
+        return null
+    }
+    const hit = crossSeriesData.find((d) => d.series.key === visible.series.key)
+    if (!hit) {
+        return null
+    }
+    // Re-read value at the visible segment's own dataIndex — `hit.value` was resolved at the
+    // band's dataIndex, which is a sparse-zero cell for the visible series.
+    const raw = hit.series.data[visible.dataIndex]
+    const resolvedValue = typeof raw === 'number' && Number.isFinite(raw) ? raw : hit.value
+    return {
+        ...clickData,
+        dataIndex: visible.dataIndex,
+        series: hit.series,
+        value: resolvedValue,
+        seriesIndex: series.findIndex((s) => s.key === hit.series.key),
+    }
 }

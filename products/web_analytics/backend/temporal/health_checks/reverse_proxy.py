@@ -1,7 +1,7 @@
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -24,6 +24,14 @@ class ReverseProxyCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "30 6 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        return AlertContent(
+            title="No reverse proxy detected",
+            summary=issue.payload.get("reason", "Ad blockers may affect tracking accuracy"),
+            link="/web/health",
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(
