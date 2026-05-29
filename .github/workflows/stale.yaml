@@ -2,6 +2,7 @@ name: 'Handle stale PRs'
 on:
     schedule:
         - cron: '30 7 * * 1-5'
+    workflow_dispatch:
 
 permissions:
     contents: read
