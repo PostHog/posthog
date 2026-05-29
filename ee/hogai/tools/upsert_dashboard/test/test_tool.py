@@ -9,7 +9,9 @@ from parameterized import parameterized
 from posthog.schema import (
     ArtifactSource,
     AssistantHogQLQuery,
+    ChartDisplayType,
     DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
@@ -546,6 +548,30 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(insights[0].name, "Insight")
         self.assertEqual(insights[1].name, "Artifact Insight")
         self.assertEqual(insights[2].name, "Database Insight")
+
+    async def test_resolve_insights_creates_sql_insight_from_data_visualization_node(self):
+        sql_query = DataVisualizationNode(
+            source=HogQLQuery(query="SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day"),
+            display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+        )
+        content = VisualizationArtifactContent(
+            query=sql_query,
+            name="Daily event volume",
+            description="SQL-backed daily event count",
+        )
+        tool = self._create_tool()
+
+        insights = tool._resolve_insights([StateArtifactResult(content=content)])
+
+        self.assertEqual(len(insights), 1)
+        saved_query = insights[0].query
+        self.assertEqual(saved_query["kind"], "DataVisualizationNode")
+        self.assertEqual(saved_query["source"]["kind"], "HogQLQuery")
+        self.assertEqual(
+            saved_query["source"]["query"],
+            "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day",
+        )
+        self.assertEqual(saved_query["display"], "ActionsLineGraph")
 
     async def test_full_integration_positional_reordering(self):
         """
