@@ -9,10 +9,12 @@
 
 import { createHmac, timingSafeEqual } from 'crypto'
 import { Request, Response, Router } from 'express'
+import type { Pool } from 'pg'
 import { z } from 'zod'
 
-import { IdentityStore, SessionPrincipal, SessionQueue } from '@posthog/agent-shared'
+import { IdentityStore, IntegrationStore, SessionPrincipal, SessionQueue } from '@posthog/agent-shared'
 
+import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
@@ -28,6 +30,17 @@ export interface SlackTriggerDeps {
     signingSecret?: string
     /** Optional identity store — when present, slack events resolve to a stable AgentUser. */
     identities?: IdentityStore
+    /**
+     * Optional integration store for fetching the team's Slack bot token.
+     * When set (and `posthogDb` is also set), the slack-events handler runs
+     * the Slack → PostHog user bridge after resolving the AgentUser so the
+     * dispatcher (#23 step 3) can read `posthog_user_id` for per-asker
+     * authorisation. Absent in dev / harness — the bridge is a no-op and
+     * AgentUser.posthog_user_id stays null.
+     */
+    integrations?: IntegrationStore | null
+    /** Direct posthog DB pool for the bridge's `posthog_user` email lookup. */
+    posthogDb?: Pool | null
 }
 
 export function slackRouter(deps: SlackTriggerDeps): Router {
@@ -87,6 +100,17 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     metadata: { workspace: workspaceId, slack_user: event.user },
                 })
                 agentUserId = agentUser.id
+                // Slack → PostHog user bridge (#23 step 2). Runs the first
+                // time we see this AgentUser; cached on the row afterwards.
+                // Sync but tight-budgeted so a Slack hiccup can't blow past
+                // Slack's 3s event ack window.
+                if (deps.integrations && deps.posthogDb) {
+                    await bridgeSlackToPosthogUser(agentUser, workspaceId, event.user, {
+                        integrations: deps.integrations,
+                        identities: deps.identities,
+                        posthogDb: deps.posthogDb,
+                    })
+                }
             }
 
             const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`

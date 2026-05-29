@@ -17,9 +17,11 @@ const { Pool } = pg
 
 import {
     createLogger,
+    EncryptedFields,
     installProcessHandlers,
     MemorySessionEventBus,
     PgIdentityStore,
+    PgIntegrationStore,
     PgRevisionStore,
     PgSessionQueue,
     RedisSessionEventBus,
@@ -48,6 +50,13 @@ async function main(): Promise<void> {
         bus = redis
     }
 
+    // Slack → PostHog user bridge needs the integration store to fetch the
+    // workspace bot token for `users.info`. Encryption is required to decrypt
+    // sensitive_config; when it's not configured (dev / CI) the bridge is
+    // simply absent and AgentUser.posthog_user_id stays null.
+    const encryption = new EncryptedFields(config.encryptionSaltKeys)
+    const integrations = encryption.isConfigured ? new PgIntegrationStore(posthogDb, encryption) : null
+
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),
         queue: new PgSessionQueue(agentDb),
@@ -59,6 +68,8 @@ async function main(): Promise<void> {
         pathPrefix: config.pathPrefix,
         slackSigningSecret: config.slackSigningSecret,
         previewSecret: config.previewSecret,
+        integrations,
+        posthogDb,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port, bus: bus.constructor.name }, 'listening')
