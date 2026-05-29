@@ -220,19 +220,8 @@ class PostHogCallback(InstrumentedCallback):
         if response_cost is not None:
             properties["$ai_total_cost_usd"] = response_cost
 
-        # Emit per-component cost so the ingestion cost calculator
-        # short-circuits to passthrough
-        # (nodejs/src/ingestion/ai/costs/index.ts::processCost) instead of
-        # rederiving costs from its bundled model catalog. The recomputation
-        # path misprices cache tokens versus LiteLLM's cost_breakdown,
-        # inflating the per-side cost properties well above $ai_total_cost_usd
-        # on cache-heavy traffic. Each component is emitted as its own
-        # property — matching the disjoint convention used by the
-        # ai-gateway emitter — so the sum (input + output + cache_read +
-        # cache_creation) reconciles to $ai_total_cost_usd without
-        # double-counting. The passthrough short-circuit fires as soon as
-        # both $ai_input_cost_usd and $ai_output_cost_usd are present, so
-        # cache components are bonus context for users, not a precondition.
+        # Forward LiteLLM's cost_breakdown so ingestion passes the per-side
+        # numbers through instead of rederiving them and mispricing cache.
         cost_breakdown = standard_logging_object.get("cost_breakdown") or {}
         for breakdown_key, property_key in (
             ("input_cost", "$ai_input_cost_usd"),
@@ -240,9 +229,9 @@ class PostHogCallback(InstrumentedCallback):
             ("cache_read_cost", "$ai_cache_read_cost_usd"),
             ("cache_creation_cost", "$ai_cache_creation_cost_usd"),
         ):
-            value = cost_breakdown.get(breakdown_key)
-            if value is not None:
-                properties[property_key] = value
+            cost_value = cost_breakdown.get(breakdown_key)
+            if cost_value is not None:
+                properties[property_key] = cost_value
 
         response = standard_logging_object.get("response")
         if response:
