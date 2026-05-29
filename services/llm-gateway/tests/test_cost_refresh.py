@@ -43,6 +43,36 @@ class TestCostRefreshService:
         mock_get_cost_map.assert_called_once()
 
     @patch("llm_gateway.rate_limiting.cost_refresh.get_model_cost_map")
+    def test_refresh_registers_provider_models(self, mock_get_cost_map: MagicMock) -> None:
+        import litellm
+
+        new_anthropic_model = "claude-test-model-for-cost-refresh"
+        new_openai_model = "gpt-test-model-for-cost-refresh"
+        assert new_anthropic_model not in litellm.anthropic_models
+        assert new_openai_model not in litellm.open_ai_chat_completion_models
+
+        mock_get_cost_map.return_value = {
+            new_anthropic_model: {
+                "litellm_provider": "anthropic",
+                "input_cost_per_token": 0.000015,
+                "output_cost_per_token": 0.000075,
+            },
+            new_openai_model: {
+                "litellm_provider": "openai",
+                "input_cost_per_token": 0.00003,
+                "output_cost_per_token": 0.00006,
+            },
+        }
+
+        try:
+            CostRefreshService.get_instance().refresh()
+            assert new_anthropic_model in litellm.anthropic_models
+            assert new_openai_model in litellm.open_ai_chat_completion_models
+        finally:
+            litellm.anthropic_models.discard(new_anthropic_model)
+            litellm.open_ai_chat_completion_models.discard(new_openai_model)
+
+    @patch("llm_gateway.rate_limiting.cost_refresh.get_model_cost_map")
     def test_ensure_fresh_skips_refresh_within_ttl(self, mock_get_cost_map: MagicMock) -> None:
         mock_get_cost_map.return_value = {}
 
