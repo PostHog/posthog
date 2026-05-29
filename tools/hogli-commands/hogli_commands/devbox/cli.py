@@ -271,6 +271,16 @@ def _workspace_status_color(status: str) -> str:
     return WORKSPACE_STATUS_COLORS.get(status, "white")
 
 
+def _ljust_styled(text: str, width: int) -> str:
+    """Left-justify a click-styled string to ``width`` *visible* columns.
+
+    A plain ``f"{text:<width}"`` counts the invisible ANSI escape codes toward
+    the width and under-pads colored cells; measure off the unstyled text so
+    columns line up with their (unstyled) headers.
+    """
+    return text + " " * max(0, width - len(click.unstyle(text)))
+
+
 def _render_sync_status(workspace_name: str) -> str:
     """Return a single-line summary of the mutagen sync state for a workspace.
 
@@ -1116,7 +1126,10 @@ def devbox_list() -> None:
             region = get_workspace_region(ws) or "unknown"
             styled_status = click.style(status, fg=_workspace_status_color(status))
             sync_state = _render_sync_status(ws_name)
-            click.echo(f"  {label:<14} {styled_status:<20} {region:<14} {sync_state:<26} {ws_name}")
+            click.echo(
+                f"  {label:<14} {_ljust_styled(styled_status, 12)} "
+                f"{region:<14} {_ljust_styled(sync_state, 18)} {ws_name}"
+            )
 
     shared = list_shared_workspaces()
     if shared:

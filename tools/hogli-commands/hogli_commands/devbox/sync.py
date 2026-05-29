@@ -74,10 +74,13 @@ def _format_session_status(session: dict[str, Any]) -> str:
     ]
     # Conflicts are the whole point of one-way-safe: a remote file diverged and
     # mutagen refused to overwrite it. Surface them or the sync looks healthy
-    # while the user's edits silently never land.
+    # while the user's edits silently never land. Conflicts are per-path: only
+    # the diverged paths are blocked, everything else keeps syncing.
     conflicts = session.get("conflicts") or []
     if conflicts:
-        lines.append(f"    conflicts: {len(conflicts)} (remote diverged; resolve before edits will sync)")
+        lines.append(
+            f"    conflicts: {len(conflicts)} (these paths diverged on the remote and won't sync until resolved; other files are unaffected)"
+        )
     last_error = session.get("lastError")
     if last_error:
         lines.append(f"    error: {last_error}")
