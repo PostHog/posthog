@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, uuid, team_id::bigint as \"team_id!\", properties::text as \"properties!\",\n                   properties_last_updated_at::text as \"properties_last_updated_at?\",\n                   properties_last_operation::text as \"properties_last_operation?\",\n                   created_at, version, is_identified,\n                   CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                   last_seen_at\n            FROM posthog_person\n            WHERE team_id = $1 AND id = $2\n            ",
+  "query": "\n            SELECT p.id, p.uuid, p.team_id::bigint as \"team_id!\", p.properties::text as \"properties?\",\n                   p.properties_last_updated_at::text as \"properties_last_updated_at?\",\n                   p.properties_last_operation::text as \"properties_last_operation?\",\n                   p.created_at, p.version, p.is_identified,\n                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                   p.last_seen_at\n            FROM posthog_person p\n            INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id\n            WHERE p.team_id = $1 AND d.distinct_id = $2\n            LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "properties!",
+        "name": "properties?",
         "type_info": "Text"
       },
       {
@@ -62,7 +62,7 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -79,5 +79,5 @@
       true
     ]
   },
-  "hash": "615f7144531be919f6d8e47fefc1ae6603bb521280162b13751bb864581e8bb1"
+  "hash": "f0c3b45d37c742f954fbfac66d4bc46a5922c950f8ebb3662194ee42590f5331"
 }

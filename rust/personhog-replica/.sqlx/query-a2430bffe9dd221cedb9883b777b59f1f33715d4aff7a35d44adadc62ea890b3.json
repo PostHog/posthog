@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)\n            VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)\n            RETURNING id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                      group_type_index, group_key, group_properties::text as \"group_properties!\",\n                      created_at,\n                      properties_last_updated_at::text as \"properties_last_updated_at?\",\n                      properties_last_operation::text as \"properties_last_operation?\",\n                      version\n            ",
+  "query": "\n            INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)\n            VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)\n            RETURNING id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                      group_type_index, group_key, group_properties::text as \"group_properties?\",\n                      created_at,\n                      properties_last_updated_at::text as \"properties_last_updated_at?\",\n                      properties_last_operation::text as \"properties_last_operation?\",\n                      version\n            ",
   "describe": {
     "columns": [
       {
@@ -25,7 +25,7 @@
       },
       {
         "ordinal": 4,
-        "name": "group_properties!",
+        "name": "group_properties?",
         "type_info": "Text"
       },
       {
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "71edb79c6808f467307e051bf29514c2e31473d02255ef7650e5b6f28eb55d81"
+  "hash": "a2430bffe9dd221cedb9883b777b59f1f33715d4aff7a35d44adadc62ea890b3"
 }

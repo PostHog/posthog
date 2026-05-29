@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                        SELECT p.id, p.uuid as \"uuid!\", p.team_id::bigint as \"team_id!\",\n                               p.properties::text as \"properties!\",\n                               p.properties_last_updated_at::text as \"properties_last_updated_at?\",\n                               p.properties_last_operation::text as \"properties_last_operation?\",\n                               p.created_at as \"created_at!\", p.version, p.is_identified as \"is_identified!\",\n                               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                               p.last_seen_at,\n                               d.distinct_id as \"distinct_id!\"\n                        FROM posthog_person p\n                        INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id\n                        WHERE p.team_id = $1 AND d.distinct_id = ANY($2)\n                        ",
+  "query": "\n                        SELECT p.id, p.uuid as \"uuid!\", p.team_id::bigint as \"team_id!\",\n                               CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as \"properties?\",\n                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                               p.created_at as \"created_at!\", p.version, p.is_identified as \"is_identified!\",\n                               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                               p.last_seen_at,\n                               d.distinct_id as \"distinct_id!\"\n                        FROM posthog_person p\n                        INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id\n                        WHERE p.team_id = $1 AND d.distinct_id = ANY($2)\n                        ",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "properties!",
+        "name": "properties?",
         "type_info": "Text"
       },
       {
@@ -67,7 +67,8 @@
     "parameters": {
       "Left": [
         "Int4",
-        "TextArray"
+        "TextArray",
+        "Bool"
       ]
     },
     "nullable": [
@@ -85,5 +86,5 @@
       false
     ]
   },
-  "hash": "495a965269a34f368ae76ceb61e956fa0dfa6b9bfa3d909497ddd6f02f6b6438"
+  "hash": "0878f57fcfedbfb95e16f5eb0fd90ed15cbb0850dc727c39073e346d9736358c"
 }
