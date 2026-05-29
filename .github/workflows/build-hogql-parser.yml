@@ -27,13 +27,15 @@ jobs:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
 
-            - name: Check if common/hogql_parser/ has changed
+            - name: Check if common/hogql_parser/ or the workflow has changed
               id: changed-files
               uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
+                      workflow:
+                      - .github/workflows/build-hogql-parser.yml
 
             - name: Check if version was bumped
               shell: bash
@@ -41,6 +43,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
+                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
@@ -68,6 +71,10 @@ jobs:
                       echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser $local; assuming not yet published."
                       parser_release_needed='true'
                     fi
+                  fi
+                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
+                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
+                    parser_release_needed='true'
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
 
