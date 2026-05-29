@@ -9,10 +9,19 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 arc-swap = { workspace = true }
+# `#[async_trait]` on the `MembershipSink` output seam (PR 1.8), so the worker holds an
+# `Arc<dyn MembershipSink>` and tests swap in an in-process capture sink with no broker.
+async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
+# Shadow-topic output producer (PR 1.8): `create_kafka_producer` + `send_keyed_iter_to_kafka_*`
+# and the `KafkaConfig`/`KafkaProduceError` types, shared with `cohort-event-shuffler`.
+common-kafka = { path = "../common/kafka" }
+# `SyncLivenessReporter` for the producer's rdkafka client context (the always-healthy sink, since
+# the consumer owns the liveness deadline) — mirrors the shuffler's producer.
+common-liveness = { path = "../common/liveness" }
 # Same version `rust/kafka-deduplicator` uses; lets the partition router and offset tracker
 # hold their per-partition maps behind sharded locks (no global mutex on the hot path).
 dashmap = { workspace = true }

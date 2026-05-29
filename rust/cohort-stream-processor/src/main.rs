@@ -17,6 +17,7 @@ use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispat
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::observability;
 use cohort_stream_processor::partitions::{OffsetTracker, PartitionRouter};
+use cohort_stream_processor::producer::{KafkaMembershipSink, MembershipSink};
 use cohort_stream_processor::store::CohortStore;
 
 common_alloc::used!();
@@ -102,7 +103,21 @@ async fn async_main(config: Config) -> Result<()> {
     // monitor keeps the "fallible infra fails fast, dropped handles are no-ops" discipline above.
     let store = CohortStore::open(&config.store_config()).context("opening RocksDB state store")?;
     let router = PartitionRouter::new(config.partition_channel_buffer);
-    let offset_tracker = OffsetTracker::new();
+    // Shared across the per-partition workers (each marks its own offsets after producing) and the
+    // consumer's commit loop.
+    let offset_tracker = Arc::new(OffsetTracker::new());
+
+    // Shadow-topic output producer. `KafkaMembershipSink::new` pings broker metadata, so a bad
+    // Kafka config fails fast here (before the monitor starts), matching the shuffler's producer.
+    let kafka_config = config.build_kafka_config();
+    let sink: Arc<dyn MembershipSink> = Arc::new(
+        KafkaMembershipSink::new(
+            &kafka_config,
+            config.cohort_membership_changed_topic.clone(),
+        )
+        .await
+        .context("creating shadow producer")?,
+    );
 
     let stream_consumer: StreamConsumer = config
         .consumer_client_config()
@@ -130,9 +145,10 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    // Consume → route → Stage 1 → commit loop. The dispatcher shares the same atomically-swapped
-    // catalog snapshot the refresh loop maintains (a cheap `Arc` clone).
-    let dispatcher = EventDispatcher::new(router, offset_tracker, store, catalog.clone());
+    // Consume → route → Stage 1 → produce → commit loop. The dispatcher shares the same
+    // atomically-swapped catalog snapshot the refresh loop maintains (a cheap `Arc` clone), and
+    // hands the shadow sink + offset tracker to each per-partition worker it spawns.
+    let dispatcher = EventDispatcher::new(router, offset_tracker, store, catalog.clone(), sink);
     let events_consumer = CohortStreamEventsConsumer::new(
         stream_consumer,
         config.cohort_stream_events_topic.clone(),
@@ -171,6 +187,7 @@ fn log_startup(config: &Config) {
         bind_address = %config.bind_address(),
         kafka_hosts = %config.kafka_hosts,
         input_topic = %config.cohort_stream_events_topic,
+        output_topic = %config.cohort_membership_changed_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
         recv_batch_size = config.recv_batch_size,

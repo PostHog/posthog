@@ -23,7 +23,8 @@ use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::ShuffleMessage;
+use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
+use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::{
     clickhouse_timestamp_to_millis, LeafTransition, Stage1State, StateVariant, StatefulRecord,
     TransitionKind,
@@ -122,6 +123,13 @@ fn build_team_filters(cohorts: Vec<(CohortId, Value)>) -> TeamFilters {
             .expect("add cohort");
     }
     builder.freeze()
+}
+
+fn catalog_of(filters: TeamFilters) -> Arc<CatalogHandle> {
+    Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+        TeamId(TEAM),
+        filters,
+    )])))
 }
 
 fn person(n: u128) -> Uuid {
@@ -673,6 +681,8 @@ fn non_boolean_person_result_coerces_to_false() {
 #[tokio::test]
 async fn spawned_worker_drains_a_batch_and_commits_state() {
     let (_dir, store) = temp_store();
+    // A multi-leaf cohort: state is written for both leaves, but neither leaf alone maps to the
+    // (composite) cohort, so the shadow sink stays empty — the offset still advances.
     let filters = build_team_filters(vec![(
         CohortId(1),
         cohort(vec![behavioral_leaf(7), person_leaf()]),
@@ -681,17 +691,26 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let alice = person(1);
 
-    let catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
-        TeamId(TEAM),
-        filters,
-    )])));
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let worker = Stage1Worker::spawn(PARTITION_ID, rx, store.clone(), catalog);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
 
-    tx.send(vec![ShuffleMessage::Event(event(alice, 1, 0))])
-        .await
-        .unwrap();
+    tx.send(vec![ShuffleMessage::Event {
+        event: event(alice, 1, 0),
+        cse_offset: 0,
+    }])
+    .await
+    .unwrap();
     // Dropping the sender closes the channel; the worker drains the queued batch and exits.
     drop(tx);
     worker.join().await.unwrap();
@@ -705,6 +724,12 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
             .len(),
         2
     );
+    // Multi-leaf cohort → no per-cohort shadow output, but the offset advances all the same.
+    assert!(sink.changes().is_empty());
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&1)
+    );
 }
 
 #[tokio::test]
@@ -714,20 +739,32 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
     let alice = person(1);
 
-    let catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
-        TeamId(TEAM),
-        filters,
-    )])));
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let worker = Stage1Worker::spawn(PARTITION_ID, rx, store.clone(), catalog);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
 
-    // Team 999 is not in the catalog → the worker skips before touching the store.
+    // Team 999 is not in the catalog → the worker skips before touching the store, but the offset
+    // still advances (a skipped event must not wedge the partition).
     let unknown = CohortStreamEvent {
         team_id: 999,
         ..event(alice, 1, 0)
     };
-    tx.send(vec![ShuffleMessage::Event(unknown)]).await.unwrap();
+    tx.send(vec![ShuffleMessage::Event {
+        event: unknown,
+        cse_offset: 3,
+    }])
+    .await
+    .unwrap();
     drop(tx);
     worker.join().await.unwrap();
 
@@ -741,4 +778,181 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
         store.get_stage1(&key).unwrap().is_none(),
         "no write for unknown team"
     );
+    assert!(sink.changes().is_empty());
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&4)
+    );
+}
+
+// ── PR 1.8: produce-before-commit offset gating (single-leaf cohort, via CaptureSink) ───
+//
+// Note on store errors: a `process_event` `Err(StoreError)` is, at the worker level, identical to
+// an empty sub-batch — `handle_event` returns no changes and the offset advances via `max_offset`
+// (a corrupt-event skip that replay won't fix, matching PR 1.7). That path is exercised by
+// `worker_advances_offset_on_empty_transition_subbatch`; inducing a real RocksDB backend error
+// deterministically is not worth a dedicated test.
+
+/// A single-leaf behavioral cohort (`CohortId(1)`) → a matching `$pageview` produces exactly one
+/// `entered` change for that cohort, so the produce path is exercised end to end.
+fn single_leaf_catalog() -> Arc<CatalogHandle> {
+    catalog_of(build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf(7)]),
+    )]))
+}
+
+#[tokio::test]
+async fn worker_produces_changes_and_advances_offset() {
+    let (_dir, store) = temp_store();
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        single_leaf_catalog(),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    tx.send(vec![ShuffleMessage::Event {
+        event: event(person(1), 1, 0),
+        cse_offset: 5,
+    }])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&6)
+    );
+    let changes = sink.changes();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].cohort_id, 1);
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert_eq!(changes[0].person_id, person(1).to_string());
+}
+
+#[tokio::test]
+async fn worker_advances_offset_on_empty_transition_subbatch() {
+    // The critical case: a non-matching event produces no transitions/changes, yet the offset MUST
+    // still advance so a no-op (or poison) event can't wedge the partition.
+    let (_dir, store) = temp_store();
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        single_leaf_catalog(),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    // A non-$pageview event: the behavioral leaf does not match → no transition → empty buffer.
+    let non_match = CohortStreamEvent {
+        event: "$autocapture".to_string(),
+        ..event(person(1), 1, 0)
+    };
+    tx.send(vec![ShuffleMessage::Event {
+        event: non_match,
+        cse_offset: 42,
+    }])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&43),
+        "an empty sub-batch still advances the offset",
+    );
+    assert!(sink.changes().is_empty());
+}
+
+#[tokio::test]
+async fn worker_holds_offset_when_the_only_flush_fails() {
+    // A produce error must hold the sub-batch's offset back so Kafka replays it.
+    let (_dir, store) = temp_store();
+    let sink = CaptureSink::failing_first(1);
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        single_leaf_catalog(),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    // One matching event → one change → produce FAILS → offset held, nothing recorded.
+    tx.send(vec![ShuffleMessage::Event {
+        event: event(person(1), 1, 0),
+        cse_offset: 10,
+    }])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        None,
+        "a failed produce holds the offset back for replay",
+    );
+    assert!(sink.changes().is_empty(), "a failed flush emits nothing");
+}
+
+#[tokio::test]
+async fn worker_keeps_processing_after_a_produce_failure() {
+    // After a failed flush the worker must NOT wedge: the next sub-batch still produces and marks.
+    let (_dir, store) = temp_store();
+    let sink = CaptureSink::failing_first(1);
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        single_leaf_catalog(),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    // First sub-batch fails its produce; the second succeeds.
+    tx.send(vec![ShuffleMessage::Event {
+        event: event(person(1), 1, 0),
+        cse_offset: 10,
+    }])
+    .await
+    .unwrap();
+    tx.send(vec![ShuffleMessage::Event {
+        event: event(person(2), 1, 1),
+        cse_offset: 11,
+    }])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    // The second sub-batch produced and advanced the offset past it; the held first event relies on
+    // Kafka replay (the monotonic tracker reflects the later success).
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&12)
+    );
+    let changes = sink.changes();
+    assert_eq!(changes.len(), 1, "only the second flush's change landed");
+    assert_eq!(changes[0].person_id, person(2).to_string());
 }

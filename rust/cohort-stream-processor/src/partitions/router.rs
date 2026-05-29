@@ -246,21 +246,25 @@ mod tests {
     use futures::future::FutureExt;
 
     /// An event tagged by its `source_offset` so a routed sub-batch can be identified by tag
-    /// without needing `PartialEq` on the (foreign) event type.
+    /// without needing `PartialEq` on the (foreign) event type. The router never reads `cse_offset`,
+    /// so it is left at `0` here.
     fn event(tag: i64) -> ShuffleMessage {
-        ShuffleMessage::Event(CohortStreamEvent {
-            team_id: 1,
-            person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
-            distinct_id: "d".to_string(),
-            uuid: "u".to_string(),
-            event: "$pageview".to_string(),
-            timestamp: "2026-05-26 12:34:56.789000".to_string(),
-            properties: None,
-            person_properties: None,
-            elements_chain: None,
-            source_offset: tag,
-            source_partition: 0,
-        })
+        ShuffleMessage::Event {
+            event: CohortStreamEvent {
+                team_id: 1,
+                person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+                distinct_id: "d".to_string(),
+                uuid: "u".to_string(),
+                event: "$pageview".to_string(),
+                timestamp: "2026-05-26 12:34:56.789000".to_string(),
+                properties: None,
+                person_properties: None,
+                elements_chain: None,
+                source_offset: tag,
+                source_partition: 0,
+            },
+            cse_offset: 0,
+        }
     }
 
     /// Project a received sub-batch back to its tags, in order.
@@ -268,7 +272,7 @@ mod tests {
         batch
             .iter()
             .map(|message| match message {
-                ShuffleMessage::Event(event) => event.source_offset,
+                ShuffleMessage::Event { event, .. } => event.source_offset,
             })
             .collect()
     }

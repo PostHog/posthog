@@ -11,7 +11,7 @@
 //! processed offsets. The Kafka-free routing core lives in [`EventDispatcher`] so it can be
 //! unit-tested with an in-process router/store/catalog and no broker.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,8 +31,9 @@ use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS, COHORT_STREAM_WORKERS_SPAWNED,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
-use crate::partitions::router::{PartitionRouter, RouteError};
+use crate::partitions::router::PartitionRouter;
 use crate::partitions::shuffle_message::ShuffleMessage;
+use crate::producer::MembershipSink;
 use crate::store::CohortStore;
 use crate::workers::Stage1Worker;
 
@@ -86,20 +87,25 @@ pub struct ConsumedEvent {
 /// offset logic is unit-testable against an in-process router/store/catalog with no broker.
 pub struct EventDispatcher {
     router: PartitionRouter,
-    tracker: OffsetTracker,
+    /// Per-partition processed offsets. `Arc` because each worker now records its own offsets here
+    /// (after producing), while the consumer's commit loop reads it — shared, not dispatcher-owned.
+    tracker: Arc<OffsetTracker>,
     /// Partition → its long-lived Stage 1 worker. Interior mutability so the consume loop can spawn
     /// through a shared `&self`; also the join set drained on shutdown.
     workers: DashMap<i32, Stage1Worker>,
     store: CohortStore,
     catalog: Arc<CatalogHandle>,
+    /// Shared shadow-topic output sink, handed to every spawned worker (cheap `Arc` clone).
+    sink: Arc<dyn MembershipSink>,
 }
 
 impl EventDispatcher {
     pub fn new(
         router: PartitionRouter,
-        tracker: OffsetTracker,
+        tracker: Arc<OffsetTracker>,
         store: CohortStore,
         catalog: Arc<CatalogHandle>,
+        sink: Arc<dyn MembershipSink>,
     ) -> Self {
         Self {
             router,
@@ -107,27 +113,28 @@ impl EventDispatcher {
             workers: DashMap::new(),
             store,
             catalog,
+            sink,
         }
     }
 
-    /// Route a consumed batch and advance processed offsets.
+    /// Route a consumed batch to its per-partition workers.
     ///
     /// For each partition seen for the first time, lazily registers a worker channel and spawns its
     /// [`Stage1Worker`] (single-replica M1: partitions are assigned once and only revoked at
     /// shutdown, so a per-batch check is cheap and there are no mid-life revocations — the formal
-    /// rebalance callbacks are deferred to PR 3.5). Then routes every event to its partition and
-    /// marks `max(offset) + 1` processed for each partition that routed without error.
+    /// rebalance callbacks are deferred to PR 3.5). Then routes every event, carrying its
+    /// `cohort_stream_events` offset on the message.
     ///
-    /// Offsets are marked at route time, not on worker completion (decision 3): the bounded channel
-    /// already backpressures, and the M1 state types (`BehavioralSingle`, `PersonProperty`) are
-    /// idempotent, so replay from the last commit re-applies cleanly. A partition whose worker was
-    /// missing (a `RouteError`) holds its offset back so Kafka replays it after the worker returns.
+    /// Offsets are **not** marked here. PR 1.8 moved the mark into the worker, which records the
+    /// offset only after the event's membership changes are produced and acked (produce before
+    /// commit). A `RouteError` therefore needs no special handling: a message that never reached a
+    /// worker is never marked, so Kafka replays it after the worker returns. The error count is
+    /// surfaced via `cohort_stream_route_errors_total`.
     pub async fn dispatch(&self, batch: Vec<ConsumedEvent>) {
         if batch.is_empty() {
             return;
         }
 
-        let mut max_offset: HashMap<i32, i64> = HashMap::new();
         let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(batch.len());
         for ConsumedEvent {
             event,
@@ -136,24 +143,18 @@ impl EventDispatcher {
         } in batch
         {
             self.ensure_worker(partition);
-            max_offset
-                .entry(partition)
-                .and_modify(|current| *current = (*current).max(offset))
-                .or_insert(offset);
-            messages.push((partition, ShuffleMessage::Event(event)));
+            messages.push((
+                partition,
+                ShuffleMessage::Event {
+                    event,
+                    cse_offset: offset,
+                },
+            ));
         }
 
         let errors = self.router.route_batch(messages).await;
         if !errors.is_empty() {
             counter!(COHORT_STREAM_ROUTE_ERRORS).increment(errors.len() as u64);
-        }
-        let failed = failed_partitions(&errors);
-
-        for (partition, max) in max_offset {
-            if failed.contains(&partition) {
-                continue;
-            }
-            self.tracker.mark_processed(partition, max + 1);
         }
     }
 
@@ -174,6 +175,8 @@ impl EventDispatcher {
                     receiver,
                     self.store.clone(),
                     self.catalog.clone(),
+                    self.sink.clone(),
+                    self.tracker.clone(),
                 );
                 self.workers.insert(partition, worker);
                 counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
@@ -189,16 +192,18 @@ impl EventDispatcher {
         }
     }
 
-    /// The per-partition offset tracker (read by the commit loop; mutated at route time).
+    /// The per-partition offset tracker (read by the commit loop; the workers mark it after they
+    /// produce). `Arc` derefs to `&OffsetTracker`.
     fn tracker(&self) -> &OffsetTracker {
-        &self.tracker
+        self.tracker.as_ref()
     }
 
     /// Stop feeding workers and drain them. Dropping the router closes every worker channel; each
     /// worker's `recv()` then returns `None`, it drains its queued batches, applies them to RocksDB,
-    /// and exits. Joining *after* the drop guarantees all routed state is durable before the caller's
-    /// final offset commit. Returns the tracker so the caller can build that commit.
-    async fn shutdown(self) -> OffsetTracker {
+    /// **produces their membership changes, and marks their offsets**, then exits. Joining *after*
+    /// the drop guarantees all routed state is durable and all offsets are marked before the
+    /// caller's final commit. Returns the shared tracker so the caller can build that commit.
+    async fn shutdown(self) -> Arc<OffsetTracker> {
         let Self {
             router,
             tracker,
@@ -371,18 +376,6 @@ struct ConsumeOutcome {
     transport_error: bool,
 }
 
-/// The partitions a `route_batch` call failed to deliver — both `RouteError` variants mean the
-/// worker is gone, so those partitions hold their offset back for Kafka to replay.
-fn failed_partitions(errors: &[RouteError]) -> HashSet<i32> {
-    errors
-        .iter()
-        .map(|error| match error {
-            RouteError::NoWorker { partition, .. }
-            | RouteError::ChannelClosed { partition, .. } => *partition,
-        })
-        .collect()
-}
-
 /// Turn a `partition → next-offset-to-consume` snapshot into the `TopicPartitionList` committed to
 /// Kafka. Pure (no consumer, no I/O) so the offset → commit-list mapping is unit-testable.
 fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionList {
@@ -433,6 +426,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
+    use crate::producer::CaptureSink;
     use crate::stage1::{Stage1State, StatefulRecord};
     use crate::store::{LeafStateKey, Stage1Key, StoreConfig};
 
@@ -550,25 +544,7 @@ mod tests {
         assert_eq!(tpl.count(), 0);
     }
 
-    #[test]
-    fn failed_partitions_extracts_partition_from_both_route_error_variants() {
-        let errors = vec![
-            RouteError::NoWorker {
-                partition: 3,
-                dropped: 2,
-            },
-            RouteError::ChannelClosed {
-                partition: 5,
-                dropped: 1,
-            },
-        ];
-        let failed = failed_partitions(&errors);
-        assert_eq!(failed.len(), 2);
-        assert!(failed.contains(&3));
-        assert!(failed.contains(&5));
-    }
-
-    // ── Dispatch core (lazy spawn + route + offset marking), no Kafka ──────────
+    // ── Dispatch core (lazy spawn + route; offsets marked by the workers), no Kafka ──────────
 
     fn temp_store() -> (TempDir, CohortStore) {
         let dir = TempDir::new().unwrap();
@@ -607,9 +583,10 @@ mod tests {
     fn dispatcher_with(store: &CohortStore, catalog: Arc<CatalogHandle>) -> EventDispatcher {
         EventDispatcher::new(
             PartitionRouter::new(64),
-            OffsetTracker::new(),
+            Arc::new(OffsetTracker::new()),
             store.clone(),
             catalog,
+            Arc::new(CaptureSink::new()),
         )
     }
 
@@ -692,14 +669,17 @@ mod tests {
         // One worker spawned per distinct partition.
         assert_eq!(dispatcher.workers.len(), 2);
 
+        // Offsets are marked by the workers after they produce (produce before commit), so they are
+        // observable only once the drain completes. Draining also applies the routed state.
+        let tracker = dispatcher.shutdown().await;
+
         // Each partition's next-offset-to-consume is max(offset) + 1.
-        let committable = dispatcher.tracker().committable_offsets();
+        let committable = tracker.committable_offsets();
         assert_eq!(committable.get(&0), Some(&12));
         assert_eq!(committable.get(&1), Some(&6));
 
-        // Draining the workers applies the routed state; each person entered the behavioral leaf
-        // under its own topic partition (the store key's partition_id).
-        let _tracker = dispatcher.shutdown().await;
+        // Each person entered the behavioral leaf under its own topic partition (the store key's
+        // partition_id).
         assert!(
             matches!(
                 behavioral_state(&store, 0, person(1), lsk),
@@ -740,13 +720,35 @@ mod tests {
         dispatcher.dispatch(vec![consumed(person(1), 0, 1)]).await;
         assert_eq!(dispatcher.workers.len(), 1);
 
-        // A second batch on the same partition must not spawn a second worker, and must advance the
-        // tracked offset.
+        // A second batch on the same partition must not spawn a second worker.
         dispatcher.dispatch(vec![consumed(person(2), 0, 2)]).await;
         assert_eq!(dispatcher.workers.len(), 1);
-        assert_eq!(dispatcher.tracker().committable_offsets().get(&0), Some(&3),);
 
-        let _tracker = dispatcher.shutdown().await;
+        // After draining, the single worker has produced both events and marked max(offset) + 1.
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(tracker.committable_offsets().get(&0), Some(&3));
+    }
+
+    #[tokio::test]
+    async fn dispatch_route_error_does_not_advance_the_offset() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        // Spawn a worker for partition 9, then revoke its router channel: the worker drains nothing
+        // and exits, but the dispatcher still "knows" it, so the next dispatch won't re-spawn — and
+        // route_batch finds no sender, surfacing a RouteError. The dropped event reaches no worker,
+        // so its offset is never marked and Kafka replays it.
+        dispatcher.ensure_worker(9);
+        dispatcher.router.remove_partition(9);
+
+        dispatcher.dispatch(vec![consumed(person(1), 9, 100)]).await;
+
+        let tracker = dispatcher.shutdown().await;
+        assert_eq!(
+            tracker.committable_offsets().get(&9),
+            None,
+            "a route error leaves the offset unmarked for Kafka to replay",
+        );
     }
 
     #[tokio::test]

@@ -2071,10 +2071,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "async-trait",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-database",
+ "common-kafka",
+ "common-liveness",
  "dashmap 6.1.0",
  "envconfig",
  "futures",

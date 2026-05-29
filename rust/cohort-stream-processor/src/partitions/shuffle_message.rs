@@ -25,7 +25,16 @@ use crate::consumers::events::CohortStreamEvent;
 /// See the module comment for the variants each later PR adds.
 #[derive(Debug)]
 pub enum ShuffleMessage {
-    /// A re-keyed event from `cohort_stream_events` (the hot path).
+    /// A re-keyed event from `cohort_stream_events` (the hot path), paired with its offset **on
+    /// that topic** (`cse_offset`).
+    ///
+    /// The owning topic partition is implicit — it is the worker's own `partition_id` — so only the
+    /// offset travels on the message. The worker marks this offset processed **after** the event's
+    /// membership changes have been produced and acked (PR 1.8's produce-before-commit), so the
+    /// offset cannot be committed ahead of its durable shadow output. (PR 1.7 marked at route time;
+    /// that was an explicit placeholder.) This is distinct from
+    /// [`CohortStreamEvent::source_partition`]/[`source_offset`](CohortStreamEvent::source_offset),
+    /// the upstream coordinates that anchor per-key replay idempotence inside Stage 1.
     ///
     /// Kept inline (unboxed) on purpose: events are the hot, overwhelmingly common variant, so the
     /// payload lives directly in the enum to avoid a heap allocation per event on the routing path
@@ -34,7 +43,10 @@ pub enum ShuffleMessage {
     /// merge/transfer variants land, each boxes its own payload to keep `size_of::<ShuffleMessage>`
     /// from inflating for every queued event. `clippy::large_enum_variant` will flag exactly which
     /// variant to box once there is more than one.
-    Event(CohortStreamEvent),
+    Event {
+        event: CohortStreamEvent,
+        cse_offset: i64,
+    },
 }
 
 #[cfg(test)]
@@ -58,14 +70,19 @@ mod tests {
     }
 
     #[test]
-    fn event_variant_round_trips_through_the_box() {
-        let message = ShuffleMessage::Event(sample_event(42));
+    fn event_variant_carries_event_and_cse_offset() {
+        let message = ShuffleMessage::Event {
+            event: sample_event(42),
+            cse_offset: 7,
+        };
 
         // Exhaustive match (no wildcard) so adding a variant later forces this test to be revisited.
         match message {
-            ShuffleMessage::Event(event) => {
+            ShuffleMessage::Event { event, cse_offset } => {
+                // The upstream source coordinates and the topic offset are independent values.
                 assert_eq!(event.source_offset, 42);
                 assert_eq!(event.source_partition, 3);
+                assert_eq!(cse_offset, 7);
             }
         }
     }

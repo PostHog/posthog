@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use common_database::PoolConfig;
+use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
@@ -93,6 +94,22 @@ pub struct Config {
     /// processor start. Matches the shuffler.
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
+
+    // ── Producer (output: cohort_membership_changed_shadow) ────────────────
+    /// The shadow output topic for membership changes (TDD §4.7). Distinct from the legacy
+    /// `cohort_membership_changed` so the new pipeline can run side-by-side for parity (M1); the
+    /// M4 cut-over may retarget this to the real topic.
+    #[envconfig(default = "cohort_membership_changed_shadow")]
+    pub cohort_membership_changed_topic: String,
+
+    /// **Load-bearing** (key design point 1): `murmur2_random` co-partitions a given `person_id`
+    /// key identically to the Node/Python producers, so the shadow topic partitions the same way
+    /// the legacy producer does. Mirrors the shuffler; exposed as config only so ops can pin it.
+    #[envconfig(default = "murmur2_random")]
+    pub kafka_producer_partitioner: String,
+
+    #[envconfig(default = "none")]
+    pub kafka_compression_codec: String,
 
     // ── Batching + commit cadence ──────────────────────────────────────────
     /// Max events pulled per consume → route cycle.
@@ -194,6 +211,32 @@ impl Config {
         }
         config
     }
+
+    /// Common Kafka connection + producer config for the `cohort_membership_changed_shadow`
+    /// producer, mirroring the shuffler's `build_kafka_config`. The partitioner is always set (the
+    /// default `murmur2_random` is load-bearing for cross-runtime co-partitioning); the producer
+    /// queue / timeout knobs use the same conservative values as other PostHog producers.
+    pub fn build_kafka_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_hosts: self.kafka_hosts.clone(),
+            kafka_tls: self.kafka_tls,
+            kafka_client_rack: self.kafka_client_rack.clone(),
+            kafka_client_id: self.kafka_client_id.clone(),
+            kafka_compression_codec: self.kafka_compression_codec.clone(),
+            kafka_producer_partitioner: Some(self.kafka_producer_partitioner.clone()),
+            kafka_producer_linger_ms: 20,
+            kafka_producer_queue_mib: 400,
+            kafka_producer_queue_messages: 10_000_000,
+            kafka_message_timeout_ms: 20_000,
+            kafka_producer_batch_size: None,
+            kafka_producer_batch_num_messages: None,
+            kafka_producer_enable_idempotence: None,
+            kafka_producer_max_in_flight_requests_per_connection: None,
+            kafka_producer_topic_metadata_refresh_interval_ms: None,
+            kafka_producer_message_max_bytes: None,
+            kafka_producer_sticky_partitioning_linger_ms: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -220,6 +263,9 @@ mod tests {
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
             kafka_consumer_offset_reset: "latest".to_string(),
+            cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
+            kafka_producer_partitioner: "murmur2_random".to_string(),
+            kafka_compression_codec: "none".to_string(),
             recv_batch_size: 1000,
             recv_batch_timeout_ms: 500,
             offset_commit_interval_ms: 5000,
@@ -287,5 +333,17 @@ mod tests {
             config.store_config().path,
             std::path::PathBuf::from("/var/lib/cohort/state"),
         );
+    }
+
+    #[test]
+    fn build_kafka_config_pins_the_murmur2_partitioner() {
+        let kafka = test_config().build_kafka_config();
+        // The partitioner is load-bearing for cross-runtime co-partitioning of the shadow topic.
+        assert_eq!(
+            kafka.kafka_producer_partitioner.as_deref(),
+            Some("murmur2_random"),
+        );
+        assert_eq!(kafka.kafka_compression_codec, "none");
+        assert_eq!(kafka.kafka_hosts, "localhost:9092");
     }
 }

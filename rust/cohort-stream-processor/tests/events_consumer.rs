@@ -17,19 +17,28 @@
 //! The routing / lazy-spawn / offset-marking logic is additionally covered by the CI-runnable
 //! (no-Kafka) unit tests in `src/consumers/events.rs`; this proves the wiring end-to-end.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{OffsetTracker, PartitionRouter};
+use cohort_stream_processor::producer::{
+    CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
+};
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
+use common_kafka::config::KafkaConfig;
+use common_kafka::kafka_producer::KafkaProduceError;
 use lifecycle::{ComponentOptions, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
@@ -159,6 +168,8 @@ fn build_consumer(
     store: CohortStore,
     catalog: CatalogHandle,
     handle: lifecycle::Handle,
+    sink: Arc<dyn MembershipSink>,
+    offset_commit_interval: Duration,
 ) -> CohortStreamEventsConsumer {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -173,9 +184,10 @@ fn build_consumer(
 
     let dispatcher = EventDispatcher::new(
         PartitionRouter::new(64),
-        OffsetTracker::new(),
+        Arc::new(OffsetTracker::new()),
         store,
-        std::sync::Arc::new(catalog),
+        Arc::new(catalog),
+        sink,
     );
     CohortStreamEventsConsumer::new(
         consumer,
@@ -184,8 +196,63 @@ fn build_consumer(
         handle,
         100,
         Duration::from_millis(200),
-        Duration::from_millis(250),
+        offset_commit_interval,
     )
+}
+
+/// Common Kafka config for the shadow producer in the broker-gated tests, mirroring the service's
+/// `Config::build_kafka_config` (the `murmur2_random` partitioner is load-bearing).
+fn shadow_kafka_config() -> KafkaConfig {
+    KafkaConfig {
+        kafka_hosts: bootstrap_servers(),
+        kafka_tls: false,
+        kafka_client_rack: String::new(),
+        kafka_client_id: String::new(),
+        kafka_compression_codec: "none".to_string(),
+        kafka_producer_partitioner: Some("murmur2_random".to_string()),
+        kafka_producer_linger_ms: 20,
+        kafka_producer_queue_mib: 400,
+        kafka_producer_queue_messages: 10_000_000,
+        kafka_message_timeout_ms: 20_000,
+        kafka_producer_batch_size: None,
+        kafka_producer_batch_num_messages: None,
+        kafka_producer_enable_idempotence: None,
+        kafka_producer_max_in_flight_requests_per_connection: None,
+        kafka_producer_topic_metadata_refresh_interval_ms: None,
+        kafka_producer_message_max_bytes: None,
+        kafka_producer_sticky_partitioning_linger_ms: None,
+    }
+}
+
+/// Drain up to `expected` membership changes off the shadow topic, decoding each into a
+/// [`CohortMembershipChange`]. Returns whatever it gathered before the deadline.
+async fn drain_shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembershipChange> {
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", format!("shadow-verifier-{}", Uuid::new_v4()))
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("create shadow verifier");
+    consumer.subscribe(&[topic]).expect("subscribe shadow");
+
+    let mut changes = Vec::new();
+    let start = Instant::now();
+    while changes.len() < expected && start.elapsed() < Duration::from_secs(30) {
+        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
+            Ok(Ok(message)) => {
+                if let Some(payload) = message.payload() {
+                    changes.push(
+                        serde_json::from_slice::<CohortMembershipChange>(payload)
+                            .expect("decode shadow membership change"),
+                    );
+                }
+            }
+            Ok(Err(err)) => panic!("shadow recv error: {err}"),
+            Err(_) => {} // 2s poll tick elapsed with no message; re-check the deadline
+        }
+    }
+    changes
 }
 
 /// Sum of `Offset::Offset` committed across every partition — equals the number of consumed events
@@ -273,7 +340,17 @@ async fn consumes_routes_and_commits_end_to_end() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    let consumer = build_consumer(&topic, &group, store.clone(), catalog, handle);
+    // This test asserts state rows + committed input offsets, not the shadow output, so a capture
+    // sink (which always acks) suffices to drive the produce-before-commit offset marking.
+    let consumer = build_consumer(
+        &topic,
+        &group,
+        store.clone(),
+        catalog,
+        handle,
+        Arc::new(CaptureSink::new()),
+        Duration::from_millis(250),
+    );
     let task = tokio::spawn(consumer.process());
 
     // (b) Wait until every produced event has been consumed, routed, and its offset committed.
@@ -309,4 +386,262 @@ async fn consumes_routes_and_commits_end_to_end() {
         total as i64,
         "committed offsets should cover all {total} produced events",
     );
+}
+
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn produces_membership_changes_and_commits_offsets() {
+    let suffix = Uuid::new_v4();
+    let input_topic = format!("cohort_stream_events_shadow_in_{suffix}");
+    let shadow_topic = format!("cohort_membership_changed_shadow_{suffix}");
+    let group = format!("cohort-stream-processor-shadow-{suffix}");
+
+    create_topic(&input_topic).await;
+    create_topic(&shadow_topic).await;
+    let total = produce_events(&input_topic).await;
+
+    let dir = TempDir::new().unwrap();
+    let store = CohortStore::open(&StoreConfig {
+        path: dir.path().join("db"),
+        ..StoreConfig::default()
+    })
+    .expect("open store");
+    let catalog = behavioral_catalog();
+
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier consumer");
+
+    // The real Kafka sink, producing to the shadow topic.
+    let sink: Arc<dyn MembershipSink> = Arc::new(
+        KafkaMembershipSink::new(&shadow_kafka_config(), shadow_topic.clone())
+            .await
+            .expect("create shadow sink"),
+    );
+
+    let mut manager = Manager::builder("shadow-itest")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register(
+        "consumer",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let shutdown_handle = handle.clone();
+    let _monitor = manager.monitor_background();
+
+    let consumer = build_consumer(
+        &input_topic,
+        &group,
+        store.clone(),
+        catalog,
+        handle,
+        sink,
+        Duration::from_millis(250),
+    );
+    let task = tokio::spawn(consumer.process());
+
+    // Wait until every produced input event has been consumed, produced downstream, and committed.
+    let start = Instant::now();
+    loop {
+        if committed_sum(&verifier, &input_topic) == total as i64 {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timed out waiting for committed input offsets to reach {total}",
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    shutdown_handle.request_shutdown();
+    task.await.expect("consumer task panicked");
+
+    // (a) Exactly one `entered` change per distinct person landed on the shadow topic: the first
+    // `$pageview` per person enters the single-leaf cohort; the repeats are already members. Because
+    // an offset is committed only after its produce is acked, every change is on the topic by now.
+    let changes = drain_shadow_changes(&shadow_topic, PERSONS as usize).await;
+    assert_eq!(
+        changes.len(),
+        PERSONS as usize,
+        "one entered change per person on the shadow topic",
+    );
+    for change in &changes {
+        assert_eq!(change.team_id, TEAM);
+        assert_eq!(change.cohort_id, 1);
+        assert_eq!(change.status, MembershipStatus::Entered);
+        assert!(
+            Uuid::parse_str(&change.person_id).is_ok(),
+            "person_id is a UUID string",
+        );
+    }
+
+    // (b) Committed input offsets cover every produced event.
+    assert_eq!(committed_sum(&verifier, &input_topic), total as i64);
+}
+
+/// A test [`MembershipSink`] that blocks its **first** flush until released, recording everything it
+/// is given. Used to prove "produce before commit": while the first flush is parked, the worker has
+/// not yet marked its offset, so no commit tick can advance the committed offset past the blocked
+/// event.
+struct BarrierSink {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+    first: AtomicBool,
+    recorded: Arc<Mutex<Vec<CohortMembershipChange>>>,
+}
+
+impl BarrierSink {
+    /// Returns the sink plus the `entered` (worker reached the flush) and `release` (let it proceed)
+    /// signals. `tokio::sync::Notify` is permit-based for `notify_one`, so the test and worker may
+    /// signal in either order without losing the wake-up.
+    fn new() -> (
+        Arc<Self>,
+        Arc<tokio::sync::Notify>,
+        Arc<tokio::sync::Notify>,
+    ) {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let sink = Arc::new(Self {
+            entered: entered.clone(),
+            release: release.clone(),
+            first: AtomicBool::new(true),
+            recorded: Arc::new(Mutex::new(Vec::new())),
+        });
+        (sink, entered, release)
+    }
+
+    fn recorded_len(&self) -> usize {
+        self.recorded.lock().expect("BarrierSink poisoned").len()
+    }
+}
+
+#[async_trait]
+impl MembershipSink for BarrierSink {
+    async fn produce(
+        &self,
+        changes: Vec<CohortMembershipChange>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        if self.first.swap(false, Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
+        let acks = (0..changes.len()).map(|_| Ok(())).collect();
+        self.recorded
+            .lock()
+            .expect("BarrierSink poisoned")
+            .extend(changes);
+        acks
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn does_not_commit_past_a_blocked_produce() {
+    let suffix = Uuid::new_v4();
+    let topic = format!("cohort_stream_events_barrier_{suffix}");
+    let group = format!("cohort-stream-processor-barrier-{suffix}");
+
+    create_topic(&topic).await;
+
+    // A single event, so exactly one worker performs exactly one (blocked) flush.
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("message.timeout.ms", "10000")
+        .create()
+        .expect("create producer");
+    let p = person(1);
+    let payload = envelope(p, 0, 0);
+    producer
+        .send(
+            FutureRecord::to(&topic)
+                .key(&format!("{TEAM}:{p}"))
+                .payload(&payload),
+            Timeout::After(Duration::from_secs(10)),
+        )
+        .await
+        .expect("produce event");
+
+    let dir = TempDir::new().unwrap();
+    let store = CohortStore::open(&StoreConfig {
+        path: dir.path().join("db"),
+        ..StoreConfig::default()
+    })
+    .expect("open store");
+    let catalog = behavioral_catalog();
+
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier consumer");
+
+    let (sink, entered, release) = BarrierSink::new();
+
+    let mut manager = Manager::builder("barrier-itest")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register(
+        "consumer",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let shutdown_handle = handle.clone();
+    let _monitor = manager.monitor_background();
+
+    // Fast commit cadence so a commit tick certainly fires while the produce is blocked.
+    let consumer = build_consumer(
+        &topic,
+        &group,
+        store.clone(),
+        catalog,
+        handle,
+        sink.clone(),
+        Duration::from_millis(100),
+    );
+    let task = tokio::spawn(consumer.process());
+
+    // Wait until the worker has reached the (blocked) flush.
+    tokio::time::timeout(Duration::from_secs(30), entered.notified())
+        .await
+        .expect("worker reached the produce barrier");
+
+    // Let several commit ticks fire while blocked. The worker has not marked its offset yet, so the
+    // committed offset must NOT have advanced past the event whose produce is still in flight.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        committed_sum(&verifier, &topic),
+        0,
+        "no offset may be committed before its produce is acked",
+    );
+    assert_eq!(
+        sink.recorded_len(),
+        0,
+        "the blocked flush has recorded nothing yet",
+    );
+
+    // Release the flush; now the offset is allowed to advance.
+    release.notify_one();
+
+    let start = Instant::now();
+    loop {
+        if committed_sum(&verifier, &topic) == 1 {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "offset did not advance after releasing the produce",
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        sink.recorded_len(),
+        1,
+        "the released flush recorded its change",
+    );
+
+    shutdown_handle.request_shutdown();
+    task.await.expect("consumer task panicked");
 }

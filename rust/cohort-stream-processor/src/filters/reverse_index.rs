@@ -60,6 +60,16 @@ pub struct TeamFilters {
     pub behavioral_conditions: HashSet<[u8; 16]>,
     /// conditionHashes whose leaves are person-property filters.
     pub person_property_conditions: HashSet<[u8; 16]>,
+    /// `LeafStateKey → [CohortId]` — the **M1 stopgap** that maps a leaf flip directly to a
+    /// cohort membership change (PR 1.8). A cohort is present iff its filter tree is exactly one
+    /// supported, state-keyed leaf, so that leaf's predicate *is* the cohort's membership and the
+    /// output producer can emit a per-cohort change without Stage 2 boolean composition.
+    ///
+    /// Keyed by [`LeafStateKey`] (not `condition_hash`) so it is window/threshold-precise — a 7d
+    /// and a 30d leaf sharing one conditionHash get distinct keys and never cross-fire (the PR 1.6
+    /// C1 invariant). Restricted to single-leaf cohorts so a leaf flip never toggles a composite
+    /// cohort (Stage 2's job, M3 / PR 3.2, which extends this with the cascade).
+    pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
 }
@@ -125,6 +135,8 @@ impl TeamFiltersBuilder {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
+        let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
+            HashMap::new();
         for tree in self.cohorts.values() {
             collect_leaf_meta(
                 &tree.root,
@@ -132,6 +144,22 @@ impl TeamFiltersBuilder {
                 &mut behavioral_conditions,
                 &mut person_property_conditions,
             );
+            // Index single-leaf cohorts for the PR 1.8 output fan-out. Guard on `by_lsk` so a lone
+            // behavioral leaf whose `pick_state_variant` failed (and so was not recorded above) is
+            // excluded — the two maps stay consistent: a cohort is mapped only if its leaf actually
+            // carries worker metadata.
+            if let Some(lsk) = single_supported_leaf(&tree.root) {
+                if by_lsk.contains_key(&lsk) {
+                    by_lsk_to_single_leaf_cohorts
+                        .entry(lsk)
+                        .or_default()
+                        .push(tree.cohort_id);
+                }
+            }
+        }
+        // Sort each cohort list for deterministic iteration, matching `sorted_vec_map`.
+        for cohorts in by_lsk_to_single_leaf_cohorts.values_mut() {
+            cohorts.sort_unstable();
         }
 
         TeamFilters {
@@ -142,8 +170,52 @@ impl TeamFiltersBuilder {
             by_lsk,
             behavioral_conditions,
             person_property_conditions,
+            by_lsk_to_single_leaf_cohorts,
             cohorts: self.cohorts,
         }
+    }
+}
+
+/// The [`LeafStateKey`] of a cohort whose filter tree is **exactly one** state-keyed leaf, or
+/// [`None`] otherwise (zero leaves, two or more leaves, or a lone cohort-reference leaf).
+///
+/// Walks the tree counting [`FilterNode::Leaf`] nodes (recursing through groups) and short-circuits
+/// as soon as a second leaf is seen. For exactly one leaf it returns that leaf's
+/// [`leaf_state_key`](CohortLeaf::leaf_state_key) — which is [`None`] for a cohort reference, so a
+/// single cohort-ref cohort is correctly excluded (cohort refs are not state-keyed; `tree.rs`). The
+/// single-leaf restriction is what makes a leaf transition equal a whole-cohort membership change in
+/// M1, before Stage 2 boolean composition exists.
+fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
+    /// Running tally of leaves seen so far; `One` carries the single leaf's key (which may itself
+    /// be `None` for a cohort ref) so the final answer needs no second lookup.
+    enum LeafCount {
+        Zero,
+        One(Option<LeafStateKey>),
+        Many,
+    }
+
+    fn walk(node: &FilterNode, acc: LeafCount) -> LeafCount {
+        match node {
+            FilterNode::Leaf(leaf) => match acc {
+                LeafCount::Zero => LeafCount::One(leaf.leaf_state_key()),
+                LeafCount::One(_) | LeafCount::Many => LeafCount::Many,
+            },
+            FilterNode::Group { children, .. } => {
+                let mut acc = acc;
+                for child in children {
+                    if matches!(acc, LeafCount::Many) {
+                        return LeafCount::Many; // already disqualified — stop descending
+                    }
+                    acc = walk(child, acc);
+                }
+                acc
+            }
+        }
+    }
+
+    match walk(root, LeafCount::Zero) {
+        LeafCount::One(lsk) => lsk,
+        LeafCount::Zero | LeafCount::Many => None,
     }
 }
 
@@ -393,5 +465,168 @@ mod tests {
 
         assert_eq!(frozen.by_lsk.len(), 1);
         assert_eq!(frozen.behavioral_conditions, HashSet::from([HASH]));
+    }
+
+    // ── by_lsk_to_single_leaf_cohorts (PR 1.8 output fan-out) ──────────────────
+
+    fn cohort_ref() -> Value {
+        json!({ "type": "cohort", "value": 99, "negation": false })
+    }
+
+    #[test]
+    fn single_leaf_cohort_is_indexed_by_its_lsk() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        let frozen = builder.freeze();
+
+        let lsk = frozen.by_condition_to_lsk[&HASH][0];
+        assert_eq!(
+            frozen.by_lsk_to_single_leaf_cohorts.get(&lsk),
+            Some(&vec![CohortId(1)]),
+        );
+    }
+
+    #[test]
+    fn c1_two_single_leaf_cohorts_same_hash_different_windows_map_to_their_own_lsk() {
+        // The headline C1 case: one conditionHash, two windows → two distinct LSKs, each owning
+        // exactly its own cohort. Reusing `by_condition_to_cohorts[HASH]` would wrongly return both.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        builder
+            .add_cohort(
+                CohortId(2),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(30)]),
+            )
+            .unwrap();
+        let frozen = builder.freeze();
+
+        // The conditionHash-keyed index returns both cohorts — the wrong index for output fan-out.
+        assert_eq!(
+            frozen.by_condition_to_cohorts[&HASH],
+            vec![CohortId(1), CohortId(2)]
+        );
+
+        // The LSK-keyed index splits them: each window's key maps to exactly its own cohort.
+        let lsks = &frozen.by_condition_to_lsk[&HASH];
+        assert_eq!(lsks.len(), 2);
+        let mut owners: Vec<Vec<CohortId>> = lsks
+            .iter()
+            .map(|lsk| frozen.by_lsk_to_single_leaf_cohorts[lsk].clone())
+            .collect();
+        owners.sort();
+        assert_eq!(owners, vec![vec![CohortId(1)], vec![CohortId(2)]]);
+    }
+
+    #[test]
+    fn identical_single_leaf_cohorts_share_one_lsk_sorted() {
+        // Two cohorts whose single leaf is byte-identical share a LeafStateKey → both listed,
+        // sorted (added out of order to prove the sort).
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(2),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        let frozen = builder.freeze();
+
+        let lsk = frozen.by_condition_to_lsk[&HASH][0];
+        assert_eq!(
+            frozen.by_lsk_to_single_leaf_cohorts[&lsk],
+            vec![CohortId(1), CohortId(2)],
+        );
+    }
+
+    #[test]
+    fn multi_leaf_cohort_is_not_indexed() {
+        // A two-leaf cohort needs Stage 2 composition, so no single leaf determines its membership.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), person_leaf()]),
+            )
+            .unwrap();
+        let frozen = builder.freeze();
+
+        assert!(
+            frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
+            "multi-leaf cohort contributes no single-leaf mapping",
+        );
+    }
+
+    #[test]
+    fn single_cohort_ref_cohort_is_not_indexed() {
+        // A lone cohort reference is not state-keyed (no LeafStateKey), so it can't map a leaf flip.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref()]))
+            .unwrap();
+        let frozen = builder.freeze();
+
+        assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
+    }
+
+    #[test]
+    fn nested_single_leaf_cohort_is_indexed() {
+        // The lone leaf may sit under nested groups; the walk still finds exactly one.
+        let mut builder = TeamFiltersBuilder::default();
+        let filters = json!({
+            "properties": {
+                "type": "OR",
+                "values": [{ "type": "AND", "values": [behavioral_performed_event(7)] }],
+            }
+        });
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &filters)
+            .unwrap();
+        let frozen = builder.freeze();
+
+        let lsk = frozen.by_condition_to_lsk[&HASH][0];
+        assert_eq!(
+            frozen.by_lsk_to_single_leaf_cohorts[&lsk],
+            vec![CohortId(1)]
+        );
+    }
+
+    #[test]
+    fn empty_all_dropped_cohort_is_not_indexed() {
+        // A cohort whose only leaf is dropped (no conditionHash) freezes to an empty group → zero
+        // leaves → not a single-leaf cohort.
+        let mut builder = TeamFiltersBuilder::default();
+        let dropped =
+            json!({ "type": "behavioral", "key": "$pageview", "value": "performed_event" });
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![dropped]))
+            .unwrap();
+        let frozen = builder.freeze();
+
+        assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
+        assert!(
+            frozen.by_lsk.is_empty(),
+            "the dropped leaf left no state metadata"
+        );
     }
 }

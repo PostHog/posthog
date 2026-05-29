@@ -109,6 +109,21 @@ pub const COHORT_STREAM_ROUTE_ERRORS: &str = "cohort_stream_route_errors_total";
 /// `recv_batch_size` shows whether the loop is batch- or timeout-bound.
 pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_size";
 
+// ── Output producer (PR 1.8) ───────────────────────────────────────────────────
+/// Membership changes produced to `cohort_membership_changed_shadow`, labelled by `status`
+/// (`entered`|`left`) (counter). Counted only after a fully-acked flush, so it tracks the
+/// shadow pipeline's observable, parity-comparable output volume.
+pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_emitted_total";
+/// Leaf transitions that mapped to zero output cohorts, labelled by `reason`
+/// (`multi_leaf_cohort`) (counter). In M1 a single leaf flip only determines a single-leaf
+/// cohort's membership; a transition for a leaf that belongs only to multi-leaf (Stage 2)
+/// cohorts produces no shadow output yet and is counted here.
+pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
+/// Produce failures to `cohort_membership_changed_shadow` (counter). On any error the worker
+/// holds the sub-batch's offset back so Kafka replays it; re-produce is idempotent for the
+/// per-cohort parity diff.
+pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics
