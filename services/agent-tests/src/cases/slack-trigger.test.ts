@@ -95,6 +95,67 @@ describe('slack trigger: real e2e', () => {
         // and then drained by the next turn.
         const userMsgs = session!.conversation.filter((m) => m.role === 'user')
         expect(userMsgs.length).toBe(2)
+        // Per-message sender stamping (#23 step 1): every user turn carries
+        // the principal who sent it. Both messages here came from U01.
+        for (const msg of userMsgs) {
+            if (msg.role === 'user') {
+                expect(msg.sender?.kind).toBe('slack')
+                expect(msg.sender?.id).toBeTruthy()
+            }
+        }
+        const ids = userMsgs.filter((m) => m.role === 'user').map((m) => (m.role === 'user' ? m.sender?.id : null))
+        expect(new Set(ids).size).toBe(1)
+    })
+
+    it('multi-user thread (post-elevation): each turn carries the sender that produced it', async () => {
+        // Builds on the B.1 ACL fix: bob's message is denied until alice
+        // grants. After the grant, bob's replayed message lands in
+        // pending_inputs with sender=bob. Asserts the per-message stamping
+        // contract that #23 step 3 (dispatcher per-asker auth) will rely on.
+        c.setScript([fauxText('first reply'), fauxText('after grant')])
+        await c.deployAgent({ slug: 'multiuser', spec: {} })
+
+        // Alice opens the thread.
+        const opened = await request(c.ingress)
+            .post('/agents/multiuser/slack/events')
+            .send(slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }))
+        await c.drain()
+
+        // Bob tries to reply — rejected.
+        const bob = await request(c.ingress)
+            .post('/agents/multiuser/slack/events')
+            .send(slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }))
+        expect(bob.body.elevation_required).toBe(true)
+
+        // Alice grants via interactivity.
+        const grant = await request(c.ingress)
+            .post('/agents/multiuser/slack/interactivity')
+            .send({
+                payload: JSON.stringify({
+                    type: 'block_actions',
+                    team: { id: 'unknown' },
+                    user: { id: 'U-ALICE' },
+                    actions: [
+                        {
+                            action_id: 'elevation_decision',
+                            value: `elevation:grant:${opened.body.session_id}:${bob.body.elevation_request_id}`,
+                        },
+                    ],
+                }),
+            })
+        expect(grant.status).toBe(200)
+        await c.drain()
+
+        const session = (await c.queue.get(opened.body.session_id))!
+        const userMsgs = session.conversation.filter((m) => m.role === 'user')
+        // Alice's opening + Bob's replayed reply.
+        expect(userMsgs.length).toBe(2)
+        const senders = userMsgs.map((m) => (m.role === 'user' ? m.sender?.id : null))
+        // Distinct senders — exactly what #23 step 3 needs to read at
+        // dispatch time to authorise per-asker.
+        expect(new Set(senders).size).toBe(2)
+        expect(senders.some((id) => typeof id === 'string' && id.includes('U-ALICE'))).toBe(true)
+        expect(senders.some((id) => typeof id === 'string' && id.includes('U-BOB'))).toBe(true)
     })
 
     it('different user in same thread → elevation_required, session is NOT advanced', async () => {

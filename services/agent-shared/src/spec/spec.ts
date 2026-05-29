@@ -442,6 +442,18 @@ export interface UserMessage {
     role: 'user'
     content: string | (TextContent | ImageContent)[]
     timestamp: number
+    /**
+     * Who sent this message. Populated by the ingress on every trigger that
+     * accepts a user message (chat /run + /send, webhook, slack events, mcp
+     * tools/call). Optional for backwards compatibility with existing rows;
+     * absent on messages predating per-message principal stamping.
+     *
+     * Distinct from `AgentSession.principal` (the SESSION owner). When the
+     * session ACL admits multiple principals (B.1), each message carries the
+     * specific sender so per-asker authorisation (the gated-tool flow in #23)
+     * can resolve "who's currently asking the bot to do X?"
+     */
+    sender?: SessionPrincipal
 }
 
 /**

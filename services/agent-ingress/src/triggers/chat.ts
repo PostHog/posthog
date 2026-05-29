@@ -76,7 +76,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
-                    seed: { role: 'user', content: message, timestamp: Date.now() },
+                    seed: { role: 'user', content: message, timestamp: Date.now(), sender: sessionPrincipal },
                     principal: sessionPrincipal,
                     trigger: 'chat',
                     requesterDisplay: principalDisplay(sessionPrincipal),
@@ -141,7 +141,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                     requester: incomingPrincipal,
                     requesterDisplay: principalDisplay(incomingPrincipal),
                     trigger: 'chat',
-                    proposedMessage: { role: 'user', content: message, timestamp: Date.now() },
+                    proposedMessage: {
+                        role: 'user',
+                        content: message,
+                        timestamp: Date.now(),
+                        sender: incomingPrincipal,
+                    },
                 })
                 res.status(403).json(buildElevationResponse(existing, req))
                 return
@@ -165,7 +170,12 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                     return
                 }
             }
-            await deps.queue.appendPendingInput(sessionId, { role: 'user', content: message, timestamp: Date.now() })
+            await deps.queue.appendPendingInput(sessionId, {
+                role: 'user',
+                content: message,
+                timestamp: Date.now(),
+                sender: incomingPrincipal,
+            })
             await deps.queue.update(sessionId, { state: 'queued' })
             res.json({ ok: true })
         })

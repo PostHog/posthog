@@ -247,7 +247,12 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                                 requester: principal,
                                 requesterDisplay: principalDisplay(principal),
                                 trigger: 'mcp',
-                                proposedMessage: { role: 'user', content: message, timestamp: Date.now() },
+                                proposedMessage: {
+                                    role: 'user',
+                                    content: message,
+                                    timestamp: Date.now(),
+                                    sender: principal,
+                                },
                             })
                             const body = buildElevationResponse(existing, elevationReq)
                             res.json(errReply(RPC_UNAUTHORIZED, JSON.stringify(body)))
@@ -257,6 +262,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                             role: 'user',
                             content: message,
                             timestamp: Date.now(),
+                            sender: principal,
                         })
                         await deps.queue.update(continuationId, { state: 'queued' })
                         res.json(
@@ -285,7 +291,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                             application: resolved.application,
                             revision: resolved.revision,
                             externalKey,
-                            seed: { role: 'user', content: message, timestamp: Date.now() },
+                            seed: { role: 'user', content: message, timestamp: Date.now(), sender: principal },
                             principal,
                             trigger: 'mcp',
                             requesterDisplay: principalDisplay(principal),

@@ -101,7 +101,12 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
-                    seed: { role: 'user', content: event.text ?? '', timestamp: Date.now() },
+                    seed: {
+                        role: 'user',
+                        content: event.text ?? '',
+                        timestamp: Date.now(),
+                        sender: slackPrincipal,
+                    },
                     principal: slackPrincipal,
                     trigger: 'slack',
                     requesterDisplay: `slack:${workspaceId}:${event.user}`,

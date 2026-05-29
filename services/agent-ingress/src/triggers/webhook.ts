@@ -67,7 +67,12 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
-                    seed: { role: 'user', content: JSON.stringify(parsed.data), timestamp: Date.now() },
+                    seed: {
+                        role: 'user',
+                        content: JSON.stringify(parsed.data),
+                        timestamp: Date.now(),
+                        sender: sessionPrincipal,
+                    },
                     principal: sessionPrincipal,
                     trigger: 'webhook',
                     requesterDisplay: principalDisplay(sessionPrincipal),
