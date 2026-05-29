@@ -113,6 +113,7 @@ from posthog.hogql.database.schema.preaggregation_results import PreaggregationR
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
+from posthog.hogql.database.schema.retention_curve import RetentionCurveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -323,6 +324,7 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "web_goals_preaggregated": TableNode(
                         name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
                     ),
+                    "retention_curve": TableNode(name="retention_curve", table=RetentionCurveTable()),
                 },
             ),
             "system": SystemTables(),

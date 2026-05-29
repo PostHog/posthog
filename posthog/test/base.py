@@ -60,6 +60,12 @@ from posthog.clickhouse.custom_metrics import (
 )
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
+from posthog.clickhouse.preaggregation.retention_curve_sql import (
+    DISTRIBUTED_RETENTION_CURVE_TABLE_SQL,
+    DROP_RETENTION_CURVE_TABLE_SQL,
+    DROP_SHARDED_RETENTION_CURVE_TABLE_SQL,
+    SHARDED_RETENTION_CURVE_TABLE_SQL,
+)
 from posthog.clickhouse.preaggregation.sql import (
     DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL,
     DROP_PREAGGREGATION_RESULTS_TABLE_SQL,
@@ -1701,6 +1707,8 @@ def reset_clickhouse_database() -> None:
             DROP_PRECALCULATED_EVENTS_MV_SQL(),
             DROP_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DROP_SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+            DROP_RETENTION_CURVE_TABLE_SQL(),
+            DROP_SHARDED_RETENTION_CURVE_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
@@ -1738,6 +1746,7 @@ def reset_clickhouse_database() -> None:
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+            SHARDED_RETENTION_CURVE_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1746,6 +1755,7 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_DICTIONARY_SQL(),
             DISTRIBUTED_EVENTS_TABLE_SQL(),
             DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL(),
+            DISTRIBUTED_RETENTION_CURVE_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),

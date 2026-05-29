@@ -129,6 +129,16 @@ class FloatArrayDatabaseField(DatabaseField):
         return ""
 
 
+class IntegerArrayDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import ArrayType, IntegerType
+
+        return ArrayType(item_type=IntegerType(), nullable=self.is_nullable())
+
+    def default_value(self) -> Any:
+        return []
+
+
 class DateDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import DateType

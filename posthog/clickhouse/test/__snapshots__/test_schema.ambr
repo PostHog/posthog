@@ -4634,6 +4634,38 @@
   
   '''
 # ---
+# name: test_create_table_query[retention_curve]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS retention_curve
+  (
+      team_id        Int64,
+  
+      -- Retention entity: a real event name ('$pageview') or the all-events marker.
+      -- LowCardinality since teams retain against a small set of kinds.
+      kind           LowCardinality(String),
+  
+      -- Actor identity. Raw `events.person_id` — overrides resolved at READ time, so a person
+      -- merge after this row is written stays correct without re-materialisation (v1 reads the
+      -- raw id; read-time override regrouping is a follow-up).
+      person_id      UUID,
+  
+      -- The person's first qualifying day for this kind, across all history. Determines their
+      -- cohort period. Immutable once set.
+      first_seen_day Date,
+  
+      -- Day-offsets since first_seen_day on which the person was active in this kind, sorted
+      -- and capped at the horizon. 0 is always present (their first day). day/week/month
+      -- retention all derive from these day-offsets at read time.
+      active_offsets Array(UInt16),
+  
+      -- ReplacingMergeTree version. A re-materialisation re-derives the whole curve and writes
+      -- a row with a later computed_at; the newer row wins on read.
+      computed_at    DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC')
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_retention_curve', sipHash64(team_id, person_id))
+  
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -5956,6 +5988,42 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_retention_curve]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_retention_curve
+  (
+      team_id        Int64,
+  
+      -- Retention entity: a real event name ('$pageview') or the all-events marker.
+      -- LowCardinality since teams retain against a small set of kinds.
+      kind           LowCardinality(String),
+  
+      -- Actor identity. Raw `events.person_id` — overrides resolved at READ time, so a person
+      -- merge after this row is written stays correct without re-materialisation (v1 reads the
+      -- raw id; read-time override regrouping is a follow-up).
+      person_id      UUID,
+  
+      -- The person's first qualifying day for this kind, across all history. Determines their
+      -- cohort period. Immutable once set.
+      first_seen_day Date,
+  
+      -- Day-offsets since first_seen_day on which the person was active in this kind, sorted
+      -- and capped at the horizon. 0 is always present (their first day). day/week/month
+      -- retention all derive from these day-offsets at read time.
+      active_offsets Array(UInt16),
+  
+      -- ReplacingMergeTree version. A re-materialisation re-derives the whole curve and writes
+      -- a row with a later computed_at; the newer row wins on read.
+      computed_at    DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.retention_curve', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMM(first_seen_day)
+  ORDER BY (team_id, kind, first_seen_day, person_id)
+  SETTINGS index_granularity=8192
   
   '''
 # ---
@@ -9436,6 +9504,42 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_retention_curve]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_retention_curve
+  (
+      team_id        Int64,
+  
+      -- Retention entity: a real event name ('$pageview') or the all-events marker.
+      -- LowCardinality since teams retain against a small set of kinds.
+      kind           LowCardinality(String),
+  
+      -- Actor identity. Raw `events.person_id` — overrides resolved at READ time, so a person
+      -- merge after this row is written stays correct without re-materialisation (v1 reads the
+      -- raw id; read-time override regrouping is a follow-up).
+      person_id      UUID,
+  
+      -- The person's first qualifying day for this kind, across all history. Determines their
+      -- cohort period. Immutable once set.
+      first_seen_day Date,
+  
+      -- Day-offsets since first_seen_day on which the person was active in this kind, sorted
+      -- and capped at the horizon. 0 is always present (their first day). day/week/month
+      -- retention all derive from these day-offsets at read time.
+      active_offsets Array(UInt16),
+  
+      -- ReplacingMergeTree version. A re-materialisation re-derives the whole curve and writes
+      -- a row with a later computed_at; the newer row wins on read.
+      computed_at    DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.retention_curve', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMM(first_seen_day)
+  ORDER BY (team_id, kind, first_seen_day, person_id)
+  SETTINGS index_granularity=8192
   
   '''
 # ---
