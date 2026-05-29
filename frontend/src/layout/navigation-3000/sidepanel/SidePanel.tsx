@@ -3,7 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 
-import { IconGear, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
+import { IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -29,7 +29,6 @@ import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussio
 import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
 import { SidePanelMax } from './panels/max/SidePanelMax'
-import { SidePanelSettings } from './panels/settings/SidePanelSettings'
 import { SidePanelSupport } from './panels/support/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { SidePanelNavigation } from './SidePanelNavigation'
@@ -50,11 +49,6 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Support',
         Icon: SidePanelSupportIcon,
         Content: SidePanelSupport,
-    },
-    [SidePanelTab.Settings]: {
-        label: 'Settings',
-        Icon: IconGear,
-        Content: SidePanelSettings,
     },
     [SidePanelTab.Exports]: {
         label: 'Exports',

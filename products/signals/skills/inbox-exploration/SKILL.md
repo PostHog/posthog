@@ -76,6 +76,39 @@ By default `inbox-reports-list` excludes `suppressed` reports and orders results
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
 
+## What "suggested reviewer" means
+
+`is_suggested_reviewer: true` on a report means **the current PostHog user is one of up to
+three people the report-research flow flagged as best-placed to act on this report**. It is
+the strongest signal you have that a report matters to the user _personally_, and you should
+lean on it when triaging.
+
+How the flag is produced (see `report_generation/resolve_reviewers.py`):
+
+1. While researching a report, the agent identifies the GitHub commits most relevant to the
+   underlying signals (e.g. commits that touched the failing code path).
+2. It fetches the authors of those commits, weights earlier/more-relevant commits more
+   heavily, and keeps the top three GitHub logins. These get persisted as a
+   `SUGGESTED_REVIEWERS` artefact on the report.
+3. At read time, those GitHub logins are mapped back to PostHog users via each org member's
+   linked GitHub identity (social auth or GitHub integration). If the _current_ viewer's
+   linked GitHub login is one of them, `is_suggested_reviewer` flips to `true` for that
+   report.
+
+Practical implications for triage:
+
+- A `true` value means "you wrote (or recently touched) the code this report is about" — not
+  "you were assigned this." It's heuristic, not authoritative.
+- A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else owns
+  the code, (b) no one in the org has a linked GitHub account matching the suggested logins,
+  or (c) the source material wasn't tied to a specific repo / commits.
+- If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
+  reports — these are the ones where the user's name is on the relevant code. Mention the
+  rest as a secondary group rather than mixing them in.
+- If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
+  ("nothing in the inbox is tied to code you've authored recently") rather than pretending
+  the top of the list is personalized.
+
 ## Workflow: handling an empty or unconfigured inbox (read first)
 
 Run this check whenever a user asks about the inbox for the first time in a session, **or** any
@@ -152,28 +185,34 @@ For each report, the response includes:
   `candidate` — judgment hasn't run yet)
 - `signal_count`, `total_weight` — how much underlying evidence drove the report
 - `source_products` — which product(s) the underlying signals came from
-- `is_suggested_reviewer` — whether the current user is a suggested reviewer
+- `is_suggested_reviewer` — whether the current user is a suggested reviewer for this
+  report (see "What 'suggested reviewer' means" above — it's based on GitHub commit
+  authorship of the relevant code, mapped to PostHog users via linked GitHub identity)
 - `implementation_pr_url` — if a PR has been opened against this report
 - `_posthogUrl` — clickable deep-link to the report; **always include this in your response**
 
-Group the results so the user can scan quickly:
+Group the results so the user can scan quickly. **Lead with reports where
+`is_suggested_reviewer: true`** — those are the ones tied to code the current user has
+authored — and only then fall back to priority groupings for the rest:
 
 ```text
 ## Inbox — 8 actionable reports
 
-🔴 High priority (3)
-- Checkout error rate spiked 3× — error_tracking, 47 signals
+⭐ Suggested for you (1)
+- Checkout error rate spiked 3× — error_tracking, 47 signals (you're a suggested reviewer)
   <_posthogUrl>
+
+🔴 High priority (2 more)
 - Session replays on /pricing show repeated rage clicks — session_replay, 12 signals
   <_posthogUrl>
 …
 
 🟠 Medium priority (4)
 …
-
-🟡 Suggested for you (1)
-…
 ```
+
+If no reports come back with `is_suggested_reviewer: true`, say so explicitly before listing
+the rest — don't silently drop the section.
 
 ### Step 3 — Offer the drill-down
 

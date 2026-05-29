@@ -15,7 +15,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         // Reset modules to get a fresh LRU cache for each test
         jest.resetModules()
         const module = await import(
-            '../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
+            '../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep.js'
         )
         processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
 

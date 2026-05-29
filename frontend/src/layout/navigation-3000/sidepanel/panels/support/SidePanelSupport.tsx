@@ -4,7 +4,7 @@ import React from 'react'
 import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { incidentStatusLogic } from 'lib/components/HealthMenu/incidentStatusLogic'
+import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -78,9 +78,9 @@ const StatusPageAlert = (): JSX.Element | null => {
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "Many of our support engineers are attending an offsite (from 11th to 15th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be catching up from the 18th and back to full speed shortly after!"
+    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
@@ -199,7 +199,7 @@ const SupportResponseTimesTable = ({
     ]
 
     return (
-        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
+        <div className="grid grid-cols-2 border rounded *:px-2 *:py-0.5 bg-surface-primary mb-2">
             {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
@@ -264,9 +264,11 @@ const SupportResponseTimesTable = ({
 function SupportFormBlock({
     onCancel,
     billing,
+    isSubmitting,
 }: {
     onCancel: () => void
     billing: BillingType | null | undefined
+    isSubmitting: boolean
 }): JSX.Element {
     return (
         <Section title="Email an engineer">
@@ -279,6 +281,7 @@ function SupportFormBlock({
                 fullWidth
                 center
                 className="mt-4"
+                loading={isSubmitting}
             >
                 Submit
             </LemonButton>
@@ -307,7 +310,12 @@ export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
+    const {
+        isEmailFormOpen,
+        title: supportPanelTitle,
+        targetArea,
+        isSendSupportRequestSubmitting,
+    } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
@@ -344,6 +352,7 @@ export function SidePanelSupport(): JSX.Element {
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             billing={billing}
+                            isSubmitting={isSendSupportRequestSubmitting}
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()

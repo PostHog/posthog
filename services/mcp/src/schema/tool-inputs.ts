@@ -475,7 +475,7 @@ export const InsightQueryInputSchema = z.object({
         ),
 })
 
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
@@ -544,7 +544,7 @@ export const HogQLSchemaInputSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-connections-list to discover available connection ids.'
         ),
 })
 
@@ -565,7 +565,7 @@ export const QueryValidateInputSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-connections-list to discover available connection ids.'
         ),
 })
 
@@ -606,6 +606,12 @@ export const ExecuteSQLSchema = z.object({
         .default(true)
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
@@ -665,3 +671,25 @@ export const ReadDataSchemaSchema = z.object({
         ])
         .describe('The data schema query to execute.'),
 })
+
+// Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
+// instead of forwarding an empty/ambiguous body and waiting for a 400.
+export function validateDistinctIdPersonIdExclusive(
+    data: { distinct_id?: string | undefined; person_id?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    const hasDistinctId = typeof data.distinct_id === 'string' && data.distinct_id.length > 0
+    const hasPersonId = typeof data.person_id === 'string' && data.person_id.length > 0
+    if (!hasDistinctId && !hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Either distinct_id or person_id must be provided',
+        })
+    }
+    if (hasDistinctId && hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Cannot provide both distinct_id and person_id (they are mutually exclusive)',
+        })
+    }
+}

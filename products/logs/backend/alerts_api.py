@@ -10,24 +10,27 @@ from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.hog_function import HogFunctionSerializer
+from posthog.schema import LogsAlertFilters
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
 from products.logs.backend.alert_state_machine import (
@@ -104,6 +107,31 @@ def _state_timeline_window_bounds() -> tuple[datetime, datetime]:
     return end - dt.timedelta(hours=STATE_TIMELINE_LOOKBACK_HOURS), end
 
 
+@extend_schema_field(LogsAlertFilters)  # type: ignore[arg-type]
+class LogsAlertFiltersField(serializers.JSONField):
+    """JSONField typed against the `LogsAlertFilters` Pydantic schema.
+
+    Annotating with `@extend_schema_field(LogsAlertFilters)` is what makes the
+    generated OpenAPI spec — and downstream MCP zod schemas — surface the actual
+    shape (severityLevels / serviceNames / filterGroup) to API consumers and AI
+    agents, instead of an opaque `JSONField` blob. Validating with
+    `model_validate` on write rejects shape errors at the API boundary so the
+    alerting worker never sees a structurally invalid `filterGroup`.
+    """
+
+    def to_internal_value(self, data: dict | list) -> dict:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Must be a JSON object.")
+        try:
+            LogsAlertFilters.model_validate(value)
+        except PydanticValidationError as e:
+            first = e.errors()[0]
+            location = ".".join(str(p) for p in first["loc"]) or "filters"
+            raise serializers.ValidationError(f"Invalid filters shape at `{location}`: {first['msg']}") from e
+        return value
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -119,16 +147,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         default=True,
         help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
     )
-    filters = serializers.JSONField(
+    filters = LogsAlertFiltersField(
         required=False,
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
         "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         default=100,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.",
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
     )
     first_enabled_at = serializers.DateTimeField(
         read_only=True,
@@ -506,7 +534,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
 
 def _validate_filters(filters: dict) -> None:
-    """Shared filter validation for both create/update and simulate."""
+    """Cross-field requirement that at least one filter is present.
+
+    Per-field shape validation is handled by `LogsAlertFiltersField`, which runs
+    `LogsAlertFilters.model_validate` on the raw input — by the time this helper
+    runs, `filters` is a structurally valid `LogsAlertFilters` dict.
+    """
     if not isinstance(filters, dict):
         raise ValidationError({"filters": "Must be a JSON object."})
     has_severity = bool(filters.get("severityLevels"))
@@ -545,9 +578,9 @@ class LogsAlertSimulateBucketSerializer(serializers.Serializer):
 
 
 class LogsAlertSimulateRequestSerializer(serializers.Serializer):
-    filters = serializers.JSONField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
+    filters = LogsAlertFiltersField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         help_text="Threshold count to evaluate against.",
     )
     threshold_operator = serializers.ChoiceField(

@@ -26,14 +26,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
-from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
@@ -43,6 +41,9 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
@@ -188,6 +189,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     def validate(self, attrs):
+        request = self.context.get("request")
+        # Re-run the free-tier cap on create AND on restore (deleted: true → false) —
+        # a soft-deleted row frees its slot, so PATCHing one back to active re-occupies
+        # one and must respect the limit, otherwise a free-tier team could soft-delete +
+        # create + restore its way past the cap.
+        is_create = request is not None and request.method == "POST"
+        is_restoring = self.instance is not None and self.instance.deleted and attrs.get("deleted") is False
+        if is_create or is_restoring:
+            msg = Subscription.check_subscription_limit(self.context["team_id"], self.context["get_organization"]())
+            if msg:
+                raise ValidationError({"subscription": [msg]})
+
         if not self.initial_data:
             # Create
             if not attrs.get("dashboard") and not attrs.get("insight"):
@@ -281,6 +294,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # — otherwise PATCHing `deleted=False` on a grandfathered row would
         # bypass the cap entirely.
         if self._is_becoming_active_summary(attrs):
+            self._validate_summary_credit_budget()
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
@@ -295,6 +309,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         pre_active = pre_summary_enabled and not pre_deleted
         post_active = post_summary_enabled and not post_deleted
         return post_active and not pre_active
+
+    def _validate_summary_credit_budget(self) -> None:
+        # Refuse to turn a summary on while the org is over its AI credit budget,
+        # mirroring the chat assistant's gate (ee/api/conversation.py).
+        team = self.context["get_team"]()
+        if is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. "
+                "Increase the limits in Billing settings, or ask an org admin to do so."
+            )
 
     def _validate_summary_enabled_org_limit(self, organization) -> None:
         # Already-on subscriptions stay on for grandfathered orgs already over
@@ -347,12 +371,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _prompt_guide_feature_enabled(self) -> bool:
-        """Evaluate the prompt-guide feature flag for the caller's organization.
+    def _evaluate_feature_flag(self, flag_key: str) -> bool:
+        """Evaluate a feature flag for the caller's organization.
 
-        Scoped by organization (not user) so the gate is stable across a team's
+        Scoped by organization (not user) so gates are stable across a team's
         members. `only_evaluate_locally=False` so we respect server-side cohort
-        / property conditions — this isn't on a hot path.
+        / property conditions — these checks aren't on a hot path.
         """
         request = self.context.get("request")
         if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
@@ -361,13 +385,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         org_id = str(organization.id) if organization else ""
         return bool(
             posthoganalytics.feature_enabled(
-                SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+                flag_key,
                 str(request.user.distinct_id),
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
             )
         )
+
+    def _prompt_guide_feature_enabled(self) -> bool:
+        return self._evaluate_feature_flag(SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY)
 
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
@@ -621,8 +648,6 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.SUBSCRIPTIONS
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
         "title",
@@ -885,8 +910,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()
     serializer_class = SubscriptionDeliverySerializer
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.SUBSCRIPTIONS
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
 

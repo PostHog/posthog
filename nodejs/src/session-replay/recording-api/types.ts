@@ -21,16 +21,16 @@ export type RecordingApiProducerName = DefaultProducer | WarpstreamProducer
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
-    DecryptResult,
-    DeleteKeyResult,
-    EncryptResult,
-    KeyStore,
-    RecordingDecryptor,
-    RecordingEncryptor,
-    SerializedSessionKey,
-    SessionKey,
     SessionKeyDeletedError,
-    SessionState,
+    type DecryptResult,
+    type DeleteKeyResult,
+    type EncryptResult,
+    type KeyStore,
+    type RecordingDecryptor,
+    type RecordingEncryptor,
+    type SerializedSessionKey,
+    type SessionKey,
+    type SessionState,
 } from '../shared/types'
 
 /**

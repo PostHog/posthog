@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -500,14 +499,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     // We don't display it otherwise and humans shouldn't be able to click to select this tab
                     // it only opens when you select "Open as new insight" from the Web Analytics dashboard.
                     tabs.push({
-                        label: (
-                            <>
-                                Web Analytics{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: 'Web analytics',
                         type: InsightType.WEB_ANALYTICS,
                         dataAttr: 'insight-web-analytics-tab',
                     })
@@ -523,14 +515,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                             ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
                             : null
                     tabs.push({
-                        label: (
-                            <>
-                                {humanFriendlyQueryKind ?? 'Custom'}{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: humanFriendlyQueryKind ?? 'Custom',
                         type: InsightType.JSON,
                         dataAttr: 'insight-json-tab',
                     })
@@ -693,6 +678,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties !== undefined ? { properties: cache.properties } : {}),
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+        ...(cache.filterTestAccounts !== undefined ? { filterTestAccounts: cache.filterTestAccounts } : {}),
     }
 
     // Insight-specific filter merge (web analytics already returned above)

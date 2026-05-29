@@ -1,0 +1,48 @@
+name: PostHog Private Sync
+
+on:
+    push:
+        branches:
+            - master
+
+concurrency:
+    group: private-sync
+    cancel-in-progress: false
+
+jobs:
+    repo-sync:
+        name: Sync posthog-private with posthog
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: posthog-private
+
+            # blob:none skips historical blobs (avoids a full-history clone); the full
+            # commit graph keeps pushes connected. Lazy blob fetches need origin auth,
+            # so persist-credentials stays default-on.
+            - name: Checkout posthog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  fetch-tags: true
+
+            # 1:1 mirror: replays posthog's existing signed commits — no new commit, so
+            # signing enforcement on posthog-private is unaffected.
+            - name: Mirror master and tags to posthog-private
+              env:
+                  PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/posthog/posthog-private.git"
+                  git push private "HEAD:refs/heads/master" --force
+                  git push private "refs/tags/*:refs/tags/*" --force

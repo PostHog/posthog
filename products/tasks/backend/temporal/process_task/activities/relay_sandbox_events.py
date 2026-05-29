@@ -15,6 +15,7 @@ from products.tasks.backend.models import TaskRun as TaskRunModel
 from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -99,6 +100,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             task_id=input.task_id,
             sandbox_id=input.sandbox_id,
             background_logs_enabled=background_logs_enabled,
+            task_run=task_run,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
@@ -188,9 +190,6 @@ async def _background_heartbeat(
             return  # stop_event was set
         except TimeoutError:
             activity.heartbeat()
-            # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT
-
             now = time.monotonic()
             if (
                 workflow_handle is not None
@@ -220,6 +219,7 @@ async def _relay_loop(
     task_id: str,
     sandbox_id: str | None = None,
     background_logs_enabled: bool = False,
+    task_run: TaskRunModel | None = None,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -294,6 +294,12 @@ async def _relay_loop(
                                 agent_active[0] = False
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
+                                if task_run is not None and task_run.mode == "interactive":
+                                    # Interactive run finished a turn — the agent is now idle waiting
+                                    # for the user. Hop off the event loop because the dispatcher
+                                    # does sync Redis (cache.add) and a potential network call to
+                                    # the feature-flag service.
+                                    asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
                             elif not agent_active[0] and _is_session_update(event_data):
                                 agent_active[0] = True
 
@@ -433,3 +439,23 @@ def _is_terminal_event(event_data: dict) -> bool:
     notification = event_data.get("notification", {})
     method = notification.get("method", "")
     return method in TERMINAL_NOTIFICATION_METHODS
+
+
+def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
+    """Schedule a push when an interactive run idles waiting on the user.
+
+    Must be called via ``asyncio.to_thread`` (as the caller does) because the
+    dispatcher performs sync I/O: a Redis write (``cache.add``) and a potential
+    network call to the feature-flag service. Wrapped in a try so a failed
+    dispatch never bubbles into the relay loop.
+    """
+    try:
+        from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+
+        notify_task_run_awaiting_input(task_run)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )

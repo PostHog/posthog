@@ -195,17 +195,20 @@ def _configure_overrides(config: DevenvConfig, registry, resolver: IntentResolve
 
     click.echo("")
     click.echo(click.style("Processes that will start:", fg="cyan"))
-    for unit in units_list:
+    for i, unit in enumerate(units_list, 1):
         if unit in manual_start:
-            click.echo(f"  {unit} (manual start)")
+            click.echo(f"  {i:2}. {unit} (manual start)")
         else:
-            click.echo(f"  {unit}")
+            click.echo(f"  {i:2}. {unit}")
 
     click.echo("")
-    click.echo("Units to exclude (enter names from above, or blank to skip):")
+    click.echo("Units to exclude (enter numbers or names from above, or blank to skip):")
     exclude = click.prompt("Comma-separated", default="")
-    if exclude.strip():
-        config.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
+    excluded, out_of_range = _parse_exclude_input(exclude, units_list)
+    for idx in out_of_range:
+        click.echo(f"  Ignoring out-of-range number: {idx}")
+    if excluded:
+        config.exclude_units = excluded
 
     # Ask about manual-start processes (those with ask_skip: true)
     ask_skip_processes = registry.get_ask_skip_processes()
@@ -215,3 +218,27 @@ def _configure_overrides(config: DevenvConfig, registry, resolver: IntentResolve
             config.enable_autostart.append(process_name)
 
     return config
+
+
+def _parse_exclude_input(raw: str, units: list[str]) -> tuple[list[str], list[int]]:
+    """Parse the 'Units to exclude' prompt input.
+
+    Returns (resolved unit names, out-of-range numbers seen). A token that
+    parses as a digit is treated as a 1-based index into `units`; anything
+    else is passed through as a name.
+    """
+    excluded: list[str] = []
+    out_of_range: list[int] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token.isdecimal():
+            idx = int(token)
+            if 1 <= idx <= len(units):
+                excluded.append(units[idx - 1])
+            else:
+                out_of_range.append(idx)
+        else:
+            excluded.append(token)
+    return excluded, out_of_range

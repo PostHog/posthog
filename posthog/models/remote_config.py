@@ -12,19 +12,20 @@ import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
-from posthog.models.plugin import PluginConfig
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import PluginConfig
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -74,11 +75,16 @@ class RemoteConfig(UUIDTModel):
             except RemoteConfig.DoesNotExist:
                 return HyperCacheStoreMissing()
 
+        has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
         return HyperCache(
             namespace="array",
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
+            # Mirror to the shared Redis so the hypercache-server doesn't fall
+            # through to (potentially stale) S3.
+            secondary_cache_alias="default" if has_dedicated_cache else None,
         )
 
     def _build_session_recording_config(self, team: Team) -> dict:
@@ -189,11 +195,11 @@ class RemoteConfig(UUIDTModel):
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
-        from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -336,8 +342,9 @@ class RemoteConfig(UUIDTModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.cdp.site_functions import get_transpiled_function
-        from posthog.models import HogFunction
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         # Add in the site apps as an array of objects
         site_apps_js = []

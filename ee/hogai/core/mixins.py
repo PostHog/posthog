@@ -11,8 +11,9 @@ from posthog.schema import CurrencyCode, HumanMessage
 
 from posthog.event_usage import groups
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.user import User
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
 from ee.hogai.utils.feature_flags import is_core_memory_disabled

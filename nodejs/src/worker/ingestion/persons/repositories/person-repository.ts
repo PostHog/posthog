@@ -11,11 +11,11 @@ import {
     TeamId,
 } from '../../../../types'
 import { CreatePersonResult } from '../../../../utils/db/db'
-import { PersonMessage } from '../person-message'
+import type { PersonMessage } from '../person-message'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 
-export { PersonMessage }
+export type { PersonMessage }
 
 export type InternalPersonWithDistinctId = InternalPerson & {
     distinct_id: string
@@ -50,6 +50,17 @@ export interface PersonRepository {
         teamPersons: { teamId: TeamId; personId: string }[],
         useReadReplica?: boolean
     ): Promise<InternalPerson[]>
+
+    /**
+     * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id (single team).
+     * Returns a record keyed by int person_id as a string (matching InternalPerson.id).
+     * Persons with no distinct_ids will be absent from the result.
+     */
+    fetchDistinctIdsForPersons(
+        teamId: TeamId,
+        personIntIds: string[],
+        options?: { limitPerPerson?: number; useReadReplica?: boolean }
+    ): Promise<Record<string, string[]>>
 
     createPerson(
         createdAt: DateTime,

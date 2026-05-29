@@ -3,17 +3,20 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
+
+import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
@@ -80,6 +83,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['currentOrganization'],
             sceneLogic,
             ['sceneId', 'sceneConfig'],
+            teamLogic,
+            ['currentTeamIdStrict'],
             featureFlagLogic,
             ['featureFlags'],
             sidePanelStateLogic,
@@ -94,6 +99,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+        deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
         dismissDataProcessing: true,
     }),
@@ -195,11 +201,25 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
+        deleteConversation: async ({ id }) => {
+            try {
+                await conversationsDestroy(String(values.currentTeamIdStrict), id)
+                if (values.currentConversationId === id) {
+                    router.actions.push(urls.aiHistory())
+                }
+                for (const logic of maxLogic.findAllMounted()) {
+                    if (logic.values.conversationId === id) {
+                        logic.actions.startNewConversation()
+                    }
+                }
+                actions.loadConversationHistory()
+            } catch {
+                lemonToast.error('Failed to delete chat')
+            }
+        },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
-            actions.loadConversationHistory()
-        }
+    afterMount(({ actions }) => {
+        actions.loadConversationHistory()
     }),
 
     selectors({

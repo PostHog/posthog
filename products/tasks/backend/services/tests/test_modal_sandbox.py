@@ -10,6 +10,7 @@ from products.tasks.backend.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.services.modal_sandbox import (
+    _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
     SANDBOX_IMAGE,
@@ -19,7 +20,7 @@ from products.tasks.backend.services.modal_sandbox import (
     _image_ref_cache,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError, SandboxProvisionError
 
 
 def _mock_token_response(status_code: int = 200, token: str | None = "test-token"):
@@ -36,9 +37,37 @@ def _mock_manifest_response(status_code: int = 200, digest: str | None = "sha256
     return resp
 
 
+def _ghcr_side_effect(
+    token_resp: Any = None,
+    manifest_resp: Any = None,
+    token_exc: Exception | None = None,
+    manifest_exc: Exception | None = None,
+):
+    """Build a `requests.get` side effect that answers token vs manifest calls
+    consistently no matter how many times it is called, so the test stays valid
+    regardless of the (bounded) `_GHCR_RESOLVE_MAX_ATTEMPTS` retry cap.
+    """
+
+    def _side(url: str, *args: Any, **kwargs: Any) -> Any:
+        if "/token" in url:
+            if token_exc is not None:
+                raise token_exc
+            return token_resp
+        if manifest_exc is not None:
+            raise manifest_exc
+        return manifest_resp
+
+    return _side
+
+
 class TestGetSandboxImageReference:
     def setup_method(self):
         _image_ref_cache.clear()
+
+    @pytest.fixture(autouse=True)
+    def _no_backoff_sleep(self):
+        with patch("products.tasks.backend.services.modal_sandbox.time.sleep"):
+            yield
 
     def test_returns_digest_reference_on_success(self):
         with patch(
@@ -50,42 +79,46 @@ class TestGetSandboxImageReference:
         assert result == f"{SANDBOX_IMAGE}@sha256:abc123"
 
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
-    def test_falls_back_to_master_on_token_request_failure(self, status_code: int):
+    def test_fails_closed_on_token_request_failure(self, status_code: int):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
             return_value=_mock_token_response(status_code=status_code),
-        ):
-            result = _get_sandbox_image_reference()
+        ) as mock_get:
+            with pytest.raises(SandboxProvisionError, match="refusing to fall back to the mutable"):
+                _get_sandbox_image_reference()
 
-        assert result == f"{SANDBOX_IMAGE}:master"
+        assert mock_get.call_count == _GHCR_RESOLVE_MAX_ATTEMPTS
 
-    def test_falls_back_to_master_when_token_missing(self):
+    def test_fails_closed_when_token_missing(self):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
             return_value=_mock_token_response(token=None),
         ):
-            result = _get_sandbox_image_reference()
-
-        assert result == f"{SANDBOX_IMAGE}:master"
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
 
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
-    def test_falls_back_to_master_on_manifest_request_failure(self, status_code: int):
+    def test_fails_closed_on_manifest_request_failure(self, status_code: int):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
-            side_effect=[_mock_token_response(), _mock_manifest_response(status_code=status_code)],
+            side_effect=_ghcr_side_effect(
+                token_resp=_mock_token_response(),
+                manifest_resp=_mock_manifest_response(status_code=status_code),
+            ),
         ):
-            result = _get_sandbox_image_reference()
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
 
-        assert result == f"{SANDBOX_IMAGE}:master"
-
-    def test_falls_back_to_master_when_digest_header_missing(self):
+    def test_fails_closed_when_digest_header_missing(self):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
-            side_effect=[_mock_token_response(), _mock_manifest_response(digest=None)],
+            side_effect=_ghcr_side_effect(
+                token_resp=_mock_token_response(),
+                manifest_resp=_mock_manifest_response(digest=None),
+            ),
         ):
-            result = _get_sandbox_image_reference()
-
-        assert result == f"{SANDBOX_IMAGE}:master"
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
 
     @pytest.mark.parametrize(
         "exception",
@@ -95,14 +128,50 @@ class TestGetSandboxImageReference:
             Exception("Unknown error"),
         ],
     )
-    def test_falls_back_to_master_on_request_exception(self, exception: Exception):
+    def test_fails_closed_on_request_exception(self, exception: Exception):
         with patch(
             "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=exception,
         ):
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
+
+    def test_retries_transient_failure_then_succeeds(self):
+        attempts = {"token": 0}
+
+        def _side(url: str, *args: Any, **kwargs: Any) -> Any:
+            if "/token" in url:
+                attempts["token"] += 1
+                if attempts["token"] == 1:
+                    return _mock_token_response(status_code=503)
+                return _mock_token_response()
+            return _mock_manifest_response(digest="sha256:recovered")
+
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=_side,
+        ):
             result = _get_sandbox_image_reference()
 
-        assert result == f"{SANDBOX_IMAGE}:master"
+        assert result == f"{SANDBOX_IMAGE}@sha256:recovered"
+        assert attempts["token"] == 2  # failed once, succeeded on retry
+
+    def test_failure_is_not_cached(self):
+        """A failed resolution must re-attempt on the next call (never cache the failure)."""
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            return_value=_mock_token_response(status_code=503),
+        ):
+            with pytest.raises(SandboxProvisionError):
+                _get_sandbox_image_reference()
+
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:after")],
+        ):
+            result = _get_sandbox_image_reference()
+
+        assert result == f"{SANDBOX_IMAGE}@sha256:after"
 
     def test_caches_result_across_calls(self):
         with patch(
@@ -201,6 +270,22 @@ class TestModalSandboxAgentServer:
 
         with pytest.raises(RuntimeError, match="Sandbox not in running state"):
             mock_sandbox.get_connect_credentials()
+
+    @pytest.mark.parametrize("method_name", ["execute", "execute_stream"])
+    def test_execution_redacts_event_ingest_token_from_error_context(self, mock_sandbox: Any, method_name: str):
+        mock_sandbox._sandbox.exec.side_effect = RuntimeError("failed POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token")
+
+        with (
+            patch("products.tasks.backend.services.modal_sandbox.capture_exception") as capture_exception,
+            pytest.raises(SandboxExecutionError) as exc,
+        ):
+            getattr(mock_sandbox, method_name)("env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token agent-server")
+
+        assert exc.value.context["command"] == "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted> agent-server"
+        assert exc.value.context["error"] == "failed POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>"
+        assert "secret-token" not in exc.value.context["command"]
+        assert "secret-token" not in exc.value.context["error"]
+        capture_exception.assert_not_called()
 
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -327,6 +412,7 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            event_ingest_token="ingest-token",
         )
 
         command = mock_sandbox.execute.call_args_list[0][0][0]
@@ -334,6 +420,7 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0

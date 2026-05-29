@@ -39,6 +39,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
@@ -48,6 +49,8 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
@@ -484,7 +487,12 @@ class TestQueryRunner(BaseTest):
         ]
     )
     def test_query_execution_metrics(self, _name, calculate_mode, expected_exception, success_delta, failure_delta):
+        from posthog.clickhouse.query_tagging import reset_query_tags
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        # Sibling tests in this class invoke real HogQL runners that flip
+        # `contains_user_hogql` on the ContextVar; reset so we observe "false".
+        reset_query_tags()
 
         TestQueryRunner = self.setup_test_query_runner_class()
         if calculate_mode == "error":
@@ -498,10 +506,10 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="success", error_type="none"
+            query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="error", error_type="ValueError"
+            query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -512,19 +520,116 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
+            )._value.get()
             - before_success
             == success_delta
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
+            )._value.get()
             - before_failure
             == failure_delta
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
+    @parameterized.expand([("success_path", None), ("error_path", ValueError)])
+    def test_query_execution_metric_labels_with_contains_user_hogql(
+        self, _name: str, expected_exception: Optional[type[Exception]]
+    ) -> None:
+        # Verifies the `contains_user_hogql` label flows from the canonical
+        # `QueryTags.contains_user_hogql` tag (set by `tag_contains_user_hogql()`
+        # at HogQL parse sites) rather than being recomputed schema-side.
+        from posthog.clickhouse.query_tagging import reset_query_tags, tag_contains_user_hogql
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        if expected_exception is None:
+
+            def calculate_tags(self: Any) -> Any:
+                tag_contains_user_hogql()
+                return TheTestBasicQueryResponse(results=[])
+
+            TestQueryRunner.calculate = calculate_tags
+            label_kwargs = {
+                "query_type": "TestQuery",
+                "category": "success",
+                "error_type": "none",
+                "contains_user_hogql": "true",
+            }
+        else:
+
+            def calculate_tags_then_raise(self: Any) -> Any:
+                tag_contains_user_hogql()
+                raise ValueError("boom")
+
+            TestQueryRunner.calculate = calculate_tags_then_raise
+            label_kwargs = {
+                "query_type": "TestQuery",
+                "category": "error",
+                "error_type": "ValueError",
+                "contains_user_hogql": "true",
+            }
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        # ContextVar persists across tests; reset both before (so we observe a real
+        # transition false→true via calculate) and after (so siblings don't see "true").
+        reset_query_tags()
+        before = QUERY_EXECUTION_TOTAL.labels(**label_kwargs)._value.get()
+
+        try:
+            if expected_exception:
+                with pytest.raises(expected_exception):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            else:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            assert QUERY_EXECUTION_TOTAL.labels(**label_kwargs)._value.get() - before == 1
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand(
+        [
+            (
+                "user_access_control_error",
+                lambda: UserAccessControlError("query", "viewer", None),
+                SloOutcome.SUCCESS,
+                "user_error",
+            ),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+        ]
+    )
+    def test_run_classifies_slo_error_at_except_boundary(
+        self, _name, exception_factory, expected_outcome, expected_error_category
+    ):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = exception_factory()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+            with pytest.raises(type(raised_exc)):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        mock_emit_slo_completed.assert_called_once()
+        completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+        assert completed_kwargs["properties"].outcome == expected_outcome
+        assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
+        from posthog.clickhouse.query_tagging import reset_query_tags
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        # Sibling tests may have flipped `contains_user_hogql` on the ContextVar.
+        reset_query_tags()
 
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -533,10 +638,10 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="success", error_type="none"
+            query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="error", error_type="ValueError"
+            query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -545,11 +650,15 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
+            )._value.get()
             == before_success
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
+            )._value.get()
             == before_failure
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
@@ -878,7 +987,9 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
+        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
+            StickinessQueryRunner,
+        )
 
         query = StickinessQuery(
             series=[

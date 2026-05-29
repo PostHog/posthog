@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import asyncio
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from temporalio.client import (
     Client as TemporalClient,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -42,8 +44,8 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 if TYPE_CHECKING:
     from posthog.models import Team
 
-    from products.data_warehouse.backend.models import ExternalDataSource
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
@@ -153,7 +155,11 @@ def sync_external_data_job_workflow(
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        except ScheduleAlreadyRunningError:
+            update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -168,7 +174,13 @@ async def a_sync_external_data_job_workflow(
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            await a_create_schedule(
+                temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True
+            )
+        except ScheduleAlreadyRunningError:
+            await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -237,6 +249,83 @@ async def a_delete_external_data_schedule(external_data_source: ExternalDataSour
         raise
 
 
+# Bounded concurrency for bulk schedule operations. High enough to parallelise the
+# per-RPC latency across thousands of schemas — each create_schedule with an immediate
+# trigger is a relatively heavy server-side operation (it also starts a workflow) — but
+# low enough to stay friendly to the Temporal frontend service.
+_BULK_SCHEDULE_CONCURRENCY = 100
+
+
+@async_to_sync
+async def bulk_create_external_data_job_schedules(
+    schemas: list[tuple[ExternalDataSchema, bool]],
+) -> list[tuple[str, BaseException]]:
+    """Create sync schedules for many schemas over a single shared Temporal connection.
+
+    `sync_external_data_job_workflow` opens a fresh Temporal connection on every call, so
+    looping it over thousands of schemas (e.g. a Slack workspace with thousands of
+    channels) spends almost all of its time reconnecting. This connects once and runs the
+    creates concurrently. Returns ``(schema_id, exception)`` pairs for any schedules that
+    failed — a partial failure does not abort the rest, so the caller decides how to
+    surface them and can attribute each failure to a specific schema.
+    """
+    if not schemas:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _create_one(external_data_schema: ExternalDataSchema, should_sync: bool) -> None:
+        async with semaphore:
+            schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
+            schedule_id = str(external_data_schema.id)
+            try:
+                await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+            except ScheduleAlreadyRunningError:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+                await a_trigger_schedule(temporal, schedule_id=schedule_id)
+
+    schema_ids = [str(schema.id) for schema, _ in schemas]
+    results = await asyncio.gather(
+        *(_create_one(schema, should_sync) for schema, should_sync in schemas),
+        return_exceptions=True,
+    )
+    return [(schema_id, result) for schema_id, result in zip(schema_ids, results) if isinstance(result, BaseException)]
+
+
+@async_to_sync
+async def bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list[tuple[str, BaseException]]:
+    """Delete many Temporal schedules over a single shared connection.
+
+    The bulk counterpart to `delete_external_data_schedule`: reuses one connection,
+    deletes concurrently, and ignores schedules that no longer exist. Returns
+    ``(schedule_id, exception)`` pairs for any deletes that failed for another reason.
+    """
+    if not schedule_ids:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _delete_one(schedule_id: str) -> None:
+        async with semaphore:
+            try:
+                await a_delete_schedule(temporal, schedule_id=schedule_id)
+            except temporalio.service.RPCError as e:
+                # Swallow error if schedule does not exist already
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    return
+                raise
+
+    results = await asyncio.gather(
+        *(_delete_one(schedule_id) for schedule_id in schedule_ids),
+        return_exceptions=True,
+    )
+    return [
+        (schedule_id, result) for schedule_id, result in zip(schedule_ids, results) if isinstance(result, BaseException)
+    ]
+
+
 def cancel_external_data_workflow(workflow_id: str):
     temporal = sync_connect()
     cancel_workflow(temporal, workflow_id)
@@ -249,7 +338,7 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
 
 
 def is_any_external_data_schema_paused(team_id: int) -> bool:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
@@ -259,17 +348,11 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    """Check if the CDC feature flag is enabled for a team."""
-    from django.conf import settings
-
-    if settings.DEBUG:
-        return True
-
     import posthoganalytics
 
     return posthoganalytics.feature_enabled(
         "dwh-postgres-cdc",
-        str(team.uuid),
+        str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )
@@ -332,7 +415,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     Calculates the interval from the most frequent CDC schema. If no CDC
     schemas are active, deletes the schedule.
     """
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
@@ -375,6 +458,94 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
     try:
         delete_external_data_schedule(schedule_id)
     except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Schema discovery scheduling (source-level)
+# ---------------------------------------------------------------------------
+
+DISCOVER_SCHEMAS_INTERVAL = timedelta(hours=6)
+
+
+def _get_discover_schemas_schedule_id(source_id: str) -> str:
+    return f"discover-schemas-{source_id}"
+
+
+def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
+    """Build a Temporal Schedule for the per-source schema-discovery workflow."""
+    # Inline import breaks a circular dependency: `sync_new_schemas` needs
+    # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
+    # module for self-cleanup when the source vanishes, so it imports from us at module
+    # load time. Hoisting this import would deadlock the loader.
+    from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import SyncNewSchemasActivityInputs
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
+
+    action = ScheduleActionStartWorkflow(
+        "discover-schemas",
+        asdict(inputs),
+        id=_get_discover_schemas_schedule_id(str(source.id)),
+        task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=10),
+            maximum_interval=timedelta(seconds=60),
+            maximum_attempts=3,
+            non_retryable_error_types=["NondeterminismError"],
+        ),
+    )
+
+    # Deterministic per-source offset so sources sharing a cadence don't dogpile.
+    offset_hours, offset_minutes = _jitter_timedelta(DISCOVER_SCHEMAS_INTERVAL, random.Random(str(source.id)))
+    spec = ScheduleSpec(
+        intervals=[
+            ScheduleIntervalSpec(
+                every=DISCOVER_SCHEMAS_INTERVAL,
+                offset=timedelta(hours=offset_hours, minutes=offset_minutes),
+            )
+        ],
+    )
+
+    return Schedule(
+        action=action,
+        spec=spec,
+        state=ScheduleState(note=f"Discover schemas schedule for source: {source.id}"),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def sync_discover_schemas_schedule(source: ExternalDataSource, create: bool = False) -> None:
+    """Create or update the per-source schema-discovery Temporal schedule.
+
+    On ``create=True`` triggers an immediate run so a brand-new source picks up
+    its initial schema list right away. On ``create=False`` (or when the
+    schedule turns out not to exist), upserts idempotently — this makes the
+    helper safe for both fresh deploys and the backfill management command.
+    """
+    temporal = sync_connect()
+    schedule_id = _get_discover_schemas_schedule_id(str(source.id))
+    schedule = get_discover_schemas_schedule(source)
+
+    if create:
+        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        return
+
+    try:
+        update_schedule(temporal, id=schedule_id, schedule=schedule)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        else:
+            raise
+
+
+def delete_discover_schemas_schedule(source_id: str) -> None:
+    schedule_id = _get_discover_schemas_schedule_id(source_id)
+    try:
+        delete_external_data_schedule(schedule_id)
+    except Exception:
+        # delete_external_data_schedule already swallows NOT_FOUND; defensively
+        # ignore other races (e.g. schedule deleted between fetch and delete).
         pass
 
 

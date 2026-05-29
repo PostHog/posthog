@@ -18,6 +18,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
@@ -41,16 +42,23 @@ class ActorStrategy:
     origin: str
     origin_id: str
 
-    def __init__(self, team: Team, query: ActorsQuery, paginator: HogQLHasMorePaginator):
+    def __init__(
+        self,
+        team: Team,
+        query: ActorsQuery,
+        paginator: HogQLHasMorePaginator,
+        user: User | None = None,
+    ):
         self.team = team
         self.paginator = paginator
         self.query = query
+        self.user = user
 
     def get_actors(self, actor_ids) -> dict[str, dict]:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
+        return RecordingsHelper(self.team, user=self.user).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -379,6 +387,7 @@ class SessionStrategy(ActorStrategy):
             query_type="SessionActorsQuery",
             query=query,
             team=self.team,
+            user=self.user,
         )
 
         columns = response.columns or []

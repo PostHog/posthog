@@ -27,17 +27,14 @@ from posthog.schema import AIEventType
 from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
-from posthog.models.feature_flag import FeatureFlag
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
@@ -47,20 +44,21 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models import (
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-)
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
     get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -190,7 +188,7 @@ class UsageReportCounters:
     flutter_exceptions_captured_in_period: int
     unknown_exceptions_captured_in_period: int
 
-    # LLM Analytics
+    # AI observability
     ai_event_count_in_period: int
 
     # AI Billing Credits (PostHog AI feature usage)
@@ -231,6 +229,13 @@ class UsageReportCounters:
     logs_bytes_in_period: int
     logs_records_in_period: int
     logs_mb_in_period: int
+    # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
+    # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
+    # Web (browser) is intentionally absent: posthog-js doesn't set telemetry.sdk.name on logs yet.
+    ios_logs_records_in_period: int
+    react_native_logs_records_in_period: int
+    android_logs_records_in_period: int
+    flutter_logs_records_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -478,6 +483,7 @@ def _execute_split_query(
             split_params,
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
         all_results.append(split_result)
@@ -606,6 +612,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -747,6 +754,7 @@ def get_teams_with_recording_count_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -783,6 +791,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
             {"previous_begin": previous_begin, "begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -820,6 +829,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             {"previous_begin": previous_begin, "begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -854,6 +864,7 @@ def get_teams_with_api_queries_metrics(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
     result_count: list[tuple[int, int]] = []
     result_read_bytes: list[tuple[int, int]] = []
@@ -902,6 +913,7 @@ def get_teams_with_query_metric(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -934,6 +946,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -975,6 +988,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1030,6 +1044,7 @@ def get_teams_with_survey_responses_count_in_period(
             params,
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1050,6 +1065,7 @@ def get_teams_with_ai_event_count_in_period(
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1226,6 +1242,7 @@ def get_teams_with_ai_credits_used_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
     return results
@@ -1419,6 +1436,7 @@ def get_teams_with_exceptions_captured_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
     library_totals: dict[str, list[list[int]]] = {
@@ -1462,6 +1480,7 @@ def get_teams_with_hog_function_calls_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1482,6 +1501,7 @@ def get_teams_with_hog_function_fetch_calls_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1502,6 +1522,7 @@ def get_teams_with_cdp_billable_invocations_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1548,6 +1569,7 @@ def get_teams_with_recording_bytes_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1596,6 +1618,7 @@ def get_teams_with_workflow_emails_sent_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1616,6 +1639,7 @@ def get_teams_with_workflow_push_sent_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1636,6 +1660,7 @@ def get_teams_with_workflow_sms_sent_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1656,6 +1681,7 @@ def get_teams_with_workflow_billable_invocations_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1676,6 +1702,7 @@ def get_teams_with_logs_bytes_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1696,7 +1723,78 @@ def get_teams_with_logs_records_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
+
+
+# Maps the `telemetry.sdk.name` resource attribute (the mobile SDK package name, set on every log
+# record) to the report field suffix used in `UsageReportCounters` / `_get_all_usage_data` keys.
+# The browser SDK (posthog-js) is omitted: it doesn't set telemetry.sdk.name on logs (it only sets
+# the OTLP scope name), so a "web" entry here would never match. Add it once posthog-js is fixed.
+SDK_TELEMETRY_NAMES: dict[str, str] = {
+    "posthog-ios": "ios",
+    "posthog-react-native": "react_native",
+    "posthog-android": "android",
+    "posthog-flutter": "flutter",
+}
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_sdk_logs_records_in_period(
+    begin: datetime,
+    end: datetime,
+    team_ids_with_logs: list[int],
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns log record counts grouped by team and PostHog SDK, for the given period.
+
+    The result is keyed by the short SDK suffix used on `UsageReportCounters`
+    (`ios`, `react_native`, `android`, `flutter`); each value is a list of
+    `(team_id, count)` tuples ready for `convert_team_usage_rows_to_dict`.
+
+    `team_ids_with_logs` must be the team_ids that produced any log records in the same period
+    (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
+    pre-filter on `logs_distributed` — without it, scanning the `resource_attributes` map cluster-wide
+    hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+
+    NB: query the physical `logs_distributed` table, not `logs`. `logs` is the HogQL table alias and
+    only resolves inside HogQL (`parse_select`); raw `sync_execute` runs ClickHouse SQL directly, where
+    no `logs` table exists — using it fails the whole usage-report run (see PR #60611 revert).
+    """
+    if not team_ids_with_logs:
+        return {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}
+
+    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT
+                team_id,
+                resource_attributes['telemetry.sdk.name'] AS sdk_name,
+                count() AS count
+            FROM logs_distributed
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= %(begin)s
+              AND timestamp < %(end)s
+              AND resource_attributes['telemetry.sdk.name'] IN %(sdk_names)s
+            GROUP BY team_id, sdk_name
+            """,
+            {
+                "team_ids": team_ids_with_logs,
+                "begin": begin,
+                "end": end,
+                "sdk_names": list(SDK_TELEMETRY_NAMES.keys()),
+            },
+            workload=Workload.LOGS,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+    by_sdk: dict[str, list[tuple[int, int]]] = {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}
+    for team_id, sdk_name, count in rows:
+        suffix = SDK_TELEMETRY_NAMES.get(sdk_name)
+        if suffix is not None:
+            by_sdk[suffix].append((team_id, count))
+    return by_sdk
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
@@ -1829,6 +1927,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
 
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
+    logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
+    team_ids_with_logs = [int(row[0]) for row in logs_records_rows]
+    sdk_logs_by_suffix = get_teams_with_sdk_logs_records_in_period(
+        period_start, period_end, team_ids_with_logs=team_ids_with_logs
+    )
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -2063,7 +2166,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
-        "teams_with_logs_records_in_period": get_teams_with_logs_records_in_period(period_start, period_end),
+        "teams_with_logs_records_in_period": logs_records_rows,
+        "teams_with_ios_logs_records_in_period": sdk_logs_by_suffix["ios"],
+        "teams_with_react_native_logs_records_in_period": sdk_logs_by_suffix["react_native"],
+        "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
+        "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
     }
 
 
@@ -2223,6 +2330,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
+        ios_logs_records_in_period=all_data["teams_with_ios_logs_records_in_period"].get(team.id, 0),
+        react_native_logs_records_in_period=all_data["teams_with_react_native_logs_records_in_period"].get(team.id, 0),
+        android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
+        flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
     )
 
 

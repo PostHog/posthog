@@ -213,7 +213,20 @@ tools:
                 input_schema: ExternalDataSourceTypeSchema
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List direct-query connections
+        description: >
+            List external data sources that can be used as a connectionId when running execute-sql against an external
+            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
+            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
+            discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
@@ -562,10 +575,6 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
-            query:
-                description:
-                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
-                    {"query": "SELECT * FROM events LIMIT 100"}'
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
@@ -704,10 +713,6 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
-            query:
-                description:
-                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
-                    {"query": "SELECT * FROM events LIMIT 100"}'
             edited_history_id:
                 description:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for

@@ -11,7 +11,8 @@ from django.db.models import Q
 import structlog
 
 from posthog.hogql_queries.query_metadata import InsightQueryMetadata
-from posthog.models import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 

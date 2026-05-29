@@ -8,14 +8,21 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'BusinessKnowledge',
     scenes: {
-        // Define scenes here
+        BusinessKnowledge: {
+            name: 'Business knowledge',
+            import: () => import('./frontend/scenes/BusinessKnowledgeScene'),
+            projectBased: true,
+            activityScope: 'KnowledgeSource',
+            description:
+                'Upload text, public URLs, or files your AI support agent can cite when answering customer tickets.',
+        },
     },
     routes: {
-        // Define routes here
+        '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     },
     redirects: {},
     urls: {
-        // Define URL helpers here
+        businessKnowledge: (): string => '/business-knowledge',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

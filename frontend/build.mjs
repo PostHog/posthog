@@ -36,6 +36,7 @@ await import('./build-products.mjs')
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
+    writeMetaFile: !isDev,
 }
 
 await buildInParallel(
@@ -47,6 +48,7 @@ await buildInParallel(
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
             ...common,
         },
         {
@@ -79,10 +81,14 @@ await buildInParallel(
         },
         {
             name: 'Exporter',
-            entryPoints: { exporter: 'src/exporter/index.tsx' },
+            entryPoints: {
+                exporter: 'src/exporter/index.tsx',
+                exporterSharedChunkAnchors: 'src/sharedChunkAnchors.ts',
+            },
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
             ...common,
         },
         {
@@ -122,6 +128,9 @@ await buildInParallel(
             }
 
             if (config.name === 'Exporter') {
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                }
                 writeExporterHtml(chunks, entrypoints)
             }
 

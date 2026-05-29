@@ -108,6 +108,14 @@ mockIntersectionObserver.mockReturnValue({
 })
 ;(globalThis as any).IntersectionObserver = mockIntersectionObserver
 
+const mockResizeObserver = jest.fn()
+mockResizeObserver.mockReturnValue({
+    observe: () => null,
+    unobserve: () => null,
+    disconnect: () => null,
+})
+;(globalThis as any).ResizeObserver = mockResizeObserver
+
 // Tell React Testing Library to use "data-attr" as the test ID attribute
 configure({ testIdAttribute: 'data-attr' })
 

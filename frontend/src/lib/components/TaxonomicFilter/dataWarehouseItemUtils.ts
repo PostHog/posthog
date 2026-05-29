@@ -21,6 +21,13 @@ function findFieldByNameCandidates(
     warehouseItem: DataWarehouseTableForInsight,
     candidates: string[]
 ): DataWarehouseTableForInsight['fields'][string] | undefined {
+    // `fields` may be missing when the warehouse item is reconstructed
+    // from a committed filter (e.g. via the new menu rebuild) where the
+    // selection only carries `name` / `id`. Bail out cleanly instead of
+    // throwing on `Object.values(undefined)`.
+    if (!warehouseItem.fields) {
+        return undefined
+    }
     const fields = Object.values(warehouseItem.fields)
 
     for (const candidate of candidates) {
@@ -38,6 +45,9 @@ function findFieldByNameCandidates(
 function findDateOrDatetimeField(
     warehouseItem: DataWarehouseTableForInsight
 ): DataWarehouseTableForInsight['fields'][string] | undefined {
+    if (!warehouseItem.fields) {
+        return undefined
+    }
     return Object.values(warehouseItem.fields).find((field) => field.type === 'datetime' || field.type === 'date')
 }
 
@@ -49,6 +59,9 @@ function findJoinedFieldExpression(
     const normalizedTableName = normalizeFieldName(tableName)
     const normalizedFieldName = normalizeFieldName(fieldName)
 
+    if (!warehouseItem.fields) {
+        return undefined
+    }
     const exactJoinField = Object.values(warehouseItem.fields).find(
         (field) =>
             normalizeFieldName(field.name) === normalizedTableName &&

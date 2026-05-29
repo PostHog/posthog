@@ -98,6 +98,15 @@ export const ToolConfigSchema = z
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),
+        /**
+         * Cross-field refinements applied to the composed tool schema.
+         * Each entry names a function exported from `@/schema/tool-inputs` whose
+         * signature is `(data, ctx: z.RefinementCtx) => void`. The codegen wires
+         * one `.superRefine(<fn>)` call per entry, in order. Use this when a single
+         * field's schema can't express the rule (e.g. mutual exclusivity between
+         * two optional fields).
+         */
+        validators: z.array(z.string()).optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**
@@ -135,6 +144,8 @@ export const ToolConfigSchema = z
          * - `'disable'`: tool is hidden when the flag is on.
          */
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
         /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
@@ -169,6 +180,10 @@ export const ToolConfigSchema = z
     )
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
     })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
@@ -389,10 +404,16 @@ export const QueryWrapperToolConfigSchema = z
          * - `'disable'`: tool is hidden when the flag is on.
          */
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
     })
 
 export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>

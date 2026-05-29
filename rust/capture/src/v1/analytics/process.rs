@@ -6,25 +6,46 @@ use uuid::Uuid;
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID,
-    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
+    ILLEGAL_DISTINCT_IDS,
 };
-use super::response::Response;
+use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
+use crate::v0_request::DataType;
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use crate::router;
 use crate::v1::context::Context;
+use crate::v1::sinks::event::Event as SinkEvent;
+use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::Destination;
 use crate::v1::Error;
+
+/// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
+///
+/// Unlike legacy capture, v1 does NOT split heatmap/scroll-depth properties out of
+/// non-$$heatmap events (e.g. $pageview) into a synthetic redirect. We keep properties
+/// as opaque RawValue to avoid deserialization. The Node.js events subpipeline
+/// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
+/// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
+fn destination_for_event_name(name: &str) -> Destination {
+    match name {
+        "$exception" => Destination::ExceptionErrorTracking,
+        "$$heatmap" => Destination::HeatmapMain,
+        "$$client_ingestion_warning" => Destination::ClientIngestionWarning,
+        _ => Destination::AnalyticsMain,
+    }
+}
 
 pub async fn process_batch(
     state: &router::State,
     context: &mut Context,
     batch: Batch,
-) -> Result<Response, Error> {
+) -> Result<BatchResponse, Error> {
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
@@ -51,12 +72,85 @@ pub async fn process_batch(
 
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
 
+    // Overflow and global rate limit are independent checks on different axes:
+    // overflow reroutes bursting keys; global rate limit disables person processing.
+    if let Some(ref limiter) = state.overflow_limiter {
+        apply_overflow_stamping(limiter, context, &mut events);
+    }
+
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
 
-    // TODO: publish to v1::Sink, collect results, format + return response
-    Err(Error::ServiceUnavailable("not yet implemented".into()))
+    // Publish to v1 sink, merge results, build response
+    let sink_router = state
+        .v1_sink_router
+        .as_ref()
+        .ok_or_else(|| Error::ServiceUnavailable("v1 sink router not configured".into()))?;
+
+    let event_refs: Vec<&(dyn SinkEvent + Send + Sync)> = events
+        .iter()
+        .filter(|e| SinkEvent::should_publish(*e))
+        .map(|e| {
+            let r: &(dyn SinkEvent + Send + Sync) = e;
+            r
+        })
+        .collect();
+
+    let sink_results = sink_router
+        .publish_batch(sink_router.default_sink(), context, &event_refs)
+        .await
+        .map_err(|e| Error::InternalError(e.to_string()))?;
+
+    merge_sink_results(&mut events, &sink_results);
+
+    Ok(BatchResponse::build(context, &events))
+}
+
+// ---------------------------------------------------------------------------
+// SinkResult → WrappedEvent merge
+// ---------------------------------------------------------------------------
+
+/// Correlate per-event `SinkResult`s back to the batch of `WrappedEvent`s by UUID.
+///
+/// Events that were not published (`should_publish() == false`) are untouched.
+/// Published events receive updated `result` and `details` based on the sink outcome:
+/// - `Outcome::Success` → keep existing result (Ok or Limited)
+/// - `Outcome::RetriableError` | `Outcome::Timeout` → `EventResult::Retry`
+/// - `Outcome::FatalError` → `EventResult::Drop`
+pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn SinkResult>]) {
+    use crate::v1::sinks::types::Outcome;
+
+    let results_by_uuid: HashMap<Uuid, &dyn SinkResult> =
+        sink_results.iter().map(|r| (r.key(), r.as_ref())).collect();
+
+    for event in events.iter_mut() {
+        if !event.should_publish() {
+            continue;
+        }
+
+        let Some(result) = results_by_uuid.get(&event.uuid) else {
+            continue;
+        };
+
+        match result.outcome() {
+            Outcome::Success => {
+                // Leave event.result as-is (Ok or Limited from upstream processing)
+            }
+            Outcome::RetriableError | Outcome::Timeout => {
+                event.result = EventResult::Retry;
+                event.details = Some("not_persisted");
+            }
+            Outcome::FatalError => {
+                event.result = EventResult::Drop;
+                let cause = result.cause().unwrap_or("rejected");
+                event.details = Some(match cause {
+                    "serialization_failed" | "event_too_big" => cause,
+                    _ => "rejected",
+                });
+            }
+        }
+    }
 }
 
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
@@ -79,10 +173,17 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
 
     for event in batch.batch.into_iter() {
-        let uuid = Uuid::parse_str(event.uuid()).map_err(|_| Error::MissingEventUuid)?;
+        let uuid_str = event.uuid();
+        if uuid_str.is_empty() {
+            return Err(Error::MissingEventUuid);
+        }
+        let uuid =
+            Uuid::parse_str(uuid_str).map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
         if !seen.insert(uuid) {
             return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }
+
+        let destination = destination_for_event_name(&event.event);
 
         match validate_event(&event) {
             Ok(raw_ts) => {
@@ -94,7 +195,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
                     adjusted_timestamp: Some(adjusted),
                     result: EventResult::Ok,
                     details: None,
-                    destination: Destination::default(),
+                    destination,
                     force_disable_person_processing: false,
                 });
             }
@@ -105,7 +206,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
                     adjusted_timestamp: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
-                    destination: Destination::default(),
+                    destination,
                     force_disable_person_processing: false,
                 });
             }
@@ -197,7 +298,7 @@ fn normalize_timestamp(
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
-    if event.options.disable_skew_adjustment.unwrap_or(false) {
+    if event.options.disable_skew_correction.unwrap_or(false) {
         return raw_event_ts;
     }
 
@@ -241,6 +342,42 @@ fn apply_historical_rerouting(
     }
 }
 
+fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
+    let mut buf = String::with_capacity(128);
+
+    for event in events.iter_mut() {
+        if event.destination != Destination::AnalyticsMain {
+            continue;
+        }
+        if event.result == EventResult::Drop {
+            continue;
+        }
+
+        buf.clear();
+        event.partition_key(ctx, &mut buf);
+
+        match limiter.is_limited(&buf) {
+            OverflowLimiterResult::ForceLimited => {
+                event.destination = Destination::Overflow;
+                // Disables person processing AND nulls partition key at sink.
+                event.force_disable_person_processing = true;
+                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "force_limited")
+                    .increment(1);
+            }
+            OverflowLimiterResult::Limited => {
+                event.destination = Destination::Overflow;
+                if !limiter.should_preserve_locality() {
+                    // Nulls partition key at sink -- spreads across partitions.
+                    event.force_disable_person_processing = true;
+                }
+                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "rate_limited")
+                    .increment(1);
+            }
+            OverflowLimiterResult::NotLimited => {}
+        }
+    }
+}
+
 async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
@@ -248,9 +385,17 @@ async fn apply_restrictions(
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok {
+        if event.result != EventResult::Ok || !event.destination.is_analytics_pipeline() {
             continue;
         }
+
+        // v1 hasn't classified events into `DataType` yet, so derive the
+        // pipeline directly from the event name. `historical_migration` is
+        // irrelevant for pipeline lookup — `AnalyticsMain` and
+        // `AnalyticsHistorical` both map to `Pipeline::Analytics`.
+        let Some(pipeline) = DataType::from_event_name(&event.event.event, false).pipeline() else {
+            continue;
+        };
 
         let event_ctx = EventContext {
             distinct_id: Some(&event.event.distinct_id),
@@ -260,10 +405,11 @@ async fn apply_restrictions(
             now_ts,
         };
 
-        let applied = service.get_restrictions(token, &event_ctx).await;
+        let applied = service.get_restrictions(token, &event_ctx, pipeline).await;
 
         if applied.should_drop() {
             event.result = EventResult::Drop;
+            event.details = Some(DETAIL_EVENT_RESTRICTION_DROP);
             event.destination = Destination::Drop;
             metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "event_restriction")
                 .increment(1);
@@ -303,8 +449,10 @@ async fn apply_token_distinct_id_limits(
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
+            event.result = EventResult::Limited;
+            // Disables person processing -- sink will null partition key for Main/Overflow.
             event.force_disable_person_processing = true;
-            event.details = Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID);
+            event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
             allowed_count += 1;
@@ -352,10 +500,10 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::config::CaptureMode;
     use crate::event_restrictions::{
-        Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+        Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
+    use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
     use crate::v1::test_utils::{
@@ -629,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_events_missing_uuid_bails_batch() {
+    fn validate_events_invalid_uuid_bails_batch() {
         let ctx = test_utils::test_context();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
@@ -641,7 +789,7 @@ mod tests {
             }],
         };
         let err = validate_events(&ctx, batch).unwrap_err();
-        assert!(matches!(err, Error::MissingEventUuid));
+        assert!(matches!(err, Error::InvalidEventUuid(_)));
     }
 
     #[test]
@@ -658,6 +806,25 @@ mod tests {
         };
         let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::MissingEventUuid));
+    }
+
+    #[test]
+    fn validate_events_uuid_with_whitespace_trimmed_successfully() {
+        let ctx = test_utils::test_context();
+        let inner_uuid = Uuid::new_v4();
+        let padded_uuid = format!("  {}  ", inner_uuid);
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![Event {
+                uuid: padded_uuid,
+                ..valid_event()
+            }],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].uuid, inner_uuid);
     }
 
     #[test]
@@ -701,7 +868,7 @@ mod tests {
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             query: crate::v1::analytics::query::Query::default(),
             method: axum::http::Method::POST,
-            path: "/i/v1/general/events".to_string(),
+            path: CAPTURE_V1_PATH,
             server_received_at,
             created_at: None,
             capture_internal: false,
@@ -709,7 +876,7 @@ mod tests {
         }
     }
 
-    fn event_with_disable_skew_adjustment(disable: bool) -> Event {
+    fn event_with_disable_skew_correction(disable: bool) -> Event {
         Event {
             event: "$pageview".to_string(),
             uuid: Uuid::new_v4().to_string(),
@@ -719,7 +886,7 @@ mod tests {
             window_id: None,
             options: Options {
                 cookieless_mode: None,
-                disable_skew_adjustment: Some(disable),
+                disable_skew_correction: Some(disable),
                 product_tour_id: None,
                 process_person_profile: None,
             },
@@ -778,20 +945,20 @@ mod tests {
     }
 
     #[test]
-    fn normalize_disable_skew_adjustment_skips_adjustment() {
+    fn normalize_disable_skew_correction_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_adjustment(true);
+        let event = event_with_disable_skew_correction(true);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, event_ts);
     }
 
     #[test]
-    fn normalize_disable_skew_adjustment_false_still_adjusts() {
+    fn normalize_disable_skew_correction_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
         let ctx = ctx_with_skew(now, Duration::seconds(10));
-        let event = event_with_disable_skew_adjustment(false);
+        let event = event_with_disable_skew_correction(false);
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, &event, event_ts);
         assert_eq!(result, dt("2026-03-19T10:59:50Z"));
@@ -804,9 +971,9 @@ mod tests {
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(token.to_string(), restrictions);
+        manager.insert_restrictions(Pipeline::Analytics, token, restrictions);
         service.update(manager).await;
         service
     }
@@ -814,7 +981,7 @@ mod tests {
     #[tokio::test]
     async fn restrictions_no_restrictions_passthrough() {
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
 
         let mut events = vec![wrapped_event("$pageview", "user-1")];
@@ -1031,6 +1198,82 @@ mod tests {
         assert_eq!(ev.destination, Destination::AnalyticsMain);
     }
 
+    // --- destination_for_event_name ---
+
+    #[rstest::rstest]
+    #[case("$exception", Destination::ExceptionErrorTracking)]
+    #[case("$$heatmap", Destination::HeatmapMain)]
+    #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    #[case("$pageview", Destination::AnalyticsMain)]
+    #[case("custom_event", Destination::AnalyticsMain)]
+    #[case("$autocapture", Destination::AnalyticsMain)]
+    fn destination_for_event_name_mapping(#[case] event_name: &str, #[case] expected: Destination) {
+        assert_eq!(destination_for_event_name(event_name), expected);
+    }
+
+    // --- restrictions bypass non-analytics events ---
+
+    #[rstest::rstest]
+    #[case("$exception", Destination::ExceptionErrorTracking)]
+    #[case("$$heatmap", Destination::HeatmapMain)]
+    #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    #[tokio::test]
+    async fn restrictions_skip_non_analytics_events(
+        #[case] event_name: &str,
+        #[case] expected_dest: Destination,
+    ) {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut ev = wrapped_event(event_name, "user-1");
+        ev.destination = expected_dest.clone();
+        let mut events = vec![ev];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        // Non-analytics events are untouched by restrictions
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, expected_dest);
+    }
+
+    #[tokio::test]
+    async fn restrictions_still_apply_to_analytics_events() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$exception", "user-2"),
+        ];
+        // Simulate what validate_events does
+        events[1].destination = Destination::ExceptionErrorTracking;
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        // Analytics event gets dropped by restriction
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].destination, Destination::Drop);
+        // Non-analytics event bypasses restriction
+        assert_eq!(events[1].result, EventResult::Ok);
+        assert_eq!(events[1].destination, Destination::ExceptionErrorTracking);
+    }
+
     // --- apply_token_distinct_id_limits ---
 
     use async_trait::async_trait;
@@ -1132,13 +1375,10 @@ mod tests {
         assert_eq!(ok_ev.destination, Destination::AnalyticsMain);
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
-        assert_eq!(limited_ev.result, EventResult::Ok);
+        assert_eq!(limited_ev.result, EventResult::Limited);
         assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
         assert!(limited_ev.force_disable_person_processing);
-        assert_eq!(
-            limited_ev.details,
-            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
-        );
+        assert_eq!(limited_ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     #[tokio::test]
@@ -1168,7 +1408,7 @@ mod tests {
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         for ev in &events {
-            assert_eq!(ev.result, EventResult::Ok, "should stay Ok");
+            assert_eq!(ev.result, EventResult::Limited, "should be Limited");
             assert_eq!(
                 ev.destination,
                 Destination::AnalyticsMain,
@@ -1180,7 +1420,7 @@ mod tests {
             );
             assert_eq!(
                 ev.details,
-                Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID),
+                Some(DETAIL_PERSON_PROCESSING_DISABLED),
                 "should have details"
             );
         }
@@ -1206,10 +1446,10 @@ mod tests {
         assert_eq!(dropped.destination, Destination::Drop);
         // Other event rate-limited (person processing disabled, stays on main topic)
         let limited = find_by_did(&events, "user-2");
-        assert_eq!(limited.result, EventResult::Ok);
+        assert_eq!(limited.result, EventResult::Limited);
         assert_eq!(limited.destination, Destination::AnalyticsMain);
         assert!(limited.force_disable_person_processing);
-        assert_eq!(limited.details, Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID));
+        assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     // --- apply_historical_rerouting ---
@@ -1501,16 +1741,12 @@ mod tests {
         );
         assert!(!events[0].force_disable_person_processing);
         assert!(events[1].force_disable_person_processing);
-        assert_eq!(
-            events[1].details,
-            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
-        );
+        assert_eq!(events[1].result, EventResult::Limited);
+        assert_eq!(events[1].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[2].force_disable_person_processing);
         assert!(events[3].force_disable_person_processing);
-        assert_eq!(
-            events[3].details,
-            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
-        );
+        assert_eq!(events[3].result, EventResult::Limited);
+        assert_eq!(events[3].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[4].force_disable_person_processing);
     }
 
@@ -1541,7 +1777,7 @@ mod tests {
 
         // Stage 2: restrictions (no rules → passthrough, still iterates).
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
         let now_ts = Utc::now().timestamp();
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -1561,5 +1797,596 @@ mod tests {
             expected,
             "order changed after apply_token_distinct_id_limits",
         );
+    }
+
+    // --- apply_overflow_stamping ---
+
+    fn overflow_limiter(per_second: u32, burst: u32, force_keys: Option<&str>) -> OverflowLimiter {
+        use std::num::NonZeroU32;
+        OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            force_keys.map(String::from),
+            false,
+        )
+    }
+
+    fn overflow_limiter_preserving(per_second: u32, burst: u32) -> OverflowLimiter {
+        use std::num::NonZeroU32;
+        OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            None,
+            true,
+        )
+    }
+
+    #[test]
+    fn overflow_not_limited() {
+        let ctx = test_utils::test_context();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, None);
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_force_limited_by_full_key() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_force_limited_by_token_only() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, Some("phc_tok"));
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_rate_limited_disables_person_processing() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        // burst=1 means only 1 event allowed, the second will be limited
+        let limiter = overflow_limiter(1, 1, None);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].force_disable_person_processing);
+        assert_eq!(events[1].destination, Destination::Overflow);
+        assert!(events[1].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_rate_limited_preserves_locality_when_configured() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let limiter = overflow_limiter_preserving(1, 1);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[1].destination, Destination::Overflow);
+        assert!(
+            !events[1].force_disable_person_processing,
+            "preserve_locality=true means person processing stays enabled"
+        );
+    }
+
+    #[test]
+    fn overflow_skips_non_analytics_main() {
+        let ctx = test_utils::test_context();
+        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].destination = Destination::AnalyticsHistorical;
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(
+            events[0].destination,
+            Destination::AnalyticsHistorical,
+            "non-AnalyticsMain events are not overflow-checked"
+        );
+    }
+
+    #[test]
+    fn overflow_skips_dropped_events() {
+        let ctx = test_utils::test_context();
+        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Drop;
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+    // =========================================================================
+    // merge_sink_results tests
+    // =========================================================================
+
+    use crate::v1::test_utils::MockSinkResult;
+
+    fn mock_result(uuid: Uuid, outcome: &str, cause: &'static str) -> Box<dyn SinkResult> {
+        match outcome {
+            "success" => MockSinkResult::success(uuid),
+            "retriable" => MockSinkResult::retriable(uuid, cause),
+            "timeout" => MockSinkResult::timeout(uuid),
+            "fatal" => MockSinkResult::fatal(uuid, cause),
+            "fatal_no_cause" => MockSinkResult::fatal_no_cause(uuid),
+            _ => panic!("unknown outcome: {outcome}"),
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::success("success", "", EventResult::Ok, None)]
+    #[case::retriable("retriable", "queue_full", EventResult::Retry, Some("not_persisted"))]
+    #[case::timeout("timeout", "", EventResult::Retry, Some("not_persisted"))]
+    #[case::fatal_serialization(
+        "fatal",
+        "serialization_failed",
+        EventResult::Drop,
+        Some("serialization_failed")
+    )]
+    #[case::fatal_event_too_big("fatal", "event_too_big", EventResult::Drop, Some("event_too_big"))]
+    #[case::fatal_generic("fatal", "rdkafka_other", EventResult::Drop, Some("rejected"))]
+    #[case::fatal_no_cause("fatal_no_cause", "", EventResult::Drop, Some("rejected"))]
+    fn merge_single_outcome(
+        #[case] outcome: &str,
+        #[case] cause: &'static str,
+        #[case] expected_result: EventResult,
+        #[case] expected_details: Option<&'static str>,
+    ) {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let results: Vec<Box<dyn SinkResult>> = vec![mock_result(events[0].uuid, outcome, cause)];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(
+            events[0].result, expected_result,
+            "result for {outcome}:{cause}"
+        );
+        assert_eq!(
+            events[0].details, expected_details,
+            "details for {outcome}:{cause}"
+        );
+    }
+
+    #[test]
+    fn merge_preserves_limited_result_on_success() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Limited;
+        events[0].details = Some("person_processing_disabled");
+
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[0].uuid)];
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Limited);
+        assert_eq!(events[0].details, Some("person_processing_disabled"));
+    }
+
+    #[test]
+    fn merge_skips_events_not_published() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        events[0].result = EventResult::Drop;
+        events[0].details = Some("billing_limit_exceeded");
+        events[0].destination = Destination::Drop;
+
+        // Only one sink result (for the published event)
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[1].uuid)];
+
+        merge_sink_results(&mut events, &results);
+
+        // Dropped event unchanged
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("billing_limit_exceeded"));
+        // Published event left alone
+        assert_eq!(events[1].result, EventResult::Ok);
+        assert!(events[1].details.is_none());
+    }
+
+    #[test]
+    fn merge_mixed_outcomes() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("custom", "user-3"),
+        ];
+
+        let results: Vec<Box<dyn SinkResult>> = vec![
+            MockSinkResult::success(events[0].uuid),
+            MockSinkResult::retriable(events[1].uuid, "queue_full"),
+            MockSinkResult::fatal(events[2].uuid, "serialization_error"),
+        ];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Retry);
+        assert_eq!(events[1].details, Some("not_persisted"));
+        assert_eq!(events[2].result, EventResult::Drop);
+        assert_eq!(events[2].details, Some("rejected"));
+    }
+
+    #[test]
+    fn merge_uuid_correlation_no_crosstalk() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+
+        // Deliberately swap: result for event[1] is retriable, event[0] is success
+        let results: Vec<Box<dyn SinkResult>> = vec![
+            MockSinkResult::retriable(events[1].uuid, "queue_full"),
+            MockSinkResult::success(events[0].uuid),
+        ];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Retry);
+        assert_eq!(events[1].details, Some("not_persisted"));
+    }
+
+    #[test]
+    fn merge_empty_sink_results_leaves_all_intact() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        // All events published but no sink results (edge case - shouldn't
+        // happen in practice but should be safe)
+        let results: Vec<Box<dyn SinkResult>> = vec![];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[1].result, EventResult::Ok);
+    }
+
+    #[test]
+    fn merge_pre_drop_not_mutated_even_if_result_present() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Drop;
+        events[0].details = Some("invalid_distinct_id");
+
+        // Should be unreachable in practice (dropped events aren't published
+        // so they won't have a SinkResult), but even if a result exists for
+        // this UUID, the event shouldn't be touched because should_publish is false
+        let results: Vec<Box<dyn SinkResult>> =
+            vec![MockSinkResult::retriable(events[0].uuid, "queue_full")];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("invalid_distinct_id"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_returns_service_unavailable_when_no_sink_router() {
+        let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
+        let mut state = test_state.state;
+        state.v1_sink_router = None;
+
+        let mut ctx = test_utils::test_context();
+        let batch = valid_batch(vec![valid_event()]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(
+            matches!(err, Error::ServiceUnavailable(_)),
+            "expected ServiceUnavailable, got: {err:?}"
+        );
+    }
+
+    // =========================================================================
+    // Integration-style tests: publish → merge → response flow
+    // =========================================================================
+    // These tests exercise the same code path as the wired process_batch, but
+    // call the sink router directly rather than constructing a full State.
+
+    use std::collections::HashMap as StdHashMap;
+    use std::sync::Arc;
+
+    use crate::config::CaptureMode;
+    use crate::v1::sinks::kafka::mock::MockProducer;
+    use crate::v1::sinks::kafka::sink::KafkaSink;
+    use crate::v1::sinks::router::Router as SinkRouter;
+    use crate::v1::sinks::sink::Sink;
+    use crate::v1::sinks::{Config as SinkConfig, SinkName};
+
+    use super::BatchResponse;
+    use crate::v1::test_utils::{
+        batch_payload, event_with_all_options, event_with_empty_options, WrappedEventMut,
+    };
+
+    fn test_sink_router() -> (SinkRouter, lifecycle::Handle, lifecycle::MonitorGuard) {
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handle = manager.register("process_integ", lifecycle::ComponentOptions::new());
+        handle.report_healthy();
+        let monitor = manager.monitor_background();
+
+        let producer = Arc::new(MockProducer::new(SinkName::Msk, handle.clone()));
+        let config = SinkConfig {
+            produce_timeout: StdDuration::from_secs(30),
+            kafka: test_utils::test_kafka_config(),
+        };
+        let sink: Box<dyn Sink> = Box::new(KafkaSink::new(
+            SinkName::Msk,
+            producer,
+            config,
+            CaptureMode::Events,
+            handle.clone(),
+        ));
+        let sinks: StdHashMap<SinkName, Box<dyn Sink>> =
+            [(SinkName::Msk, sink)].into_iter().collect();
+        let router = SinkRouter::new(SinkName::Msk, sinks);
+        (router, handle, monitor)
+    }
+
+    #[tokio::test]
+    async fn integration_happy_path_all_ok() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("button_clicked", "user-3"),
+        ];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 3);
+        for (_, status) in resp.entries() {
+            assert_eq!(status.result, EventResult::Ok);
+            assert!(status.details.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn integration_mixed_pre_drop_and_publish() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+            wrapped_event("$pageview", "user-3")
+                .with_result(EventResult::Limited, Some("person_processing_disabled")),
+        ];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        assert_eq!(event_refs.len(), 2); // only Ok + Limited are published
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 3);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+        assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
+        assert_eq!(resp.entries()[1].1.details, Some("billing_limit_exceeded"));
+        assert_eq!(resp.entries()[2].1.result, EventResult::Limited);
+        assert_eq!(
+            resp.entries()[2].1.details,
+            Some("person_processing_disabled")
+        );
+    }
+
+    #[tokio::test]
+    async fn integration_all_events_pre_dropped_empty_publish() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+            wrapped_event("$pageview", "user-2")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        assert!(event_refs.is_empty());
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 2);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Drop);
+        assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
+    }
+
+    #[tokio::test]
+    async fn integration_overflow_destination_published_ok() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events =
+            vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+    }
+
+    #[test]
+    fn integration_payload_round_trip_empty_options() {
+        let events = vec![event_with_empty_options()];
+        let payload = batch_payload(&events);
+        let batch: Batch = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        assert_eq!(batch.batch[0].options.cookieless_mode, None);
+        assert_eq!(batch.batch[0].options.disable_skew_correction, None);
+        assert_eq!(batch.batch[0].options.product_tour_id, None);
+        assert_eq!(batch.batch[0].options.process_person_profile, None);
+    }
+
+    #[test]
+    fn integration_payload_round_trip_all_options() {
+        let events = vec![event_with_all_options()];
+        let payload = batch_payload(&events);
+        let batch: Batch = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        assert_eq!(batch.batch[0].options.cookieless_mode, Some(true));
+        assert_eq!(batch.batch[0].options.disable_skew_correction, Some(true));
+        assert_eq!(
+            batch.batch[0].options.product_tour_id.as_deref(),
+            Some("tour-v2")
+        );
+        assert_eq!(batch.batch[0].options.process_person_profile, Some(false));
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_gzip() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "gzip");
+        assert!(compressed.len() < raw.len());
+        // Decompress and verify
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_zstd() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "zstd");
+        assert!(compressed.len() < raw.len());
+        let decompressed = zstd::decode_all(std::io::Cursor::new(&compressed)).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_deflate() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "deflate");
+        assert!(compressed.len() < raw.len());
+        use flate2::read::DeflateDecoder;
+        use std::io::Read;
+        let mut decoder = DeflateDecoder::new(compressed.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_brotli() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "br");
+        assert!(!compressed.is_empty());
+        let mut decompressed = Vec::new();
+        brotli::BrotliDecompress(&mut std::io::Cursor::new(&compressed), &mut decompressed)
+            .unwrap();
+        assert_eq!(decompressed, raw);
     }
 }

@@ -1,13 +1,14 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -178,6 +179,8 @@ export const workflowLogic = kea<workflowLogicType>([
         duplicate: true,
         autoSaveWorkflow: true,
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
+        setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
+        clearAutoSavePending: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -353,9 +356,17 @@ export const workflowLogic = kea<workflowLogicType>([
             false as boolean,
             {
                 autoSaveWorkflow: () => true,
+                clearAutoSavePending: () => false,
                 saveWorkflowSuccess: () => false,
                 saveWorkflowFailure: () => false,
                 resetWorkflow: () => false,
+                setAutoSaveEnabled: (_, { enabled }) => (!enabled ? false : _),
+            },
+        ],
+        autoSaveEnabled: [
+            true as boolean,
+            {
+                setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
     }),
@@ -463,9 +474,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.email
-                                    ? 'From is required'
-                                    : getTemplatingError(emailValue?.from?.email, emailTemplating),
+                                from:
+                                    !emailValue?.from?.integrationId || !emailValue?.from?.email
+                                        ? 'Choose who to send this email from'
+                                        : getTemplatingError(emailValue?.from?.email, emailTemplating),
                                 to: !emailValue?.to?.email
                                     ? 'To is required'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -491,6 +503,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             if (!template) {
                                 result.valid = false
                                 result.errors = {
+                                    ...result.errors,
                                     // This is a special case for the template_id field which might need to go to a generic error message
                                     _template_id: 'Template not found',
                                 }
@@ -499,8 +512,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                     action.config.inputs,
                                     template.inputs_schema ?? []
                                 )
-                                result.valid = configValidation.valid
-                                result.errors = configValidation.errors
+                                // Merge so the type-specific block above (e.g. function_email's
+                                // stricter `from` check) is not clobbered by the generic validator.
+                                result.valid = result.valid && configValidation.valid
+                                result.errors = { ...configValidation.errors, ...result.errors }
                             }
                         }
 
@@ -653,6 +668,10 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 lemonToast.success('Workflow saved')
 
+                if (props.id === 'new') {
+                    tryShowMCPHint('workflows.create')
+                }
+
                 if (props.id === 'new' && originalWorkflow.id) {
                     router.actions.replace(
                         urls.workflow(
@@ -699,6 +718,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             actions.resetWorkflow(originalWorkflow)
+            actions.markAutoSave(false)
         },
         discardChanges: () => {
             if (!values.originalWorkflow) {
@@ -761,22 +781,25 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowValue: () => {
             actions.autoSaveWorkflow()
         },
+        setAutoSaveEnabled: ({ enabled }) => {
+            if (enabled && values.workflowChanged) {
+                actions.autoSaveWorkflow()
+            }
+        },
         autoSaveWorkflow: async (_, breakpoint) => {
             await breakpoint(3000)
 
-            if (!props.id || props.id === 'new') {
-                return
-            }
-            if (props.editTemplateId) {
-                return
-            }
-            if (!values.workflowChanged) {
-                return
-            }
-            if (values.workflowHasErrors) {
-                return
-            }
-            if (values.workflow.status === 'active' && values.workflowHasActionErrors) {
+            const shouldSkip =
+                !values.autoSaveEnabled ||
+                !props.id ||
+                props.id === 'new' ||
+                !!props.editTemplateId ||
+                values.workflow.status === 'active' ||
+                !values.workflowChanged ||
+                values.workflowHasErrors
+
+            if (shouldSkip) {
+                actions.clearAutoSavePending()
                 return
             }
 
@@ -865,12 +888,27 @@ export const workflowLogic = kea<workflowLogicType>([
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
     }),
-    beforeUnmount(({ values, props }) => {
-        if (props.id && props.id !== 'new' && values.workflowChanged && !values.workflowHasErrors) {
-            const workflow = sanitizeWorkflow(values.workflow, values.hogFunctionTemplatesById)
-            api.hogFlows.updateHogFlow(props.id, workflow).catch((e) => {
-                console.error('Failed to auto-save workflow on unmount', e)
-            })
-        }
-    }),
+    beforeUnload((logic) => ({
+        enabled: (newLocation) => {
+            if (!logic.props.id || logic.props.id === 'new') {
+                return false
+            }
+            if (logic.props.editTemplateId) {
+                return false
+            }
+            if (!logic.values.hasUnsavedChanges) {
+                return false
+            }
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave workflow?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            if (logic.values.originalWorkflow) {
+                logic.actions.resetWorkflow(logic.values.originalWorkflow)
+            }
+        },
+    })),
 ])

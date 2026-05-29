@@ -21,10 +21,6 @@ export const marketingAnalyticsTestMappingCreate = async (projectId: string, opt
     })
 }
 
-/**
- * Cross-reference campaigns with spend from ad platforms against pageview events with UTM parameters to identify tracking issues.
- * @summary Run UTM audit
- */
 export const getMarketingAnalyticsUtmAuditRetrieveUrl = (
     projectId: string,
     params?: MarketingAnalyticsUtmAuditRetrieveParams
@@ -44,6 +40,10 @@ export const getMarketingAnalyticsUtmAuditRetrieveUrl = (
         : `/api/environments/${projectId}/marketing_analytics/utm_audit/`
 }
 
+/**
+ * Cross-reference campaigns with spend from ad platforms against pageview events with UTM parameters to identify tracking issues.
+ * @summary Run UTM audit
+ */
 export const marketingAnalyticsUtmAuditRetrieve = async (
     projectId: string,
     params?: MarketingAnalyticsUtmAuditRetrieveParams,

@@ -33,16 +33,20 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
+    CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
-    MCP = "mcp"
+    METRICS = "metrics"
+    MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
+    MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
@@ -54,6 +58,7 @@ class Product(StrEnum):
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
+    USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -79,6 +84,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
+    EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
     # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
     # usage analysis can attribute load to the originating product surface.
@@ -101,6 +107,7 @@ class Feature(StrEnum):
     ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
+    SEMANTIC_SEARCH = "semantic_search"
 
 
 class FallbackTags(TypedDict):
@@ -119,6 +126,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
+    "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -199,7 +207,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.EXPERIMENT_DATA_WAREHOUSE_NODE
         ):
             return {"product": Product.EXPERIMENTS}
-        case NodeKind.TRACE_QUERY | NodeKind.TRACES_QUERY | NodeKind.TRACE_NEIGHBORS_QUERY | NodeKind.TRACE_SPANS_QUERY:
+        case (
+            NodeKind.TRACE_QUERY
+            | NodeKind.TRACES_QUERY
+            | NodeKind.TRACE_NEIGHBORS_QUERY
+            | NodeKind.TRACE_SPANS_QUERY
+            | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
+            | NodeKind.TRACE_SPANS_TREE_QUERY
+        ):
             return {"product": Product.LLM_ANALYTICS}
         case (
             NodeKind.VECTOR_SEARCH_QUERY
@@ -235,6 +250,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.DATABASE_SCHEMA_QUERY
             | NodeKind.PROPERTY_VALUES_QUERY
             | NodeKind.USAGE_METRICS_QUERY
+            | NodeKind.ACCOUNTS_QUERY
             # drill-downs — caller's product is what matters
             | NodeKind.ACTORS_QUERY
             | NodeKind.GROUPS_QUERY
@@ -258,6 +274,16 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return None
     assert_never(kind)
+
+
+class HogQLFeatures(BaseModel):
+    """Tables and event filters extracted from a HogQL AST — feeds product
+    attribution in ``add_fallback_query_tags`` for ``kind=HogQLQuery``."""
+
+    tables: list[str] = []
+    events: list[str] = []
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class TemporalTags(BaseModel):
@@ -389,6 +415,11 @@ class QueryTags(BaseModel):
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
 
+    # True when the query embeds a user-supplied HogQL string; used to split user vs platform errors in system.query_log.
+    contains_user_hogql: Optional[bool] = None
+
+    hogql_features: Optional[HogQLFeatures] = None
+
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
@@ -500,6 +531,18 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def tag_contains_user_hogql() -> None:
+    """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
+
+    Idempotent — safe to call inside hot loops (recursive ``property_to_expr``, breakdown
+    iteration, ``@property`` accessors) since the early-return skips the ``model_copy``
+    inside ``tag_queries`` after the first call per query context.
+    """
+    if get_query_tag_value("contains_user_hogql"):
+        return
+    tag_queries(contains_user_hogql=True)
+
+
 def get_team_query_tags(team: "Team") -> dict[str, Any]:
     from posthog.models.organization import Organization
 
@@ -532,8 +575,33 @@ def _apply_fallback_tags(tags: QueryTags, mapped: FallbackTags) -> None:
         tags.feature = mapped["feature"]
 
 
+# Event-level matches pinpoint a single product; consulted before tables since they're more specific.
+_EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
+    (
+        frozenset({"$ai_generation", "$ai_span", "$ai_trace", "$ai_embedding", "$ai_metric", "$ai_feedback"}),
+        {"product": Product.LLM_ANALYTICS},
+    ),
+    (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
+    (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
+    (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+)
+
+# Union of every event the fallback can match — exposed so HogQLFeatureExtractor can use it as
+# its allow-list without duplicating the names. Adding a new mapping to _EVENT_TO_TAGS
+# automatically widens what the extractor records.
+EVENT_TAG_MATCHERS: frozenset[str] = frozenset().union(*(matchers for matchers, _ in _EVENT_TO_TAGS))
+
+# Table-level fallbacks — only consulted if no event filter narrowed things down.
+_TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
+    (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
+    (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"metrics", "metric_attributes"}), {"product": Product.METRICS}),
+    (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
+)
+
+
 def add_fallback_query_tags(tags: QueryTags) -> None:
-    """Order: scene → kind → mcp source. Never overrides values that are already set."""
+    """Order: scene → kind → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
     if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
         _apply_fallback_tags(tags, scene_mapped)
 
@@ -544,6 +612,22 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
             kind = None
         if kind is not None and (kind_mapped := kind_fallback_tags(kind)) is not None:
             _apply_fallback_tags(tags, kind_mapped)
+
+    if (
+        tags.product is None
+        and tags.query_type == NodeKind.HOG_QL_QUERY.value
+        and (features := tags.hogql_features) is not None
+    ):
+        events_set, tables_set = set(features.events), set(features.tables)
+        features_mapped = next(
+            (m for matchers, m in _EVENT_TO_TAGS if events_set & matchers),
+            None,
+        ) or next(
+            (m for matchers, m in _TABLE_TO_TAGS if tables_set & matchers),
+            None,
+        )
+        if features_mapped is not None:
+            _apply_fallback_tags(tags, features_mapped)
 
     from posthog.event_usage import EventSource
 

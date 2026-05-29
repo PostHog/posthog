@@ -5,36 +5,72 @@ All subprocess interactions with the Coder CLI are isolated here.
 
 from __future__ import annotations
 
+import io
 import os
 import re
+import csv
 import sys
 import json
 import shlex
 import shutil
-import tempfile
+import socket
 import itertools
 import threading
 import subprocess
 import webbrowser
+import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
-import yaml
 import click
 import requests
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-TEMPLATE_NAME = "posthog-linux"
+_TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
+DEFAULT_TEMPLATE = "posthog-linux"
+# Newer coder versions added an interactive "Select a preset" prompt to `coder
+# create` that `--yes` does not bypass. Callers must always forward `--preset`
+# with a concrete value -- either a preset the template defines, or the literal
+# NO_PRESET sentinel below.
+DEFAULT_PRESET = "Default (warm)"
+NO_PRESET = "none"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
-CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
+
+# Create-time region selector. The template defines `workspace_region` with a
+# us-east-1 default; eu-central-1 became a valid option when the EU
+# infrastructure went live. The value is immutable after creation, so it is
+# forwarded on `coder create` only -- never on `coder update` or the pre-start
+# parameter sync. Coder carries an immutable parameter's value forward on its
+# own during an update and *rejects* any explicit `--parameter
+# workspace_region=` with "parameter is immutable and cannot be updated". The
+# option-change re-prompt that no flag can bypass only applies to *mutable*
+# parameters, so forwarding the region here breaks every resume instead of
+# suppressing a picker. Valid values match the template contract exactly.
+WORKSPACE_REGION_PARAMETER = "workspace_region"
+REGIONS = ("us-east-1", "eu-central-1")
+DEFAULT_REGION = REGIONS[0]
+# Key of the workspace metadata item the template publishes the region back as.
+REGION_METADATA_KEY = "region"
+# Workspace-name suffix per region. us-east-1 is the historical default and
+# carries no suffix, so existing workspace names stay unchanged. Non-default
+# regions append `-{suffix}` at the end of the name so that a single user can
+# own one default workspace per region (`devbox-rauln` + `devbox-rauln-eu`)
+# without collision. Labels that conflict with a region suffix are rejected up
+# front -- see `_RESERVED_LABEL_SUFFIXES`.
+REGION_NAME_SUFFIXES: dict[str, str] = {
+    "us-east-1": "",
+    "eu-central-1": "eu",
+}
+_RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXES.values() if s)
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
@@ -45,14 +81,14 @@ JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
-# Default values for all optional template parameters. Passing these explicitly
-# prevents the Coder CLI from prompting interactively for missing values.
-# Update this dict when new optional parameters are added to the template.
-_TEMPLATE_PARAMETER_DEFAULTS: dict[str, str] = {
-    DOTFILES_URI_PARAMETER: "",
-    DOTFILES_BRANCH_PARAMETER: "",
-    JETBRAINS_IDES_PARAMETER: "[]",
-}
+# Coder rejects --parameter values for keys the chosen template does not
+# define, with this exact message: `parameter "X" is not present in the
+# template`. The check happens client-side before any provisioning starts,
+# so a failed call is cheap to retry. _run_with_param_retry drops the
+# offending key from the candidate set and retries on this match. Anchored
+# to the start of a line so a user-supplied parameter value containing this
+# phrase cannot trick the matcher.
+_PARAM_NOT_PRESENT_RE = re.compile(r'^parameter "([^"]+)" is not present', re.MULTILINE)
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
 _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -89,6 +125,38 @@ def get_coder_url() -> str:
 def _normalize_version(version: str) -> str:
     """Strip leading ``v`` and semver build metadata (``+hash``)."""
     return version.lstrip("v").split("+")[0]
+
+
+# Coder server version that introduced user secrets (Early Access).
+USER_SECRETS_MIN_VERSION = (2, 33)
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Parse a normalized semver string into an int tuple for ordered comparison.
+
+    Trailing pre-release segments (``-rc1``) are dropped from each component so
+    ``2.33.0-rc1`` compares equal to ``2.33.0`` for the gate we care about.
+    """
+    parts: list[int] = []
+    for segment in version.split("."):
+        digits = segment.split("-", 1)[0]
+        if not digits.isdigit():
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def server_supports_user_secrets() -> bool:
+    """Return whether the configured Coder server is >= 2.33.
+
+    Returns ``False`` (graceful) if the server version cannot be determined,
+    so callers can skip secret-related steps without aborting setup.
+    """
+    try:
+        version = get_server_version()
+    except RuntimeError:
+        return False
+    return _version_tuple(version) >= USER_SECRETS_MIN_VERSION
 
 
 def get_server_version() -> str:
@@ -192,26 +260,40 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     return subprocess.CompletedProcess(args, returncode, "".join(captured), "")
 
 
-def _run_with_rich_parameters(
-    args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
+def _append_parameter_flags(args: list[str], parameters: dict[str, str]) -> list[str]:
+    """Append `--parameter key=value` flags for each entry in ``parameters``."""
+    out = list(args)
+    for key, value in parameters.items():
+        out += ["--parameter", f"{key}={value}"]
+    return out
+
+
+def _run_with_param_retry(
+    base_args: list[str],
+    parameters: dict[str, str],
+    *,
+    verbose: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a Coder command with sensitive parameters passed via a temp YAML file.
+    """Run a Coder build command, dropping unknown parameters and retrying.
 
-    When verbose is None, runs without build filtering. When True/False,
-    delegates to _run_build for spinner-based output.
+    Coder validates ``--parameter`` keys client-side before any provisioning
+    starts, so retrying after a `parameter "X" is not present in the
+    template` error is cheap and safe. All other failures bubble up
+    unchanged. Used by every write path that forwards parameters (`coder
+    create`, `coder update`) so callers never have to know which keys the
+    chosen template happens to accept.
     """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as parameter_file:
-        yaml.safe_dump(parameters, parameter_file)
-        file_path = Path(parameter_file.name)
-
-    try:
-        file_path.chmod(0o600)
-        full_args = [*args, "--rich-parameter-file", str(file_path)]
-        if verbose is None:
-            return _run(full_args)
-        return _run_build(full_args, verbose=verbose)
-    finally:
-        file_path.unlink(missing_ok=True)
+    remaining = dict(parameters)
+    while True:
+        result = _run_build(_append_parameter_flags(base_args, remaining), verbose=verbose)
+        if result.returncode == 0:
+            return result
+        match = _PARAM_NOT_PRESENT_RE.search(result.stdout or "")
+        if not match or match.group(1) not in remaining:
+            return result
+        dropped = match.group(1)
+        click.echo(click.style(f"Template doesn't accept '{dropped}', retrying without it.", fg="yellow"))
+        del remaining[dropped]
 
 
 def _resolve_tailscale() -> str | None:
@@ -257,15 +339,73 @@ def tailscale_connected() -> bool:
     return bool(status and status.get("BackendState") == "Running")
 
 
+def _tailscale_install_hint() -> str:
+    """Return the platform-specific install command for Tailscale.
+
+    On macOS, the CLI ships inside ``Tailscale.app`` — engineers commonly
+    install the GUI and never realize there is also a CLI to put on PATH.
+    Recommending the cask install handles both at once; the App Store build
+    is mentioned as a fallback because some employees install it that way.
+    """
+    if sys.platform == "darwin":
+        return "Install: `brew install --cask tailscale` (or via the Mac App Store)."
+    if sys.platform.startswith("linux"):
+        return "Install: `curl -fsSL https://tailscale.com/install.sh | sh`."
+    return "Install Tailscale from https://tailscale.com/download."
+
+
+def _tailscale_connect_hint() -> str:
+    """Return the platform-specific command for joining a tailnet."""
+    if sys.platform == "darwin":
+        return "Open the Tailscale app and sign in with your PostHog Google account."
+    return "Run `sudo tailscale up` and complete the SSO flow with your PostHog Google account."
+
+
+def _tailscale_cli_missing_on_macos() -> bool:
+    """Return whether macOS has the Tailscale app but no CLI on PATH."""
+    return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
+
+
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
-    """Fail fast when the Coder deployment is not reachable on the tailnet."""
+    """Fail fast when the host is not connected to a Tailscale tailnet.
+
+    Reports three distinct states with the action that fixes each: not
+    installed (give the install command), installed but not running (give
+    the connect command), and a special macOS path where the GUI is present
+    but the CLI is hidden inside the app bundle (point to the symlink).
+    """
     if tailscale_connected():
         return
 
-    if _resolve_tailscale():
-        _fail(f"Tailscale is not connected. Connect to the PostHog tailnet, then {setup_hint}")
+    if not _resolve_tailscale():
+        _fail(
+            "Tailscale is not installed.\n"
+            f"  {_tailscale_install_hint()}\n"
+            f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
+            f"  Then {setup_hint}"
+        )
 
-    _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
+    # CLI is resolvable, but the daemon is not running -- the user needs to
+    # sign in (a fresh install) or bring the agent back up (it was stopped).
+    if _tailscale_cli_missing_on_macos():
+        # `_resolve_tailscale()` succeeded via the bundled CLI, but `tailscale`
+        # is not on PATH. This trips engineers who try to follow the printed
+        # `tailscale status` hint and get "command not found".
+        _fail(
+            "Tailscale is installed but not connected, and the `tailscale` CLI is not on your PATH.\n"
+            f"  {_tailscale_connect_hint()}\n"
+            "  To use the CLI from your shell, symlink it once:\n"
+            f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
+            f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
+            f"  Then {setup_hint}"
+        )
+
+    _fail(
+        "Tailscale is installed but not connected.\n"
+        f"  {_tailscale_connect_hint()}\n"
+        f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
+        f"  Then {setup_hint}"
+    )
 
 
 # Health warning emitted by `tailscale status` when peers advertise subnet routes
@@ -299,7 +439,8 @@ def ensure_tailscale_routes_accepted() -> None:
 
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
-        _fail("Failed to enable Tailscale subnet routes. Run manually: sudo tailscale set --accept-routes")
+        manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
+        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -312,23 +453,199 @@ def coder_reachable(timeout: float = 5.0) -> bool:
     return resp.ok
 
 
-def ensure_coder_reachable() -> None:
-    """Fail fast when the Coder deployment is not reachable.
+@dataclass(frozen=True)
+class CoderReachabilityDiagnosis:
+    """Why the Coder deployment is unreachable, with a single actionable next step.
 
-    Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does not
-    prove the subnet route to the Coder ALB is actually plumbed — DNS can resolve
-    and packets still blackhole. Probe the API directly so reachability failures
-    surface here instead of as a silent ``curl | sh`` no-op during install.
+    The structured form lets the caller present one concrete cause and one
+    fix rather than a list of commands the user has to interpret. ``facts``
+    is a short list of diagnostic data (tailnet name, resolved IP, peer
+    health) that is safe to share verbatim when asking for help.
+    """
+
+    cause: str
+    next_step: str
+    facts: list[str]
+
+
+def _resolve_host_ip(host: str) -> str | None:
+    """Resolve a hostname to a single IP, or ``None`` if resolution fails.
+
+    Uses the OS resolver so MagicDNS lookups via Tailscale (or split-DNS
+    routes through the tailnet) are honored just as they would be for the
+    actual HTTPS probe. We swallow OSError because every resolver failure
+    mode maps to the same "DNS failed" branch downstream.
+    """
+    try:
+        return socket.gethostbyname(host)
+    except OSError:
+        return None
+
+
+def _tcp_reachable(host: str, port: int, timeout: float = 3.0) -> bool:
+    """Return whether a TCP handshake to ``(host, port)`` completes."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
+    """Diagnose why the Coder deployment is not reachable.
+
+    Probes (in order) DNS resolution, TCP reachability on 443, and the
+    Tailscale peer / route topology, picking the most specific cause and
+    pairing it with a concrete next step. Returns the diagnosis instead of
+    printing it so callers control formatting and tests can assert against
+    structured fields.
     """
     coder_url = get_coder_url()
+    host = urllib.parse.urlparse(coder_url).hostname or coder_url
+    facts: list[str] = [f"Coder URL: {coder_url}"]
+
+    status = _tailscale_status()
+    tailnet_name: str | None = None
+    if status:
+        current_tailnet = status.get("CurrentTailnet")
+        if isinstance(current_tailnet, dict):
+            name = current_tailnet.get("Name")
+            if isinstance(name, str) and name:
+                tailnet_name = name
+                facts.append(f"Tailscale tailnet: {name}")
+        if tailnet_name is None:
+            facts.append("Tailscale tailnet: <unknown>")
+    else:
+        facts.append("Tailscale status: unavailable")
+
+    resolved_ip = _resolve_host_ip(host)
+    if resolved_ip is None:
+        facts.append(f"DNS for {host}: failed")
+        return CoderReachabilityDiagnosis(
+            cause=f"DNS lookup for {host} failed.",
+            next_step=(
+                "MagicDNS may be off or you may be on the wrong tailnet. "
+                "Verify the tailnet name above is PostHog's, then run "
+                "`sudo tailscale up --accept-dns`."
+            ),
+            facts=facts,
+        )
+    facts.append(f"DNS for {host}: {resolved_ip}")
+
+    if _tcp_reachable(host, 443):
+        facts.append(f"TCP {host}:443: open")
+        return CoderReachabilityDiagnosis(
+            cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
+            next_step=(
+                "The Coder deployment may be restarting, or your system clock "
+                "is off (causing TLS to reject the cert). Check the time, then "
+                "retry in a minute."
+            ),
+            facts=facts,
+        )
+    facts.append(f"TCP {host}:443: blocked / timed out")
+
+    return _diagnose_blocked_route(status, facts)
+
+
+def _diagnose_blocked_route(
+    status: dict[str, Any] | None,
+    facts: list[str],
+) -> CoderReachabilityDiagnosis:
+    """Pick a cause when DNS resolves but TCP to the Coder ALB is blocked.
+
+    Walks the Tailscale peer map looking for subnet routers. Cases handled,
+    in priority order:
+
+    1. No peer advertises any subnet route — usually means the host is on
+       the wrong tailnet (e.g. personal account) or has not been added to
+       the PostHog tailnet yet.
+    2. Routers exist but none are online — the relay is bouncing; waiting
+       is the only fix.
+    3. A router is online — Tailscale ACLs or a local VPN is intercepting.
+    """
+    peers = (status or {}).get("Peer") or {}
+    routers = [p for p in peers.values() if isinstance(p, dict) and p.get("PrimaryRoutes")]
+    online_routers = [p for p in routers if p.get("Online")]
+    facts.append(f"Subnet routers on tailnet: {len(routers)} ({len(online_routers)} online)")
+
+    if not routers:
+        return CoderReachabilityDiagnosis(
+            cause="No peer on your tailnet advertises subnet routes.",
+            next_step=(
+                "Either you are not on the PostHog tailnet (check the name "
+                "above), or your account has not been added to the Tailscale "
+                f"policy yet. See {_TAILSCALE_RUNBOOK_URL} for the policy "
+                "request flow, then reach out to Team DevEx with the facts below."
+            ),
+            facts=facts,
+        )
+
+    if not online_routers:
+        names = ", ".join(str(p.get("HostName") or "?") for p in routers)
+        return CoderReachabilityDiagnosis(
+            cause=f"Subnet router peer is offline ({names}).",
+            next_step=(
+                "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
+            ),
+            facts=facts,
+        )
+
+    return CoderReachabilityDiagnosis(
+        cause="TCP is blocked despite an online subnet router on your tailnet.",
+        next_step=(
+            "A non-Tailscale VPN or a local firewall is likely intercepting, "
+            "or the Tailscale policy does not grant your account devbox "
+            f"access. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL} to "
+            "confirm policy membership, or reach out to Team DevEx."
+        ),
+        facts=facts,
+    )
+
+
+def ensure_coder_reachable() -> None:
+    """Fail fast with a structured diagnosis when the Coder ALB is unreachable.
+
+    Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does
+    not prove the subnet route to the Coder ALB is plumbed — DNS can resolve
+    and packets still blackhole. Probe the API directly, and on failure pick
+    the single most-likely cause + next step instead of dumping a list of
+    commands the engineer has to interpret themselves.
+    """
     if coder_reachable():
         return
-    _fail(
-        f"Cannot reach {coder_url} over the tailnet.\n"
-        "Check that you're connected to the PostHog tailnet and that subnet routes are accepted:\n"
-        "  tailscale status   # verify peer is connected\n"
-        "  sudo tailscale set --accept-routes"
+
+    diagnosis = _diagnose_unreachable_coder()
+    body = "\n".join(
+        [
+            f"Cannot reach {get_coder_url()} over the tailnet.",
+            "",
+            f"Cause:     {diagnosis.cause}",
+            f"Next step: {diagnosis.next_step}",
+            "",
+            "Diagnostic facts (safe to share with Team DevEx):",
+            *(f"  - {fact}" for fact in diagnosis.facts),
+        ]
     )
+    _fail(body)
+
+
+def _encode_ssh_option(value: str) -> str:
+    """Encode one value for ``coder config-ssh --ssh-option``.
+
+    The flag is a cobra ``StringSlice``, which runs each value through Go's
+    ``encoding/csv``. Bare ``"`` in a non-quoted field crashes the parser
+    (``parse error: bare " in non-quoted-field``), so SSH options containing
+    quotes -- like ``IdentityAgent "/path with spaces"`` -- need to arrive
+    CSV-encoded. ``csv.QUOTE_MINIMAL`` only wraps fields that actually need
+    it, so plain options like ``ForwardAgent yes`` pass through unchanged.
+
+    coder CSV-decodes the value before writing ``~/.ssh/config``, so the
+    file ends up with the literal SSH form we constructed here.
+    """
+    buf = io.StringIO()
+    csv.writer(buf, quoting=csv.QUOTE_MINIMAL).writerow([value])
+    return buf.getvalue().rstrip("\r\n")
 
 
 def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
@@ -340,14 +657,20 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
     ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
     SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
+
+    The socket path needs to land double-quoted in ``~/.ssh/config`` because
+    1Password's macOS agent lives under ``~/Library/Group Containers/...`` --
+    an unquoted space makes ``ssh`` reject the config with "extra arguments
+    at end of line." See ``_encode_ssh_option`` for how that survives coder's
+    CSV-parsing flag layer.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
-    args += ["--ssh-option", "ForwardAgent yes"]
+    args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
-        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
+        args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
     return args
 
 
@@ -548,11 +871,12 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
     click.echo()
-    click.echo("To reconfigure later:")
-    click.echo("  hogli devbox:setup --configure-git-identity")
-    click.echo("  hogli devbox:setup --configure-git-signing")
-    click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude")
+    click.echo("Reconfigure one setting:  hogli devbox:setup --configure-<option>")
+    click.echo("Show saved configuration: hogli devbox:config:show")
+    click.echo("Clear saved settings:     hogli devbox:config:rm --help")
+    click.echo()
+    click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -632,21 +956,41 @@ def get_username() -> str:
     if username:
         return username.lower()
 
-    _fail("Failed to determine the Coder username.")
+    _fail(
+        "Could not determine your Coder username from `coder whoami`.\n"
+        f"  Your login may have expired. {RUNTIME_SETUP_HINT}"
+    )
 
 
-def get_workspace_name(label: str | None = None) -> str:
-    """Derive workspace name from Coder username and optional label.
+def _validate_label(label: str) -> None:
+    """Reject labels that don't match the format or collide with a region suffix.
 
-    Returns ``devbox-{username}`` for the default workspace, or
-    ``devbox-{username}-{label}`` for a named workspace.
+    Region suffixes encode the workspace's region at the end of the name
+    (`devbox-rauln-eu`), so a label like `eu` or `foo-eu` would be
+    indistinguishable from a region-suffixed workspace once written to disk.
+    Rejecting at construction time is cheaper than parsing ambiguity later.
     """
-    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
-    if label is None:
-        return base
     if not _LABEL_RE.match(label):
         _fail(f"Invalid workspace label '{label}'. Use lowercase alphanumeric and hyphens.")
-    return f"{base}-{label}"
+    for reserved in _RESERVED_LABEL_SUFFIXES:
+        if label == reserved or label.endswith(f"-{reserved}"):
+            _fail(f"Label '{label}' conflicts with the '-{reserved}' region suffix. Pick a different label.")
+
+
+def get_workspace_name(label: str | None = None, *, region: str = DEFAULT_REGION) -> str:
+    """Derive workspace name from Coder username, optional label, and region.
+
+    The default region is suffix-free for backward compatibility:
+    ``devbox-{username}`` (default) or ``devbox-{username}-{label}`` (labeled).
+    Non-default regions append a region suffix at the end: ``devbox-{username}-eu``
+    or ``devbox-{username}-{label}-eu``.
+    """
+    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
+    suffix = REGION_NAME_SUFFIXES.get(region, "")
+    if label is None:
+        return f"{base}-{suffix}" if suffix else base
+    _validate_label(label)
+    return f"{base}-{label}-{suffix}" if suffix else f"{base}-{label}"
 
 
 def get_default_workspace_prefix() -> str:
@@ -669,16 +1013,27 @@ def _list_workspaces() -> list[dict[str, Any]]:
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
-    """Extract the label suffix from a full workspace name.
+    """Extract the label portion of a full workspace name, stripping any region suffix.
 
-    Returns ``None`` for the default workspace (no label).
+    Returns ``None`` for the default workspace in any region (``devbox-{user}``
+    or ``devbox-{user}-eu``). A trailing region suffix is stripped before the
+    label is read so ``devbox-{user}-api-eu`` -> ``api`` and ``devbox-{user}-eu``
+    -> ``None``. Labels that collide with a region suffix are rejected at
+    construction time (see ``_validate_label``), so parsing is unambiguous.
     """
     prefix = get_default_workspace_prefix()
     if workspace_name == prefix:
         return None
-    if workspace_name.startswith(f"{prefix}-"):
-        return workspace_name[len(prefix) + 1 :]
-    return None
+    if not workspace_name.startswith(f"{prefix}-"):
+        return None
+    rest = workspace_name[len(prefix) + 1 :]
+    for reserved in _RESERVED_LABEL_SUFFIXES:
+        if rest == reserved:
+            return None
+        if rest.endswith(f"-{reserved}"):
+            rest = rest[: -len(reserved) - 1]
+            break
+    return rest or None
 
 
 def list_user_workspaces() -> list[dict[str, Any]]:
@@ -701,23 +1056,112 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
+    in the ``coder list`` payload. Returns ``None`` for boxes created before
+    the metadata item existed so callers can render their own placeholder.
+    """
+    resources = workspace.get("latest_build", {}).get("resources", [])
+    for resource in resources:
+        for item in resource.get("metadata", []):
+            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+                value = item.get("value")
+                if isinstance(value, str) and value:
+                    return value
+    return None
+
+
+def _list_template_presets(template: str) -> list[str]:
+    """Return preset names defined on the active version of ``template``, or [] on failure.
+
+    Emits a warning when the coder CLI itself fails (auth/network/version issues) so
+    a silent fall-through to ``--preset none`` is distinguishable from a template that
+    simply defines no presets.
+    """
+    result = _run(
+        ["coder", "templates", "presets", "list", template, "-o", "json"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f": {detail}" if detail else "."
+        click.echo(
+            click.style(
+                f"Warning: failed to list presets for template '{template}'{suffix}",
+                fg="yellow",
+            ),
+        )
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [entry["name"] for entry in payload if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+
+
+def resolve_template_preset(template: str, requested: str) -> str:
+    """Resolve ``requested`` to a preset the template defines, or ``NO_PRESET``.
+
+    Falls back to ``NO_PRESET`` (with a warning when alternatives exist) so
+    ``coder create`` never reaches its interactive picker.
+    """
+    if requested == NO_PRESET:
+        return NO_PRESET
+    presets = _list_template_presets(template)
+    if requested in presets:
+        return requested
+    if presets:
+        click.echo(
+            click.style(
+                f"Warning: preset '{requested}' not found for template '{template}'. "
+                f"Available: {', '.join(presets)}. Falling back to --preset {NO_PRESET}.",
+                fg="yellow",
+            ),
+        )
+    return NO_PRESET
+
+
 def create_workspace(
     name: str,
     disk_size: int,
-    claude_oauth_token: str | None = None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
+    region: str = DEFAULT_REGION,
+    template: str = DEFAULT_TEMPLATE,
+    preset: str = DEFAULT_PRESET,
     verbose: bool = False,
 ) -> None:
-    """Create a new Coder workspace."""
-    parameters = {
-        **_TEMPLATE_PARAMETER_DEFAULTS,
+    """Create a new Coder workspace.
+
+    Only parameters with explicit caller-supplied values are forwarded.
+    Anything the template defines but we do not supply falls back to the
+    template's Terraform default via ``--use-parameter-defaults``. If a
+    forwarded parameter does not exist on the chosen template, coder errors
+    pre-provisioning and the retry loop drops the offending key.
+
+    ``region`` is forwarded as ``workspace_region``. On a template that does
+    not yet declare it, the retry loop drops it and the box lands in the
+    template default (us-east-1) -- so shipping this before the template
+    update is harmless. On a template that declares it but does not offer the
+    requested value yet (eu-central-1 before the EU infra is live), coder
+    rejects it as an invalid option, which is *not* the "parameter not
+    present" error, so the failure surfaces instead of silently falling back.
+
+    ``preset`` is resolved against the template's actual presets via
+    ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
+    """
+    parameters: dict[str, str] = {
         "disk_size": str(disk_size),
         "repo": repo,
-        CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
+        WORKSPACE_REGION_PARAMETER: region,
     }
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
@@ -726,15 +1170,19 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
-    args = [
+    resolved_preset = resolve_template_preset(template, preset)
+    base_args = [
         "coder",
         "create",
         name,
         "--template",
-        TEMPLATE_NAME,
+        template,
+        "--preset",
+        resolved_preset,
+        "--use-parameter-defaults",
         "--yes",
     ]
-    result = _run_with_rich_parameters(args, parameters, verbose=verbose)
+    result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -766,10 +1214,17 @@ def update_workspace(
     *,
     verbose: bool = False,
 ) -> None:
-    """Update a workspace to the latest template version."""
-    merged = {**_TEMPLATE_PARAMETER_DEFAULTS, **(parameters or {})}
-    args = ["coder", "update", name]
-    result = _run_with_rich_parameters(args, merged, verbose=verbose)
+    """Update a workspace to the latest template version.
+
+    ``--use-parameter-defaults`` lets coder fall back to the template's own
+    defaults for any parameter not explicitly supplied here, so we never
+    need a hogli-side defaults dict. Parameters carried over from a
+    previous template (e.g. a saved ``dotfiles_uri`` that the new template
+    does not declare) are dropped by the retry shim instead of aborting
+    the update.
+    """
+    base_args = ["coder", "update", name, "--use-parameter-defaults"]
+    result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -782,40 +1237,53 @@ def delete_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
-    """Update mutable workspace parameters using a temp YAML file."""
-    result = _run_with_rich_parameters(["coder", "update", name], parameters)
+    """Update mutable workspace parameters.
+
+    Goes through the same retry shim as ``create_workspace`` so a stale
+    local config key (for example, a saved ``dotfiles_uri`` after the user
+    switches templates) does not abort the pre-start sync.
+    """
+    base_args = ["coder", "update", name, "--use-parameter-defaults"]
+    result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
 
-def upsert_user_secret(name: str, value: str, *, env_var: str | None = None) -> None:
+def upsert_user_secret(
+    name: str,
+    value: str,
+    *,
+    env_name: str | None = None,
+    description: str | None = None,
+) -> None:
     """Idempotently set a per-user Coder secret. Requires server >= 2.33.
 
-    Tries ``coder secret create`` first; falls back to ``coder secret update``
-    when the secret already exists. The secret value is piped through stdin so
-    it never appears in process args or shell history. ``env_var`` is the
-    workspace-side environment variable target; passing ``None`` leaves the
-    secret with whatever target it already has (only meaningful on update).
+    Pipes ``value`` via stdin so it never appears in argv, process listings,
+    or shell history. Tries ``coder secret create`` first; falls back to
+    ``coder secret update`` when the secret already exists. Raises
+    ``SystemExit`` (with stderr surfaced) on failure, so callers do not have
+    to branch on a return code. ``env_name`` is the workspace-side
+    environment variable the secret will be exported as; ``description`` is
+    informational.
     """
-    flags = ["--env", env_var] if env_var else []
-    payload = subprocess.run(
-        _resolve_coder(["coder", "secret", "create", name, *flags]),
-        input=value,
-        text=True,
-        capture_output=True,
-    )
-    if payload.returncode == 0:
-        return
+    flags: list[str] = []
+    if env_name is not None:
+        flags += ["--env", env_name]
+    if description is not None:
+        flags += ["--description", description]
 
-    payload = subprocess.run(
-        _resolve_coder(["coder", "secret", "update", name, *flags]),
-        input=value,
-        text=True,
-        capture_output=True,
-    )
-    if payload.returncode != 0:
-        click.echo(payload.stderr or payload.stdout, err=True)
-        raise SystemExit(payload.returncode)
+    for verb in ("create", "update"):
+        payload = subprocess.run(
+            _resolve_coder(["coder", "secret", verb, name, *flags]),
+            input=value,
+            text=True,
+            capture_output=True,
+        )
+        if payload.returncode == 0:
+            return
+
+    click.echo(payload.stderr or payload.stdout, err=True)
+    raise SystemExit(payload.returncode)
 
 
 def user_secret_exists(name: str) -> bool:
@@ -832,9 +1300,63 @@ def user_secret_exists(name: str) -> bool:
     return any(isinstance(s, dict) and s.get("name") == name for s in secrets)
 
 
+def _ssh_host_alias(name: str) -> str:
+    """Return the ``Host`` alias written by ``coder config-ssh`` for the given workspace."""
+    return f"coder.{name}"
+
+
 def ssh_replace(name: str) -> None:
-    """SSH into a workspace and replace the current process."""
-    _run_or_exit(["coder", "ssh", name])
+    """SSH via the ``coder.*`` host alias so ``~/.ssh/config`` applies.
+
+    Calling ``coder ssh`` directly bypasses the user's ssh config, breaking
+    ``IdentityAgent`` forwarding (Secretive, 1Password) used for commit signing.
+    The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
+    the Coder tunnel via its ``ProxyCommand``.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
+
+
+def exec_replace(name: str, command: list[str]) -> None:
+    """Run a single command in the workspace over the ssh host alias, replacing the process.
+
+    Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
+    for two reasons:
+
+    1. ``coder ssh`` does not propagate the remote command's exit code -- it
+       prints ``Process exited with status N`` to stderr but exits 0 itself,
+       so callers and agents can't tell success from failure. Real ssh
+       forwards the exit code faithfully.
+    2. The ``Host coder.*`` block applies the user's ssh config (IdentityAgent
+       forwarding), same as :func:`ssh_replace`.
+
+    ``command`` tokens are shell-quoted into one string so the remote login
+    shell preserves argument boundaries -- ssh otherwise space-joins argv,
+    which would split a token like ``"uname -sm"`` back into two.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def coder_ssh_alias_configured(name: str) -> bool:
+    """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
+
+    :func:`exec_replace` and :func:`ssh_replace` connect through the
+    ``Host coder.*`` block that ``coder config-ssh`` writes during
+    ``devbox:setup``. When that block is absent, ``ssh coder.<name>`` fails with
+    an opaque ``Could not resolve hostname``; callers check this first so they
+    can point at setup instead. The block is a wildcard, so any ``name`` probes
+    it. Returns ``False`` if ``ssh`` is missing or errors.
+    """
+    try:
+        result = subprocess.run(["ssh", "-G", _ssh_host_alias(name)], capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        if line.startswith("proxycommand "):
+            value = line[len("proxycommand ") :].strip()
+            return bool(value) and value.lower() != "none"
+    return False
 
 
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
@@ -856,15 +1378,16 @@ def create_task(
     *,
     task_name: str | None = None,
     quiet: bool = False,
+    template: str = DEFAULT_TEMPLATE,
 ) -> None:
-    """Create a Coder task on the posthog-linux template.
+    """Create a Coder task on the given workspace template.
 
     When ``prompt`` is None, ``--stdin`` is passed so coder reads the prompt
     from the parent process's stdin; otherwise it is forwarded as the
     positional input argument. Execs into the coder CLI so stdin, stdout,
     and the exit code flow through unchanged.
     """
-    args = ["coder", "task", "create", "--template", TEMPLATE_NAME]
+    args = ["coder", "task", "create", "--template", template]
     if task_name:
         args += ["--name", task_name]
     if quiet:
@@ -874,19 +1397,6 @@ def create_task(
     else:
         args.append(prompt)
     _run_or_exit(args)
-
-
-def run_in_workspace(
-    name: str, command: list[str], *, capture_output: bool = False
-) -> subprocess.CompletedProcess[str]:
-    """Run a command in the workspace via `coder ssh`."""
-    args = ["coder", "ssh", name, "--", *command]
-    return _run(args, capture_output=capture_output)
-
-
-def replace_with_workspace_command(name: str, command: list[str]) -> None:
-    """Run a workspace command and replace the current process."""
-    _run_or_exit(["coder", "ssh", name, "--", *command])
 
 
 def open_in_browser(name: str) -> None:
@@ -905,14 +1415,55 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    ssh_host = f"coder.{name}"
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{ssh_host}", "/home/coder/posthog"])
+    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:
     """Open code-server for the workspace."""
     username = get_username()
     webbrowser.open(f"{get_coder_url()}/@{username}/{name}/apps/code-server")
+
+
+# ---------------------------------------------------------------------------
+# Coder user secrets
+# ---------------------------------------------------------------------------
+
+CLAUDE_CODE_OAUTH_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+
+
+def list_user_secrets() -> list[dict[str, Any]] | None:
+    """Return user secrets via ``coder secret list -o json``.
+
+    Returns ``None`` when the CLI rejects the command (older server / missing
+    feature flag) so callers can distinguish "no secrets" from "unsupported".
+    """
+    result = _run(["coder", "secret", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return None
+    try:
+        secrets = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    return secrets if isinstance(secrets, list) else []
+
+
+def get_user_secret(name: str) -> dict[str, Any] | None:
+    """Return a single secret payload by name, or ``None`` if not present."""
+    secrets = list_user_secrets() or []
+    for secret in secrets:
+        if isinstance(secret, dict) and secret.get("name") == name:
+            return secret
+    return None
+
+
+def has_claude_oauth_secret() -> bool:
+    """Return whether a Coder user secret named ``CLAUDE_CODE_OAUTH_TOKEN`` exists."""
+    return get_user_secret(CLAUDE_CODE_OAUTH_ENV) is not None
+
+
+def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
+    """Delete a Coder user secret by name."""
+    return _run(["coder", "secret", "delete", name, "--yes"], capture_output=True)
 
 
 # ---------------------------------------------------------------------------
@@ -923,8 +1474,13 @@ def open_web_ide(name: str) -> None:
 def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
     """Build a workspace name for another user's workspace.
 
-    Returns ``devbox-{user}`` for the default workspace, or
-    ``devbox-{user}-{label}`` for a labeled workspace.
+    Mirrors the default-region form of :func:`get_workspace_name`:
+    ``devbox-{user}`` for the default workspace, ``devbox-{user}-{label}``
+    for a labeled one. The caller's own region preference is intentionally
+    NOT applied -- the remote workspace's region is determined by its owner,
+    not the accessor, so a region suffix here would just guess wrong.
+    Callers needing a shared workspace in a non-default region should pass
+    the full workspace name via ``--name``.
     """
     base = f"{_WORKSPACE_PREFIX}-{user}"
     if label is None:
@@ -932,13 +1488,17 @@ def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
     return f"{base}-{label}"
 
 
-def parse_workspace_target(target: str) -> str:
+def parse_workspace_target(target: str, *, region: str = DEFAULT_REGION) -> str:
     """Parse a workspace target string into a full workspace name.
 
     Supports:
     - ``@user`` -> another user's default workspace
     - ``@user/label`` -> another user's labeled workspace
     - ``label`` -> current user's labeled workspace
+
+    ``region`` controls the region suffix applied to OWN labels only.
+    Shared targets (``@user[/label]``) ignore it -- see
+    :func:`resolve_shared_workspace_name`.
     """
     if target.startswith("@"):
         rest = target[1:]
@@ -950,7 +1510,7 @@ def parse_workspace_target(target: str) -> str:
         if not rest:
             raise click.UsageError("Expected @user but got bare '@'.")
         return resolve_shared_workspace_name(rest)
-    return get_workspace_name(target)
+    return get_workspace_name(target, region=region)
 
 
 def share_workspace(name: str, users: list[str], role: str = "use") -> None:

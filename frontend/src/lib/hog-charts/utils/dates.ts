@@ -1,5 +1,4 @@
-import { Dayjs } from 'lib/dayjs'
-import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
+import { type Dayjs, parseDateInTimezone } from './dayjs'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */
@@ -9,7 +8,6 @@ interface CreateXAxisTickCallbackArgs {
     interval?: TimeInterval
     allDays: (string | number)[]
     timezone: string
-    numericTickPrefix?: string
 }
 
 type TickMode =
@@ -23,10 +21,9 @@ export function createXAxisTickCallback({
     interval,
     allDays,
     timezone,
-    numericTickPrefix,
-}: CreateXAxisTickCallbackArgs): (value: string | number, index: number) => string | null {
+}: CreateXAxisTickCallbackArgs): ((value: string | number, index: number) => string | null) | undefined {
     if (allDays.length === 0 || typeof allDays[0] !== 'string') {
-        return (value) => (numericTickPrefix ? `${numericTickPrefix} ${String(value)}` : String(value))
+        return
     }
 
     const parsedDates = allDays.map((d) => parseDateForAxis(String(d), timezone))
@@ -34,7 +31,7 @@ export function createXAxisTickCallback({
     const last = parsedDates[parsedDates.length - 1]
 
     if (!first?.isValid() || !last?.isValid()) {
-        return (value) => String(value)
+        return
     }
 
     const resolvedInterval = interval ?? inferInterval(parsedDates)

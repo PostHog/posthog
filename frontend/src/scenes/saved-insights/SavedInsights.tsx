@@ -25,28 +25,24 @@ import {
     IconRetentionHeatmap,
     IconHeart,
     IconHeartFilled,
-    IconStar,
-    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonCheckbox, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
-import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -56,10 +52,8 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getSelectionState, listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
@@ -69,7 +63,6 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { projectLogic } from 'scenes/projectLogic'
-import { HomeTab } from 'scenes/saved-insights/HomeTab'
 import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -517,17 +510,17 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.TracesQuery]: {
-        name: 'LLM Analytics Traces',
+        name: 'AI observability traces',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceNeighborsQuery]: {
-        name: 'LLM Analytics Trace Neighbors',
+        name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
     [NodeKind.TraceQuery]: {
-        name: 'LLM Analytics Trace',
+        name: 'AI observability trace',
         icon: IconLlmAnalytics,
         inMenu: false,
     },
@@ -562,6 +555,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.TraceSpansAggregationQuery]: {
+        name: 'Trace Spans Aggregation',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansTreeQuery]: {
+        name: 'Trace Spans Tree',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
@@ -584,6 +587,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.AccountsQuery]: {
+        name: 'Accounts',
         icon: IconPieChart,
         inMenu: false,
     },
@@ -761,58 +769,12 @@ export function SavedInsights(): JSX.Element {
     const { insights, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
         useValues(savedInsightsLogic)
 
-    const insightSelection = listSelectionLogic({ resource: 'insights' })
-    const { selectedIds } = useValues(insightSelection)
-    const { selectAllOnPage } = useActions(insightSelection)
-
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
-    const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
-    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
-    const allPageItems = insights.results.map((insight) => ({
-        id: insight.id,
-        isEditable: accessLevelSatisfied(
-            AccessControlResourceType.Insight,
-            insight.user_access_level,
-            AccessControlLevel.Editor
-        ),
-    }))
-    const editableIds = allPageItems.filter((item) => item.isEditable).map((item) => item.id)
-
-    const { isAllSelected, isSomeSelected } = getSelectionState(selectedIds, editableIds)
-
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
-        {
-            key: 'selection',
-            width: 32,
-            title: (
-                <LemonCheckbox
-                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
-                    onChange={() => selectAllOnPage(allPageItems)}
-                    aria-label="Select all insights on this page"
-                />
-            ),
-            render: function Render(_: unknown, insight: QueryBasedInsightModel, index: number) {
-                const canEdit = accessLevelSatisfied(
-                    AccessControlResourceType.Insight,
-                    insight.user_access_level,
-                    AccessControlLevel.Editor
-                )
-                return (
-                    <SelectionCheckbox
-                        resource="insights"
-                        id={insight.id}
-                        index={index}
-                        allPageItems={allPageItems}
-                        disabledReason={!canEdit ? "You don't have permission to edit this insight." : undefined}
-                        ariaLabel={`Select insight ${insight.name || 'Untitled'}`}
-                    />
-                )
-            },
-        },
         {
             key: 'id',
             width: 32,
@@ -842,15 +804,9 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        isAIFirst ? (
-                                            <IconHeartFilled className="text-danger" />
-                                        ) : (
-                                            <IconStarFilled className="text-warning" />
-                                        )
-                                    ) : isAIFirst ? (
-                                        <IconHeart className="text-secondary" />
+                                        <IconHeartFilled className="text-danger" />
                                     ) : (
-                                        <IconStar className="text-secondary" />
+                                        <IconHeart className="text-secondary" />
                                     )
                                 }
                                 tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
@@ -1028,21 +984,6 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
-                    ...(showHomeTab
-                        ? [
-                              {
-                                  key: SavedInsightsTabs.Home,
-                                  label: (
-                                      <div className="flex items-center gap-2">
-                                          Home
-                                          <LemonTag type="warning" size="small">
-                                              BETA
-                                          </LemonTag>
-                                      </div>
-                                  ),
-                              },
-                          ]
-                        : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     {
@@ -1054,9 +995,7 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.Home ? (
-                <HomeTab />
-            ) : tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />
@@ -1072,11 +1011,6 @@ export function SavedInsights(): JSX.Element {
                         }
                     />
                     <ReloadInsight />
-                    {selectedIds.length > 0 && (
-                        <div className="flex items-center justify-end min-h-9">
-                            <BulkActionToolbar resource="insights" />
-                        </div>
-                    )}
                     <LemonTable
                         loading={insightsLoading}
                         columns={columns}
@@ -1102,6 +1036,30 @@ export function SavedInsights(): JSX.Element {
                                 </div>
                             ) : undefined
                         }
+                        bulkSelection={{
+                            getKey: (insight: QueryBasedInsightModel): number => insight.id,
+                            isRowSelectable: (insight: QueryBasedInsightModel) =>
+                                accessLevelSatisfied(
+                                    AccessControlResourceType.Insight,
+                                    insight.user_access_level,
+                                    AccessControlLevel.Editor
+                                )
+                                    ? true
+                                    : { disabledReason: "You don't have permission to edit this insight." },
+                            rowAriaLabel: (insight: QueryBasedInsightModel) =>
+                                `Select insight ${insight.name || 'Untitled'}`,
+                            headerAriaLabel: 'Select all insights on this page',
+                            renderActions: (ctx) => (
+                                <BulkUpdateTagsButton
+                                    resource="insights"
+                                    selectedIds={ctx.selectedKeys}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        loadInsights()
+                                    }}
+                                />
+                            ),
+                        }}
                     />
                 </>
             )}

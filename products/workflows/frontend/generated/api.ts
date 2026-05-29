@@ -47,9 +47,21 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getInternalHogFlowsProcessDueSchedulesCreateUrl = () => {
+    return `/api/internal/hog_flows/process_due_schedules`
+}
+
 /**
- * Override list to include global templates from files alongside team templates from DB.
+ * Internal endpoint called by the scheduler service to process due schedules.
+Handles both executing due schedules and initializing next_run_at for new ones.
  */
+export const internalHogFlowsProcessDueSchedulesCreate = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -66,6 +78,9 @@ export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTe
         : `/api/projects/${projectId}/hog_flow_templates/`
 }
 
+/**
+ * Override list to include global templates from files alongside team templates from DB.
+ */
 export const hogFlowTemplatesList = async (
     projectId: string,
     params?: HogFlowTemplatesListParams,
@@ -94,14 +109,14 @@ export const hogFlowTemplatesCreate = async (
     })
 }
 
-/**
- * Check file-based global templates first, then DB team templates.
-The queryset excludes all global templates from DB, so this only returns team templates from DB.
- */
 export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
+/**
+ * Check file-based global templates first, then DB team templates.
+The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
     id: string,
@@ -138,7 +153,7 @@ export const getHogFlowTemplatesPartialUpdateUrl = (projectId: string, id: strin
 export const hogFlowTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowTemplateApi: NonReadonly<PatchedHogFlowTemplateApi>,
+    patchedHogFlowTemplateApi?: NonReadonly<PatchedHogFlowTemplateApi>,
     options?: RequestInit
 ): Promise<HogFlowTemplateApi> => {
     return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesPartialUpdateUrl(projectId, id), {
@@ -272,7 +287,7 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
@@ -324,24 +339,6 @@ export const hogFlowsBatchJobsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
-    })
-}
-
-/**
- * List workflow runs that were blocked by the dedup bug.
- */
-export const getHogFlowsBlockedRunsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/blocked_runs/`
-}
-
-export const hogFlowsBlockedRunsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsBlockedRunsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -455,48 +452,6 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
-/**
- * Replay all blocked runs in a single bulk call to Node.
- */
-export const getHogFlowsReplayAllBlockedRunsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/replay_all_blocked_runs/`
-}
-
-export const hogFlowsReplayAllBlockedRunsCreate = async (
-    projectId: string,
-    id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
-    options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsReplayAllBlockedRunsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
-    })
-}
-
-/**
- * Replay a single blocked run. Django fetches the event, Node creates the invocation and writes the log.
- */
-export const getHogFlowsReplayBlockedRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/replay_blocked_run/`
-}
-
-export const hogFlowsReplayBlockedRunCreate = async (
-    projectId: string,
-    id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
-    options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsReplayBlockedRunCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
-    })
-}
-
 export const getHogFlowsSchedulesListUrl = (projectId: string, id: string, params?: HogFlowsSchedulesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -568,7 +523,7 @@ export const hogFlowsSchedulesPartialUpdate = async (
     projectId: string,
     id: string,
     scheduleId: string,
-    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<HogFlowApi> => {
     return apiMutator<HogFlowApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {
@@ -626,5 +581,38 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius`
+}
+
+/**
+ * Internal endpoint for Node.js services to query user blast radius.
+Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius_persons`
+}
+
+/**
+ * Internal endpoint for Node.js services to query user blast radius persons with pagination.
+Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
+    teamId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsUserBlastRadiusPersonsCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
     })
 }

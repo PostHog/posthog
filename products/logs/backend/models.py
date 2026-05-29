@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -66,7 +65,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     filters = models.JSONField(default=dict)
 
     # Threshold
-    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)], default=100)
+    threshold_count = models.PositiveIntegerField(default=100)
     threshold_operator = models.CharField(
         max_length=10,
         choices=ThresholdOperator,
@@ -205,6 +204,7 @@ class LogsAlertEvent(UUIDModel):
         SNOOZE = "snooze", "Snooze"
         UNSNOOZE = "unsnooze", "Unsnooze"
         THRESHOLD_CHANGE = "threshold_change", "Threshold change"
+        BROKEN_CONFIG = "broken_config", "Broken config"
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,

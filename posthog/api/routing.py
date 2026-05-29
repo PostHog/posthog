@@ -54,7 +54,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
+class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -261,8 +261,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
-        # Projects and dashboards: org admins have implicit access; list must match retrieve (see issue #44364).
-        if self.scope_object in ("project", "dashboard"):
+        # Projects, dashboards, feature flags: org admins have implicit access; list must match retrieve (see issue #44364).
+        if self.scope_object in ("project", "dashboard", "feature_flag"):
             include_all_if_admin = True
 
         # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because

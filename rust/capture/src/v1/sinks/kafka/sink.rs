@@ -16,20 +16,38 @@ use crate::config::CaptureMode;
 use crate::v1::context::Context;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Outcome, SinkResult};
+use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
+/// Null the partition key when person processing is force-disabled for
+/// Main/Overflow destinations — spreads load across partitions instead of
+/// hotspotting on a single token:distinct_id pair.
+fn effective_partition_key<'a>(
+    key_buf: &'a str,
+    force_disable_person_processing: bool,
+    destination: &Destination,
+) -> Option<&'a str> {
+    if force_disable_person_processing
+        && matches!(
+            destination,
+            Destination::AnalyticsMain | Destination::Overflow
+        )
+    {
+        None
+    } else {
+        Some(key_buf)
+    }
+}
+
 /// Shared label values for metrics emitted within a single `publish_batch` call.
-/// All fields are `&'static str` (zero-cost) or `SharedString` (Arc-based, so
-/// `.clone()` is a refcount bump rather than a heap allocation).
 struct MetricLabels {
     sink: &'static str,
     mode: &'static str,
-    path: metrics::SharedString,
+    path: &'static str,
     attempt: metrics::SharedString,
 }
 
@@ -72,7 +90,7 @@ fn reject_publishable(
         "mode" => labels.mode,
         "cluster" => labels.sink,
         "outcome" => Outcome::RetriableError.as_tag(),
-        "path" => labels.path.clone(),
+        "path" => labels.path,
         "attempt" => labels.attempt.clone(),
     )
     .increment(publishable.len() as u64);
@@ -146,7 +164,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     "mode" => labels.mode,
                     "cluster" => labels.sink,
                     "outcome" => Outcome::FatalError.as_tag(),
-                    "path" => labels.path.clone(),
+                    "path" => labels.path,
                     "attempt" => labels.attempt.clone(),
                 )
                 .increment(1);
@@ -158,10 +176,19 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 continue;
             }
 
-            let headers: rdkafka::message::OwnedHeaders = event.headers(ctx).into();
+            let captured_headers = event.headers(ctx);
 
             key_buf.clear();
-            let key = event.partition_key(ctx, &mut key_buf);
+            event.partition_key(ctx, &mut key_buf);
+            let key = effective_partition_key(
+                &key_buf,
+                captured_headers
+                    .force_disable_person_processing
+                    .unwrap_or(false),
+                event.destination(),
+            );
+
+            let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
             let mut record = ProduceRecord {
                 topic,
@@ -221,7 +248,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "mode" => labels.mode,
                             "cluster" => labels.sink,
                             "outcome" => outcome.as_tag(),
-                            "path" => labels.path.clone(),
+                            "path" => labels.path,
                             "attempt" => labels.attempt.clone(),
                         )
                         .increment(1);
@@ -252,50 +279,49 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             match tokio::time::timeout_at(deadline, pending.next()).await {
                 Ok(Some((uuid, completed_at, ack))) => {
                     resolved_keys.insert(uuid);
-                    match ack {
-                        Ok(()) => {
-                            counter!(
-                                "capture_v1_kafka_publish_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "outcome" => Outcome::Success.as_tag(),
-                                "path" => labels.path.clone(),
-                                "attempt" => labels.attempt.clone(),
-                            )
-                            .increment(1);
-                            let elapsed = completed_at.signed_duration_since(enqueued_at);
-                            if let Ok(secs) = elapsed.to_std() {
-                                histogram!(
-                                    "capture_v1_kafka_ack_duration_seconds",
-                                    "mode" => labels.mode,
-                                    "cluster" => labels.sink,
-                                    "outcome" => Outcome::Success.as_tag(),
-                                    "path" => labels.path.clone(),
-                                    "attempt" => labels.attempt.clone(),
-                                )
-                                .record(secs.as_secs_f64());
-                            }
-                            results.push(Box::new(
-                                KafkaResult::ok(uuid, enqueued_at).with_completed_at(completed_at),
-                            ));
-                        }
+
+                    let outcome_tag = match &ack {
+                        Ok(()) => Outcome::Success.as_tag(),
                         Err(e) => {
-                            let sink_err = KafkaSinkError::Produce(e);
-                            let outcome = sink_err.outcome();
-                            counter!(
-                                "capture_v1_kafka_publish_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "outcome" => outcome.as_tag(),
-                                "path" => labels.path.clone(),
-                                "attempt" => labels.attempt.clone(),
-                            )
-                            .increment(1);
-                            results.push(Box::new(
-                                KafkaResult::err(uuid, sink_err, enqueued_at)
-                                    .with_completed_at(completed_at),
-                            ));
+                            if e.is_retriable() {
+                                Outcome::RetriableError.as_tag()
+                            } else {
+                                Outcome::FatalError.as_tag()
+                            }
                         }
+                    };
+
+                    counter!(
+                        "capture_v1_kafka_publish_total",
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome_tag,
+                        "path" => labels.path,
+                        "attempt" => labels.attempt.clone(),
+                    )
+                    .increment(1);
+
+                    let elapsed = completed_at.signed_duration_since(enqueued_at);
+                    if let Ok(secs) = elapsed.to_std() {
+                        histogram!(
+                            "capture_v1_kafka_ack_duration_seconds",
+                            "mode" => labels.mode,
+                            "cluster" => labels.sink,
+                            "outcome" => outcome_tag,
+                            "path" => labels.path,
+                            "attempt" => labels.attempt.clone(),
+                        )
+                        .record(secs.as_secs_f64());
+                    }
+
+                    match ack {
+                        Ok(()) => results.push(Box::new(
+                            KafkaResult::ok(uuid, enqueued_at).with_completed_at(completed_at),
+                        )),
+                        Err(e) => results.push(Box::new(
+                            KafkaResult::err(uuid, KafkaSinkError::Produce(e), enqueued_at)
+                                .with_completed_at(completed_at),
+                        )),
                     }
                 }
                 Ok(None) => break,
@@ -326,7 +352,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             "mode" => labels.mode,
             "cluster" => labels.sink,
             "outcome" => Outcome::Timeout.as_tag(),
-            "path" => labels.path.clone(),
+            "path" => labels.path,
             "attempt" => labels.attempt.clone(),
         )
         .increment(timed_out_keys.len() as u64);
@@ -354,7 +380,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let labels = MetricLabels {
             sink: self.name.as_str(),
             mode: self.capture_mode.as_tag(),
-            path: ctx.path.clone().into(),
+            path: ctx.path,
             attempt: ctx.attempt.to_string().into(),
         };
 
@@ -446,5 +472,26 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         })
         .await
         .map_err(|e| anyhow::anyhow!("flush task panicked: {e:#}"))?
+    }
+}
+
+#[cfg(test)]
+mod effective_partition_key_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::main_disabled(true, Destination::AnalyticsMain, None)]
+    #[case::overflow_disabled(true, Destination::Overflow, None)]
+    #[case::dlq_disabled(true, Destination::Dlq, Some("k"))]
+    #[case::historical_disabled(true, Destination::AnalyticsHistorical, Some("k"))]
+    #[case::custom_disabled(true, Destination::Custom("t".into()), Some("k"))]
+    #[case::main_not_disabled(false, Destination::AnalyticsMain, Some("k"))]
+    fn policy(
+        #[case] force_disable: bool,
+        #[case] dest: Destination,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(effective_partition_key("k", force_disable, &dest), expected);
     }
 }
