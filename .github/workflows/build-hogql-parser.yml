@@ -47,11 +47,7 @@ jobs:
                   parser_release_needed='false'
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     local=$(cd common/hogql_parser && python setup.py --version)
-                    # Query the per-version page, not `.info.version`. The /json/ index endpoint
-                    # is Fastly-cached with max-age=600, so for ~10 minutes after an upload it can
-                    # still report the prior version. That race let an auto-pin retrigger republish
-                    # an already-published version and fail with 400, which is what this fix avoids.
-                    # Per-version pages invalidate on upload, so 200 vs 404 is authoritative.
+                    # 200 = version already on PyPI, 404 = needs release.
                     http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
                     if [[ "$http_code" == '404' ]]; then
                       parser_release_needed='true'
@@ -168,10 +164,6 @@ jobs:
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
               with:
-                  # Belt-and-braces with the per-version check above: if the publish step ever
-                  # gets reached for a version that already exists (e.g. retry after a network
-                  # blip post-upload), treat existing-file 400s as a no-op success rather than
-                  # failing the whole pipeline.
                   skip-existing: true
 
             # Use GitHub app token so Actions run after commiting changes

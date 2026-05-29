@@ -50,11 +50,7 @@ jobs:
                   local=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
                   echo "local-version=$local" >> $GITHUB_OUTPUT
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
-                      # Query the per-version page, not `.info.version`. The /json/ index endpoint
-                      # is Fastly-cached with max-age=600, so for ~10 minutes after an upload it can
-                      # still report the prior version. That race let an auto-pin retrigger republish
-                      # an already-published version and fail with 400, which is what this fix avoids.
-                      # Per-version pages invalidate on upload, so 200 vs 404 is authoritative.
+                      # 200 = version already on PyPI, 404 = needs release.
                       http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser-rs/$local/json")
                       if [[ "$http_code" == '404' ]]; then
                           parser_release_needed='true'
@@ -183,10 +179,6 @@ jobs:
               with:
                   # Attaches the attestations generated above to the PyPI release.
                   attestations: true
-                  # Belt-and-braces with the per-version check above: if the publish step ever
-                  # gets reached for a version that already exists (e.g. retry after a network
-                  # blip post-upload), treat existing-file 400s as a no-op success rather than
-                  # failing the whole pipeline.
                   skip-existing: true
 
             - name: Get app token
