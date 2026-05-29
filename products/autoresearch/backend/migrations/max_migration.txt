@@ -1,1 +1,1 @@
-0005_autoresearchtrainingrun_task_id
+0006_autoresearchmodel_artifact_prefix

@@ -48,6 +48,7 @@ from products.autoresearch.backend.labeling import (
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
+from products.autoresearch.backend.sandbox_inference import score_via_sandbox
 
 logger = structlog.get_logger(__name__)
 
@@ -93,7 +94,7 @@ def run_inference_for_pipeline(
 
     try:
         team = pipeline.team
-        rows_scored, score_distribution = _score_and_emit(
+        rows_scored, score_distribution, holdout_auc = _score_and_emit(
             team=team,
             pipeline=pipeline,
             model=model,
@@ -104,7 +105,9 @@ def run_inference_for_pipeline(
         run.rows_scored = rows_scored
         run.metrics = {
             "score_distribution": score_distribution,
-            "stub": model.model_recipe.get("stub", False),
+            "stub": (model.model_recipe or {}).get("stub", False),
+            "sandbox": bool(model.artifact_prefix),
+            "holdout_auc": holdout_auc,
         }
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
@@ -120,10 +123,11 @@ def run_inference_for_pipeline(
         )
         return run
 
-    except Exception:
+    except Exception as exc:
         run.status = AutoresearchRun.Status.FAILED
+        run.error = str(exc)[:2000]
         run.completed_at = django_timezone.now()
-        run.save(update_fields=["status", "completed_at"])
+        run.save(update_fields=["status", "error", "completed_at"])
         logger.exception("autoresearch_inference_failed", pipeline_id=str(pipeline.pk))
         raise
 
@@ -133,35 +137,45 @@ def _score_and_emit(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     prediction_date: date,
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, dict[str, Any], float | None]:
     """
     Fetch feature rows, compute scores, emit prediction events.
-    Returns (rows_scored, score_distribution_summary).
+    Returns (rows_scored, score_distribution_summary, holdout_auc).
     """
-    recipe = model.model_recipe
-    feature_sql = recipe.get("feature_sql", "")
+    holdout_auc: float | None = None
 
-    # Route based on the recipe contract. New anchors-style recipes get the
-    # leak-free path: features and labels both live in time strictly before
-    # each user's cutoff_ts, training cohort != scoring cohort, fit happens
-    # on training-fold rows only. Legacy recipes fall through to the
-    # transductive path until they're regenerated.
-    if _ANCHORS_PLACEHOLDER in feature_sql:
-        scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe)
+    # Artifact-bundle models run fit + predict in a sandbox and fully own scoring;
+    # this bypasses both the anchors and legacy in-process paths. Failures raise
+    # (no stub fallback) so the run fails loudly rather than emitting noise.
+    if model.artifact_prefix:
+        result = score_via_sandbox(team=team, pipeline=pipeline, model=model)
+        scored = result.scored_rows
+        holdout_auc = result.holdout_auc
     else:
-        feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
-        if not feature_rows:
-            logger.warning(
-                "autoresearch_no_feature_rows",
-                pipeline_id=str(pipeline.pk),
-                team_id=team.pk,
-            )
-            return 0, {}
-        if recipe.get("stub"):
-            scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
+        recipe = model.model_recipe or {}
+        feature_sql = recipe.get("feature_sql", "")
+
+        # Route based on the recipe contract. New anchors-style recipes get the
+        # leak-free path: features and labels both live in time strictly before
+        # each user's cutoff_ts, training cohort != scoring cohort, fit happens
+        # on training-fold rows only. Legacy recipes fall through to the
+        # transductive path until they're regenerated.
+        if _ANCHORS_PLACEHOLDER in feature_sql:
+            scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe)
         else:
-            positive_ids = _fetch_label_distinct_ids(team=team, pipeline=pipeline)
-            scored = _fit_and_score(feature_rows=feature_rows, positive_ids=positive_ids, recipe=recipe)
+            feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
+            if not feature_rows:
+                logger.warning(
+                    "autoresearch_no_feature_rows",
+                    pipeline_id=str(pipeline.pk),
+                    team_id=team.pk,
+                )
+                return 0, {}, holdout_auc
+            if recipe.get("stub"):
+                scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
+            else:
+                positive_ids = _fetch_label_distinct_ids(team=team, pipeline=pipeline)
+                scored = _fit_and_score(feature_rows=feature_rows, positive_ids=positive_ids, recipe=recipe)
 
     if not scored:
         logger.warning(
@@ -169,7 +183,7 @@ def _score_and_emit(
             pipeline_id=str(pipeline.pk),
             team_id=team.pk,
         )
-        return 0, {}
+        return 0, {}, holdout_auc
 
     scores = [s["p_y"] for s in scored]
     score_distribution = _summarize_scores(scores)
@@ -222,7 +236,7 @@ def _score_and_emit(
             errors=errors,
         )
 
-    return emitted, score_distribution
+    return emitted, score_distribution, holdout_auc
 
 
 def _fetch_feature_rows(

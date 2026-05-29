@@ -14,10 +14,15 @@ The events will appear in the team's events table under the event name
 'autoresearch_prediction' with properties prefixed '$autoresearch_*'.
 """
 
+from pathlib import Path
+
 from django.core.management.base import BaseCommand, CommandError
 
+from products.autoresearch.backend.artifacts import ArtifactBundle, bundle_prefix, write_bundle
 from products.autoresearch.backend.inference import _fetch_feature_rows, _score_rows, run_inference_for_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+
+_FIXTURE_BUNDLE_DIR = Path(__file__).resolve().parents[2] / "test_fixtures" / "bundle"
 
 
 class Command(BaseCommand):
@@ -30,6 +35,14 @@ class Command(BaseCommand):
             action="store_true",
             help="Fetch and score users but do not emit events (useful for debugging feature SQL).",
         )
+        parser.add_argument(
+            "--seed-fixture-bundle",
+            action="store_true",
+            help=(
+                "Upload the reference fixture bundle to object storage and create/point a champion "
+                "model at it, then score via the sandbox path. For proving inference-in-sandbox locally."
+            ),
+        )
 
     def handle(self, *args, **options):
         try:
@@ -37,11 +50,14 @@ class Command(BaseCommand):
         except AutoresearchPipeline.DoesNotExist:
             raise CommandError(f"Pipeline {options['pipeline_id']} not found.")
 
-        champion = (
-            AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
-            .order_by("-created_at")
-            .first()
-        )
+        if options["seed_fixture_bundle"]:
+            champion = self._seed_fixture_bundle(pipeline)
+        else:
+            champion = (
+                AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+                .order_by("-created_at")
+                .first()
+            )
         if not champion:
             raise CommandError(f"No champion model found for pipeline {pipeline.pk}. Run autoresearch_train first.")
 
@@ -50,7 +66,10 @@ class Command(BaseCommand):
         self.stdout.write(f"  Horizon        : {pipeline.horizon_days} days")
         self.stdout.write(f"  Champion model : {champion.pk}")
         self.stdout.write(f"  Holdout AUC    : {champion.holdout_score}")
-        self.stdout.write(f"  Stub recipe    : {champion.model_recipe.get('stub', False)}")
+        if champion.artifact_prefix:
+            self.stdout.write(f"  Bundle prefix  : {champion.artifact_prefix}")
+        else:
+            self.stdout.write(f"  Stub recipe    : {(champion.model_recipe or {}).get('stub', False)}")
         self.stdout.write(f"  Output prop    : {pipeline.output_person_property}")
         self.stdout.write("")
 
@@ -91,3 +110,30 @@ class Command(BaseCommand):
             )
         else:
             self.stdout.write(self.style.ERROR(f"✗ Run failed: {run.error}"))
+
+    def _seed_fixture_bundle(self, pipeline: AutoresearchPipeline) -> AutoresearchModel:
+        """Upload the reference fixture bundle and point a fresh champion model at it."""
+        from django.utils import timezone
+
+        bundle = ArtifactBundle.from_dir(_FIXTURE_BUNDLE_DIR)
+        now = timezone.now()
+
+        AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).update(
+            role=AutoresearchModel.Role.ARCHIVED, archived_at=now
+        )
+
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            recipe_hash="fixture",
+            model_recipe={},
+            agent_description="fixture bundle (slice 1)",
+            is_preliminary=True,
+            promoted_at=now,
+        )
+        prefix = bundle_prefix(team_id=pipeline.team_id, pipeline_id=str(pipeline.pk), training_run_id=str(model.pk))
+        write_bundle(prefix, bundle)
+        model.artifact_prefix = prefix
+        model.save(update_fields=["artifact_prefix"])
+        self.stdout.write(self.style.SUCCESS(f"Seeded fixture bundle at {prefix}"))
+        return model
