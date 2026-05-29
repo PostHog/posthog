@@ -95,7 +95,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             pattern = f"%{self.query.search.strip()}%"
             where_exprs.append(
                 parse_expr(
-                    "name ILIKE {pattern} OR external_id ILIKE {pattern}",
+                    "accounts.name ILIKE {pattern} OR accounts.external_id ILIKE {pattern}",
                     {"pattern": ast.Constant(value=pattern)},
                 )
             )
