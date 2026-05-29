@@ -1,0 +1,510 @@
+import datetime as dt
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import ClickhouseTestMixin
+
+from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+
+from posthog.hogql import ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    DEFAULT_CANDIDATE_LIMIT,
+    SAMPLE_RATE_PRECISION,
+    SETTLE_INTERVAL,
+    ScannerCandidateQuery,
+)
+
+# Pin tests to a known wall clock so `now - SETTLE_INTERVAL` is reproducible.
+_NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+_FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ---------------------------------------------------------------------------
+# Construction-time sanitization (no DB needed).
+# ---------------------------------------------------------------------------
+
+
+def _make_query(**kwargs) -> ScannerCandidateQuery:
+    """Build a ScannerCandidateQuery with sensible defaults — team can be a stub for AST-only tests."""
+    return ScannerCandidateQuery(
+        team=kwargs.pop("team", None),
+        query=kwargs.pop("query", RecordingsQuery()),
+        last_swept_at=kwargs.pop("last_swept_at", _NOW - dt.timedelta(hours=1)),
+        sampling_rate=kwargs.pop("sampling_rate", 1.0),
+        now=kwargs.pop("now", _NOW),
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_last_swept_at",
+    [
+        "2026-01-01T00:00:00Z",
+        12345,
+        None,
+    ],
+)
+def test_rejects_non_datetime_last_swept_at(bad_last_swept_at):
+    with pytest.raises(TypeError):
+        _make_query(last_swept_at=bad_last_swept_at)
+
+
+def test_rejects_naive_last_swept_at():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _make_query(last_swept_at=dt.datetime(2026, 1, 1, 0, 0, 0))
+
+
+def test_rejects_naive_now():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _make_query(now=dt.datetime(2026, 1, 1, 0, 0, 0))
+
+
+def test_rejects_non_positive_candidate_limit():
+    with pytest.raises(ValueError, match="candidate_limit must be positive"):
+        _make_query(candidate_limit=0)
+    with pytest.raises(ValueError, match="candidate_limit must be positive"):
+        _make_query(candidate_limit=-5)
+
+
+@pytest.mark.parametrize(
+    "raw,expected_internal",
+    [
+        (1.0, 1.0),
+        (0.0, 0.0),
+        (0.25, 0.25),
+        (2.0, 1.0),
+        (-0.1, 0.0),
+    ],
+)
+def test_sampling_rate_clamped_on_construction(raw, expected_internal):
+    q = _make_query(sampling_rate=raw)
+    assert q._sampling_rate == expected_internal
+
+
+@pytest.mark.parametrize(
+    "stripped_field, value", [("date_to", "-1d"), ("limit", 17), ("offset", 42), ("after", "abc123")]
+)
+def test_strips_schedule_controlled_inputs(stripped_field, value):
+    """User-supplied date_to / limit / offset / after must not bleed into the inner query."""
+    raw_query = RecordingsQuery(**{stripped_field: value})
+    q = _make_query(query=raw_query)
+    assert getattr(q._inner._query, stripped_field) is None
+
+
+def test_inner_date_from_is_partition_prune_relative_to_watermark():
+    """date_from on the inner query is a partition prune anchored to the watermark, not the user's input."""
+    last_swept_at = _NOW - dt.timedelta(hours=2)
+    q = _make_query(query=RecordingsQuery(date_from="-30d"), last_swept_at=last_swept_at)
+    assert q._inner._query.date_from is not None
+    assert q._inner._query.date_from != "-30d"
+
+
+# ---------------------------------------------------------------------------
+# Sampling predicate (no DB).
+# ---------------------------------------------------------------------------
+
+
+def test_sampling_predicate_passthrough_at_full_rate():
+    q = _make_query(sampling_rate=1.0)
+    assert q._sampling_predicate() is None
+
+
+def test_sampling_predicate_emits_false_at_zero():
+    q = _make_query(sampling_rate=0.0)
+    expr = q._sampling_predicate()
+    assert isinstance(expr, ast.Constant) and expr.value is False
+
+
+def test_sampling_predicate_emits_modulo_compare_at_partial_rate():
+    q = _make_query(sampling_rate=0.25)
+    expr = q._sampling_predicate()
+    assert isinstance(expr, ast.CompareOperation)
+    assert expr.op == ast.CompareOperationOp.Lt
+    assert isinstance(expr.right, ast.Constant)
+    assert expr.right.value == int(0.25 * SAMPLE_RATE_PRECISION)
+    modulo = expr.left
+    assert isinstance(modulo, ast.Call) and modulo.name == "modulo"
+    city = modulo.args[0]
+    assert isinstance(city, ast.Call) and city.name == "cityHash64"
+
+
+# ---------------------------------------------------------------------------
+# Integration: actual ClickHouse query.
+# ---------------------------------------------------------------------------
+
+
+@freeze_time(_FROZEN_TIME)
+class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    """End-to-end: produce sessions, query, assert results."""
+
+    def setup_method(self, _method) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    @staticmethod
+    def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=session_id,
+            first_timestamp=first.isoformat(),
+            last_timestamp=last.isoformat(),
+            **kwargs,
+        )
+
+    @pytest.mark.django_db
+    def test_returns_sessions_in_chronological_order_with_session_end(self, team) -> None:
+        # last activity ordered: B (oldest end) → A → C
+        settle_bound = _NOW - SETTLE_INTERVAL
+        self._produce(
+            team.id, "sess-a", settle_bound - dt.timedelta(minutes=20), settle_bound - dt.timedelta(minutes=10)
+        )
+        self._produce(
+            team.id, "sess-b", settle_bound - dt.timedelta(minutes=40), settle_bound - dt.timedelta(minutes=30)
+        )
+        self._produce(
+            team.id, "sess-c", settle_bound - dt.timedelta(minutes=10), settle_bound - dt.timedelta(minutes=5)
+        )
+
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
+
+        assert [r.session_id for r in results] == ["sess-b", "sess-a", "sess-c"]
+        # session_end matches max_last_timestamp.
+        assert results[0].session_end == settle_bound - dt.timedelta(minutes=30)
+        assert results[2].session_end == settle_bound - dt.timedelta(minutes=5)
+
+    @pytest.mark.django_db
+    def test_watermark_excludes_sessions_ended_before_or_equal(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=2)
+        # max_last_timestamp == last_swept_at → excluded (strict >).
+        self._produce(team.id, "exactly-on-watermark", last_swept_at - dt.timedelta(minutes=10), last_swept_at)
+        # max_last_timestamp just after last_swept_at → included.
+        self._produce(
+            team.id,
+            "just-after-watermark",
+            last_swept_at,
+            last_swept_at + dt.timedelta(seconds=1),
+        )
+
+        results = self._run(team=team, last_swept_at=last_swept_at)
+
+        assert [r.session_id for r in results] == ["just-after-watermark"]
+
+    @pytest.mark.django_db
+    def test_settle_window_excludes_sessions_still_settling(self, team) -> None:
+        settle_bound = _NOW - SETTLE_INTERVAL
+        self._produce(
+            team.id, "settled", settle_bound - dt.timedelta(minutes=10), settle_bound - dt.timedelta(seconds=1)
+        )
+        self._produce(team.id, "on-settle", settle_bound - dt.timedelta(minutes=5), settle_bound)
+        self._produce(
+            team.id, "still-settling", settle_bound - dt.timedelta(minutes=5), settle_bound + dt.timedelta(seconds=1)
+        )
+
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
+
+        session_ids = {r.session_id for r in results}
+        assert "settled" in session_ids
+        assert "on-settle" in session_ids  # LtEq — inclusive on the bound.
+        assert "still-settling" not in session_ids
+
+    @pytest.mark.django_db
+    def test_aggregates_multiple_rows_per_session(self, team) -> None:
+        # Three Kafka rows for one session — query must dedupe by session_id and
+        # return the most recent max_last_timestamp.
+        first = _NOW - dt.timedelta(hours=2)
+        for i, last in enumerate(
+            [
+                _NOW - dt.timedelta(minutes=90),
+                _NOW - dt.timedelta(minutes=60),
+                _NOW - dt.timedelta(minutes=45),
+            ]
+        ):
+            self._produce(
+                team.id,
+                "multi-row",
+                first + dt.timedelta(seconds=i),
+                last,
+            )
+
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=4))
+
+        assert len(results) == 1
+        assert results[0].session_id == "multi-row"
+        assert results[0].session_end == _NOW - dt.timedelta(minutes=45)
+
+    @pytest.mark.django_db
+    def test_zero_sampling_returns_empty(self, team) -> None:
+        self._produce(team.id, "would-match", _NOW - dt.timedelta(hours=2), _NOW - dt.timedelta(minutes=40))
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2), sampling_rate=0.0)
+        assert results == []
+
+    @pytest.mark.django_db
+    def test_full_sampling_returns_all_candidates(self, team) -> None:
+        for i in range(5):
+            self._produce(
+                team.id,
+                f"sess-{i:02d}",
+                _NOW - dt.timedelta(hours=2),
+                _NOW - dt.timedelta(minutes=40 + i),
+            )
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2), sampling_rate=1.0)
+        assert len(results) == 5
+
+    @pytest.mark.django_db
+    def test_partial_sampling_is_deterministic_per_session(self, team) -> None:
+        for i in range(40):
+            self._produce(
+                team.id,
+                f"stable-{i:04x}",
+                _NOW - dt.timedelta(hours=2),
+                _NOW - dt.timedelta(minutes=40 + i // 5),
+            )
+        first = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=4), sampling_rate=0.5)
+        second = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=4), sampling_rate=0.5)
+        assert [r.session_id for r in first] == [r.session_id for r in second]
+        assert 0 < len(first) < 40
+
+    @pytest.mark.django_db
+    def test_excludes_deleted_recordings(self, team) -> None:
+        self._produce(team.id, "kept", _NOW - dt.timedelta(hours=2), _NOW - dt.timedelta(minutes=40))
+        self._produce(
+            team.id,
+            "deleted",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            is_deleted=True,
+        )
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
+        assert [r.session_id for r in results] == ["kept"]
+
+    @pytest.mark.django_db
+    def test_respects_candidate_limit(self, team) -> None:
+        # 10 sessions; LIMIT 3 returns the 3 earliest-ending (chronological ORDER BY).
+        for i in range(10):
+            self._produce(
+                team.id,
+                f"limit-{i:02d}",
+                _NOW - dt.timedelta(hours=2),
+                _NOW - dt.timedelta(minutes=40 + (10 - i)),  # limit-00 ends first, limit-09 last
+            )
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2), candidate_limit=3)
+        assert [r.session_id for r in results] == ["limit-00", "limit-01", "limit-02"]
+
+    @pytest.mark.django_db
+    def test_filters_by_distinct_id(self, team) -> None:
+        self._produce(
+            team.id,
+            "matched",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            distinct_id="alice",
+        )
+        self._produce(
+            team.id,
+            "unmatched",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            distinct_id="bob",
+        )
+        query = RecordingsQuery(distinct_ids=["alice"])
+        results = self._run(team=team, query=query, last_swept_at=_NOW - dt.timedelta(hours=2))
+        assert [r.session_id for r in results] == ["matched"]
+
+    @pytest.mark.django_db
+    def test_routes_dollar_lib_event_property_to_having(self, team) -> None:
+        # `$lib` is special-cased into `snapshot_library` via having_predicates.
+        self._produce(
+            team.id,
+            "web",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            snapshot_library="web",
+        )
+        self._produce(
+            team.id,
+            "mobile",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            snapshot_library="posthog-ios",
+        )
+        query = RecordingsQuery(
+            properties=[EventPropertyFilter(key="$lib", operator=PropertyOperator.EXACT, value="web")]
+        )
+        results = self._run(team=team, query=query, last_swept_at=_NOW - dt.timedelta(hours=2))
+        assert [r.session_id for r in results] == ["web"]
+
+    @pytest.mark.django_db
+    def test_honors_having_predicate_from_recordings_query(self, team) -> None:
+        # `active_seconds` lives only in HAVING; sub-30s should be excluded.
+        self._produce(
+            team.id,
+            "long",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            active_milliseconds=120_000,
+        )
+        self._produce(
+            team.id,
+            "short",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            active_milliseconds=5_000,
+        )
+        query = RecordingsQuery(
+            having_predicates=[
+                RecordingPropertyFilter(type="recording", key="active_seconds", operator=PropertyOperator.GTE, value=30)
+            ]
+        )
+        results = self._run(team=team, query=query, last_swept_at=_NOW - dt.timedelta(hours=2))
+        assert [r.session_id for r in results] == ["long"]
+
+    @pytest.mark.django_db
+    def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
+        # test_account_filters are exclusion-style — the operator selects out the unwanted accounts.
+        team.test_account_filters = [
+            {
+                "key": "email",
+                "operator": "not_icontains",
+                "value": "@posthog.com",
+                "type": "person",
+            }
+        ]
+        team.save(update_fields=["test_account_filters"])
+        from posthog.models.person import Person
+
+        Person.objects.create(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
+        Person.objects.create(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
+
+        self._produce(
+            team.id,
+            "internal-session",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            distinct_id="internal",
+        )
+        self._produce(
+            team.id,
+            "external-session",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            distinct_id="external",
+        )
+
+        query = RecordingsQuery(filter_test_accounts=True)
+        results = self._run(team=team, query=query, last_swept_at=_NOW - dt.timedelta(hours=2))
+        assert [r.session_id for r in results] == ["external-session"]
+
+    @pytest.mark.django_db
+    def test_straddling_session_keeps_full_aggregates(self, team) -> None:
+        """Regression: a session with rows on both sides of the watermark must aggregate the full session.
+
+        A row-level WHERE on `max_last_timestamp` would drop the pre-watermark rows
+        and the HAVING predicate (here: `active_seconds >= 30`) would wrongly fail.
+        With the watermark in HAVING and the WHERE bound on `min_first_timestamp`,
+        every row of the session is aggregated.
+        """
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        # Three rows for the same session: one before watermark, two after.
+        # Each contributes 12 active seconds; total = 36s, > the 30s HAVING bound.
+        for last_offset_minutes, ms in (
+            (75, 12_000),  # before watermark
+            (45, 12_000),  # after watermark, before settle
+            (40, 12_000),  # after watermark, before settle
+        ):
+            self._produce(
+                team.id,
+                "straddler",
+                _NOW - dt.timedelta(minutes=80),  # constant first_timestamp
+                _NOW - dt.timedelta(minutes=last_offset_minutes),
+                active_milliseconds=ms,
+            )
+        # Another session, fully post-watermark, with only 18s of activity → should fail HAVING.
+        self._produce(
+            team.id,
+            "post-watermark-short",
+            _NOW - dt.timedelta(minutes=50),
+            _NOW - dt.timedelta(minutes=40),
+            active_milliseconds=18_000,
+        )
+
+        query = RecordingsQuery(
+            having_predicates=[
+                RecordingPropertyFilter(type="recording", key="active_seconds", operator=PropertyOperator.GTE, value=30)
+            ]
+        )
+        results = self._run(team=team, query=query, last_swept_at=last_swept_at)
+
+        assert [r.session_id for r in results] == ["straddler"]
+
+    @pytest.mark.django_db
+    def test_session_still_settling_is_not_emitted(self, team) -> None:
+        """Regression: a session whose latest activity is still inside the settle window must be skipped,
+        even if it has older rows that fall outside it. A row-level settle filter would keep the older
+        rows and report the session as already-ended."""
+        settle_bound = _NOW - SETTLE_INTERVAL
+        # Two rows: one well outside the settle window, one just inside it (so the session is still live).
+        self._produce(
+            team.id,
+            "still-live",
+            settle_bound - dt.timedelta(hours=2),
+            settle_bound - dt.timedelta(minutes=30),
+        )
+        self._produce(
+            team.id,
+            "still-live",
+            settle_bound - dt.timedelta(hours=2),
+            settle_bound + dt.timedelta(minutes=1),
+        )
+
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=4))
+
+        assert results == []
+
+    @pytest.mark.django_db
+    def test_excludes_recordings_past_retention(self, team) -> None:
+        # 0-day retention puts expiry_time well before `now` → must be excluded.
+        self._produce(
+            team.id,
+            "expired",
+            _NOW - dt.timedelta(days=120),
+            _NOW - dt.timedelta(days=120) + dt.timedelta(minutes=5),
+            retention_period_days=0,
+        )
+        self._produce(
+            team.id,
+            "fresh",
+            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=40),
+            retention_period_days=30,
+        )
+
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(days=365))
+
+        assert [r.session_id for r in results] == ["fresh"]
+
+    @pytest.mark.django_db
+    def test_returns_empty_list_when_no_sessions(self, team) -> None:
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
+        assert results == []
+
+    @staticmethod
+    def _run(
+        *,
+        team,
+        last_swept_at: dt.datetime,
+        query: RecordingsQuery | None = None,
+        sampling_rate: float = 1.0,
+        candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
+    ):
+        return ScannerCandidateQuery(
+            team=team,
+            query=query if query is not None else RecordingsQuery(),
+            last_swept_at=last_swept_at,
+            sampling_rate=sampling_rate,
+            now=_NOW,
+            candidate_limit=candidate_limit,
+        ).run()
