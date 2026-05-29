@@ -16,7 +16,7 @@
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
 //         is false, schema-impact.js narrows the matrix to products that
-//         import the affected types from posthog.schema.
+//         depend on the affected posthog.schema types.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards }
 //         Diagnostics on stderr
 
@@ -380,6 +380,11 @@ if (legacyChanged) {
         } else {
             if (impact.kind === 'impacting') {
                 console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
+                if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
+                    console.error(
+                        `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
+                    )
+                }
                 products = [...new Set([...products, ...impact.affectedProducts])].sort()
             } else {
                 console.error('Schema change is purely additive — no extra products needed')

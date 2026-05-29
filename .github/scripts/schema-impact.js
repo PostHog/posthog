@@ -1,15 +1,11 @@
-// Diff `frontend/src/queries/schema.json` between base and HEAD, then map
-// the changed top-level definitions back to the products that import them
-// from `posthog.schema`. Used by turbo-discover.js to narrow the product
-// matrix on PRs where only schema.json changes.
+// Diff `frontend/src/queries/schema.json` between base and HEAD, then map the
+// changed definitions to the products that depend on them (resolved from the
+// AST by schema_usage_scan.py). Used by turbo-discover.js to narrow the product
+// matrix on schema-only PRs.
 //
-// Returns one of three kinds:
-//   - 'additive'   only new definitions added → no products need re-testing
-//                  for the schema change alone
-//   - 'impacting'  some definitions modified or removed → return the union
-//                  of products that import any of them
-//   - 'fallback'   couldn't read or parse base schema → caller should treat
-//                  as legacy (test everything)
+// Returns 'additive' (only new defs — nothing to retest), 'impacting' (union of
+// affected products), or 'fallback' (base schema unreadable or scanner failed —
+// caller tests everything).
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
@@ -17,10 +13,16 @@ const path = require('path')
 
 const SCHEMA_PATH = 'frontend/src/queries/schema.json'
 const PRODUCTS_ROOT = 'products'
-const IMPORT_RE = /from\s+posthog\.schema\s+import\s+(\([\s\S]*?\)|[^\n]+)/g
+const SCAN_SCRIPT = path.join(__dirname, 'schema_usage_scan.py')
+// Sentinel key: products with unresolvable usage, unioned in on any change.
+const WILDCARD = '*'
 
 function readHeadSchema(schemaPath = SCHEMA_PATH) {
-    return fs.readFileSync(schemaPath, 'utf-8')
+    try {
+        return fs.readFileSync(schemaPath, 'utf-8')
+    } catch {
+        return null
+    }
 }
 
 function readBaseSchema(scmBase, schemaPath = SCHEMA_PATH) {
@@ -61,116 +63,68 @@ function diffDefinitions(baseRaw, headRaw) {
     return { added, removed, modified }
 }
 
-function extractImports(source) {
-    const types = []
-    let m
-    IMPORT_RE.lastIndex = 0
-    while ((m = IMPORT_RE.exec(source)) !== null) {
-        let raw = m[1].trim()
-        if (raw.startsWith('(')) {
-            raw = raw.slice(1, -1)
-        }
-        raw = raw.replace(/#[^\n]*/g, '')
-        for (const part of raw.split(',')) {
-            const name = part.trim().split(/\s+as\s+/)[0].trim()
-            if (name) {
-                types.push(name)
-            }
-        }
-    }
-    return types
-}
-
-function walkPyFiles(dir, out = []) {
-    let entries
-    try {
-        entries = fs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-        return out
-    }
-    for (const entry of entries) {
-        const full = path.join(dir, entry.name)
-        if (entry.isDirectory()) {
-            walkPyFiles(full, out)
-        } else if (entry.isFile() && full.endsWith('.py')) {
-            out.push(full)
-        }
-    }
-    return out
-}
-
-// products/<dir>/... → product matrix name (hyphenated to match @posthog/products-<name>)
-function productFromPath(filePath, productsRoot = PRODUCTS_ROOT) {
-    const rel = path.relative(productsRoot, filePath)
-    const [first] = rel.split(path.sep)
-    if (!first || first.startsWith('..')) {
-        return null
-    }
-    return first.replace(/_/g, '-')
-}
-
+// Map<type, Set<product>> (incl. WILDCARD) from the AST scanner. Throws if no
+// Python is available or the scan fails; analyzeSchemaImpact turns that into a
+// conservative 'fallback'.
 function buildImportMap(productsRoot = PRODUCTS_ROOT) {
-    const typeToProducts = new Map()
-    const files = walkPyFiles(productsRoot)
-    for (const file of files) {
-        const product = productFromPath(file, productsRoot)
-        if (!product) {
-            continue
-        }
-        let source
+    const candidates = process.env.PYTHON ? [process.env.PYTHON] : ['python3', 'python']
+    let raw
+    let lastErr
+    for (const bin of candidates) {
         try {
-            source = fs.readFileSync(file, 'utf-8')
-        } catch {
-            continue
-        }
-        if (!source.includes('posthog.schema')) {
-            continue
-        }
-        for (const typeName of extractImports(source)) {
-            let set = typeToProducts.get(typeName)
-            if (!set) {
-                set = new Set()
-                typeToProducts.set(typeName, set)
-            }
-            set.add(product)
+            raw = execFileSync(bin, [SCAN_SCRIPT, productsRoot], {
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+                maxBuffer: 64 * 1024 * 1024,
+            })
+            break
+        } catch (e) {
+            lastErr = e
         }
     }
-    return typeToProducts
+    if (raw === undefined) {
+        throw lastErr || new Error('schema_usage_scan.py could not be executed')
+    }
+    const map = new Map()
+    for (const [typeName, products] of Object.entries(JSON.parse(raw))) {
+        map.set(typeName, new Set(products))
+    }
+    return map
 }
 
 function affectedProductsFor(changedTypes, importMap) {
     const products = new Set()
-    for (const typeName of changedTypes) {
-        const set = importMap.get(typeName)
-        if (set) {
-            for (const product of set) {
-                products.add(product)
-            }
+    const collect = (key) => {
+        for (const product of importMap.get(key) || []) {
+            products.add(product)
         }
+    }
+    for (const typeName of changedTypes) {
+        collect(typeName)
+    }
+    // any change also pulls in products with unresolvable usage
+    if (changedTypes.length > 0) {
+        collect(WILDCARD)
     }
     return [...products].sort()
 }
 
 function analyzeSchemaImpact({ scmBase, schemaPath = SCHEMA_PATH, productsRoot = PRODUCTS_ROOT } = {}) {
-    const headRaw = (() => {
-        try {
-            return readHeadSchema(schemaPath)
-        } catch {
-            return null
-        }
-    })()
+    const fallback = (reason) => ({ kind: 'fallback', reason, affectedProducts: [] })
+
+    const headRaw = readHeadSchema(schemaPath)
     if (headRaw === null) {
-        return { kind: 'fallback', reason: 'head-schema-missing', affectedProducts: [] }
+        return fallback('head-schema-missing')
     }
     const baseRaw = readBaseSchema(scmBase, schemaPath)
     if (baseRaw === null) {
-        return { kind: 'fallback', reason: 'base-schema-unavailable', affectedProducts: [] }
+        return fallback('base-schema-unavailable')
     }
     let diff
     try {
         diff = diffDefinitions(baseRaw, headRaw)
     } catch (e) {
-        return { kind: 'fallback', reason: `parse-error: ${e.message}`, affectedProducts: [] }
+        return fallback(`parse-error: ${e.message}`)
     }
     const impacting = [...diff.modified, ...diff.removed]
     if (impacting.length === 0) {
@@ -180,11 +134,18 @@ function analyzeSchemaImpact({ scmBase, schemaPath = SCHEMA_PATH, productsRoot =
             counts: { added: diff.added.length, modified: 0, removed: 0 },
         }
     }
-    const importMap = buildImportMap(productsRoot)
+    let importMap
+    try {
+        importMap = buildImportMap(productsRoot)
+    } catch (e) {
+        return fallback(`scanner-failed: ${e.message}`)
+    }
     const affectedProducts = affectedProductsFor(impacting, importMap)
+    const wildcardProducts = [...(importMap.get(WILDCARD) || [])].sort()
     return {
         kind: 'impacting',
         affectedProducts,
+        wildcardProducts,
         changedTypes: impacting,
         counts: { added: diff.added.length, modified: diff.modified.length, removed: diff.removed.length },
     }
@@ -193,8 +154,6 @@ function analyzeSchemaImpact({ scmBase, schemaPath = SCHEMA_PATH, productsRoot =
 module.exports = {
     analyzeSchemaImpact,
     diffDefinitions,
-    extractImports,
     buildImportMap,
     affectedProductsFor,
-    productFromPath,
 }

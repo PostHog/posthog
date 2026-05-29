@@ -1,7 +1,8 @@
 // Run with: node --test .github/scripts/schema-impact.test.js
 //
-// Covers the pure pieces (diff, regex, product mapping) plus an end-to-end
-// pass that writes a temporary product tree to verify the import scan.
+// JS-side: schema.json diffing, product unioning, and one end-to-end pass
+// through buildImportMap. Scanner resolution is unit-tested in
+// test_schema_usage_scan.py.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -9,13 +10,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const {
-    diffDefinitions,
-    extractImports,
-    affectedProductsFor,
-    buildImportMap,
-    productFromPath,
-} = require('./schema-impact')
+const { diffDefinitions, affectedProductsFor, buildImportMap } = require('./schema-impact')
 
 const schema = (defs) => JSON.stringify({ $schema: 'x', definitions: defs })
 
@@ -37,55 +32,6 @@ test('diffDefinitions: purely additive change has empty modified+removed', () =>
     assert.deepEqual(modified, [])
 })
 
-test('extractImports handles single-line imports', () => {
-    const src = 'from posthog.schema import LogsQuery, HogQLFilters\n'
-    assert.deepEqual(extractImports(src).sort(), ['HogQLFilters', 'LogsQuery'])
-})
-
-test('extractImports handles parenthesized multi-line imports', () => {
-    const src = [
-        'from posthog.schema import (',
-        '    LogsQuery,',
-        '    HogQLFilters,',
-        '    TrendsQuery,',
-        ')',
-        '',
-    ].join('\n')
-    assert.deepEqual(extractImports(src).sort(), ['HogQLFilters', 'LogsQuery', 'TrendsQuery'])
-})
-
-test('extractImports strips "as" aliases', () => {
-    const src = 'from posthog.schema import LogsQuery as LQ, HogQLFilters\n'
-    assert.deepEqual(extractImports(src).sort(), ['HogQLFilters', 'LogsQuery'])
-})
-
-test('extractImports ignores inline comments inside parens', () => {
-    const src = 'from posthog.schema import (\n    LogsQuery,  # noqa\n    HogQLFilters,\n)\n'
-    assert.deepEqual(extractImports(src).sort(), ['HogQLFilters', 'LogsQuery'])
-})
-
-test('extractImports finds multiple import statements in one file', () => {
-    const src = [
-        'from posthog.schema import LogsQuery',
-        '# ...',
-        'def f():',
-        '    pass',
-        'from posthog.schema import TrendsQuery',
-        '',
-    ].join('\n')
-    assert.deepEqual(extractImports(src).sort(), ['LogsQuery', 'TrendsQuery'])
-})
-
-test('productFromPath converts directory underscores to hyphens', () => {
-    assert.equal(productFromPath('products/data_warehouse/backend/foo.py', 'products'), 'data-warehouse')
-    assert.equal(productFromPath('products/logs/backend/x.py', 'products'), 'logs')
-    assert.equal(productFromPath('products/web_analytics/backend/y.py', 'products'), 'web-analytics')
-})
-
-test('productFromPath returns null for paths outside productsRoot', () => {
-    assert.equal(productFromPath('posthog/foo.py', 'products'), null)
-})
-
 test('affectedProductsFor unions products across all changed types', () => {
     const map = new Map([
         ['A', new Set(['logs'])],
@@ -96,28 +42,45 @@ test('affectedProductsFor unions products across all changed types', () => {
     assert.deepEqual(affectedProductsFor(['nonexistent'], map), [])
 })
 
-test('buildImportMap end-to-end on a fixture product tree', () => {
+test('affectedProductsFor includes wildcard products on any change', () => {
+    const map = new Map([
+        ['A', new Set(['logs'])],
+        ['*', new Set(['alerts'])],
+    ])
+    assert.deepEqual(affectedProductsFor(['A'], map), ['alerts', 'logs'])
+    assert.deepEqual(affectedProductsFor(['Unrelated'], map), ['alerts'])
+    assert.deepEqual(affectedProductsFor([], map), [])
+})
+
+test('buildImportMap resolves every import shape end-to-end (via the AST scanner)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schema-impact-'))
     try {
-        const a = path.join(root, 'product_a', 'backend')
-        const b = path.join(root, 'product_b', 'backend')
-        fs.mkdirSync(a, { recursive: true })
-        fs.mkdirSync(b, { recursive: true })
+        const mk = (name) => {
+            const dir = path.join(root, name, 'backend')
+            fs.mkdirSync(dir, { recursive: true })
+            return dir
+        }
+        // direct symbol import
+        fs.writeFileSync(path.join(mk('logs'), 'a.py'), 'from posthog.schema import LogsQuery, HogQLFilters\n')
+        // `from posthog import schema` + attribute refs
         fs.writeFileSync(
-            path.join(a, 'mod.py'),
-            'from posthog.schema import LogsQuery, HogQLFilters\n'
+            path.join(mk('product_analytics'), 'b.py'),
+            'from posthog import schema\nx = schema.InsightVizNode\ny = schema.DataVisualizationNode\n'
         )
-        fs.writeFileSync(
-            path.join(b, 'mod.py'),
-            'from posthog.schema import (\n    HogQLFilters,\n    TrendsQuery as TQ,\n)\n'
-        )
-        // Noise: file without the import should be ignored
-        fs.writeFileSync(path.join(b, 'noise.py'), 'import os\n')
+        // `import posthog.schema` + dotted ref
+        fs.writeFileSync(path.join(mk('alerts'), 'c.py'), 'import posthog.schema\ns = posthog.schema.AlertState["FIRING"]\n')
+        // module bound but used dynamically → wildcard
+        fs.writeFileSync(path.join(mk('mystery'), 'd.py'), 'from posthog import schema\nregister(schema)\n')
+        // noise: no schema usage at all
+        fs.writeFileSync(path.join(mk('noise'), 'e.py'), 'import os\n')
 
         const map = buildImportMap(root)
-        assert.deepEqual([...map.get('LogsQuery')], ['product-a'])
-        assert.deepEqual([...map.get('TrendsQuery')], ['product-b'])
-        assert.deepEqual([...map.get('HogQLFilters')].sort(), ['product-a', 'product-b'])
+        assert.deepEqual([...map.get('LogsQuery')], ['logs'])
+        assert.deepEqual([...map.get('HogQLFilters')], ['logs'])
+        assert.deepEqual([...map.get('InsightVizNode')], ['product-analytics'])
+        assert.deepEqual([...map.get('DataVisualizationNode')], ['product-analytics'])
+        assert.deepEqual([...map.get('AlertState')], ['alerts'])
+        assert.deepEqual([...map.get('*')], ['mystery'])
         assert.equal(map.has('NeverImported'), false)
     } finally {
         fs.rmSync(root, { recursive: true, force: true })
