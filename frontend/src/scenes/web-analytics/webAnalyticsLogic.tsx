@@ -5,12 +5,14 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
+import { LemonMenuItem } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +28,7 @@ import {
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,6 +48,8 @@ import {
     EventsNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -113,6 +118,8 @@ import {
     convertCurrentURLFilter,
     hasURLSearchParams,
 } from './constants'
+import { FOCUS_MODE_TILE_IDS, computeFocusHiddenTiles } from './focus-mode/focusModeMapping'
+import { WebAnalyticsConcern } from './focus-mode/types'
 import { webAnalyticsHealthLogic } from './health'
 import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
@@ -214,6 +221,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
+        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean) => ({ useWebAnalyticsPrecompute }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -224,7 +232,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        setHiddenTiles: (hiddenTiles: TileId[]) => ({ hiddenTiles }),
         resetTileVisibility: () => true,
+        openFocusModeModal: true,
+        closeFocusModeModal: true,
+        setFocusModeConcerns: (concerns: WebAnalyticsConcern[]) => ({ concerns }),
+        setFocusModeDraftConcerns: (concerns: WebAnalyticsConcern[]) => ({ concerns }),
+        setFocusModeEnabled: (enabled: boolean) => ({ enabled }),
+        toggleFocusModeConcern: (concern: WebAnalyticsConcern) => ({ concern }),
+        enterFocusMode: true,
+        exitFocusMode: true,
+        applyFocusMode: true,
         zoomIntoPeriod: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         resetZoom: true,
         setPreZoomDateFilter: (
@@ -429,6 +447,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     clearFilters: () => false,
                 },
             ],
+            useWebAnalyticsPrecompute: [
+                false as boolean,
+                persistConfig,
+                {
+                    setUseWebAnalyticsPrecompute: (_, { useWebAnalyticsPrecompute }) => useWebAnalyticsPrecompute,
+                },
+            ],
             shouldStripQueryParams: [
                 false as boolean,
                 persistConfig,
@@ -495,7 +520,40 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         }
                         return state.includes(tileId) ? state : [...state, tileId]
                     },
+                    setHiddenTiles: (_, { hiddenTiles }) => hiddenTiles,
                     resetTileVisibility: () => [],
+                },
+            ],
+            focusModeModalOpen: [
+                false,
+                {
+                    openFocusModeModal: () => true,
+                    closeFocusModeModal: () => false,
+                    setProductTab: (state, { tab }) => (tab === ProductTab.ANALYTICS ? state : false),
+                },
+            ],
+            focusModeConcerns: [
+                [] as WebAnalyticsConcern[],
+                persistConfig,
+                {
+                    setFocusModeConcerns: (_, { concerns }) => concerns,
+                },
+            ],
+            focusModeEnabled: [
+                false,
+                persistConfig,
+                {
+                    setFocusModeEnabled: (_, { enabled }) => enabled,
+                    resetTileVisibility: () => false,
+                },
+            ],
+            focusModeDraftConcerns: [
+                [] as WebAnalyticsConcern[],
+                {
+                    setFocusModeDraftConcerns: (_, { concerns }) => concerns,
+                    closeFocusModeModal: () => [],
+                    toggleFocusModeConcern: (state, { concern }) =>
+                        state.includes(concern) ? state.filter((item) => item !== concern) : [...state, concern],
                 },
             ],
         }
@@ -745,6 +803,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.shouldStripQueryParams,
                 s.includeHostPath,
+                s.useWebAnalyticsPrecompute,
                 s.featureFlags,
             ],
             (
@@ -752,12 +811,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts: boolean,
                 shouldStripQueryParams: boolean,
                 includeHostPath: boolean,
+                useWebAnalyticsPrecompute: boolean,
                 featureFlags: Record<string, boolean>
             ) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
+                useWebAnalyticsPrecompute,
             }),
         ],
         filters: [
@@ -907,6 +968,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        showFocusMode: [
+            (s) => [s.featureFlags, s.productTab],
+            (featureFlags, productTab: ProductTab): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] && productTab === ProductTab.ANALYTICS,
+        ],
+        hasSavedFocusMode: [
+            (s) => [s.focusModeConcerns],
+            (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
+        ],
+        isFocusModeActive: [
+            (s) => [s.showFocusMode, s.focusModeEnabled, s.focusModeConcerns],
+            (showFocusMode: boolean, focusModeEnabled: boolean, focusModeConcerns: WebAnalyticsConcern[]): boolean =>
+                showFocusMode && focusModeEnabled && focusModeConcerns.length > 0,
+        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -922,7 +997,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (
                 productTab,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeoIPQueries, activeHoursTab },
-                { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams, includeHostPath },
+                {
+                    isPathCleaningEnabled,
+                    filterTestAccounts,
+                    shouldStripQueryParams,
+                    includeHostPath,
+                    useWebAnalyticsPrecompute,
+                },
                 {
                     webAnalyticsFilters,
                     replayFilters,
@@ -1138,6 +1219,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Apply the per-team opt-in here so every stats-table tab (Path,
+                                // Entry path, End path, channel breakdowns, etc.) consistently
+                                // reaches the lazy precompute gate. The backend gate decides
+                                // per-breakdown which combinations are actually served from the
+                                // precompute. `source` overrides can still pin this off for a
+                                // specific tab if ever needed.
+                                useWebAnalyticsPrecompute,
                                 ...source,
                             },
                             embedded: false,
@@ -1224,6 +1312,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
                                 ],
+                                useWebAnalyticsPrecompute,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(
@@ -1237,6 +1326,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                     ]
                 }
+
+                const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
+
+                const includeHostMenuItem: LemonMenuItem | null =
+                    useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
+                        ? {
+                              label: 'Include host',
+                              tooltip: 'Show the full host + path (e.g. example.com/about) instead of just the path',
+                              active: includeHostPath,
+                              onClick: () => actions.setIncludeHostPath(!includeHostPath),
+                          }
+                        : null
+
+                const pathTabExtras = useTileHeaderV2
+                    ? { extraMenuItems: includeHostMenuItem ? [includeHostMenuItem] : undefined }
+                    : { control: <IncludeHostToggle /> }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
                     {
@@ -1256,6 +1361,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
+                            useWebAnalyticsPrecompute,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: true,
@@ -1265,7 +1371,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1 2xl:col-span-2' : 'md:col-span-2',
                             orderWhenLargeClassName: '2xl:order-1',
                         },
                         activeTabId: graphsTab,
@@ -1339,8 +1445,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: '2xl:order-4',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1' : 'md:col-span-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-2' : '2xl:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1371,9 +1477,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                               includeAvgTimeOnPage:
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
+                                              useWebAnalyticsPrecompute,
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Paths',
@@ -1420,7 +1527,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Entry Path',
@@ -1455,7 +1562,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                           },
                                           {
-                                              control: <IncludeHostToggle />,
+                                              ...pathTabExtras,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'End Path',
@@ -1487,6 +1594,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
+                                                  doPathCleaning: isPathCleaningEnabled,
                                               },
                                               embedded: false,
                                               showActions: true,
@@ -1512,7 +1620,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.SOURCES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: '2xl:order-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-3' : '2xl:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1528,20 +1636,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 WebStatsBreakdown.InitialChannelType,
                                 {},
                                 {
-                                    control: (
-                                        <div className="flex flex-row deprecated-space-x-2 font-medium">
-                                            <span>Customize channel types</span>
-                                            <LemonButton
-                                                icon={<IconGear />}
-                                                type="tertiary"
-                                                status="alt"
-                                                size="small"
-                                                noPadding={true}
-                                                tooltip="Customize channel types"
-                                                to={urls.settings('environment-web-analytics', 'channel-type')}
-                                            />
-                                        </div>
-                                    ),
+                                    ...(useTileHeaderV2
+                                        ? {
+                                              extraMenuItems: [
+                                                  {
+                                                      label: 'Customize channel types',
+                                                      icon: <IconGear />,
+                                                      to: urls.settings('environment-web-analytics', 'channel-type'),
+                                                  },
+                                              ],
+                                          }
+                                        : {
+                                              control: (
+                                                  <div className="flex flex-row deprecated-space-x-2 font-medium">
+                                                      <span>Customize channel types</span>
+                                                      <LemonButton
+                                                          icon={<IconGear />}
+                                                          type="tertiary"
+                                                          status="alt"
+                                                          size="small"
+                                                          noPadding={true}
+                                                          tooltip="Customize channel types"
+                                                          to={urls.settings(
+                                                              'environment-web-analytics',
+                                                              'channel-type'
+                                                          )}
+                                                      />
+                                                  </div>
+                                              ),
+                                          }),
                                     docs: {
                                         url: 'https://posthog.com/docs/data/channel-type',
                                         title: 'Channels',
@@ -1734,7 +1857,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.DEVICES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: '2xl:order-3',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-4' : '2xl:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -1989,6 +2112,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
+                                        // Web overview attributes session metrics to the session's start hour;
+                                        // mirror that here so visitor counts line up across the dashboard.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
+                                        },
                                     },
                                 },
                                 docs: {
@@ -2115,6 +2243,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // Backend gate decides whether this query is actually served
+                                      // from the precomputed table; we just pass the per-team opt-in.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2122,6 +2253,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
+                              extraMenuItems: useTileHeaderV2
+                                  ? [
+                                        {
+                                            label: 'Manage actions',
+                                            icon: <IconOpenInNew />,
+                                            to: urls.actions(),
+                                            onClick: () => {
+                                                void addProductIntentForCrossSell({
+                                                    from: ProductKey.WEB_ANALYTICS,
+                                                    to: ProductKey.ACTIONS,
+                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                                })
+                                            },
+                                        },
+                                    ]
+                                  : undefined,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
                                   title: 'Goals',
@@ -2208,6 +2355,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // The backend frustration lazy precompute gate decides whether
+                                      // this query is actually served from the precomputed table; we
+                                      // just pass the per-team opt-in through so it's eligible.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2687,6 +2838,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (tab === ProductTab.BOT_ANALYTICS && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
                     actions.setDates('-1d', null)
                 }
+            },
+            openFocusModeModal: () => {
+                actions.setFocusModeDraftConcerns(values.focusModeConcerns)
+            },
+            enterFocusMode: () => {
+                if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
+                    return
+                }
+                actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeConcerns))
+                actions.setFocusModeEnabled(true)
+            },
+            exitFocusMode: () => {
+                const focusModeTileSet = new Set<TileId>(FOCUS_MODE_TILE_IDS)
+                actions.setHiddenTiles(values.hiddenTiles.filter((tileId) => !focusModeTileSet.has(tileId)))
+                actions.setFocusModeEnabled(false)
+            },
+            applyFocusMode: () => {
+                if (!values.showFocusMode || values.focusModeDraftConcerns.length === 0) {
+                    return
+                }
+                actions.setFocusModeConcerns(values.focusModeDraftConcerns)
+                actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeDraftConcerns))
+                actions.setFocusModeEnabled(true)
+                actions.closeFocusModeModal()
             },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
