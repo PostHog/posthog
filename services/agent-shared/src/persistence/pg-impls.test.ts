@@ -206,6 +206,8 @@ maybeDescribe('Postgres impls (real PG)', () => {
             principal: null,
             retry_count: 0,
             usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: cost },
+            acl: [],
+            pending_elevation_requests: [],
             created_at: created,
             updated_at: created,
         })
@@ -599,7 +601,9 @@ maybeDescribe('Postgres impls (real PG)', () => {
         `)
         await pool.query('TRUNCATE posthog_integration')
 
-        const encryption = new EncryptedFields('test-salt-key-only-for-test')
+        // Fernet keys must base64url-decode to 32 bytes. EncryptedFields
+        // base64-encodes the raw UTF-8 string, so we pass 32 ASCII chars.
+        const encryption = new EncryptedFields('01234567890123456789012345678901')
         const slackBlob = encryption.encrypt(
             JSON.stringify({ access_token: 'xoxb-acme', refresh_token: 'r1', scopes: ['chat:write'] })
         )
