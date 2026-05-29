@@ -115,7 +115,7 @@ pub async fn process_batch(
 ///
 /// Events that were not published (`should_publish() == false`) are untouched.
 /// Published events receive updated `result` and `details` based on the sink outcome:
-/// - `Outcome::Success` → keep existing result (Ok or Limited)
+/// - `Outcome::Success` → keep existing result (Ok or Warning)
 /// - `Outcome::RetriableError` | `Outcome::Timeout` → `EventResult::Retry`
 /// - `Outcome::FatalError` → `EventResult::Drop`
 pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn SinkResult>]) {
@@ -135,7 +135,7 @@ pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn S
 
         match result.outcome() {
             Outcome::Success => {
-                // Leave event.result as-is (Ok or Limited from upstream processing)
+                // Leave event.result as-is (Ok or Warning from upstream processing)
             }
             Outcome::RetriableError | Outcome::Timeout => {
                 event.result = EventResult::Retry;
@@ -423,7 +423,11 @@ async fn apply_restrictions(
         }
 
         // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
-        if applied.force_overflow() {
+        // Overflow only applies to AnalyticsMain: AnalyticsHistorical must never
+        // overflow (legacy sink invariant). Today this stage runs before
+        // historical rerouting so the destination is always AnalyticsMain here;
+        // the explicit guard makes the invariant ordering-independent.
+        if applied.force_overflow() && event.destination == Destination::AnalyticsMain {
             event.destination = Destination::Overflow;
         }
         if let Some(topic) = applied.redirect_to_topic() {
@@ -455,10 +459,18 @@ async fn apply_token_distinct_id_limits(
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
-            event.result = EventResult::Limited;
+            event.result = EventResult::Warning;
             // Disables person processing -- sink will null partition key for Main/Overflow.
             event.force_disable_person_processing = true;
             event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
+            // Reroute to overflow to spread a hot token:distinct_id across
+            // partitions. Gated to AnalyticsMain only: this stage runs after
+            // historical rerouting, and AnalyticsHistorical must never overflow
+            // (matches the legacy sink invariant). Other lanes (exceptions,
+            // heatmaps, etc.) keep their own destination.
+            if event.destination == Destination::AnalyticsMain {
+                event.destination = Destination::Overflow;
+            }
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
             allowed_count += 1;
@@ -759,35 +771,43 @@ mod tests {
 
     #[test]
     fn validate_events_illegal_distinct_id_flags_person_processing_disabled() {
-        let ctx = test_utils::test_context();
-        let mut illegal_event = valid_event();
-        illegal_event.distinct_id = "null".to_string();
-        let legal_event = valid_event();
-        let batch = valid_batch(vec![illegal_event, legal_event]);
-        let events = validate_events(&ctx, batch).unwrap();
-        assert_eq!(events.len(), 2);
+        for id in ILLEGAL_DISTINCT_IDS {
+            let ctx = test_utils::test_context();
+            let mut illegal_event = valid_event();
+            illegal_event.distinct_id = id.to_string();
+            let legal_event = valid_event();
+            let batch = valid_batch(vec![illegal_event, legal_event]);
+            let events = validate_events(&ctx, batch).unwrap();
+            assert_eq!(events.len(), 2, "id={id:?}");
 
-        let flagged = &events[0];
-        assert_eq!(flagged.result, EventResult::Ok);
-        assert!(flagged.force_disable_person_processing);
-        assert_eq!(flagged.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
-        assert_ne!(flagged.destination, Destination::Drop);
+            let flagged = &events[0];
+            assert_eq!(flagged.result, EventResult::Ok, "id={id:?}");
+            assert!(flagged.force_disable_person_processing, "id={id:?}");
+            assert_eq!(
+                flagged.details,
+                Some(DETAIL_PERSON_PROCESSING_DISABLED),
+                "id={id:?}"
+            );
+            assert_ne!(flagged.destination, Destination::Drop, "id={id:?}");
 
-        let normal = &events[1];
-        assert_eq!(normal.result, EventResult::Ok);
-        assert!(!normal.force_disable_person_processing);
-        assert!(normal.details.is_none());
+            let normal = &events[1];
+            assert_eq!(normal.result, EventResult::Ok, "id={id:?}");
+            assert!(!normal.force_disable_person_processing, "id={id:?}");
+            assert!(normal.details.is_none(), "id={id:?}");
+        }
     }
 
     #[test]
     fn validate_events_illegal_distinct_id_still_publishable() {
-        let ctx = test_utils::test_context();
-        let mut illegal_event = valid_event();
-        illegal_event.distinct_id = "anonymous".to_string();
-        let batch = valid_batch(vec![illegal_event]);
-        let events = validate_events(&ctx, batch).unwrap();
-        assert_eq!(events.len(), 1);
-        assert!(events[0].should_publish());
+        for id in ILLEGAL_DISTINCT_IDS {
+            let ctx = test_utils::test_context();
+            let mut illegal_event = valid_event();
+            illegal_event.distinct_id = id.to_string();
+            let batch = valid_batch(vec![illegal_event]);
+            let events = validate_events(&ctx, batch).unwrap();
+            assert_eq!(events.len(), 1, "id={id:?}");
+            assert!(events[0].should_publish(), "id={id:?}");
+        }
     }
 
     // --- validate_events ---
@@ -1414,8 +1434,9 @@ mod tests {
         assert_eq!(ok_ev.destination, Destination::AnalyticsMain);
         assert!(ok_ev.details.is_none());
         let limited_ev = find_by_did(&events, "user-2");
-        assert_eq!(limited_ev.result, EventResult::Limited);
-        assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
+        assert_eq!(limited_ev.result, EventResult::Warning);
+        // AnalyticsMain event over the limit is rerouted to overflow.
+        assert_eq!(limited_ev.destination, Destination::Overflow);
         assert!(limited_ev.force_disable_person_processing);
         assert_eq!(limited_ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -1447,11 +1468,11 @@ mod tests {
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
         for ev in &events {
-            assert_eq!(ev.result, EventResult::Limited, "should be Limited");
+            assert_eq!(ev.result, EventResult::Warning, "should be Warning");
             assert_eq!(
                 ev.destination,
-                Destination::AnalyticsMain,
-                "should stay on main topic"
+                Destination::Overflow,
+                "should be rerouted to overflow"
             );
             assert!(
                 ev.force_disable_person_processing,
@@ -1483,10 +1504,10 @@ mod tests {
         let dropped = find_by_did(&events, "user-1");
         assert_eq!(dropped.result, EventResult::Drop);
         assert_eq!(dropped.destination, Destination::Drop);
-        // Other event rate-limited (person processing disabled, stays on main topic)
+        // Other event rate-limited (person processing disabled, rerouted to overflow)
         let limited = find_by_did(&events, "user-2");
-        assert_eq!(limited.result, EventResult::Limited);
-        assert_eq!(limited.destination, Destination::AnalyticsMain);
+        assert_eq!(limited.result, EventResult::Warning);
+        assert_eq!(limited.destination, Destination::Overflow);
         assert!(limited.force_disable_person_processing);
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
@@ -1515,6 +1536,31 @@ mod tests {
         assert_eq!(normal.result, EventResult::Ok);
         assert!(!normal.force_disable_person_processing);
         assert!(normal.details.is_none());
+    }
+
+    #[tokio::test]
+    async fn td_limits_historical_event_not_rerouted_to_overflow() {
+        // Invariant: AnalyticsHistorical must never be rerouted to Overflow.
+        // A globally rate-limited historical event still gets person processing
+        // disabled, but stays on the historical lane (matches the legacy sink,
+        // where the AnalyticsHistorical arm never overflows).
+        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+        let ctx = td_context();
+        let mut events =
+            vec![wrapped_event("$pageview", "user-1")
+                .with_destination(Destination::AnalyticsHistorical)];
+
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        let ev = find_by_did(&events, "user-1");
+        assert_eq!(ev.result, EventResult::Warning);
+        assert_eq!(
+            ev.destination,
+            Destination::AnalyticsHistorical,
+            "historical events must not be rerouted to overflow"
+        );
+        assert!(ev.force_disable_person_processing);
+        assert_eq!(ev.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     // --- apply_historical_rerouting ---
@@ -1805,14 +1851,19 @@ mod tests {
             ],
         );
         assert!(!events[0].force_disable_person_processing);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(events[1].force_disable_person_processing);
-        assert_eq!(events[1].result, EventResult::Limited);
+        assert_eq!(events[1].result, EventResult::Warning);
+        assert_eq!(events[1].destination, Destination::Overflow);
         assert_eq!(events[1].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[2].force_disable_person_processing);
+        assert_eq!(events[2].destination, Destination::AnalyticsMain);
         assert!(events[3].force_disable_person_processing);
-        assert_eq!(events[3].result, EventResult::Limited);
+        assert_eq!(events[3].result, EventResult::Warning);
+        assert_eq!(events[3].destination, Destination::Overflow);
         assert_eq!(events[3].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         assert!(!events[4].force_disable_person_processing);
+        assert_eq!(events[4].destination, Destination::AnalyticsMain);
     }
 
     #[tokio::test]
@@ -2041,15 +2092,15 @@ mod tests {
     }
 
     #[test]
-    fn merge_preserves_limited_result_on_success() {
+    fn merge_preserves_warning_result_on_success() {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
-        events[0].result = EventResult::Limited;
+        events[0].result = EventResult::Warning;
         events[0].details = Some("person_processing_disabled");
 
         let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[0].uuid)];
         merge_sink_results(&mut events, &results);
 
-        assert_eq!(events[0].result, EventResult::Limited);
+        assert_eq!(events[0].result, EventResult::Warning);
         assert_eq!(events[0].details, Some("person_processing_disabled"));
     }
 
@@ -2267,7 +2318,7 @@ mod tests {
             wrapped_event("$pageview", "user-2")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
             wrapped_event("$pageview", "user-3")
-                .with_result(EventResult::Limited, Some("person_processing_disabled")),
+                .with_result(EventResult::Warning, Some("person_processing_disabled")),
         ];
 
         let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
@@ -2279,7 +2330,7 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(event_refs.len(), 2); // only Ok + Limited are published
+        assert_eq!(event_refs.len(), 2); // only Ok + Warning are published
 
         let sink_results = router
             .publish_batch(router.default_sink(), &ctx, &event_refs)
@@ -2294,7 +2345,7 @@ mod tests {
         assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
         assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
         assert_eq!(resp.entries()[1].1.details, Some("billing_limit_exceeded"));
-        assert_eq!(resp.entries()[2].1.result, EventResult::Limited);
+        assert_eq!(resp.entries()[2].1.result, EventResult::Warning);
         assert_eq!(
             resp.entries()[2].1.details,
             Some("person_processing_disabled")

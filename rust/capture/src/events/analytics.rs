@@ -24,7 +24,9 @@ use crate::{
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7,
-    v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
+    v0_request::{
+        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
+    },
 };
 
 /// Property keys the heatmap pipeline reads from a redirected event. The
@@ -317,7 +319,9 @@ pub async fn process_events(
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
     }
 
-    // Apply per-(token, distinct_id) global rate limiting -- skip person processing for high-volume distinct_ids
+    // Apply per-(token, distinct_id) global rate limiting -- skip person
+    // processing for high-volume distinct_ids and reroute AnalyticsMain events
+    // to overflow to spread the hot key across partitions.
     if let Some(ref limiter) = global_rate_limiter {
         let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
         let mut limited_event_count: u64 = 0;
@@ -327,6 +331,15 @@ pub async fn process_events(
                     .to_cache_key();
             if limiter.is_limited(&cache_key, 1).await.is_some() {
                 event.metadata.skip_person_processing = true;
+                // Reroute to overflow via ForceLimited (null key + force-disable
+                // header at the sink). Gated to AnalyticsMain: the sink's
+                // AnalyticsHistorical arm never overflows, and only AnalyticsMain
+                // acts on overflow_reason. Leaving force_overflow untouched keeps
+                // stamp_overflow_reason (which runs next) free to evaluate the
+                // overflow limiter without the event_restriction short-circuit.
+                if event.metadata.data_type == DataType::AnalyticsMain {
+                    event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+                }
                 limited_distinct_ids.insert(&event.event.distinct_id);
                 limited_event_count += 1;
             }
@@ -1550,14 +1563,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_overflow_stamp_global_rate_limiter_and_overflow_interplay() {
-        // Both limiters fire on the same event: global RL sets
-        // skip_person_processing=true on (token, distinct_id) overage, and the
-        // OverflowLimiter stamps RateLimited{preserve_locality: true} on the
-        // second event because burst=1. The pipeline must OR the two effects
-        // into the same metadata record; the sink then routes to the overflow
-        // topic, keeps the partition key, and writes the skip-person header.
-        // Pre-refactor these were split across pipeline + sink; this test
-        // pins the end-to-end metadata contract.
+        // Both limiters interact on AnalyticsMain events. The global RL now does
+        // two things on a (token, distinct_id) overage: sets
+        // skip_person_processing=true AND stamps overflow_reason=ForceLimited
+        // (rerouting the hot key to overflow). stamp_overflow_reason then runs:
+        // event[0] is within the overflow limiter's burst (NotLimited), so the
+        // global RL's ForceLimited stamp survives; event[1] exceeds burst=1 so
+        // the overflow limiter overwrites it with RateLimited{preserve_locality:
+        // true}. Either way both land on the overflow topic with the skip-person
+        // header. This pins the end-to-end metadata contract.
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1596,15 +1610,17 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
 
-        // event[0]: global RL fires (distinct_id limited) -> skip_person_processing.
-        // Overflow limiter's first token is within burst so no overflow_reason.
+        // event[0]: global RL fires (distinct_id limited) -> skip_person_processing
+        // AND overflow_reason=ForceLimited. The overflow limiter's first token is
+        // within burst (NotLimited), so the global RL's ForceLimited stamp stands.
         assert!(
             captured[0].metadata.skip_person_processing,
             "event[0]: global RL should set skip_person_processing"
         );
         assert_eq!(
-            captured[0].metadata.overflow_reason, None,
-            "event[0]: burst=1 means first event is NOT overflow"
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited),
+            "event[0]: global RL reroutes the hot key to overflow via ForceLimited"
         );
 
         // event[1]: BOTH stamps fire. skip_person_processing from global RL,
@@ -1620,6 +1636,100 @@ mod tests {
             }),
             "event[1]: overflow limiter should stamp RateLimited{{preserve_locality: true}}"
         );
+    }
+
+    #[tokio::test]
+    async fn global_rate_limit_reroutes_analytics_main_to_overflow() {
+        // A globally rate-limited AnalyticsMain event is rerouted to overflow via
+        // ForceLimited even when no OverflowLimiter is configured -- the global RL
+        // loop stamps the reason directly and stamp_overflow_reason leaves it
+        // intact (no limiter to consult).
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        // historical_migration defaults to false -> AnalyticsMain.
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            Some(global_limiter),
+            None, // no overflow limiter -- isolate global RL behavior
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].metadata.data_type, DataType::AnalyticsMain);
+        assert!(captured[0].metadata.skip_person_processing);
+        assert_eq!(
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited),
+            "globally limited AnalyticsMain should be rerouted to overflow"
+        );
+    }
+
+    #[tokio::test]
+    async fn global_rate_limit_does_not_overflow_historical_events() {
+        // Invariant: a globally rate-limited AnalyticsHistorical event gets person
+        // processing disabled but is NOT rerouted to overflow -- it stays on the
+        // historical lane (matches the sink's AnalyticsHistorical arm, which never
+        // overflows).
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.historical_migration = true; // classifies events as AnalyticsHistorical
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            Some(global_limiter),
+            None, // no overflow limiter -- isolate global RL behavior
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::AnalyticsHistorical
+        );
+        // Person processing disabled...
+        assert!(captured[0].metadata.skip_person_processing);
+        // ...but NOT rerouted to overflow.
+        assert_eq!(captured[0].metadata.overflow_reason, None);
+        assert!(!captured[0].metadata.force_overflow);
     }
 
     // ============ end-to-end pipeline -> real KafkaSinkBase tests ============
