@@ -8396,6 +8396,62 @@
   }
   '''
 # ---
+# name: test_limit_by_then_limit_offset_position_stops_before_outer_offset[select_1_from_events_LIMIT_1_BY_event_LIMIT_2_OFFSET_3-eea0b59d]
+  '''
+  {
+    end: 45
+    limit: {
+      end: 45
+      start: 44
+      value: 2
+    }
+    limit_by: {
+      end: 37
+      exprs: [
+        {
+          chain: [
+            "event"
+          ]
+          end: 37
+          from_asterisk: False
+          start: 32
+        }
+      ]
+      n: {
+        end: 28
+        start: 27
+        value: 1
+      }
+      start: 21
+    }
+    offset: {
+      end: 54
+      start: 53
+      value: 3
+    }
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 1
+      }
+    ]
+    select_from: {
+      end: 20
+      start: 14
+      table: {
+        chain: [
+          "events"
+        ]
+        end: 20
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
 # name: test_limit_offset_with_ties_must_precede_offset[SELECT_a_FROM_t_LIMIT_1_2_WITH_TIES-f7bf5a57]
   '''
   {

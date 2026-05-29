@@ -4841,6 +4841,16 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "select")
 
+        def test_limit_by_then_limit_offset_position_stops_before_outer_offset(self):
+            # `selectStmt: ... limitByClause? (limitAndOffsetClause | offsetOnlyClause)?`
+            # `limitAndOffsetClause` lists compact (no OFFSET) before verbose (with OFFSET),
+            # so ANTLR ALL(*) picks compact for the trailing `LIMIT n` after limit-by — the
+            # `OFFSET m` belongs to the outer `selectSetStmt`'s `limitAndOffsetClauseOptional`,
+            # and the inner SelectQuery's source span stops at the LIMIT, not the OFFSET.
+            # Pinned so a regression that greedily eats OFFSET inside selectStmt — extending
+            # the SelectQuery end past the trailing OFFSET — fails here.
+            self._assert_ast("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3", "select")
+
         def test_zero_arg_lambda_as_clause_body(self):
             # After `,`, a clause-keyword + `()->` is a lambda clause body; bare `()` makes the keyword a column.
             cases = (
