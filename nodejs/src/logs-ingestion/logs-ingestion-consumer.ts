@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
@@ -126,6 +126,9 @@ export const logsBytesDroppedByRuleCounter = new Counter({
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
+    // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
+    protected quotaResource: QuotaResource = 'logs_mb_ingested'
+    protected appSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -389,7 +392,7 @@ export class LogsIngestionConsumer {
             (
                 await Promise.all(
                     uniqueTokens.map(async (token) =>
-                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_mb_ingested'))
+                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, this.quotaResource))
                             ? token
                             : null
                     )
@@ -564,7 +567,7 @@ export class LogsIngestionConsumer {
         }
         this.appMetricsAggregator.queue({
             team_id: teamId,
-            app_source: 'logs',
+            app_source: this.appSource,
             app_source_id: '',
             instance_id: '',
             metric_kind: 'usage',
@@ -584,7 +587,7 @@ export class LogsIngestionConsumer {
             }
             this.appMetricsAggregator.queue({
                 team_id: teamId,
-                app_source: 'logs',
+                app_source: this.appSource,
                 app_source_id: '',
                 instance_id: ruleId,
                 metric_kind: 'usage',
@@ -605,7 +608,7 @@ export class LogsIngestionConsumer {
             }
             this.appMetricsAggregator.queue({
                 team_id: teamId,
-                app_source: 'logs',
+                app_source: this.appSource,
                 app_source_id: '',
                 instance_id: ruleId,
                 metric_kind: 'usage',
