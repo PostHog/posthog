@@ -1,5 +1,5 @@
-import { type ServiceImpl, create } from '@bufbuild/protobuf'
-import { createClient, createRouterTransport } from '@connectrpc/connect'
+import { create } from '@bufbuild/protobuf'
+import { type ServiceImpl, createClient, createRouterTransport } from '@connectrpc/connect'
 
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
 import { PersonSchema } from '../../generated/personhog/personhog/types/v1/person_pb'
@@ -103,21 +103,24 @@ describe('PersonHogPersonOperations', () => {
             makeItem: (i: number) => ({ teamId: 1, personId: `uuid-${i}` }),
         },
     ])('$method batching', ({ method, handler, makeItem }) => {
+        const invoke = (ops: PersonHogPersonOperations, count: number): Promise<any> =>
+            (ops[method] as any)(Array.from({ length: count }, (_, i) => makeItem(i)))
+
         it('sends a single RPC when under the batch limit', async () => {
             const { ops, handlers } = createOperations()
-            await ops[method](Array.from({ length: 10 }, (_, i) => makeItem(i)))
+            await invoke(ops, 10)
             expect(handlers[handler]).toHaveBeenCalledTimes(1)
         })
 
         it('splits into multiple RPCs when over the batch limit', async () => {
             const { ops, handlers } = createOperations()
-            await ops[method](Array.from({ length: 400 }, (_, i) => makeItem(i)))
+            await invoke(ops, 400)
             expect(handlers[handler]).toHaveBeenCalledTimes(2)
         })
 
         it('handles exact batch boundary without duplicating or dropping', async () => {
             const { ops, handlers } = createOperations()
-            await ops[method](Array.from({ length: 250 }, (_, i) => makeItem(i)))
+            await invoke(ops, 250)
             expect(handlers[handler]).toHaveBeenCalledTimes(1)
         })
     })
