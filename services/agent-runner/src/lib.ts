@@ -1,17 +1,17 @@
 /**
  * Public surface of @posthog/agent-runner. Internal organization lives
  * under `src/<concern>/`:
- *   - loop/       — per-turn execution: build tools, run a turn, dispatch
- *                   one call, system-prompt, provider-safe-name sanitizer
+ *   - loop/       — the session driver over pi-agent-core, the AgentTool
+ *                   adapter, approval helpers, provider-safe-name sanitizer
  *   - workers/    — the long-running claim loop (Worker class)
- *   - models/     — pi-ai client surface (real + faux + llm-gateway)
+ *   - models/     — model resolution + the llm-gateway Model factory
  *   - resolvers/  — pluggable Worker deps (encrypted-env decryption)
  */
 
-export * from './loop/run-turn'
-export * from './loop/tool-dispatch'
+export * from './loop/driver'
+export * from './loop/build-agent-tools'
+export * from './loop/provider-safe-names'
 export * from './workers/worker'
 export * from './models/pi-client'
-export * from './models/faux-pi-client'
 export * from './models/llm-gateway-model'
 export * from './resolvers/encrypted-env-resolver'

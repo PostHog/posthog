@@ -11,7 +11,7 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "@earendil-works/pi-ai": "^0.76.0",
+        "@earendil-works/pi-ai": "^0.75.5",
         "@posthog/agent-ingress": "workspace:*",
         "@posthog/agent-janitor": "workspace:*",
         "@posthog/agent-migrations": "workspace:*",

@@ -34,8 +34,8 @@ import {
     SessionQueue,
 } from '@posthog/agent-shared'
 
-import { runSession } from '../loop/run-turn'
-import { PiClient, resolveModelCached } from '../models/pi-client'
+import { runSession } from '../loop/driver'
+import { resolveModelCached } from '../models/pi-client'
 
 const log = createLogger('worker')
 
@@ -44,7 +44,6 @@ export interface WorkerDeps {
     revisions: RevisionStore
     bundle: BundleStore
     sandboxes: SandboxPool
-    pi: PiClient
     broker: SecretBroker
     /** Resolved per-application secrets — wire from the team's encrypted env. */
     resolveSecrets: (session: AgentSession) => Promise<Record<string, string>>
@@ -57,7 +56,8 @@ export interface WorkerDeps {
      * Override for custom-endpoint models (llm-gateway) or test faux models.
      */
     resolveModel?: (specModel: string) => Model<string>
-    /** Per-session API key resolver. Defaults to no override (uses PiAiClient's default). */
+    /** Per-session API key resolver. The resolved key is passed to the driver's
+     * loop config; defaults to no key. */
     resolveApiKey?: (session: AgentSession) => string | undefined
     /**
      * Optional lifecycle event bus. Runner publishes session_started /
@@ -259,7 +259,6 @@ export class Worker {
             const model = resolveModel(rev.spec.model)
             const apiKey = this.deps.resolveApiKey?.(session)
             const outcome = await runSession(rev, session, {
-                pi: this.deps.pi,
                 model,
                 apiKey,
                 bundle: this.deps.bundle,

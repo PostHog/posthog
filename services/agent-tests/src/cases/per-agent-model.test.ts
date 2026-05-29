@@ -1,21 +1,21 @@
 /**
  * Per-agent spec.model: two agents in the same cluster declare different
- * spec.model strings. The runner resolves each through `resolveModel` and the
- * PiClient receives a different Model per session.
+ * spec.model strings. The runner resolves each through `resolveModel`, and the
+ * resolved Model is what the driver streams with.
  *
- * Exercised via a custom resolveModel that returns distinct Model objects per
- * input string, plus a FauxPiClient subclass that records which model each
- * invocation used.
+ * `resolveModel` is the routing seam (called once per session in the worker),
+ * so we record there and back it with the faux provider so each session
+ * actually runs to completion.
  */
 
-import type { AssistantMessage, Context, Model } from '@earendil-works/pi-ai'
+import { type AssistantMessage, fauxAssistantMessage, type Model, registerFauxProvider } from '@earendil-works/pi-ai'
 import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { Pool } from 'pg'
 
 import { reset } from '@posthog/agent-migrations'
-import { FauxPiClient, InvokeOpts, StreamDelta, Worker } from '@posthog/agent-runner'
+import { Worker } from '@posthog/agent-runner'
 import {
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
@@ -29,49 +29,18 @@ import {
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
 
-function stubModel(id: string): Model<string> {
-    return { id, name: id, api: 'faux', provider: 'stub' } as unknown as Model<string>
-}
+let fauxHandle: ReturnType<typeof registerFauxProvider> | undefined
 
-class RecordingPi extends FauxPiClient {
-    public readonly modelsCalled: string[] = []
-    constructor() {
-        super([])
+/**
+ * Return a Model whose id is the spec string but whose `api` routes to the faux
+ * provider, armed with a single completing response so the session finishes.
+ */
+function fauxModelFor(specModel: string): Model<string> {
+    if (!fauxHandle) {
+        fauxHandle = registerFauxProvider({ api: 'faux', provider: 'faux', models: [{ id: 'faux' }] })
     }
-    override stream(model: Model<string>, _context: Context, _opts?: InvokeOpts): AsyncIterable<StreamDelta> {
-        // Runner consumes stream() in v1; we record from here so the
-        // assertion below sees both agents' models. The stream emits a
-        // single terminal `end` event — no deltas — since the test only
-        // cares about which model id was invoked.
-        this.modelsCalled.push(model.id)
-        const assistantMessage: AssistantMessage = this.buildResponse(model.id)
-        return (async function* () {
-            yield { type: 'end', assistantMessage }
-        })()
-    }
-    override async invoke(model: Model<string>, _context: Context, _opts?: InvokeOpts): Promise<AssistantMessage> {
-        this.modelsCalled.push(model.id)
-        return this.buildResponse(model.id)
-    }
-    private buildResponse(modelId: string): AssistantMessage {
-        return {
-            role: 'assistant',
-            content: [{ type: 'text', text: `from ${modelId}` }],
-            stopReason: 'stop',
-            timestamp: Date.now(),
-            api: 'faux',
-            provider: 'stub',
-            model: modelId,
-            usage: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 0,
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-            },
-        }
-    }
+    fauxHandle.setResponses([fauxAssistantMessage(`from ${specModel}`, { stopReason: 'stop' }) as AssistantMessage])
+    return { id: specModel, name: specModel, api: 'faux', provider: 'faux' } as unknown as Model<string>
 }
 
 describe('per-agent spec.model resolution: real e2e', () => {
@@ -95,23 +64,26 @@ describe('per-agent spec.model resolution: real e2e', () => {
         await pool.end()
     })
 
-    it('two agents with different spec.model values invoke distinct Model objects', async () => {
+    it('two agents with different spec.model values resolve distinct Models', async () => {
         const bundle = new FsBundleStore(bundleRoot)
         const revisions = new PgRevisionStore(pool)
         const queue = new PgSessionQueue(pool)
-        const recordingPi = new RecordingPi()
+        const modelsResolved: string[] = []
 
         const worker = new Worker({
             queue,
             revisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
-            pi: recordingPi,
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
-            // Per-agent model resolution — keys off spec.model verbatim.
-            resolveModel: (specModel) => stubModel(specModel),
+            // Per-agent model resolution — keys off spec.model verbatim. This is
+            // the seam the driver streams with, so recording here proves routing.
+            resolveModel: (specModel) => {
+                modelsResolved.push(specModel)
+                return fauxModelFor(specModel)
+            },
             maxConcurrency: 1,
         })
 
@@ -155,7 +127,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
 
         await worker.loop({ iterations: 2, claimTimeoutMs: 10 })
 
-        // Both models should have been invoked exactly once each.
-        expect(recordingPi.modelsCalled.sort()).toEqual(['faux/model-A', 'faux/model-B'])
+        // Both models should have been resolved exactly once each.
+        expect(modelsResolved.sort()).toEqual(['faux/model-A', 'faux/model-B'])
     })
 })

@@ -47,7 +47,7 @@ import { setMemory } from '@posthog/agent-tools'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { posthogLlmGatewayModel } from './models/llm-gateway-model'
-import { PiAiClient, resolveModelCached } from './models/pi-client'
+import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
 import { Worker } from './workers/worker'
 
@@ -133,12 +133,14 @@ async function main(): Promise<void> {
         bundle: new FsBundleStore(config.bundleRoot),
         sandboxes: selectSandboxPool(),
         sandboxInstances: new PgSandboxInstanceStore(agentDb),
-        pi: new PiAiClient(defaultApiKey),
         broker: new SecretBroker(),
         bus,
         logs: logSink,
         resolveIntegrations: async () => ({}),
         resolveSecrets,
+        // The driver streams through pi-ai's `streamSimple`; the per-session
+        // API key flows in via the loop config (no more client-level default).
+        resolveApiKey: () => defaultApiKey,
         resolveModel: config.useLlmGateway
             ? // Route every model through PostHog's llm-gateway, keeping spec.model
               // as the model id but ignoring the provider prefix.

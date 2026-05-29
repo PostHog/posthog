@@ -8,7 +8,7 @@
  *   - Express ingress — full real route table.
  *   - Runner Worker — same loop the prod bin runs (concurrency, shutdown, pending_inputs).
  *   - Sandbox pool — InProcessSandboxPool.
- *   - PiAiClient — the real production client, pointed at pi-ai's faux provider.
+ *   - Driver — streams through pi-ai's `streamSimple`, pointed at the faux provider.
  *
  * Mocked at the model layer ONLY: pi-ai's `faux` provider, registered once per
  * process. Each test sets its own scripted response list before firing the
@@ -26,7 +26,7 @@ import { Pool } from 'pg'
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
-import { PiAiClient, Worker } from '@posthog/agent-runner'
+import { Worker } from '@posthog/agent-runner'
 import type { IdentityStore } from '@posthog/agent-shared'
 import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
 import {
@@ -72,7 +72,6 @@ export interface Cluster {
     broker: SecretBroker
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
-    piClient: PiAiClient
     ingress: Express
     janitor: Express
     worker: Worker
@@ -151,7 +150,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const broker = new SecretBroker()
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
-    const piClient = new PiAiClient(process.env.AGENT_TEST_API_KEY ?? 'faux-key')
     // resolveModel ignores spec.model and always returns the harness's Model —
     // tests don't exercise per-agent model selection (that's covered in
     // real-inference + dedicated tests).
@@ -173,7 +171,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bundle,
         sandboxes,
         sandboxInstances,
-        pi: piClient,
         broker,
         bus,
         logs,
@@ -217,7 +214,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         sandboxes,
         broker,
         model,
-        piClient,
         ingress,
         janitor,
         worker,

@@ -1,4 +1,13 @@
 import {
+    type AssistantMessage,
+    fauxAssistantMessage,
+    fauxToolCall,
+    type Model,
+    registerFauxProvider,
+    type ToolCall,
+} from '@earendil-works/pi-ai'
+
+import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
@@ -10,8 +19,22 @@ import {
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { endTurn, FauxPiClient, toolCall, toolUseTurn } from '../models/faux-pi-client'
 import { Worker } from './worker'
+
+// The driver streams through pi-ai's registered faux provider (the same surface
+// the e2e harness uses), so the worker is exercised via `resolveModel` returning
+// a faux Model armed with a script — not an injected client.
+let fauxHandle: ReturnType<typeof registerFauxProvider> | undefined
+function fauxModel(script: Array<AssistantMessage | (() => AssistantMessage)>): Model<string> {
+    if (!fauxHandle) {
+        fauxHandle = registerFauxProvider({ api: 'faux', provider: 'faux', models: [{ id: 'faux' }] })
+    }
+    fauxHandle.setResponses(script.map((t) => (typeof t === 'function' ? () => t() : t)))
+    return fauxHandle.getModel() as Model<string>
+}
+const endTurn = (text: string): AssistantMessage => fauxAssistantMessage(text, { stopReason: 'stop' })
+const toolUseTurn = (calls: ToolCall[]): AssistantMessage => fauxAssistantMessage(calls, { stopReason: 'toolUse' })
+const toolCall = (name: string, args: Record<string, unknown> = {}): ToolCall => fauxToolCall(name, args)
 
 describe('Worker', () => {
     beforeEach(() => {
@@ -62,10 +85,10 @@ describe('Worker', () => {
             revisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
-            pi: new FauxPiClient([endTurn('hi back')]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
+            resolveModel: () => fauxModel([endTurn('hi back')]),
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
@@ -122,10 +145,10 @@ describe('Worker', () => {
             revisions,
             bundle,
             sandboxes: pool,
-            pi: new FauxPiClient([toolUseTurn([toolCall('noop', {})]), endTurn('done')]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({ ACME_KEY: 'topsecret' }),
+            resolveModel: () => fauxModel([toolUseTurn([toolCall('noop', {})]), endTurn('done')]),
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
@@ -173,17 +196,18 @@ describe('Worker', () => {
             revisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
-            pi: new FauxPiClient([
-                (() => {
-                    // Signal shutdown after the first turn so the next iteration sees it.
-                    queueMicrotask(() => void worker.stop())
-                    return toolUseTurn([toolCall('@posthog/query', { query: 'x' })])
-                }) as never,
-                endTurn('never reaches here'),
-            ]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
+            resolveModel: () =>
+                fauxModel([
+                    (() => {
+                        // Signal shutdown after the first turn so the next iteration sees it.
+                        queueMicrotask(() => void worker.stop())
+                        return toolUseTurn([toolCall('@posthog/query', { query: 'x' })])
+                    }) as () => AssistantMessage,
+                    endTurn('never reaches here'),
+                ]),
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
@@ -235,10 +259,10 @@ describe('Worker', () => {
             revisions: throwingRevisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
-            pi: new FauxPiClient([endTurn('would never run')]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
+            resolveModel: () => fauxModel([endTurn('would never run')]),
         })
 
         // The loop should not throw — runOne owns the boundary.
@@ -338,10 +362,10 @@ describe('Worker', () => {
                 revisions,
                 bundle,
                 sandboxes: new InProcessSandboxPool(),
-                pi: new FauxPiClient([endTurn('would never run')]),
                 broker: new SecretBroker(),
                 resolveIntegrations: async () => ({}),
                 resolveSecrets: async () => ({}),
+                resolveModel: () => fauxModel([endTurn('would never run')]),
                 ...overrides(failingPool),
             })
 
@@ -362,10 +386,10 @@ describe('Worker', () => {
             revisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
-            pi: new FauxPiClient([]),
             broker: new SecretBroker(),
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
+            resolveModel: () => fauxModel([]),
         })
         // First claim throws (transient PG error). Second time, signal a clean
         // shutdown so the loop exits — confirming the worker survived the

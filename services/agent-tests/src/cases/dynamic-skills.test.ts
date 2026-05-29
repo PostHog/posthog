@@ -103,9 +103,10 @@ describe('dynamic skill loading: real e2e', () => {
             content: Array<{ text: string }>
             isError?: boolean
         }
-        // The dispatcher still recognizes load-skill (auto-included list), but
-        // ctx.skillIndex is empty so the tool errors with a clear message.
+        // A skill-less agent never has load-skill in its tool list, so the loop
+        // rejects the call outright ("tool not found") — stronger proof it
+        // isn't exposed than the old advertised-no/dispatchable-yes behavior.
         expect(toolResult.isError).toBe(true)
-        expect(toolResult.content[0].text).toMatch(/unknown skill id|did not wire/)
+        expect(toolResult.content[0].text).toMatch(/not found|unknown skill id|did not wire/)
     })
 })
