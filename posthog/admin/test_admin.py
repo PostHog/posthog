@@ -7,11 +7,12 @@ from django.test import RequestFactory
 
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
-from posthog.admin.admins.user_admin import UserAdmin
+from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+
+from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
 
 
 class TestOAuthSidebarRegrouping(BaseTest):
@@ -109,6 +110,14 @@ class TestUserAdmin(BaseTest):
         )
 
         assert self.search_user_ids("missing-distinct-id") == []
+
+    def test_clean_passkeys_enabled_for_2fa_rejects_when_user_has_no_verified_passkey(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        form = UserChangeForm(instance=self.user)
+        form.cleaned_data = {"passkeys_enabled_for_2fa": True}
+        with self.assertRaises(ValidationError):
+            form.clean_passkeys_enabled_for_2fa()
 
 
 class TestPluginAttachmentInline(BaseTest):

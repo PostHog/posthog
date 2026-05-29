@@ -1,6 +1,6 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
+import { type EvaluatedFlags, evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
@@ -23,7 +23,7 @@ export interface ResolvedState {
     context: Context
     version: number
     useSingleExec: boolean
-    toolFeatureFlags: Record<string, boolean> | undefined
+    toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -108,9 +108,11 @@ export class RequestStateResolver {
             reqCtx.getDistinctId(),
         ])
 
-        const flagVersion = allFlags['mcp-version-2'] ? 2 : undefined
+        const flagVersion = allFlags['mcp-version-2'] === true ? 2 : undefined
+        // Preserve variant strings (and `undefined` for unevaluated flags) — the
+        // tool filter needs raw values to support `feature_flag_variant` matching.
         const toolFeatureFlags =
-            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]])) : undefined
+            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, allFlags[k]])) : undefined
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
 
@@ -207,7 +209,7 @@ export class RequestStateResolver {
         reqCtx: RequestContext,
         flagKeys: string[],
         groups?: FlagGroups
-    ): Promise<Record<string, boolean>> {
+    ): Promise<EvaluatedFlags> {
         if (flagKeys.length === 0) {
             return {}
         }

@@ -8,12 +8,13 @@ import structlog
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import HogFunctionType
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.default_webhook_template import template as default_webhook_template
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
 
 logger = structlog.get_logger(__name__)
 

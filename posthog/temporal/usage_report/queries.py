@@ -455,7 +455,6 @@ QUERIES: list[QuerySpec] = [
         fn=_sdk_logs_records,
         output="multi",
         multi_keys_mapping={
-            "web": "teams_with_web_logs_records_in_period",
             "ios": "teams_with_ios_logs_records_in_period",
             "react_native": "teams_with_react_native_logs_records_in_period",
             "android": "teams_with_android_logs_records_in_period",
