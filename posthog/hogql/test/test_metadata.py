@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql.metadata import get_hogql_metadata
 
-from posthog.models import Cohort, PropertyDefinition
+from posthog.models import Cohort, EventDefinition, PropertyDefinition
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -174,6 +174,118 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    def test_metadata_warns_for_unknown_event_literal(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 0)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(
+            metadata.warnings[0].message,
+            "Event 'purchase' was not found in this project taxonomy.",
+        )
+        self.assertIsNone(metadata.warnings[0].fix)
+
+    def test_metadata_suggests_similar_event_literal(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = 'pageview'")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(
+            metadata.warnings[0].message,
+            "Event 'pageview' was not found in this project taxonomy. Did you mean '$pageview'?",
+        )
+        self.assertEqual(metadata.warnings[0].fix, "$pageview")
+
+    def test_metadata_does_not_warn_for_known_event_literal(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.warnings, [])
+
+    def test_metadata_warns_for_unknown_event_in_literal(self):
+        EventDefinition.objects.create(team=self.team, name="signed_up")
+
+        metadata = self._select("SELECT count() FROM events WHERE event IN ('signed_up', 'signup')")
+
+        self.assertTrue(metadata.isValid)
+        warning_messages = [warning.message for warning in metadata.warnings]
+        self.assertIn(
+            "Event 'signup' was not found in this project taxonomy. Did you mean 'signed_up'?", warning_messages
+        )
+        self.assertNotIn("Event 'signed_up' was not found in this project taxonomy.", warning_messages)
+
+    def test_metadata_warns_for_unknown_property_field_access(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties.country_code, count() FROM events GROUP BY properties.country_code")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 0)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(
+            metadata.warnings[0].message,
+            "Property 'country_code' was not found in this project taxonomy. Did you mean '$geoip_country_code'?",
+        )
+        self.assertEqual(metadata.warnings[0].fix, "$geoip_country_code")
+
+    def test_metadata_warns_for_unknown_property_array_access(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['country_code'] FROM events")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 0)
+        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(metadata.warnings[0].fix, "$geoip_country_code")
+
+    def test_metadata_does_not_warn_for_known_property_access(self):
+        PropertyDefinition.objects.create(team=self.team, name="country_code")
+
+        metadata = self._select("SELECT properties.country_code FROM events")
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.warnings, [])
+
+    def test_metadata_does_not_warn_for_dynamic_event_expression(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM events WHERE event = concat('paid_', 'bill')")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_does_not_warn_for_dynamic_property_access(self):
+        metadata = self._select("SELECT properties[key] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
+        with (
+            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.filter") as event_filter,
+            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.filter") as property_filter,
+        ):
+            metadata = self._select("SELECT count() FROM events")
+
+        self.assertTrue(metadata.isValid)
+        event_filter.assert_not_called()
+        property_filter.assert_not_called()
+
+    def test_metadata_does_not_warn_for_event_column_outside_events_table(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        metadata = self._select("SELECT count() FROM (SELECT 'signup' AS event) WHERE event = 'signup'")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
 
     def test_metadata_table(self):
         metadata = self._expr("timestamp", "events")
