@@ -77,6 +77,7 @@ jobs:
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
+            timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -138,6 +139,10 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
                         - 'products/*/manifest.tsx' # Generates products.json
+                        # hogli db commands used for test database setup
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/hogli/**'
+                        - hogli.yaml
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -197,6 +202,9 @@ jobs:
                       persons-SQL:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      timing_scripts:
+                        - '.github/scripts/optimize_test_durations.py'
+                        - '.github/scripts/turbo-discover.js'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
@@ -277,6 +285,7 @@ jobs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
+            django_shards: ${{ steps.discover.outputs.django_shards }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -308,7 +317,7 @@ jobs:
                   fi
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -338,6 +347,7 @@ jobs:
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+                  echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
@@ -380,7 +390,7 @@ jobs:
                     temporal elasticsearch objectstorage-azure
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -1242,10 +1252,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -1373,8 +1380,11 @@ jobs:
 
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        needs: [changes, get_clickhouse_versions, turbo-discover]
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            needs.get_clickhouse_versions.result == 'success'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
@@ -1385,42 +1395,55 @@ jobs:
               env:
                   OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
+                  DJANGO_SHARDS_JSON: ${{ needs.turbo-discover.outputs.django_shards }}
               run: |
-                  # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
-                  # Consult #team-devex before changing.
-                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 39) | {
+                  # Auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
+                  # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
+                  CORE_SHARDS=38
+                  CORE_POE_SHARDS=7
+                  TEMPORAL_SHARDS=7
+                  if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
+                    CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
+                    CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
+                    TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
+                    echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                  else
+                    echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                  fi
+
+                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                    [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": false,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 38,
+                      concurrency: $shards,
                       group: .,
                       artifact_key: ("core-" + (.|tostring)),
                       compat: false
                     }]
                   ')
 
-                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 8) | {
+                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
+                    [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": true,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 7,
+                      concurrency: $shards,
                       group: .,
                       artifact_key: ("core-poe-" + (.|tostring)),
                       compat: false
                     }]
                   ')
 
-                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 8) | {
+                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
+                    [range(1; $shards + 1) | {
                       segment: "Temporal",
                       "person-on-events": false,
                       "python-version": "3.12.12",
                       "clickhouse-server-image": $image,
-                      concurrency: 7,
+                      concurrency: $shards,
                       group: .,
                       artifact_key: ("temporal-" + (.|tostring)),
                       compat: false
@@ -1802,8 +1825,8 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+              # Upload on master, or on PRs that change timing/sharding scripts (for validation)
+              if: ${{ (github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations

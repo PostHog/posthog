@@ -299,7 +299,7 @@ fn wrap_literal_chunk<E: Emitter>(
 /// absolute byte offset in `src`. `offset` is the character index
 /// (Unicode code points), matching cpp's ANTLR `getStartIndex()`
 /// semantics; `column` is character-position-in-line.
-fn pos_in_source<E: Emitter>(emit: &E, src: &str, byte_offset: usize) -> E::Value {
+pub(crate) fn pos_in_source<E: Emitter>(emit: &E, src: &str, byte_offset: usize) -> E::Value {
     // Line: count `\n` bytes before `byte_offset`.
     let preceding = &src[..byte_offset.min(src.len())];
     let line_breaks = preceding.bytes().filter(|&b| b == b'\n').count();

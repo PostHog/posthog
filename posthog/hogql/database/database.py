@@ -53,6 +53,7 @@ from posthog.hogql.database.models import (
     Table,
     TableNode,
     UnknownDatabaseField,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
@@ -487,7 +488,7 @@ class Database(BaseModel):
         if not isinstance(system_tables, SystemTables):
             return []
 
-        return ["query_log", *system_tables.resolve_all_table_names()]
+        return ["query_log", *system_tables.resolve_visible_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -1833,6 +1834,15 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, StringDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UUIDDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,

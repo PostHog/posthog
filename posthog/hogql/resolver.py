@@ -17,7 +17,10 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
-from posthog.hogql.database.schema.duckdb_table_functions import build_opaque_function_call_table
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    build_opaque_function_call_table,
+    is_dangerous_table_function,
+)
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -2110,6 +2113,9 @@ class Resolver(CloningVisitor):
             return None
 
         if not _SAFE_TABLE_FUNCTION_NAME_RE.match(function_name):
+            return None
+
+        if is_dangerous_table_function(function_name):
             return None
 
         return build_opaque_function_call_table(function_name)

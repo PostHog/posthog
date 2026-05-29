@@ -1,21 +1,27 @@
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
-import { hash } from '@/lib/utils'
+import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { getPostHogClient } from '@/lib/posthog'
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
+import { hash } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl } from './constants'
+import {
+    buildMCPRequestContext,
+    buildMCPSessionAnalyticsProperties,
+    type MCPRequestContext,
+    type MCPSessionContext,
+} from './mcp-context'
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
@@ -27,11 +33,19 @@ export class RequestContext {
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
+    private requestContext: MCPRequestContext
+    private sessionContext: MCPSessionContext | null = null
 
-    constructor(redis: RedisLike, env: Env, props: RequestProperties) {
+    constructor(
+        redis: RedisLike,
+        env: Env,
+        props: RequestProperties,
+        requestContext: MCPRequestContext = buildMCPRequestContext(props)
+    ) {
         this.redis = redis
         this.env = env
         this.props = props
+        this.requestContext = requestContext
     }
 
     get tokenCache(): RedisCache<State> {
@@ -140,9 +154,14 @@ export class RequestContext {
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
             const distinctId = await this.getDistinctId()
-            await this.trackEvent(event, properties, analyticsContext, undefined, distinctId, this.props)
+            await this.trackEvent(event, properties, analyticsContext, undefined, distinctId)
         }
         return { ...partialContext, trackEvent }
+    }
+
+    setMcpContexts(requestContext: MCPRequestContext, sessionContext: MCPSessionContext | null): void {
+        this.requestContext = requestContext
+        this.sessionContext = sessionContext
     }
 
     async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
@@ -174,27 +193,31 @@ export class RequestContext {
         }
 
         const distinctId = await this.getDistinctId()
-        await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
+        await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId)
     }
 
-    buildClientProperties(props?: RequestProperties): Record<string, unknown> {
-        const p = props ?? this.props
+    buildClientProperties(
+        requestContext: MCPRequestContext = this.requestContext,
+        sessionContext: MCPSessionContext | null = this.sessionContext
+    ): Record<string, unknown> {
         return {
             $ai_product: 'mcp',
             $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,
-            $mcp_client_name: p.mcpClientName,
-            $mcp_client_version: p.mcpClientVersion,
-            $mcp_client_user_agent: p.clientUserAgent,
-            $mcp_protocol_version: p.mcpProtocolVersion,
-            $mcp_transport: p.transport,
-            $mcp_session_id: p.mcpSessionId,
-            $mcp_conversation_id: p.mcpConversationId,
-            $mcp_consumer: p.mcpConsumer,
-            $mcp_mode: p.mode,
-            $mcp_region: p.region,
+            $mcp_client_name: requestContext.mcpClientName,
+            $mcp_client_version: requestContext.mcpClientVersion,
+            $mcp_client_user_agent: requestContext.clientUserAgent,
+            $mcp_protocol_version: requestContext.mcpProtocolVersion,
+            $mcp_transport: requestContext.transport,
+            $mcp_session_id: requestContext.mcpSessionId,
+            $mcp_conversation_id: requestContext.mcpConversationId,
+            $mcp_consumer: requestContext.mcpConsumer,
+            $mcp_mode: requestContext.mode,
+            $mcp_region: requestContext.region,
             mcp_runtime: 'hono',
+            mcp_vendor_client: requestContext.mcpVendorClient,
+            ...buildMCPSessionAnalyticsProperties(sessionContext),
         }
     }
 
@@ -203,12 +226,10 @@ export class RequestContext {
         properties: Record<string, unknown>,
         analyticsContext?: MCPAnalyticsContext,
         previousContext?: MCPAnalyticsContext,
-        distinctId?: string,
-        props?: RequestProperties
+        distinctId?: string
     ): Promise<void> {
         try {
             const resolvedDistinctId = distinctId ?? (await this.getDistinctId())
-            const resolvedProps = props ?? this.props
             const clientName = await this.tokenCache.get('clientName')
             const contextProperties = analyticsContext ? buildMCPContextProperties(analyticsContext) : {}
             const previousContextProperties = previousContext
@@ -221,9 +242,9 @@ export class RequestContext {
                 event,
                 ...(Object.keys(groups).length > 0 ? { groups } : {}),
                 properties: {
-                    ...this.buildClientProperties(resolvedProps),
-                    ...(resolvedProps.sessionId
-                        ? { $session_id: await this.getSessionUuid(resolvedProps.sessionId) }
+                    ...this.buildClientProperties(),
+                    ...(this.requestContext.sessionId
+                        ? { $session_id: await this.getSessionUuid(this.requestContext.sessionId) }
                         : {}),
                     ...(clientName ? { $mcp_oauth_client_name: clientName } : {}),
                     ...contextProperties,

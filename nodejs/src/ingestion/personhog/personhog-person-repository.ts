@@ -126,6 +126,34 @@ export class PersonHogPersonRepository implements PersonRepository {
         }
     }
 
+    async fetchDistinctIdsForPersons(
+        teamId: TeamId,
+        personIntIds: string[],
+        options?: { limitPerPerson?: number; useReadReplica?: boolean }
+    ): Promise<Record<string, string[]>> {
+        const useReadReplica = options?.useReadReplica ?? true
+
+        if (useReadReplica === false || !shouldUseGrpcForTeam(this.rolloutTeamIds, teamId, this.grpcPercentage)) {
+            return timedPostgres(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
+                this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
+            )
+        }
+
+        try {
+            return await timedGrpc(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
+                this.grpcClient.persons.getDistinctIdsForPersons(teamId, personIntIds, options?.limitPerPerson)
+            )
+        } catch (error) {
+            logger.warn('[PersonHog] gRPC fetchDistinctIdsForPersons failed, falling back to Postgres', {
+                count: personIntIds.length,
+                error: String(error),
+            })
+            return timedPostgres(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
+                this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
+            )
+        }
+    }
+
     // All write operations delegate directly to Postgres
 
     createPerson(
