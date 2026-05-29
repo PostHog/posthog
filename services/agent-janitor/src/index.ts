@@ -22,9 +22,11 @@ import { migrate } from '@posthog/agent-migrations'
 import {
     createLogger,
     FsBundleStore,
+    HttpGatewayClient,
     installProcessHandlers,
     PgRevisionStore,
     PgSessionQueue,
+    PgTeamApiKeyResolver,
 } from '@posthog/agent-shared'
 
 import { loadAgentJanitorConfig } from './config'
@@ -65,11 +67,29 @@ async function main(): Promise<void> {
             return rev?.spec?.resume
         },
     }
+    // walletProxy resolves the agent's owner team to a phc_ and forwards
+    // to the llm-gateway's GET /v1/wallet/balance. The route on the
+    // janitor (/applications/:id/wallet) lights up only when the URL is
+    // configured; unset → 503 with `wallet_proxy_not_configured`.
+    let walletProxy:
+        | ((teamId: number) => Promise<{ available_usd: string; pending_usd: string; currency: string }>)
+        | undefined
+    if (config.llmGatewayUrl) {
+        const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
+        const gateway = new HttpGatewayClient({ baseUrl: config.llmGatewayUrl })
+        walletProxy = async (teamId) => {
+            const phc = await teamApiKeys.resolve(teamId)
+            const bal = await gateway.getWalletBalance({ phc })
+            return { available_usd: bal.available_usd, pending_usd: bal.pending_usd, currency: bal.currency }
+        }
+    }
+
     const app = buildJanitorApp({
         queue,
         sweep,
         revisions,
         bundles,
+        walletProxy,
         internalSecret: config.internalSecret,
     })
     app.listen(config.port, () => {

@@ -28,7 +28,9 @@ import {
     ApprovalStore,
     BundleStore,
     createLogger,
+    GatewayClient,
     LogSink,
+    MemoryStore,
     RevisionStore,
     SandboxInstanceStore,
     SandboxPool,
@@ -61,8 +63,32 @@ export interface WorkerDeps {
      * Override for custom-endpoint models (llm-gateway) or test faux models.
      */
     resolveModel?: (specModel: string) => Model<string>
-    /** Per-session API key resolver. Defaults to no override (uses PiAiClient's default). */
-    resolveApiKey?: (session: AgentSession) => string | undefined
+    /**
+     * Per-session API key resolver. Defaults to no override (uses PiAiClient's
+     * default). On the llm-gateway path this returns the owning team's `phc_`
+     * project key, resolved via `TeamApiKeyResolver`.
+     */
+    resolveApiKey?: (session: AgentSession) => Promise<string | undefined> | string | undefined
+    /**
+     * Per-session static HTTP headers stamped on every outbound pi-ai call.
+     * On the llm-gateway path this carries `X-PostHog-Distinct-Id` and
+     * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
+     * attribute correctly. The dispatcher adds per-turn `Idempotency-Key`
+     * + `X-Request-Id` automatically.
+     */
+    resolveGatewayHeaders?: (session: AgentSession) => Record<string, string> | undefined
+    /**
+     * Per-session gateway read client + the team's `phc_` bearer. When set,
+     * after every pi-ai turn the runner fetches `GET /v1/usage/<request_id>`
+     * and merges the gateway-computed cost into `usage_total`. Without it
+     * the gateway-path cost stays zero on the session row.
+     */
+    resolveGatewayUsage?: (
+        session: AgentSession
+    ) =>
+        | Promise<{ client: GatewayClient; phc: string } | undefined>
+        | { client: GatewayClient; phc: string }
+        | undefined
     /**
      * Optional lifecycle event bus. Runner publishes session_started /
      * turn_started / assistant_text / tool_call / tool_result / completed /
@@ -115,6 +141,11 @@ export interface WorkerDeps {
      * Omit to keep B.2 v0 behaviour (always queue).
      */
     isAskerInApproverScope?: IsAskerInApproverScope
+    /**
+     * S3-backed memory store for `@posthog/memory-*` tools. Wired from
+     * AGENT_MEMORY_S3_* config; unset disables memory tools.
+     */
+    memoryStore?: MemoryStore
 }
 
 export class Worker {
@@ -271,7 +302,9 @@ export class Worker {
             }
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
             const model = resolveModel(rev.spec.model)
-            const apiKey = this.deps.resolveApiKey?.(session)
+            const apiKey = await this.deps.resolveApiKey?.(session)
+            const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
+            const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
             const outcome = await runSession(rev, session, {
                 pi: this.deps.pi,
                 model,
@@ -286,9 +319,12 @@ export class Worker {
                 analytics: this.deps.analytics,
                 shutdownSignal: this.shutdownController.signal,
                 useGatewayCost: this.deps.useGatewayCost,
+                gatewayHeaders,
+                gatewayUsage,
                 approvals: this.deps.approvals,
                 buildApprovalUrl: this.deps.buildApprovalUrl,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
+                memoryStore: this.deps.memoryStore,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs

@@ -11,7 +11,14 @@
 
 import { Value } from 'typebox/value'
 
-import { AgentRevision, BundleStore, IntegrationCredentials, Sandbox, ToolRef } from '@posthog/agent-shared'
+import {
+    AgentRevision,
+    BundleStore,
+    IntegrationCredentials,
+    MemoryStore,
+    Sandbox,
+    ToolRef,
+} from '@posthog/agent-shared'
 import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
 
 /**
@@ -54,6 +61,8 @@ export interface DispatchInput {
     log: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
     /** Bundle store + revision id are exposed to native tools as a `readBundleFile` closure on ToolContext. */
     bundle?: BundleStore
+    /** S3-backed memory store, scoped per-call by the dispatcher. Memory tools no-op without it. */
+    memoryStore?: MemoryStore
 }
 
 export async function dispatchTool(
@@ -119,6 +128,7 @@ export async function dispatchTool(
                       }
                   }
                 : undefined,
+            memoryStore: input.memoryStore,
         })
         return { kind: 'ok', result }
     } catch (err) {

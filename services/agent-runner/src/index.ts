@@ -21,18 +21,20 @@ import { mkdir } from 'node:fs/promises'
 import pg from 'pg'
 const { Pool } = pg
 
+import { S3Client } from '@aws-sdk/client-s3'
+
 import { migrate } from '@posthog/agent-migrations'
 import {
     AnalyticsSink,
-    applySchema as applyMemorySchema,
+    analyticsDistinctId,
     CaptureAnalyticsSink,
     createLogger,
     EncryptedFields,
     FsBundleStore,
-    FullTextRecaller,
+    HttpGatewayClient,
     installProcessHandlers,
     KafkaLogSink,
-    Memory,
+    MemoryStore,
     NoopAnalyticsSink,
     NoopSessionEventBus,
     PgIdentityStore,
@@ -40,12 +42,13 @@ import {
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
+    PgTeamApiKeyResolver,
     RedisSessionEventBus,
+    S3MemoryStore,
     SecretBroker,
     selectSandboxPool,
     SessionEventBus,
 } from '@posthog/agent-shared'
-import { setMemory } from '@posthog/agent-tools'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { makePerAskerAuth } from './loop/per-asker-auth'
@@ -69,13 +72,6 @@ async function main(): Promise<void> {
     // Belt-and-braces in dev; prod also runs `bin/migrate --scope=agent_runtime`
     // as a one-shot job before the service starts. Idempotent.
     await migrate({ databaseUrl: config.agentDbUrl })
-
-    // Agent memory (slice): the agent_memory_* tables aren't in
-    // @posthog/agent-migrations yet, so apply the slice schema here
-    // (idempotent). Graduation folds this into a migration + swaps the
-    // FTS recaller for embeddings. See docs/agent-platform/plans/agent-memory-mnemion-slice.md.
-    await applyMemorySchema(agentDb)
-    setMemory(new Memory(agentDb, new FullTextRecaller()))
 
     const defaultApiKey = defaultApiKeyFromConfig(config)
     const revisions = new PgRevisionStore(posthogDb)
@@ -152,6 +148,43 @@ async function main(): Promise<void> {
     const identities = new PgIdentityStore(agentDb)
     const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
 
+    // On the gateway path the bearer is the owning team's phc_ project key.
+    // The resolver caches per team so the hot path is a hash lookup.
+    // See docs/agent-platform/plans/llm-gateway-integration.md §3 (W1).
+    const teamApiKeys = config.useLlmGateway ? new PgTeamApiKeyResolver(posthogDb) : null
+    // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
+    const gatewayClient = config.useLlmGateway ? new HttpGatewayClient({ baseUrl: config.llmGatewayUrl }) : null
+
+    // Agent memory: S3-backed file store. Disabled (memory tools surface
+    // `memory_store_unavailable` to the model) when the bucket isn't
+    // configured — dev/CI without object storage still boots cleanly.
+    let memoryStore: MemoryStore | undefined
+    if (config.memoryS3Bucket && config.memoryS3Endpoint) {
+        const s3 = new S3Client({
+            endpoint: config.memoryS3Endpoint,
+            region: config.memoryS3Region,
+            forcePathStyle: config.memoryS3ForcePathStyle,
+            credentials:
+                config.memoryS3AccessKeyId && config.memoryS3SecretAccessKey
+                    ? {
+                          accessKeyId: config.memoryS3AccessKeyId,
+                          secretAccessKey: config.memoryS3SecretAccessKey,
+                      }
+                    : undefined,
+        })
+        memoryStore = new S3MemoryStore({
+            client: s3,
+            bucket: config.memoryS3Bucket,
+            bucketPrefix: config.memoryS3Prefix,
+        })
+        log.info(
+            { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
+            'memory.s3.enabled'
+        )
+    } else {
+        log.warn({}, 'memory.s3.disabled — set AGENT_MEMORY_S3_BUCKET + AGENT_MEMORY_S3_ENDPOINT to enable')
+    }
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -166,19 +199,35 @@ async function main(): Promise<void> {
         resolveSecrets,
         isAskerInApproverScope,
         resolveModel: config.useLlmGateway
-            ? // Route every model through PostHog's llm-gateway, keeping spec.model
-              // as the model id but ignoring the provider prefix.
+            ? // Route every model through PostHog's llm-gateway. The gateway's
+              // router admits on the canonical "<provider>/<model>" form; its
+              // dispatcher strips the prefix before forwarding so the upstream
+              // provider sees the bare id (see llm-gateway PR #57). Pass
+              // spec.model verbatim.
               (specModel) =>
                   posthogLlmGatewayModel({
-                      modelId: specModel.includes('/') ? specModel.split('/').pop()! : specModel,
+                      modelId: specModel,
                       baseUrl: config.llmGatewayUrl,
                   })
             : undefined,
+        resolveApiKey: teamApiKeys ? (session) => teamApiKeys.resolve(session.team_id) : undefined,
+        resolveGatewayHeaders: config.useLlmGateway
+            ? (session) => ({
+                  'X-PostHog-Distinct-Id': analyticsDistinctId(session),
+                  'X-PostHog-Trace-Id': session.id,
+              })
+            : undefined,
+        resolveGatewayUsage:
+            gatewayClient && teamApiKeys
+                ? async (session) => ({ client: gatewayClient, phc: await teamApiKeys.resolve(session.team_id) })
+                : undefined,
         // On the gateway path pi-ai's cost numbers are client-side estimates;
-        // the gateway itself owns billing. We keep token counts.
+        // the gateway itself owns billing. We keep token counts. Cost is
+        // recovered post-turn via /v1/usage/{request_id} (see resolveGatewayUsage).
         useGatewayCost: config.useLlmGateway,
         analytics,
         maxConcurrency: config.maxConcurrency,
+        memoryStore,
     })
 
     const shutdown = (sig: string): void => {

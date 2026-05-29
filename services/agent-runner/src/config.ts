@@ -44,6 +44,30 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .url()
         .optional()
         .describe('PostHog capture host for the analytics sink. Defaults to `https://us.posthog.com` when unset.'),
+    memoryS3Endpoint: z
+        .string()
+        .url()
+        .optional()
+        .describe('S3 / MinIO endpoint for agent-memory file storage. Unset disables memory tools.'),
+    memoryS3Region: z
+        .string()
+        .default('us-east-1')
+        .describe('Region for the memory bucket. MinIO ignores; real S3 honours.'),
+    memoryS3Bucket: z.string().optional().describe('Bucket holding agent memory files. Unset disables memory tools.'),
+    memoryS3Prefix: z
+        .string()
+        .default('agent_memory')
+        .describe('Per-deployment key prefix inside the bucket. Default `agent_memory`.'),
+    memoryS3AccessKeyId: z
+        .string()
+        .optional()
+        .describe('Optional explicit S3 access key id; falls back to SDK default chain.'),
+    memoryS3SecretAccessKey: z.string().optional().describe('Optional explicit S3 secret access key.'),
+    memoryS3ForcePathStyle: z
+        .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
+        .default('1')
+        .transform((v) => v === '1' || v === 'true')
+        .describe('forcePathStyle for the S3 client. Default true (MinIO needs it; real S3 accepts it).'),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -58,6 +82,13 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     MODEL_API_KEY: 'modelApiKey',
     POSTHOG_ANALYTICS_API_KEY: 'posthogAnalyticsApiKey',
     POSTHOG_ANALYTICS_HOST: 'posthogAnalyticsHost',
+    AGENT_MEMORY_S3_ENDPOINT: 'memoryS3Endpoint',
+    AGENT_MEMORY_S3_REGION: 'memoryS3Region',
+    AGENT_MEMORY_S3_BUCKET: 'memoryS3Bucket',
+    AGENT_MEMORY_S3_PREFIX: 'memoryS3Prefix',
+    AGENT_MEMORY_S3_ACCESS_KEY_ID: 'memoryS3AccessKeyId',
+    AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'memoryS3SecretAccessKey',
+    AGENT_MEMORY_S3_FORCE_PATH_STYLE: 'memoryS3ForcePathStyle',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

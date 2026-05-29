@@ -52,6 +52,13 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .positive()
         .default(30 * 1000)
         .describe('How often the in-process sweep timer fires.'),
+    llmGatewayUrl: z
+        .string()
+        .url()
+        .optional()
+        .describe(
+            "llm-gateway base URL (e.g. http://localhost:8080/v1). When set, GET /applications/:id/wallet proxies the agent owner team's balance from /v1/wallet/balance. Unset disables the route (503)."
+        ),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
@@ -64,6 +71,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     IDLE_COMPLETED_MS: 'idleCompletedMs',
     MAX_RETRIES: 'maxRetries',
     SWEEP_INTERVAL_MS: 'sweepIntervalMs',
+    POSTHOG_LLM_GATEWAY_URL: 'llmGatewayUrl',
 })
 
 export function loadAgentJanitorConfig(env: NodeJS.ProcessEnv = process.env): AgentJanitorConfig {

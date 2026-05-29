@@ -28,6 +28,7 @@ import {
     hashCanonicalArgs,
     IntegrationCredentials,
     Logger,
+    MemoryStore,
     NoopAnalyticsSink,
     Sandbox,
     SessionEventKind,
@@ -81,6 +82,8 @@ export interface DispatchOneDeps {
      * Omit to preserve B.2 v0 behaviour (every gated call queues).
      */
     isAskerInApproverScope?: IsAskerInApproverScope
+    /** S3-backed memory store. Forwarded into dispatchTool → ToolContext.memoryStore. */
+    memoryStore?: MemoryStore
 }
 
 export type DispatchSignal =
@@ -142,6 +145,7 @@ export async function dispatchOne(call: ToolCall, deps: DispatchOneDeps): Promis
             secret: (name) => deps.secrets[name],
             bundle: deps.bundle,
             log: deps.log,
+            memoryStore: deps.memoryStore,
         },
         originalName,
         call.arguments
@@ -369,6 +373,7 @@ export async function dispatchApproved(
             secret: (name) => deps.secrets[name],
             bundle: deps.bundle,
             log: deps.log,
+            memoryStore: deps.memoryStore,
         },
         request.tool_name,
         synthCall.arguments

@@ -16,8 +16,10 @@
         "test": "vitest run"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.723.0",
         "@earendil-works/pi-ai": "^0.76.0",
         "fernet-nodejs": "^1.0.6",
+        "minisearch": "^7.1.2",
         "pg": "^8.6.0",
         "pino": "^8.11.0",
         "pino-pretty": "^9.4.0",

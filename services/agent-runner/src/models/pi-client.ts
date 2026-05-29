@@ -69,6 +69,15 @@ export interface InvokeOpts {
      * Omit to use the provider default.
      */
     reasoning?: ReasoningEffort
+    /**
+     * Extra HTTP headers merged with the provider's defaults. Used on the
+     * llm-gateway path for `X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`,
+     * `Idempotency-Key`, and `X-Request-Id` so gateway-emitted
+     * `$ai_generation` events attribute correctly and the runner can
+     * later read settled cost from `GET /v1/usage/{request_id}`.
+     * See docs/agent-platform/plans/llm-gateway-integration.md §3.
+     */
+    headers?: Record<string, string>
 }
 
 export type StreamOpts = InvokeOpts
@@ -112,6 +121,7 @@ export class PiAiClient implements PiClient {
             temperature: opts?.temperature,
             signal: opts?.signal,
             reasoning: opts?.reasoning,
+            headers: opts?.headers,
         }
         return completeSimple(model, context, streamOpts)
     }
@@ -123,6 +133,7 @@ export class PiAiClient implements PiClient {
             temperature: opts?.temperature,
             signal: opts?.signal,
             reasoning: opts?.reasoning,
+            headers: opts?.headers,
         }
         const piStream = streamSimple(model, context, streamOpts)
         return translatePiAiEventStream(piStream)
