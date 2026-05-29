@@ -86,64 +86,29 @@ describe('buildTrendsBarAggregatedSeries', () => {
     it('splits same-label results into separate bands when they come from different series (no breakdown)', () => {
         // Four trends series of the same event surface label="$pageview" each but have
         // distinct action.order — they should not collapse onto one band.
-        const results = [
-            mkResult({ id: 'r0', label: '$pageview', action: { order: 0 }, aggregated_value: 10 }),
-            mkResult({ id: 'r1', label: '$pageview', action: { order: 1 }, aggregated_value: 20 }),
-            mkResult({ id: 'r2', label: '$pageview', action: { order: 2 }, aggregated_value: 30 }),
-            mkResult({ id: 'r3', label: '$pageview', action: { order: 3 }, aggregated_value: 40 }),
-        ]
+        const results = [0, 1, 2, 3].map((order) =>
+            mkResult({ id: `r${order}`, label: '$pageview', action: { order } })
+        )
         const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
         expect(displayLabels).toEqual(['$pageview', '$pageview', '$pageview', '$pageview'])
         expect(new Set(labels).size).toBe(4)
     })
 
     it('groups same-label breakdown rows of one series onto one band (overlap layout preserved)', () => {
-        // Formula+breakdown shape: each formula gets a top-level `order`, breakdown rows of
-        // the same formula share it. They should share a band so the existing overlap-on-top
-        // visual still works.
-        const results = [
-            mkResult({ id: 'r0', label: 'Binary Size', order: 0, breakdown_value: ['1.18.1'], aggregated_value: 355 }),
-            mkResult({ id: 'r1', label: 'Binary Size', order: 0, breakdown_value: ['1.18.0'], aggregated_value: 330 }),
-            mkResult({ id: 'r2', label: 'Binary Size', order: 0, breakdown_value: ['1.17.0'], aggregated_value: 320 }),
-            mkResult({
-                id: 'r3',
-                label: 'Embedded Assets',
-                order: 1,
-                breakdown_value: ['1.18.1'],
-                aggregated_value: 14,
-            }),
-            mkResult({
-                id: 'r4',
-                label: 'Embedded Assets',
-                order: 1,
-                breakdown_value: ['1.18.0'],
-                aggregated_value: 0,
-            }),
-            mkResult({
-                id: 'r5',
-                label: 'Runtime & Code',
-                order: 2,
-                breakdown_value: ['1.18.1'],
-                aggregated_value: 355,
-            }),
-            mkResult({
-                id: 'r6',
-                label: 'Runtime & Code',
-                order: 2,
-                breakdown_value: ['1.18.0'],
-                aggregated_value: 327,
-            }),
+        // Formula+breakdown shape: each formula carries a top-level `order`; breakdown rows of
+        // the same formula share it, so they share a band and the overlap-on-top visual holds.
+        const spec: [string, number][] = [
+            ['Binary Size', 0],
+            ['Binary Size', 0],
+            ['Binary Size', 0],
+            ['Embedded Assets', 1],
+            ['Embedded Assets', 1],
+            ['Runtime & Code', 2],
+            ['Runtime & Code', 2],
         ]
+        const results = spec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
         const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(displayLabels).toEqual([
-            'Binary Size',
-            'Binary Size',
-            'Binary Size',
-            'Embedded Assets',
-            'Embedded Assets',
-            'Runtime & Code',
-            'Runtime & Code',
-        ])
+        expect(displayLabels).toEqual(spec.map(([label]) => label))
         // 7 results, but only 3 distinct band slots — one per formula.
         expect(new Set(labels).size).toBe(3)
     })
