@@ -131,11 +131,6 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
-    {
-        value: 'indexer',
-        label: 'Indexer',
-        description: 'Indexes sessions to produce embeddings for similarity search.',
-    },
 ]
 
 export type EditorTab = 'observations' | 'configuration'
