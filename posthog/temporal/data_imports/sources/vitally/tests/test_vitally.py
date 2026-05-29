@@ -90,17 +90,19 @@ class TestListCustomObjectDefinitions:
 class TestGetCustomObjectRecordsResource:
     def test_path_uses_custom_object_id(self):
         resource = get_custom_object_records_resource("featureRequest", "f5dcbbd6", should_use_incremental_field=False)
+        endpoint = cast(dict[str, Any], resource["endpoint"])
 
-        assert resource["endpoint"]["path"] == "/resources/customObjects/f5dcbbd6/instances"
+        assert endpoint["path"] == "/resources/customObjects/f5dcbbd6/instances"
         assert resource["name"] == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"
         assert resource["table_name"] == "custom_object_featurerequest"
         assert resource["write_disposition"] == "replace"
 
     def test_incremental_field_enables_upsert_and_cursor(self):
         resource = get_custom_object_records_resource("featureRequest", "abc", should_use_incremental_field=True)
+        endpoint = cast(dict[str, Any], resource["endpoint"])
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        params = cast(dict[str, Any], resource["endpoint"]["params"])
+        params = cast(dict[str, Any], endpoint["params"])
         assert params["sortBy"] == "updatedAt"
         updated_at_config = params["updatedAt"]
         assert isinstance(updated_at_config, dict)
