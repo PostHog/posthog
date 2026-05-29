@@ -17,12 +17,15 @@ from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_ME
 
 logger = structlog.get_logger(__name__)
 
+
 # Shown in place of the AI summary when generation was skipped because the org is
 # over its AI credit budget. Wording kept in sync with the email template's notice.
-SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE = (
-    "_AI summary skipped — your organization has reached its AI credit usage limit. "
-    "Increase the limit in Billing settings to resume summaries._"
-)
+def summary_skipped_over_budget_message(billing_url: str) -> str:
+    return (
+        "_AI summary skipped — your organization has reached its AI credit usage limit. "
+        f"Increase the limit in <{billing_url}|Billing settings> to resume summaries._"
+    )
+
 
 # Slack API error codes that indicate transient server-side issues — safe to retry.
 # These are 5xx-equivalents in Slack's string-coded error model. Permanent errors
@@ -167,19 +170,11 @@ def _prepare_slack_message(
             summary_text = summary_text[:2997] + "..."
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
     elif summary_skipped_over_budget:
-        blocks.append(
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE}]}
-        )
+        billing_url = f"{absolute_uri('/organization/billing')}?{utm_tags}"
         blocks.append(
             {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Manage AI credit limit"},
-                        "url": f"{absolute_uri('/organization/billing')}?{utm_tags}",
-                    }
-                ],
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": summary_skipped_over_budget_message(billing_url)}],
             }
         )
 

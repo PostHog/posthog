@@ -17,7 +17,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
-    SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE,
     _block_for_asset,
     _prepare_slack_message,
     send_slack_message_with_integration_async,
@@ -640,36 +639,20 @@ class TestSlackSummaryNotice(APIBaseTest):
             if isinstance(element, dict)
         ]
 
-    def _button_urls(self, change_summary: str | None, summary_skipped_over_budget: bool) -> list[str]:
-        message = _prepare_slack_message(
-            self.subscription,
-            [self.asset],
-            total_asset_count=1,
-            change_summary=change_summary,
-            summary_skipped_over_budget=summary_skipped_over_budget,
-        )
-        return [
-            element["url"]
-            for block in message.blocks
-            for element in block.get("elements", [])
-            if isinstance(element, dict) and element.get("type") == "button" and "url" in element
-        ]
-
     def test_shows_over_budget_notice_when_summary_skipped(self) -> None:
         texts = self._block_texts(change_summary=None, summary_skipped_over_budget=True)
-        assert any(SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE == text for text in texts)
-        # The notice is paired with a button linking to the billing page.
-        assert any("/organization/billing" in url for url in self._button_urls(None, True))
-
-    def test_no_billing_button_when_under_budget(self) -> None:
-        assert all("/organization/billing" not in url for url in self._button_urls(None, False))
+        notice = next((t for t in texts if "AI summary skipped" in t), None)
+        assert notice is not None
+        # "Billing settings" is an inline mrkdwn link (<url|label>) in the notice text itself.
+        assert "/organization/billing" in notice
+        assert "|Billing settings>" in notice
 
     def test_no_notice_when_summary_present(self) -> None:
         # A generated summary wins — the over-budget notice never doubles up with it.
         texts = self._block_texts(change_summary="- trending up", summary_skipped_over_budget=True)
         assert any("*AI summary:*" in text for text in texts)
-        assert all(SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE != text for text in texts)
+        assert all("AI summary skipped" not in text for text in texts)
 
     def test_no_notice_when_under_budget_and_no_summary(self) -> None:
         texts = self._block_texts(change_summary=None, summary_skipped_over_budget=False)
-        assert all(SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE != text for text in texts)
+        assert all("AI summary skipped" not in text for text in texts)
