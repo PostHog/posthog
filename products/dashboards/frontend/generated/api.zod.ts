@@ -294,7 +294,7 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod.object({
-    toDashboard: zod.number().optional().describe('Destination dashboard ID.'),
+    to_dashboard: zod.number().optional().describe('Destination dashboard ID.'),
     tile: zod
         .object({
             id: zod.number().describe('Dashboard tile ID to move.'),
@@ -417,11 +417,13 @@ export const DashboardsWidgetsCreateBody = /* @__PURE__ */ zod.object({
     widget_type: zod
         .string()
         .max(dashboardsWidgetsCreateBodyWidgetTypeMax)
-        .describe('Widget type identifier from dashboard-widget-catalog-list.'),
+        .describe(
+            'Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+        ),
     config: zod
         .unknown()
         .describe(
-            'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list.'
+            'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list).'
         ),
     name: zod
         .string()
@@ -445,7 +447,9 @@ export const DashboardsWidgetsPartialUpdateBody = /* @__PURE__ */ zod.object({
     config: zod
         .unknown()
         .optional()
-        .describe("Updated widget configuration JSON. Validated for the tile's widget_type."),
+        .describe(
+            "Updated widget configuration JSON. Validated for the tile's widget_type; see config_schema_hints in dashboard-widget-catalog-list."
+        ),
     name: zod
         .string()
         .max(dashboardsWidgetsPartialUpdateBodyNameMax)
@@ -475,11 +479,13 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                 widget_type: zod
                     .string()
                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
-                    .describe('Widget type identifier from dashboard-widget-catalog-list.'),
+                    .describe(
+                        'Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+                    ),
                 config: zod
                     .unknown()
                     .describe(
-                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list.'
+                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list).'
                     ),
                 name: zod
                     .string()

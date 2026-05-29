@@ -572,7 +572,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
                             tile,
-                            toDashboard,
+                            to_dashboard: toDashboard,
                         }
                     )
                     return getQueryBasedDashboard(dashboard)

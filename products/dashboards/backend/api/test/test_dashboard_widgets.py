@@ -476,7 +476,7 @@ class TestDashboardWidgets(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{source_id}/move_tile",
-            {"toDashboard": dest_id, "tile": {"id": tile["id"]}},
+            {"to_dashboard": dest_id, "tile": {"id": tile["id"]}},
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["tiles"] == []

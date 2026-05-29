@@ -2135,11 +2135,27 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": dashboard_one["tiles"][0], "toDashboard": dashboard_two_id},
+            {"tile": dashboard_one["tiles"][0], "to_dashboard": dashboard_two_id},
         )
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["tiles"] == []
 
+        dashboard_two = self.dashboard_api.get_dashboard(dashboard_two_id)
+        assert len(dashboard_two["tiles"]) == 1
+        assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
+
+    def test_can_move_tile_between_dashboards_accepts_legacy_to_dashboard_alias(self) -> None:
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_one_id]})
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
+            {"tile": dashboard_one["tiles"][0], "toDashboard": dashboard_two_id},
+        )
+
+        assert patch_response.status_code == status.HTTP_200_OK
         dashboard_two = self.dashboard_api.get_dashboard(dashboard_two_id)
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
@@ -2162,7 +2178,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}/move_tile",
-            {"tile": {"id": tile_a.id}, "toDashboard": dashboard_b_id},
+            {"tile": {"id": tile_a.id}, "to_dashboard": dashboard_b_id},
         )
         assert patch_response.status_code == status.HTTP_200_OK
         dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
@@ -2182,7 +2198,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/move_tile",
-            {"tile": tile, "toDashboard": other_dashboard.id},
+            {"tile": tile, "to_dashboard": other_dashboard.id},
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -2214,7 +2230,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         move_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": tile, "toDashboard": dashboard_two_id},
+            {"tile": tile, "to_dashboard": dashboard_two_id},
         )
         self.assertEqual(move_response.status_code, status.HTTP_403_FORBIDDEN)
 
