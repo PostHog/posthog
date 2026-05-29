@@ -10,7 +10,7 @@ import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
 import { createOkContext } from '../pipelines/helpers'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { Scope } from './service-registry'
-import { KafkaConsumerInterface, KafkaConsumerScope } from './utils/kafka-consumer'
+import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
 
 type MessageInput = { message: Message }
@@ -75,7 +75,7 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
             return builder.add(
                 'kafkaConsumer',
-                new KafkaConsumerScope(
+                new KafkaConsumerComponent(
                     config.INGESTION_CONSUMER_GROUP_ID,
                     config.INGESTION_CONSUMER_CONSUME_TOPIC,
                     (messages) => handler.handle(messages)
@@ -127,7 +127,7 @@ export function ingestionConsumerService(
 /**
  * Per-consumer wrapper that owns the deps a Kafka batch handler needs
  * (config, name, pipeline, promise scheduler) and exposes a single
- * `handle(messages)` method matching what `KafkaConsumerScope` expects.
+ * `handle(messages)` method matching what `KafkaConsumerComponent` expects.
  * Internal — only constructed inside `CommonIngestionConsumerScope`.
  */
 class KafkaBatchHandler {

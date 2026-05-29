@@ -18,7 +18,7 @@ type ProducerRegistryConfig = Parameters<ReturnType<typeof createProducerRegistr
  * Lifecycle owner for the shared Kafka producer registry. `start()`
  * connects all registered producers; `stop()` disconnects them.
  */
-export class KafkaProducerRegistryScope {
+export class KafkaProducerRegistryComponent {
     constructor(
         private readonly kafkaClientRack: string | undefined,
         private readonly config: ProducerRegistryConfig

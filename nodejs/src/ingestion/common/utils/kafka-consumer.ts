@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
-import { Manager } from '../service-registry'
+import { Component } from '../service-registry'
 
 export { createKafkaConsumer } from '../../../kafka/consumer'
 export type { KafkaConsumerInterface } from '../../../kafka/consumer'
@@ -14,7 +14,7 @@ export type { KafkaConsumerInterface } from '../../../kafka/consumer'
  * disconnects it. Failures during connect cause the surrounding scope
  * to roll back already-started entries.
  */
-export class KafkaConsumerScope implements Manager<KafkaConsumerInterface> {
+export class KafkaConsumerComponent implements Component<KafkaConsumerInterface> {
     constructor(
         private readonly groupId: string,
         private readonly topic: string,

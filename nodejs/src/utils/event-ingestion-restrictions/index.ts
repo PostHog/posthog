@@ -1,5 +1,5 @@
 // Public API
-export { EventIngestionRestrictionManager, EventIngestionRestrictionManagerScope } from './manager'
+export { EventIngestionRestrictionManager, EventIngestionRestrictionManagerComponent } from './manager'
 export type { EventIngestionRestrictionManagerOptions, IngestionPipeline } from './manager'
 export { REDIS_KEY_PREFIX, RedisRestrictionType } from './redis-schema'
 export { RestrictionFilters, RestrictionMap, RestrictionType } from './rules'

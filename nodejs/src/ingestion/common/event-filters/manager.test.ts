@@ -1,4 +1,4 @@
-import { EventFilterManager, EventFilterManagerScope } from './manager'
+import { EventFilterManager, EventFilterManagerComponent } from './manager'
 
 describe('EventFilterManager', () => {
     const mockPostgres = {
@@ -6,7 +6,7 @@ describe('EventFilterManager', () => {
     }
 
     async function buildManager(): Promise<{ manager: EventFilterManager; stop: () => Promise<void> }> {
-        const scope = new EventFilterManagerScope(mockPostgres as any)
+        const scope = new EventFilterManagerComponent(mockPostgres as any)
         const started = await scope.start()
         return { manager: started.value, stop: started.stop }
     }

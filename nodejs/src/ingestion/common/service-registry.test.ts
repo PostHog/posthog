@@ -1,9 +1,9 @@
-import { Manager, newScope } from './service-registry'
+import { Component, newScope } from './service-registry'
 
-type TrackedManager = Manager<{ name: string }> & { startCalls: number; stopCalls: number }
+type TrackedComponent = Component<{ name: string }> & { startCalls: number; stopCalls: number }
 
-function makeManager(name: string, log: string[]): TrackedManager {
-    const manager: TrackedManager = {
+function makeComponent(name: string, log: string[]): TrackedComponent {
+    const manager: TrackedComponent = {
         startCalls: 0,
         stopCalls: 0,
         start: jest.fn(() => {
@@ -25,8 +25,8 @@ function makeManager(name: string, log: string[]): TrackedManager {
 describe('Lifecycle', () => {
     it('starts services in registration order', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const b = makeManager('b', log)
+        const a = makeComponent('a', log)
+        const b = makeComponent('b', log)
 
         const lifecycle = newScope('phase', (builder) => builder.add('a', a).add('b', b))
         const started = await lifecycle.start()
@@ -40,8 +40,8 @@ describe('Lifecycle', () => {
 
     it('supports manual composition of two lifecycles', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const b = makeManager('b', log)
+        const a = makeComponent('a', log)
+        const b = makeComponent('b', log)
 
         const server = newScope('server', (builder) => builder.add('a', a))
         const { container: serverContainer, stop: stopServer } = await server.start()
@@ -61,9 +61,9 @@ describe('Lifecycle', () => {
 
     it('stops services in reverse registration order', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const b = makeManager('b', log)
-        const c = makeManager('c', log)
+        const a = makeComponent('a', log)
+        const b = makeComponent('b', log)
+        const c = makeComponent('c', log)
 
         const lifecycle = newScope('phase', (builder) => builder.add('a', a).add('b', b).add('c', c))
         const { stop } = await lifecycle.start()
@@ -74,8 +74,8 @@ describe('Lifecycle', () => {
 
     it('rolls back already-started services when a later service fails to start', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const b: Manager<{ name: string }> = {
+        const a = makeComponent('a', log)
+        const b: Component<{ name: string }> = {
             start: jest.fn(() => {
                 log.push('start:b')
                 return Promise.reject(new Error('b failed'))
@@ -91,7 +91,7 @@ describe('Lifecycle', () => {
 
     it('makes stop idempotent on a single handle', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
+        const a = makeComponent('a', log)
 
         const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const { stop } = await lifecycle.start()
@@ -104,7 +104,7 @@ describe('Lifecycle', () => {
 
     it('starts services only once across multiple start calls', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
+        const a = makeComponent('a', log)
 
         const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
@@ -119,7 +119,7 @@ describe('Lifecycle', () => {
 
     it('keeps services running until the last caller releases', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
+        const a = makeComponent('a', log)
 
         const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
@@ -135,7 +135,7 @@ describe('Lifecycle', () => {
 
     it('restarts cleanly after a full stop', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
+        const a = makeComponent('a', log)
 
         const lifecycle = newScope('phase', (builder) => builder.add('a', a))
         const h1 = await lifecycle.start()
@@ -156,7 +156,7 @@ describe('Lifecycle', () => {
             log.push('stop:a')
             return Promise.resolve()
         })
-        const a: Manager<{ name: string }> = {
+        const a: Component<{ name: string }> = {
             start: jest.fn(() => {
                 log.push('start:a:begin')
                 return new Promise<{ value: { name: string }; stop: () => Promise<void> }>((resolve) => {
@@ -193,7 +193,7 @@ describe('Lifecycle', () => {
         let startCalls = 0
         let stopCalls = 0
         let resolveFirstStop: (() => void) | undefined
-        const a: Manager<{ name: string }> = {
+        const a: Component<{ name: string }> = {
             start: jest.fn(() => {
                 startCalls++
                 log.push('start:a')
@@ -242,8 +242,8 @@ describe('Lifecycle', () => {
 
     it('extends a parent scope with a child scope', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const b = makeManager('b', log)
+        const a = makeComponent('a', log)
+        const b = makeComponent('b', log)
 
         const parent = newScope('parent', (builder) => builder.add('a', a))
         const child = parent.extend('child', (services, builder) => {
@@ -265,9 +265,9 @@ describe('Lifecycle', () => {
 
     it('refcounts the parent across multiple extensions', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const b = makeManager('b', log)
-        const c = makeManager('c', log)
+        const a = makeComponent('a', log)
+        const b = makeComponent('b', log)
+        const c = makeComponent('c', log)
 
         const parent = newScope('parent', (builder) => builder.add('a', a))
         const childB = parent.extend('childB', (_services, builder) => builder.add('b', b))
@@ -295,8 +295,8 @@ describe('Lifecycle', () => {
 
     it('rolls back the parent when the child fails to start', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
-        const failing: Manager<{ name: string }> = {
+        const a = makeComponent('a', log)
+        const failing: Component<{ name: string }> = {
             start: jest.fn(() => Promise.reject(new Error('child boom'))),
         }
 
@@ -312,13 +312,13 @@ describe('Lifecycle', () => {
 
     it('reconstructs the child on each restart', async () => {
         const log: string[] = []
-        const a = makeManager('a', log)
+        const a = makeComponent('a', log)
         let buildCalls = 0
 
         const parent = newScope('parent', (builder) => builder.add('a', a))
         const child = parent.extend('child', (_services, builder) => {
             buildCalls++
-            const b = makeManager(`b${buildCalls}`, log)
+            const b = makeComponent(`b${buildCalls}`, log)
             return builder.add('b', b)
         })
 

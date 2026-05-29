@@ -4,7 +4,7 @@ import { createOrganization, createTeam, insertRow, resetTestDatabase } from '..
 import { defaultConfig } from '../../../config/config'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { evaluateFilterTree } from './evaluate'
-import { EventFilterManager, EventFilterManagerScope } from './manager'
+import { EventFilterManager, EventFilterManagerComponent } from './manager'
 import { and, cond, not, or } from './test-helpers'
 
 async function insertFilter(
@@ -70,7 +70,7 @@ describe('EventFilterManager integration', () => {
         manager: EventFilterManager
         stop: () => Promise<void>
     }> {
-        const scope = new EventFilterManagerScope(postgres)
+        const scope = new EventFilterManagerComponent(postgres)
         const started = await scope.start()
         return { manager: started.value, stop: started.stop }
     }

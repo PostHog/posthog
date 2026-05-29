@@ -1,6 +1,6 @@
 import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { TeamManagerScope } from '../../utils/team-manager'
+import { TeamManagerComponent } from '../../utils/team-manager'
 import { ProducerName } from '../common/outputs'
 import { newScope } from '../common/service-registry'
 import { IngestionOutputsConfig } from '../config'
@@ -25,7 +25,7 @@ describe('createClientWarningsConsumer', () => {
     function makeSharedScope(): ClientWarningsSharedScope {
         // The consumer factory extends this scope but doesn't start it
         // (start happens at the caller), so the shape only has to be
-        // type-correct — the Managers' bodies don't run.
+        // type-correct — the components' bodies don't run.
         return newScope('shared-test', (b) =>
             b
                 .add('postgres', {
@@ -34,7 +34,7 @@ describe('createClientWarningsConsumer', () => {
                 .add('redisPool', {
                     start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
                 })
-                .add('teamManager', new TeamManagerScope({} as PostgresRouter))
+                .add('teamManager', new TeamManagerComponent({} as PostgresRouter))
                 .add('producerRegistry', {
                     start: () =>
                         Promise.resolve({

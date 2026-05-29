@@ -4,8 +4,8 @@ import { Redis } from 'ioredis'
 import { RedisPool } from '../../types'
 import {
     EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
     EventIngestionRestrictionManagerOptions,
-    EventIngestionRestrictionManagerScope,
 } from './manager'
 import { REDIS_KEY_PREFIX, RedisRestrictionType } from './redis-schema'
 import { RestrictionType } from './rules'
@@ -14,7 +14,7 @@ async function buildManager(
     redisPool: RedisPool,
     options?: EventIngestionRestrictionManagerOptions
 ): Promise<EventIngestionRestrictionManager> {
-    const lifecycle = new EventIngestionRestrictionManagerScope(redisPool, options)
+    const lifecycle = new EventIngestionRestrictionManagerComponent(redisPool, options)
     return (await lifecycle.start()).value
 }
 

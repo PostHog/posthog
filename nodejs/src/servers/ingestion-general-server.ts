@@ -26,7 +26,7 @@ import {
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
-import { KafkaProducerRegistryScope } from '../ingestion/common/outputs/registry'
+import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
 import { newScope } from '../ingestion/common/service-registry'
 import {
     DatabaseConnectionConfig,
@@ -45,12 +45,12 @@ import { buildGroupRepository, buildPersonRepository, createPersonHogClient } fr
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
-import { PostgresRouter, PostgresRouterScope } from '../utils/db/postgres'
-import { RedisPoolScope, createRedisPoolFromConfig } from '../utils/db/redis'
+import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
+import { RedisPoolComponent, createRedisPoolFromConfig } from '../utils/db/redis'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
-import { TeamManagerScope } from '../utils/team-manager'
+import { TeamManagerComponent } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -142,25 +142,25 @@ export class IngestionGeneralServer implements NodeServer {
 
         const sharedInfraScope = newScope('shared-infra', (builder) =>
             builder
-                .add('postgres', new PostgresRouterScope(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .add('postgres', new PostgresRouterComponent(this.config, this.config.PLUGIN_SERVER_MODE!))
                 .add(
                     'redisPool',
-                    new RedisPoolScope({
+                    new RedisPoolComponent({
                         connection: createIngestionRedisConnectionConfig(this.config),
                         poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
-                .add('producerRegistry', new KafkaProducerRegistryScope(this.config.KAFKA_CLIENT_RACK, this.config))
+                .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
         )
 
-        // `teamManager` is built inside the extension via its Manager so
+        // `teamManager` is built inside the extension via its component so
         // it picks up `postgres` from the started infra scope's container
         // and is owned by that scope. The server extracts it from the
         // started container to pass on to CDP services etc.
         const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         const sharedServicesScope = sharedInfraScope.extend('shared', (container, builder) =>
-            builder.add('teamManager', new TeamManagerScope(container.postgres)).add('staticDropEventTokens', {
+            builder.add('teamManager', new TeamManagerComponent(container.postgres)).add('staticDropEventTokens', {
                 start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
             })
         )

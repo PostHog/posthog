@@ -12,7 +12,7 @@ type RawTeam = Omit<Team, 'available_features'> & {
 /**
  * Looks up Teams by id or token, backed by a Postgres-loaded lazy cache.
  * Pure business surface — no `start` / `stop`. Callers that need to manage
- * its lifetime as part of a `Lifecycle` use `TeamManagerScope`.
+ * its lifetime as part of a `Lifecycle` use `TeamManagerComponent`.
  */
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
@@ -168,7 +168,7 @@ export class TeamManager {
  * resulting `TeamManager` has no `start`/`stop` of its own — its lifetime
  * is fully controlled through this Manager.
  */
-export class TeamManagerScope {
+export class TeamManagerComponent {
     constructor(private postgres: PostgresRouter) {}
 
     start(): Promise<{ value: TeamManager; stop: () => Promise<void> }> {

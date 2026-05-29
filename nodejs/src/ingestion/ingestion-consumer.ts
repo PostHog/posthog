@@ -16,7 +16,7 @@ import {
 import { PostgresRouter } from '../utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerScope,
+    EventIngestionRestrictionManagerComponent,
 } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
@@ -44,7 +44,7 @@ import {
     PersonDistinctIdsOutput,
     PersonsOutput,
 } from './analytics/outputs'
-import { EventFilterManager, EventFilterManagerScope } from './common/event-filters'
+import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -128,10 +128,10 @@ export class IngestionConsumer {
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
-    private eventFilterManagerScope: EventFilterManagerScope
+    private eventFilterManagerComponent: EventFilterManagerComponent
     private eventFilterManager!: EventFilterManager
     private stopEventFilterManager?: () => Promise<void>
-    private eventIngestionRestrictionManagerScope: EventIngestionRestrictionManagerScope
+    private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
@@ -165,13 +165,13 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManagerScope = new EventIngestionRestrictionManagerScope(deps.redisPool, {
+        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.eventFilterManagerScope = new EventFilterManagerScope(deps.postgres)
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -243,10 +243,10 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        const startedRestrictions = await this.eventIngestionRestrictionManagerScope.start()
+        const startedRestrictions = await this.eventIngestionRestrictionManagerComponent.start()
         this.eventIngestionRestrictionManager = startedRestrictions.value
         this.stopEventIngestionRestrictionManager = startedRestrictions.stop
-        const startedFilters = await this.eventFilterManagerScope.start()
+        const startedFilters = await this.eventFilterManagerComponent.start()
         this.eventFilterManager = startedFilters.value
         this.stopEventFilterManager = startedFilters.stop
         await this.hogTransformer.start()

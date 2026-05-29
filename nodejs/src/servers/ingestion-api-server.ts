@@ -32,7 +32,7 @@ import {
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { EventFilterManagerScope } from '../ingestion/common/event-filters'
+import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
@@ -58,7 +58,7 @@ import { RedisOverflowRepository } from '../ingestion/utils/overflow-redirect/ov
 import { HealthCheckResultOk, PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { EventIngestionRestrictionManagerScope } from '../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManagerComponent } from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
@@ -291,7 +291,7 @@ export class IngestionApiServer implements NodeServer {
         }
 
         const { value: eventIngestionRestrictionManager, stop: stopEventIngestionRestrictionManager } =
-            await new EventIngestionRestrictionManagerScope(this.redisPool, {
+            await new EventIngestionRestrictionManagerComponent(this.redisPool, {
                 pipeline: 'analytics',
                 staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
                 staticSkipPersonTokens:
@@ -349,7 +349,7 @@ export class IngestionApiServer implements NodeServer {
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
-        const eventFilterManagerStarted = await new EventFilterManagerScope(this.postgres).start()
+        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
             groupStore,

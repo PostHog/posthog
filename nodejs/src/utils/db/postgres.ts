@@ -230,7 +230,7 @@ export class PostgresRouter {
  * this in a `Scope` so the router's lifetime is tied to the scope that
  * owns it.
  */
-export class PostgresRouterScope {
+export class PostgresRouterComponent {
     constructor(
         private readonly config: PostgresRouterConfig,
         private readonly appName?: string

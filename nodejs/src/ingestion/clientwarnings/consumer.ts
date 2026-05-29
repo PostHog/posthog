@@ -1,15 +1,15 @@
 import { RedisPool } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { EventIngestionRestrictionManagerScope } from '../../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManagerComponent } from '../../utils/event-ingestion-restrictions'
 import { TeamManager } from '../../utils/team-manager'
-import { EventFilterManagerScope } from '../common/event-filters'
+import { EventFilterManagerComponent } from '../common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '../common/ingestion-consumer'
 import { ProducerName } from '../common/outputs'
 import { Scope } from '../common/service-registry'
-import { PromiseSchedulerScope } from '../common/utils/promise-scheduler'
+import { PromiseSchedulerComponent } from '../common/utils/promise-scheduler'
 import { IngestionOutputsConfig } from '../config'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
-import { IngestionOutputsScope } from '../outputs/scope'
+import { IngestionOutputsComponent } from '../outputs/scope'
 import { createOutputsRegistry } from './outputs/registry'
 import { createClientWarningsPipeline } from './pipeline'
 
@@ -29,18 +29,18 @@ export function createClientWarningsConsumer(
 ) {
     const scope = sharedScope.extend('clientwarnings', (container, builder) =>
         builder
-            .add('promiseScheduler', new PromiseSchedulerScope())
+            .add('promiseScheduler', new PromiseSchedulerComponent())
             .add(
                 'eventIngestionRestrictionManager',
-                new EventIngestionRestrictionManagerScope(container.redisPool, {
+                new EventIngestionRestrictionManagerComponent(container.redisPool, {
                     pipeline: 'clientwarnings',
                     staticDropEventTokens: container.staticDropEventTokens,
                 })
             )
-            .add('eventFilterManager', new EventFilterManagerScope(container.postgres))
+            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
             .add(
                 'outputs',
-                new IngestionOutputsScope(() => createOutputsRegistry().build(container.producerRegistry, config))
+                new IngestionOutputsComponent(() => createOutputsRegistry().build(container.producerRegistry, config))
             )
     )
 

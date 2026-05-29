@@ -54,7 +54,7 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
  * to Redis eagerly via `autostart`), `stop` drains the pool then clears
  * it so all connections are released.
  */
-export class RedisPoolScope {
+export class RedisPoolComponent {
     constructor(private readonly config: RedisPoolConfig) {}
 
     start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {

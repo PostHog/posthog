@@ -1,5 +1,5 @@
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { Manager } from '../service-registry'
+import { Component } from '../service-registry'
 
 export { PromiseScheduler } from '../../../utils/promise-scheduler'
 
@@ -9,7 +9,7 @@ export { PromiseScheduler } from '../../../utils/promise-scheduler'
  * pending background work via `waitForAll()` so any side effects
  * scheduled during processing get awaited before the scope tears down.
  */
-export class PromiseSchedulerScope implements Manager<PromiseScheduler> {
+export class PromiseSchedulerComponent implements Component<PromiseScheduler> {
     private readonly scheduler = new PromiseScheduler()
 
     start(): Promise<{ value: PromiseScheduler; stop: () => Promise<void> }> {

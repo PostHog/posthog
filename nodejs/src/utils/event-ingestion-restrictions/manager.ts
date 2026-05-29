@@ -36,7 +36,7 @@ export interface EventIngestionRestrictionManagerOptions {
  * - Empty filter = matches all (neutral in AND)
  *
  * The constructor does not prime the cache; call `prime()` (or wrap
- * construction in `EventIngestionRestrictionManagerScope`) to await
+ * construction in `EventIngestionRestrictionManagerComponent`) to await
  * the initial load.
  */
 export class EventIngestionRestrictionManager {
@@ -193,7 +193,7 @@ export class EventIngestionRestrictionManager {
  * prime before handing it back. Stop is a no-op — the manager doesn't
  * hold lifetime-bound resources directly.
  */
-export class EventIngestionRestrictionManagerScope {
+export class EventIngestionRestrictionManagerComponent {
     constructor(
         private readonly redisPool: GenericPool<Redis>,
         private readonly options: EventIngestionRestrictionManagerOptions = {}

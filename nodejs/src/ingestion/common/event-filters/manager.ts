@@ -1,7 +1,7 @@
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
-import { Manager } from '../service-registry'
+import { Component } from '../service-registry'
 import { treeHasConditions } from './evaluate'
 import { EventFilterRowSchema, EventFilterRule } from './schema'
 
@@ -9,7 +9,7 @@ import { EventFilterRowSchema, EventFilterRule } from './schema'
  * Per-team event filter cache, backed by a `BackgroundRefresher`.
  * Pure read surface: `getFilter` returns the filter for a team (or null).
  * Lifecycle (constructing the refresher and priming the cache) lives in
- * `EventFilterManagerScope`.
+ * `EventFilterManagerComponent`.
  */
 export class EventFilterManager {
     constructor(private readonly refresher: BackgroundRefresher<Map<number, EventFilterRule>>) {}
@@ -32,7 +32,7 @@ export class EventFilterManager {
  * reads from that refresher. Stop is a no-op: dropping the manager and
  * refresher references lets GC reclaim them.
  */
-export class EventFilterManagerScope implements Manager<EventFilterManager> {
+export class EventFilterManagerComponent implements Component<EventFilterManager> {
     constructor(private readonly postgres: PostgresRouter) {}
 
     async start(): Promise<{ value: EventFilterManager; stop: () => Promise<void> }> {
