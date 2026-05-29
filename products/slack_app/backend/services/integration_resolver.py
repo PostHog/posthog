@@ -63,7 +63,12 @@ def resolve_from_candidates(
             .select_related("integration")
             .first()
         )
-        if thread_match is not None:
+        # Honour the thread mapping only if the acting user still has access to
+        # its project. A revoked-access user replying in an existing agent
+        # thread must not bypass the access check via thread continuity.
+        if thread_match is not None and (
+            accessible_team_ids is None or thread_match.integration.team_id in accessible_team_ids
+        ):
             return ResolutionResult(integration=thread_match.integration, source="thread", candidates=accessible)
 
     if slack_user_id:

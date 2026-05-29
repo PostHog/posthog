@@ -1245,9 +1245,15 @@ def _resolve_posthog_user_from_event(
     *,
     slack_user_id: str,
     probe_integration: Integration,
+    candidate_integrations: list[Integration],
 ) -> User | None:
-    # Workspace-scoped lookup: any candidate integration works as a probe since the
-    # Slack email lookup is not team-bound.
+    """Resolve the acting Slack user to a PostHog ``User`` who is a member of
+    at least one organization connected to this Slack workspace.
+
+    The probe is used to call Slack's ``users.info``; the candidate list scopes
+    the organization-membership check. A user with no membership in any
+    connected org returns ``None`` so the caller can refuse the event.
+    """
     slack_client = SlackIntegration(probe_integration)
     try:
         user_info = _get_slack_user_info(slack_client, probe_integration, slack_user_id)
@@ -1257,8 +1263,17 @@ def _resolve_posthog_user_from_event(
             if fresh:
                 _persist_slack_user_info(probe_integration, slack_user_id, fresh)
                 slack_email = fresh.get("user", {}).get("profile", {}).get("email")
-        if slack_email:
-            return User.objects.filter(email=slack_email).first()
+        if not slack_email:
+            return None
+        org_ids = {c.team.organization_id for c in candidate_integrations}
+        if not org_ids:
+            return None
+        membership = (
+            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email=slack_email)
+            .select_related("user")
+            .first()
+        )
+        return membership.user if membership else None
     except Exception:
         logger.warning(
             "posthog_code_resolve_user_failed",
@@ -1287,7 +1302,8 @@ def _post_pick_a_project_hint(
         f"{format_project_candidate_list(candidates)}\n\n"
         "Use `@PostHog project <id>` to pick one — that also saves it as your default."
     )
-    _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+    # Ephemeral so other channel members don't see the connected-project enumeration.
+    _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text)
 
 
 def _start_posthog_code_workflow(

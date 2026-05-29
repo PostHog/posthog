@@ -4,6 +4,7 @@ from posthog.models.integration import Integration, SlackIntegration
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
+    from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 
 def _handle_help(slack: SlackIntegration, channel: str, thread_ts: str) -> None:
@@ -279,25 +280,39 @@ def resolve_command_target(
     user_id: int,
     channel: str,
     thread_ts: str,
-) -> tuple[list[Integration], Integration | None]:
+) -> tuple[list[Integration], "ResolutionResult"]:
     """Load workspace candidates and decide which one to dispatch against.
 
-    Returns ``(candidates, target)``. ``target`` is ``None`` when the workspace
-    has multiple PostHog projects connected, no saved routing default applies,
-    and the command isn't workspace-safe — the caller should surface a
-    "pick a project" hint.
+    Returns ``(workspace_candidates, result)``. ``result.integration`` is
+    ``None`` when no candidate can be auto-picked for the acting user — either
+    because access filtering left them with nothing (``result.candidates``
+    empty) or because they have access to multiple projects and haven't set a
+    default (``result.candidates`` non-empty). The caller picks the appropriate
+    "no access" vs "pick a project" message based on which.
     """
     from posthog.models.user import User
 
-    from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
+    from products.slack_app.backend.services.integration_resolver import (
+        ResolutionResult,
+        load_integrations,
+        resolve_from_candidates,
+    )
 
     initial = load_integrations(slack_team_id=slack_team_id, kinds=["slack-posthog-code"])
     candidates = initial.candidates
     if not candidates:
-        return [], None
-    if command.action in ("project_show", "project_set", "help") or len(candidates) == 1:
-        return candidates, candidates[0]
+        return [], ResolutionResult(integration=None, source="needs_picker", candidates=[])
 
+    # Workspace-level commands don't act on team data: ``help`` posts static
+    # text, and ``project_show``/``project_set`` enforce access inside the
+    # handler. They run against any workspace integration as a probe.
+    if command.action in ("project_show", "project_set", "help"):
+        return candidates, ResolutionResult(integration=candidates[0], source="sole_candidate", candidates=candidates)
+
+    # Team-scoped commands (``list``/``add``/``remove``) must go through the
+    # access-filtered resolver — including the single-integration case, where
+    # the shortcut would otherwise dispatch against a project the user has no
+    # access to.
     result = resolve_from_candidates(
         candidates,
         slack_team_id=slack_team_id,
@@ -306,7 +321,7 @@ def resolve_command_target(
         channel=channel,
         thread_ts=thread_ts,
     )
-    return candidates, result.integration
+    return candidates, result
 
 
 def dispatch_rules_command(
@@ -357,7 +372,8 @@ def dispatch_rules_command(
             workspace_candidates=workspace_candidates,
         )
     elif command.action == "project_set":
-        assert command.project_team_id is not None
+        if command.project_team_id is None:
+            return
         _handle_project_set(
             slack,
             channel,

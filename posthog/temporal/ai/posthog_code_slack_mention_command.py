@@ -58,19 +58,22 @@ def resolve_posthog_code_slack_command_user_activity(
     if not channel or not thread_ts or not slack_user_id or not inputs.integration_ids:
         return None
 
-    probe = (
+    candidates = list(
         Integration.objects.filter(
             id__in=inputs.integration_ids,
             kind="slack-posthog-code",
             integration_id=inputs.slack_team_id,
-        )
-        .select_related("team", "team__organization")
-        .first()
+        ).select_related("team", "team__organization")
     )
-    if probe is None:
+    if not candidates:
         return None
 
-    posthog_user = _resolve_posthog_user_from_event(slack_user_id=slack_user_id, probe_integration=probe)
+    probe = candidates[0]
+    posthog_user = _resolve_posthog_user_from_event(
+        slack_user_id=slack_user_id,
+        probe_integration=probe,
+        candidate_integrations=candidates,
+    )
     if posthog_user is None:
         SlackIntegration(probe).client.chat_postEphemeral(
             channel=channel,
@@ -106,7 +109,7 @@ def handle_posthog_code_slack_mention_command_activity(
     if command is None:
         return
 
-    candidates, integration = resolve_command_target(
+    candidates, result = resolve_command_target(
         slack_team_id=inputs.slack_team_id,
         command=command,
         slack_user_id=slack_user_id,
@@ -116,22 +119,32 @@ def handle_posthog_code_slack_mention_command_activity(
     )
     if not candidates:
         return
-    if integration is None:
+    if result.integration is None:
+        # Disambiguate "no access" (empty after access filtering) from
+        # "multiple projects available" so users get an actionable hint.
+        if not result.candidates:
+            text = (
+                "You don't have access to any PostHog project connected to this Slack workspace. "
+                "Ask an admin to grant you access, then try again."
+            )
+        else:
+            text = (
+                "This Slack workspace is connected to multiple PostHog projects. "
+                "Use `@PostHog project <id>` to set a default first, then re-run your command."
+            )
         SlackIntegration(candidates[0]).client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=(
-                "This Slack workspace is connected to multiple PostHog projects. "
-                "Use `@PostHog project <id>` to set a default first, then re-run your command."
-            ),
+            text=text,
         )
         return
 
+    target = result.integration
     dispatch_rules_command(
         command,
-        SlackIntegration(integration),
-        integration,
+        SlackIntegration(target),
+        target,
         channel=channel,
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,

@@ -85,6 +85,40 @@ class TestResolveIntegration:
         assert result.source == "thread"
         assert result.integration == self.integration_b
 
+    def test_thread_mapping_ignored_when_user_lacks_access(self):
+        # Thread mapping targets team_c, which the user has no membership in
+        # (it's in `other_org`). The thread match must be skipped — a user
+        # whose access was revoked or who never had access can't drive the
+        # thread just by replying to it.
+        from products.tasks.backend.models import Task, TaskRun
+
+        task = Task.objects.create(team=self.team_c, title="t")
+        task_run = TaskRun.objects.create(team=self.team_c, task=task)
+        SlackThreadTaskMapping.objects.create(
+            team=self.team_c,
+            integration=self.integration_c,
+            slack_workspace_id=WORKSPACE,
+            channel="C1",
+            thread_ts="123.456",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id=SLACK_USER,
+        )
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack-posthog-code"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+            channel="C1",
+            thread_ts="123.456",
+        )
+
+        # Falls through past the thread match to the picker over the user's
+        # accessible candidates (A, B).
+        assert result.source == "needs_picker"
+        assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
+
     def test_user_default_used_when_accessible(self):
         SlackSettings.objects.create(
             default_integration=self.integration_a,
