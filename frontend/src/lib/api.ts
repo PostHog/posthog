@@ -15,6 +15,14 @@ import { SignalNode } from 'scenes/debug/signals/types'
 import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import {
+    PulseDigestDetail,
+    PulseDigestSummary,
+    PulseFindingFeedbackAction,
+    PulseFindingType,
+    PulseSubscriptionType,
+    PulseWatchedCandidate,
+} from 'scenes/pulse/pulseTypes'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -248,12 +256,6 @@ import type {
 import { AgentMode } from '../queries/schema'
 import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
-import {
-    PulseDigestDetail,
-    PulseDigestSummary,
-    PulseFindingType,
-    PulseSubscriptionType,
-} from 'scenes/pulse/pulseTypes'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -2786,16 +2788,19 @@ const api = {
         },
         async submitFeedback(
             findingId: string,
-            action: 'pending' | 'up' | 'down' | 'dismissed' | 'snoozed',
+            action: PulseFindingFeedbackAction,
             snoozed_until?: string
         ): Promise<PulseFindingType> {
             return new ApiRequest()
                 .pulseFinding(findingId)
                 .withAction('feedback')
-                .create({ data: { action, snoozed_until } })
+                .create({ data: { action, snoozed_until: snoozed_until ?? null } })
         },
         async currentSubscription(): Promise<PulseSubscriptionType> {
             return new ApiRequest().pulseSubscriptions().withAction('current').get()
+        },
+        async watchedCandidates(): Promise<{ results: PulseWatchedCandidate[] }> {
+            return new ApiRequest().pulseSubscriptions().withAction('watched').get()
         },
         async createSubscription(data: Partial<PulseSubscriptionType>): Promise<PulseSubscriptionType> {
             return new ApiRequest().pulseSubscriptions().create({ data })
