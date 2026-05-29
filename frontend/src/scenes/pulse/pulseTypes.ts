@@ -1,16 +1,14 @@
-export const PULSE_ACTIVITY_SCOPE = 'Pulse'
-
 export type PulseDigestStatus = 'pending' | 'generating' | 'delivered' | 'failed'
 export type PulseFindingFeedbackAction = 'pending' | 'up' | 'down' | 'dismissed' | 'snoozed'
 export type PulseSubscriptionFrequency = 'weekly' | 'daily'
-export type PulseChannel = 'in_app' | 'slack' | 'email'
+export type PulseDetectionMode = 'change_v1' | 'discovery'
+export type PulseSensitivity = 'conservative' | 'balanced' | 'sensitive' | 'custom'
 
 export interface PulseDigestSummary {
     id: string
     period_start: string
     period_end: string
     status: PulseDigestStatus
-    delivered_to: Record<string, any>
     created_at: string
     finding_count: number
 }
@@ -23,7 +21,8 @@ export interface PulseFindingType {
     current_value: number
     baseline_value: number
     change_pct: number
-    z_score: number
+    robust_z: number
+    impact: number
     attribution_breakdown: Record<string, any> | null
     narrative: string
     chart_thumbnail_url: string
@@ -43,10 +42,20 @@ export interface PulseSubscriptionType {
     id: string | null
     enabled: boolean
     frequency: PulseSubscriptionFrequency
-    enabled_channels: PulseChannel[]
-    slack_channel_id: string
-    email_recipients: string[]
+    detection_mode: PulseDetectionMode
+    sensitivity: PulseSensitivity
+    min_change_pct: number
+    baseline_weeks: number
+    max_findings: number
+    robust_z_threshold: number
     last_scan_at: string | null
     next_scan_at: string | null
     created_at: string | null
+}
+
+export interface PulseWatchedCandidate {
+    source: string
+    source_id: string | null
+    label: string
+    query: Record<string, any>
 }
