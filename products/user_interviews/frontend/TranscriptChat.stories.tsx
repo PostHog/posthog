@@ -53,6 +53,10 @@ should still show this content as plain markdown so nothing is lost.
 - It may even contain markdown lists.
 - Or **bold text**.`
 
+const leadingProseTranscript = `Interview started 2026-05-29 with Alex Example.
+AI: Thanks for joining. Walk me through your last week.
+User: Mostly product work — Monday dashboards, Tuesday writing, Thursday customer calls.`
+
 export const KnownPerson: Story = {
     args: {
         transcript: multiTurnTranscript,
@@ -98,6 +102,14 @@ export const FallbackNoSpeakerMarkers: Story = {
         transcript: noSpeakerTranscript,
         person: null,
         identifier: 'unknown',
+    },
+}
+
+export const FallbackLeadingProse: Story = {
+    args: {
+        transcript: leadingProseTranscript,
+        person: fakePerson,
+        identifier: 'alex@example.com',
     },
 }
 
