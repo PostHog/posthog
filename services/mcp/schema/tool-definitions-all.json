@@ -5157,7 +5157,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tasks"
     },
     "tasks-retrieve": {
         "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
@@ -5172,7 +5173,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tasks"
     },
     "tasks-runs-list": {
         "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
@@ -5187,7 +5189,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tasks"
     },
     "tasks-runs-retrieve": {
         "description": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. The `state` object contains `sandbox_environment_id` (the UUID of the sandbox environment used).",
@@ -5202,7 +5205,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tasks"
     },
     "tasks-runs-session-logs-retrieve": {
         "description": "Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`, `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming endpoint when invoking from an MCP client.",
@@ -5217,7 +5221,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tasks"
     },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",
