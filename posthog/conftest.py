@@ -1,4 +1,5 @@
 import os
+import warnings
 import subprocess
 from typing import Any
 from urllib.parse import quote_plus
@@ -318,11 +319,19 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Seed default data that historically lived in RunPython migrations. Squashed
     # migrations drop those ops, so without this tests relying on the defaults
     # (Billing Team auth group, Default DataColorTheme, starter DashboardTemplates)
-    # would fail on a fresh test DB.
+    # would fail on a fresh test DB. Tolerated: in some shards (e.g. temporal
+    # async tests that only need the persons DB) the default DB schema isn't
+    # fully migrated yet — skip seeding rather than break setup.
     with django_db_blocker.unblock():
         from django.core.management import call_command
 
-        call_command("ensure_migration_defaults", verbosity=0)
+        try:
+            call_command("ensure_migration_defaults", verbosity=0)
+        except Exception as exc:
+            warnings.warn(
+                f"ensure_migration_defaults skipped during test DB setup: {exc}",
+                stacklevel=2,
+            )
 
     yield
 
