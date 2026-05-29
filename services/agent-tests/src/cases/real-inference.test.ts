@@ -134,7 +134,13 @@ if (!SKIP && providers.length === 0) {
 }
 
 const matrix = SKIP ? [{ label: 'skipped', model: null as never, apiKey: '' }] : providers
-const maybeDescribe = SKIP ? describe.skip : describe.each(matrix.map((p) => [p.label, p] as const))
+// `describe.skip` and `describe.each(...)` have incompatible TS signatures
+// even though both expose the same call shape we use below. Cast to a
+// shared callable so the test file typechecks; behaviour is unaffected.
+const maybeDescribe = (SKIP ? describe.skip : describe.each(matrix.map((p) => [p.label, p] as const))) as (
+    name: string,
+    fn: (label: string, real: ProviderSpec) => void
+) => void
 
 maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: ProviderSpec) => {
     let c: Cluster
@@ -231,12 +237,15 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         expect(toolResult.content[0].text).toContain('4')
     }, 120_000)
 
-    it('multi-turn: ask_for_input parks, /send resumes with the answer', async () => {
+    it('multi-turn: ask_for_input ends turn, /send continues with the answer', async () => {
+        // Under the new state machine `ask_for_input` is a UI focus hint
+        // — the session lands at `completed` (open). /send to a
+        // `completed` session re-queues and the runner continues.
         await c.deployAgent({
             slug: 'real-multi',
             files: {
                 'agent.md':
-                    'You have a tool available that suspends the conversation to ask the user a question. ' +
+                    'You have a tool that surfaces a "please answer this question" prompt to the user. ' +
                     "On your first turn you MUST use that tool to ask 'What is your name?'. Do not write any text on the first turn — only call the tool. " +
                     'When the user responds with their name on the next turn, reply with exactly: Hi <NAME> (substituting the actual name).',
             },
@@ -245,7 +254,7 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         const sid = run.body.session_id
         await c.drain({ iterations: 100 })
         let session = await c.queue.get(sid)
-        expect(session!.state).toBe('waiting')
+        expect(session!.state).toBe('completed')
 
         await request(c.ingress).post('/agents/real-multi/send').send({ session_id: sid, message: 'Alice' })
         await c.drain({ iterations: 100 })

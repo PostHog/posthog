@@ -74,7 +74,10 @@ describe('enqueueOrResume', () => {
         expect(session!.pending_inputs).toHaveLength(1)
     })
 
-    it('creates a new session if existing one is completed', async () => {
+    it('resumes a `completed` (open) session via external_key', async () => {
+        // Under the new state machine `completed` is the open idle state —
+        // external_key reuse picks it back up. Only `closed` / `failed`
+        // force a fresh session.
         const queue = new MemorySessionQueue()
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
@@ -93,6 +96,32 @@ describe('enqueueOrResume', () => {
                 application: app,
                 revision: rev,
                 externalKey: 'slack:C01:thread2',
+                seed: { role: 'user', content: 'second', timestamp: Date.now() },
+            }
+        )
+        expect(second.isResume).toBe(true)
+        expect(second.sessionId).toBe(first.sessionId)
+    })
+
+    it('creates a new session if existing one is `closed` (terminal)', async () => {
+        const queue = new MemorySessionQueue()
+        const { app, rev } = makePair()
+        const first = await enqueueOrResume(
+            { queue, teamId: 1 },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread3',
+                seed: { role: 'user', content: 'first', timestamp: Date.now() },
+            }
+        )
+        await queue.update(first.sessionId, { state: 'closed' })
+        const second = await enqueueOrResume(
+            { queue, teamId: 1 },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread3',
                 seed: { role: 'user', content: 'second', timestamp: Date.now() },
             }
         )

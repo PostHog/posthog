@@ -20,7 +20,7 @@
 import { createHmac } from 'crypto'
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
 function slackEvent(opts: {
     channel?: string
@@ -117,8 +117,11 @@ describe('slack trigger: real e2e', () => {
         expect(res.body.session_id).toBeUndefined()
     })
 
-    it('completed thread starts a fresh session on the next mention', async () => {
-        c.setScript([fauxText('done')])
+    it('idle `completed` (open) thread is resumed on the next mention', async () => {
+        // Under the new state machine `completed` is open by default —
+        // external_key reuse picks it back up. Only `closed` (via
+        // meta-end-session) or `failed` forces a fresh session.
+        c.setScript([fauxText('done'), fauxText('again')])
         await c.deployAgent({ slug: 'freshish', spec: {} })
         const first = await request(c.ingress)
             .post('/agents/freshish/slack/events')
@@ -129,7 +132,24 @@ describe('slack trigger: real e2e', () => {
         const second = await request(c.ingress)
             .post('/agents/freshish/slack/events')
             .send(slackEvent({ ts: '2', thread_ts: '1', text: 'second' }))
-        // Completed session won't be resumed — fresh session id.
+        // Same external_key, session is open → resumed.
+        expect(second.body.resumed).toBe(true)
+        expect(second.body.session_id).toBe(first.body.session_id)
+    })
+
+    it('`closed` thread starts a fresh session on the next mention', async () => {
+        c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'done' }), fauxText('again')])
+        await c.deployAgent({ slug: 'freshish-closed', spec: {} })
+        const first = await request(c.ingress)
+            .post('/agents/freshish-closed/slack/events')
+            .send(slackEvent({ ts: '1', thread_ts: '1', text: 'first' }))
+        await c.drain()
+        expect((await c.queue.get(first.body.session_id))!.state).toBe('closed')
+
+        const second = await request(c.ingress)
+            .post('/agents/freshish-closed/slack/events')
+            .send(slackEvent({ ts: '2', thread_ts: '1', text: 'second' }))
+        // Closed session is terminal → fresh session.
         expect(second.body.resumed).toBe(false)
         expect(second.body.session_id).not.toBe(first.body.session_id)
     })

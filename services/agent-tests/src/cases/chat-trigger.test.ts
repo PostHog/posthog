@@ -43,9 +43,10 @@ describe('chat trigger: real e2e', () => {
         expect(text).toBe('hello world')
     })
 
-    it('greeting-bot multi-turn: ask_for_input parks, /send resumes, second turn completes', async () => {
-        // Turn 1: ask_for_input (parks the session at waiting).
-        // Turn 2: a plain text response after the user's follow-up.
+    it('greeting-bot multi-turn: ask_for_input ends turn, /send continues, second turn completes', async () => {
+        // Turn 1: ask_for_input ends the turn (state=completed, open) and
+        // emits a focus hint. Turn 2: a plain text reply after the user's
+        // follow-up. Under the new state machine no "parked" state exists.
         c.setScript([
             fauxCallTool('@posthog/meta-ask-for-input', { prompt: "What's your name?" }),
             fauxText('hello, alice'),
@@ -55,7 +56,7 @@ describe('chat trigger: real e2e', () => {
         const sid = res.body.session_id
         await c.drain()
         let session = await c.queue.get(sid)
-        expect(session!.state).toBe('waiting')
+        expect(session!.state).toBe('completed')
 
         // User replies with their name.
         await request(c.ingress).post('/agents/greeter/send').send({ session_id: sid, message: 'alice' })
@@ -69,13 +70,15 @@ describe('chat trigger: real e2e', () => {
         expect(finalText).toBe('hello, alice')
     })
 
-    it('basic-multi-turn: /send routes into pending_inputs while waiting; runner drains on resume', async () => {
+    it('basic-multi-turn: /send to a `completed` (open) session re-queues; runner drains on resume', async () => {
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' }), fauxText('ok done')])
         await c.deployAgent({ slug: 'multi' })
         const run = await request(c.ingress).post('/agents/multi/run').send({ message: 'first' })
         const sid = run.body.session_id
         await c.drain()
-        expect((await c.queue.get(sid))!.state).toBe('waiting')
+        // ask_for_input now lands at `completed` (open). The runner went
+        // idle; the follow-up /send wakes it.
+        expect((await c.queue.get(sid))!.state).toBe('completed')
 
         const send = await request(c.ingress).post('/agents/multi/send').send({ session_id: sid, message: 'second' })
         expect(send.status).toBe(200)
@@ -83,12 +86,12 @@ describe('chat trigger: real e2e', () => {
         // /send routed into pending_inputs. Verify before drain.
         const before = await c.queue.get(sid)
         expect(before!.pending_inputs).toHaveLength(1)
+        expect(before!.state).toBe('queued')
 
         await c.drain()
         const session = await c.queue.get(sid)
         expect(session!.state).toBe('completed')
         expect(session!.pending_inputs).toHaveLength(0) // drained
-        // First user message + assistant(tool_use) + toolResult + drained user + assistant(final)
         const userMsgs = session!.conversation.filter((m) => m.role === 'user')
         const userTexts = userMsgs.map((m) => (typeof m.content === 'string' ? m.content : ''))
         expect(userTexts).toContain('first')

@@ -1,7 +1,10 @@
 /**
- * Control-flow primitives: meta.ask_for_input (→ waiting), meta.end_session
- * (→ completed with summary), max_turns ceiling (→ failed), upstream model
- * error (→ failed).
+ * Control-flow primitives after the session-restart redesign:
+ *   - meta.ask_for_input    → completed (open); emits `ask_for_input` bus event
+ *   - meta.end_turn         → completed (open)
+ *   - meta.end_session      → closed (terminal unless `allow_restart`)
+ *   - max_turns ceiling     → failed
+ *   - upstream model error  → failed
  */
 
 import request from 'supertest'
@@ -23,22 +26,25 @@ describe('control flow: real e2e', () => {
         await closeSharedPool()
     })
 
-    it('ask_for_input suspends the session to state=waiting', async () => {
+    it('ask_for_input lands at completed (open) and emits a focus-hint event', async () => {
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'asker' })
         const res = await request(c.ingress).post('/agents/asker/run').send({ message: 'hi' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
-        expect(session!.state).toBe('waiting')
+        expect(session!.state).toBe('completed')
+        // The prompt is surfaced as a UI focus hint via the bus, not a parked state.
+        const event = c.logs.forSession(res.body.session_id).find((e) => e.event === 'ask_for_input')
+        expect(event).not.toBeUndefined()
     })
 
-    it("end_session completes the session with the model's summary", async () => {
+    it('end_session hard-closes the session', async () => {
         c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'all done' })])
         await c.deployAgent({ slug: 'ender' })
         const res = await request(c.ingress).post('/agents/ender/run').send({ message: 'wrap' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
-        expect(session!.state).toBe('completed')
+        expect(session!.state).toBe('closed')
     })
 
     it('max_turns ceiling marks the session failed', async () => {

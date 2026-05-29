@@ -106,9 +106,13 @@ export interface RunSessionDeps {
 }
 
 export type RunOutcome =
-    | { state: 'completed'; summary?: string; turns: number }
-    | { state: 'waiting'; prompt: string; turns: number }
+    /** Agent finished its turn; session is OPEN. Default end-of-turn state. */
+    | { state: 'completed'; turns: number }
+    /** Hard close via `meta-end-session`. Session is TERMINAL (unless `allow_restart`). */
+    | { state: 'closed'; summary?: string; turns: number }
+    /** Worker was asked to suspend (rolling deploy etc.) — re-queue and let a sibling resume. */
     | { state: 'suspended'; reason: 'shutdown'; turns: number }
+    /** Hard failure. Session is TERMINAL regardless of `allow_restart`. */
     | { state: 'failed'; reason: string; turns: number }
 
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
@@ -405,6 +409,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return { state: 'failed', reason: 'max_tokens', turns }
         }
         if (result.stopReason === 'stop') {
+            // Natural stop is equivalent to `meta-end-turn` — agent done
+            // with its turn, session OPEN.
             await emit('completed', { turns })
             return { state: 'completed', turns }
         }
@@ -413,11 +419,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         // toolResult message per dispatch, loop for the follow-up turn.
         const toolCalls = result.content.filter((b): b is ToolCall => b.type === 'toolCall')
         if (toolCalls.length === 0) {
+            await emit('completed', { turns })
             return { state: 'completed', turns }
         }
 
-        let suspend: { prompt: string } | null = null
-        let end: { summary?: string } | null = null
+        let endTurn: { prompt?: string } | null = null
+        let close: { summary?: string } | null = null
 
         for (const call of toolCalls) {
             const signal = await dispatchOne(call, {
@@ -438,25 +445,31 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 approvals: deps.approvals,
                 buildApprovalUrl: deps.buildApprovalUrl,
             })
-            if (signal.kind === 'suspend') {
-                suspend = { prompt: signal.prompt }
+            if (signal.kind === 'end_turn') {
+                endTurn = { prompt: signal.prompt }
                 break
             }
-            if (signal.kind === 'end') {
-                end = { summary: signal.summary }
+            if (signal.kind === 'close') {
+                close = { summary: signal.summary }
                 break
             }
         }
 
         await deps.onTurnPersist?.(session)
 
-        if (end) {
-            await emit('completed', { turns, summary: end.summary })
-            return { state: 'completed', summary: end.summary, turns }
+        if (close) {
+            await emit('closed', { turns, summary: close.summary })
+            return { state: 'closed', summary: close.summary, turns }
         }
-        if (suspend) {
-            await emit('waiting', { turns, prompt: suspend.prompt })
-            return { state: 'waiting', prompt: suspend.prompt, turns }
+        if (endTurn) {
+            // `meta-ask-for-input` rides on end_turn but additionally emits
+            // a UI focus hint with the prompt. State is `completed` either
+            // way — the hint has no state-machine impact.
+            if (endTurn.prompt) {
+                await emit('ask_for_input', { turns, prompt: endTurn.prompt })
+            }
+            await emit('completed', { turns })
+            return { state: 'completed', turns }
         }
     }
     await emit('failed', { reason: 'max_turns_exceeded', turns })

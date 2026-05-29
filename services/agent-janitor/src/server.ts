@@ -79,7 +79,7 @@ export interface JanitorServerOpts {
     internalSecret?: string
 }
 
-const SessionStateSchema = z.enum(['queued', 'running', 'waiting', 'completed', 'failed'])
+const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
 
 const ListSessionsQuerySchema = z.object({
     application_id: z.string().min(1, 'missing_application_id'),
@@ -215,14 +215,16 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         '/sessions',
         asyncHandler(async (req, res) => {
             const q = ListSessionsQuerySchema.parse(req.query)
-            const sessions = await opts.queue.listByApplication(q.application_id, {
-                limit: q.limit,
-                offset: q.offset,
+            const filter = {
                 states: q.state as AgentSession['state'][] | undefined,
                 revisionId: q.revision_id,
                 createdAfter: q.created_after,
                 createdBefore: q.created_before,
-            })
+            }
+            const [sessions, count] = await Promise.all([
+                opts.queue.listByApplication(q.application_id, { ...filter, limit: q.limit, offset: q.offset }),
+                opts.queue.countByApplication(q.application_id, filter),
+            ])
             // Conversation can be large; strip it from the list view but derive a
             // preview so a single tool call still tells you what the agent said.
             // usage_total reads off the persisted column — no JSONB walk.
@@ -240,7 +242,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))
-            res.json({ sessions: summaries })
+            res.json({ results: summaries, count })
         })
     )
 

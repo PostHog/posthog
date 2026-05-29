@@ -12,7 +12,7 @@
 import { NativeTool, NativeToolSchema } from '@posthog/agent-shared'
 
 import { loadSkill } from './tools/load-skill'
-import { askForInputTool, endSessionTool, emitEventTool } from './tools/meta'
+import { askForInputTool, endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
 import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
 import { slackPostMessageV1, slackUpdateMessageV1, slackReactV1 } from './tools/slack.v1'
@@ -28,6 +28,7 @@ export const ALL_TOOLS: NativeTool[] = [
     webFetchV1,
     webSearchV1,
     askForInputTool,
+    endTurnTool,
     endSessionTool,
     emitEventTool,
     loadSkill,

@@ -97,7 +97,10 @@ describe('listen SSE: real e2e', () => {
         expect(toolResultEvt!.data.ok).toBe(true)
     })
 
-    it('publishes waiting on ask_for_input', async () => {
+    it('publishes ask_for_input + completed on meta-ask-for-input', async () => {
+        // Under the new state machine ask_for_input is a UI focus hint
+        // (carries `prompt`) — the session still ends the turn at
+        // `completed` (open). Both events fire.
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'ssee-3' })
         const events: SessionEvent[] = []
@@ -108,7 +111,11 @@ describe('listen SSE: real e2e', () => {
         await c.drain()
         unsubscribe()
 
-        expect(events.map((e) => e.kind)).toContain('waiting')
+        const kinds = events.map((e) => e.kind)
+        expect(kinds).toContain('ask_for_input')
+        expect(kinds).toContain('completed')
+        const ask = events.find((e) => e.kind === 'ask_for_input')
+        expect(ask?.data.prompt).toBe('continue?')
     })
 
     it('GET /listen wires the SSE response headers and stays open', async () => {

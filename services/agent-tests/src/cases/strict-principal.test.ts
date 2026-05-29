@@ -59,7 +59,7 @@ describe('strict principal match on /send: real e2e', () => {
         expect(run.status).toBe(200)
         const sid = run.body.session_id
         await c.drain()
-        expect((await c.queue.get(sid))!.state).toBe('waiting')
+        expect((await c.queue.get(sid))!.state).toBe('completed')
 
         const send = await request(c.ingress)
             .post('/agents/p1/send')

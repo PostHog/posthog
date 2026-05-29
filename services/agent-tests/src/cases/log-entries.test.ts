@@ -73,14 +73,19 @@ describe('log sink: real e2e', () => {
         expect(failed!.data.reason).toBe('rate_limit')
     })
 
-    it('writes a waiting entry when the agent parks via ask_for_input', async () => {
+    it('writes an ask_for_input entry when the agent surfaces a focus hint', async () => {
+        // Under the new state machine `ask_for_input` is a UI focus hint
+        // (no longer parks the session). Both the hint event and the
+        // turn-ending `completed` event land in the log sink.
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'logs-wait' })
         const run = await request(c.ingress).post('/agents/logs-wait/run').send({ message: 'hi' })
         await c.drain()
 
-        const waiting = c.logs.forSession(run.body.session_id).find((e) => e.event === 'waiting')
-        expect(waiting).not.toBeUndefined()
-        expect(waiting!.level).toBe('info')
+        const entries = c.logs.forSession(run.body.session_id)
+        const ask = entries.find((e) => e.event === 'ask_for_input')
+        expect(ask).not.toBeUndefined()
+        expect(ask!.level).toBe('info')
+        expect((ask!.data as { prompt?: string }).prompt).toBe('continue?')
     })
 })

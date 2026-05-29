@@ -43,11 +43,24 @@ export const TriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('chat'),
         config: z.object({
             require_auth: z.boolean().default(true),
+            /**
+             * When true, `/send` to a `closed` session reopens it (state
+             * → queued, message appended to pending_inputs) instead of
+             * returning 410. Default false — `meta-end-session` is
+             * normally a hard close. Has no effect on `failed` sessions
+             * (those stay terminal). See the session-restart redesign.
+             */
+            allow_restart: z.boolean().default(false),
         }),
     }),
     z.object({
         type: z.literal('mcp'),
-        config: z.object({}).default({}),
+        config: z
+            .object({
+                /** Mirror of the chat trigger flag — see above. */
+                allow_restart: z.boolean().default(false),
+            })
+            .default({ allow_restart: false }),
     }),
 ])
 
@@ -239,7 +252,20 @@ export interface AgentSession {
     revision_id: string
     team_id: number
     external_key: string | null
-    state: 'queued' | 'running' | 'waiting' | 'completed' | 'failed'
+    /**
+     * Session state. See docs/agent-platform/plans/_TODO.md (system-prompt
+     * fleshing out) and the session-restart redesign for the contract:
+     *
+     *   queued   — awaiting a worker claim.
+     *   running  — claimed; worker actively driving the turn.
+     *   completed — agent finished its turn, session is OPEN. /send
+     *               re-queues. Default end-of-turn state (natural stop,
+     *               meta-end-turn, meta-ask-for-input).
+     *   closed   — sealed by `meta-end-session`. Terminal. /send returns
+     *              410 unless the trigger config sets `allow_restart`.
+     *   failed   — error state. Terminal regardless of `allow_restart`.
+     */
+    state: 'queued' | 'running' | 'completed' | 'closed' | 'failed'
     /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions

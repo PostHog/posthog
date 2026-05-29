@@ -31,7 +31,9 @@ describe('queued follow-ups: real e2e', () => {
         const run = await request(c.ingress).post('/agents/q1/run').send({ message: 'hi' })
         const sid = run.body.session_id
         await c.drain()
-        expect((await c.queue.get(sid))!.state).toBe('waiting')
+        // Under the new state machine `ask_for_input` lands at `completed`
+        // (open) — the prompt becomes a UI focus hint, not a parked state.
+        expect((await c.queue.get(sid))!.state).toBe('completed')
 
         await request(c.ingress).post('/agents/q1/send').send({ session_id: sid, message: 'first follow-up' })
         const session = await c.queue.get(sid)
@@ -45,7 +47,9 @@ describe('queued follow-ups: real e2e', () => {
         const run = await request(c.ingress).post('/agents/q3/run').send({ message: 'first' })
         const sid = run.body.session_id
         await c.drain()
-        expect((await c.queue.get(sid))!.state).toBe('waiting')
+        // Under the new state machine `ask_for_input` lands at `completed`
+        // (open) — the prompt becomes a UI focus hint, not a parked state.
+        expect((await c.queue.get(sid))!.state).toBe('completed')
 
         // Three /sends without draining between them.
         await request(c.ingress).post('/agents/q3/send').send({ session_id: sid, message: 'second' })

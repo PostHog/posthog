@@ -3,9 +3,10 @@
  *   - the native registry (in-process function), or
  *   - the session's sandbox (custom tool, dispatched via Sandbox.invoke).
  *
- * Meta tools (@posthog/meta-ask-for-input, @posthog/meta-end-session) are recognized here
- * and surface as control-flow signals — the runner branches on the returned
- * Outcome.kind to suspend or terminate the session.
+ * Meta tools (@posthog/meta-end-turn, @posthog/meta-ask-for-input,
+ * @posthog/meta-end-session) are recognized here and surface as control-flow
+ * signals. The runner branches on the returned Outcome.kind to end the turn
+ * (completed / open) vs hard-close the session.
  */
 
 import { Value } from 'typebox/value'
@@ -20,6 +21,7 @@ import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
  * lookup. Keep this in sync with `ALWAYS_ON_NATIVE_TOOL_IDS` in run-turn.ts.
  */
 const AUTO_INCLUDED_NATIVES = new Set([
+    '@posthog/meta-end-turn',
     '@posthog/meta-ask-for-input',
     '@posthog/meta-end-session',
     '@posthog/load-skill',
@@ -28,8 +30,18 @@ const AUTO_INCLUDED_NATIVES = new Set([
 export type ToolDispatchOutcome =
     | { kind: 'ok'; result: unknown }
     | { kind: 'error'; message: string }
-    | { kind: 'suspend'; prompt: string }
-    | { kind: 'end'; summary?: string }
+    /**
+     * Explicit "I'm done with my turn." Session lands at `completed` (open).
+     * Fired by `meta-end-turn` and `meta-ask-for-input`. The optional
+     * `prompt` is the focus hint that `meta-ask-for-input` surfaces to
+     * the UI via the `ask_for_input` bus event.
+     */
+    | { kind: 'end_turn'; prompt?: string }
+    /**
+     * Hard close. Session lands at `closed` (terminal unless the trigger
+     * sets `allow_restart`). Fired by `meta-end-session`.
+     */
+    | { kind: 'close'; summary?: string }
 
 export interface DispatchInput {
     teamId: number
@@ -49,13 +61,16 @@ export async function dispatchTool(
     toolName: string,
     args: unknown
 ): Promise<ToolDispatchOutcome> {
+    if (toolName === '@posthog/meta-end-turn') {
+        return { kind: 'end_turn' }
+    }
     if (toolName === '@posthog/meta-ask-for-input') {
         const a = args as { prompt?: string }
-        return { kind: 'suspend', prompt: a.prompt ?? '' }
+        return { kind: 'end_turn', prompt: a.prompt ?? '' }
     }
     if (toolName === '@posthog/meta-end-session') {
         const a = args as { summary?: string }
-        return { kind: 'end', summary: a.summary }
+        return { kind: 'close', summary: a.summary }
     }
 
     // Native tools the runner auto-includes (not declared in spec.tools).

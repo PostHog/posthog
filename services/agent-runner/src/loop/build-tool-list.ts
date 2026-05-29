@@ -29,7 +29,11 @@ import { listNativeTools } from '@posthog/agent-tools'
  * in tool-dispatch.ts (which knows how to dispatch these without a spec.tools
  * lookup).
  */
-export const ALWAYS_ON_NATIVE_TOOL_IDS = ['@posthog/meta-ask-for-input', '@posthog/meta-end-session']
+export const ALWAYS_ON_NATIVE_TOOL_IDS = [
+    '@posthog/meta-end-turn',
+    '@posthog/meta-ask-for-input',
+    '@posthog/meta-end-session',
+]
 
 export async function buildToolList(rev: AgentRevision, bundle: BundleStore): Promise<Tool[]> {
     const decls: Tool[] = []

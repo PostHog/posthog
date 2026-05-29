@@ -290,8 +290,8 @@ export class Worker {
                 switch (outcome.state) {
                     case 'completed':
                         return 'completed'
-                    case 'waiting':
-                        return 'waiting'
+                    case 'closed':
+                        return 'closed'
                     case 'suspended':
                         // Re-queue: a sibling worker will resume from PG.
                         return 'queued'

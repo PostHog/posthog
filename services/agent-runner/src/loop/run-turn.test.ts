@@ -114,7 +114,7 @@ describe('runSession', () => {
         expect(toolResult.toolCallId).toBe('tc_1')
     })
 
-    it('returns state=waiting on @posthog/meta-ask-for-input', async () => {
+    it('returns state=completed on @posthog/meta-ask-for-input (no longer parks)', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const pi = new FauxPiClient([toolUseTurn([toolCall('@posthog/meta-ask-for-input', { prompt: 'Continue?' })])])
@@ -126,11 +126,13 @@ describe('runSession', () => {
             integrations: {},
             secrets: {},
         })
-        expect(out.state).toBe('waiting')
-        expect(out.state === 'waiting' && out.prompt).toBe('Continue?')
+        // Session-restart redesign: ask_for_input ends the turn (state=completed,
+        // open). The prompt is surfaced via the `ask_for_input` bus event for
+        // UI focus hints; it doesn't appear on the RunOutcome.
+        expect(out.state).toBe('completed')
     })
 
-    it('returns state=completed on @posthog/meta-end-session with summary', async () => {
+    it('returns state=closed on @posthog/meta-end-session with summary', async () => {
         const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const pi = new FauxPiClient([toolUseTurn([toolCall('@posthog/meta-end-session', { summary: 'all done' })])])
@@ -142,8 +144,23 @@ describe('runSession', () => {
             integrations: {},
             secrets: {},
         })
+        expect(out.state).toBe('closed')
+        expect(out.state === 'closed' && out.summary).toBe('all done')
+    })
+
+    it('returns state=completed on @posthog/meta-end-turn', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const pi = new FauxPiClient([toolUseTurn([toolCall('@posthog/meta-end-turn', {})])])
+        const out = await runSession(makeRev(), makeSession(), {
+            pi,
+            model: FAUX_MODEL,
+            bundle,
+            sandbox: null,
+            integrations: {},
+            secrets: {},
+        })
         expect(out.state).toBe('completed')
-        expect(out.state === 'completed' && out.summary).toBe('all done')
     })
 
     it('returns state=failed when max_turns exhausted', async () => {

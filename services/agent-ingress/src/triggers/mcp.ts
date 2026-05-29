@@ -223,9 +223,22 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                             res.json(errReply(RPC_INVALID_PARAMS, 'session_not_found'))
                             return
                         }
-                        if (existing.state === 'completed' || existing.state === 'failed') {
+                        // Terminal-state policy mirrors chat /send (session-restart redesign):
+                        // `failed` is always terminal; `closed` is terminal unless the
+                        // MCP trigger spec opts into `allow_restart`. `completed` is
+                        // open — re-queue and let the runner drain.
+                        if (existing.state === 'failed') {
                             res.json(errReply(RPC_INVALID_PARAMS, 'session_terminal'))
                             return
+                        }
+                        if (existing.state === 'closed') {
+                            const mcpTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'mcp')
+                            const allowRestart =
+                                mcpTrigger?.type === 'mcp' ? (mcpTrigger.config.allow_restart ?? false) : false
+                            if (!allowRestart) {
+                                res.json(errReply(RPC_INVALID_PARAMS, 'session_terminal'))
+                                return
+                            }
                         }
                         if (!principalsMatch(existing.principal, principal)) {
                             res.json(errReply(RPC_UNAUTHORIZED, 'principal_mismatch'))

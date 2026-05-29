@@ -23,18 +23,40 @@ describe('session lifecycle edges: real e2e', () => {
         await closeSharedPool()
     })
 
-    it('/send to a completed session → 410 Gone', async () => {
-        c.setScript([fauxText('done')])
+    it('/send to a closed session → 410 Gone (no allow_restart)', async () => {
+        // Under the new state machine the only path to a "no-more-sends"
+        // terminal is `closed` (via meta-end-session). Without
+        // `allow_restart` on the chat trigger that 410s on /send.
+        c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'done' })])
         await c.deployAgent({ slug: 'lc1' })
         const create = await request(c.ingress).post('/agents/lc1/run').send({ message: 'first' })
         await c.drain()
-        expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('closed')
 
         const send = await request(c.ingress)
             .post('/agents/lc1/send')
             .send({ session_id: create.body.session_id, message: 'second' })
         expect(send.status).toBe(410)
-        expect(send.body.state).toBe('completed')
+        expect(send.body.state).toBe('closed')
+    })
+
+    it('/send to a completed session is OK (200) — session is OPEN by default', async () => {
+        // Under the new state machine `completed` is the open idle state.
+        // /send re-queues and the runner picks up the new message.
+        c.setScript([fauxText('done'), fauxText('still here')])
+        await c.deployAgent({ slug: 'lc1b' })
+        const create = await request(c.ingress).post('/agents/lc1b/run').send({ message: 'first' })
+        await c.drain()
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
+
+        const send = await request(c.ingress)
+            .post('/agents/lc1b/send')
+            .send({ session_id: create.body.session_id, message: 'second' })
+        expect(send.status).toBe(200)
+        await c.drain()
+        const session = await c.queue.get(create.body.session_id)
+        expect(session!.state).toBe('completed')
+        expect(session!.conversation.filter((m) => m.role === 'assistant')).toHaveLength(2)
     })
 
     it('/send to a failed session → 410 Gone', async () => {
@@ -57,26 +79,28 @@ describe('session lifecycle edges: real e2e', () => {
         expect(res.status).toBe(404)
     })
 
-    it('/cancel of a parked (waiting) session → terminal failed', async () => {
+    it('/cancel of an idle `completed` (open) session → terminal failed', async () => {
+        // `completed` is open by default, so /cancel is a real state
+        // transition (the user wants out of this conversation).
         c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
         await c.deployAgent({ slug: 'cc1' })
         const create = await request(c.ingress).post('/agents/cc1/run').send({ message: 'hi' })
         await c.drain()
-        expect((await c.queue.get(create.body.session_id))!.state).toBe('waiting')
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
         const cancel = await request(c.ingress).post('/agents/cc1/cancel').send({ session_id: create.body.session_id })
         expect(cancel.status).toBe(200)
         expect((await c.queue.get(create.body.session_id))!.state).toBe('failed')
     })
 
-    it('/cancel of a terminal (completed) session is idempotent', async () => {
-        c.setScript([fauxText('done')])
+    it('/cancel of a terminal (closed) session is idempotent', async () => {
+        c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'done' })])
         await c.deployAgent({ slug: 'cc2' })
         const create = await request(c.ingress).post('/agents/cc2/run').send({ message: 'hi' })
         await c.drain()
         const cancel = await request(c.ingress).post('/agents/cc2/cancel').send({ session_id: create.body.session_id })
         expect(cancel.status).toBe(200)
         expect(cancel.body.idempotent).toBe(true)
-        expect((await c.queue.get(create.body.session_id))!.state).toBe('completed')
+        expect((await c.queue.get(create.body.session_id))!.state).toBe('closed')
     })
 
     it('/cancel of a nonexistent session → 404', async () => {

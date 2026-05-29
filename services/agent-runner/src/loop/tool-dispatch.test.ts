@@ -40,18 +40,23 @@ describe('dispatchTool', () => {
         log: () => undefined,
     }
 
-    it('returns suspend on @posthog/meta-ask-for-input', async () => {
+    it('returns end_turn on @posthog/meta-ask-for-input (with prompt as UI hint)', async () => {
         const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, '@posthog/meta-ask-for-input', {
             prompt: 'Need approval?',
         })
-        expect(out).toEqual({ kind: 'suspend', prompt: 'Need approval?' })
+        expect(out).toEqual({ kind: 'end_turn', prompt: 'Need approval?' })
     })
 
-    it('returns end on @posthog/meta-end-session', async () => {
+    it('returns end_turn on @posthog/meta-end-turn', async () => {
+        const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, '@posthog/meta-end-turn', {})
+        expect(out).toEqual({ kind: 'end_turn' })
+    })
+
+    it('returns close on @posthog/meta-end-session', async () => {
         const out = await dispatchTool({ ...baseInput, rev: makeRev([]) }, '@posthog/meta-end-session', {
             summary: 'done',
         })
-        expect(out).toEqual({ kind: 'end', summary: 'done' })
+        expect(out).toEqual({ kind: 'close', summary: 'done' })
     })
 
     it('dispatches a native tool referenced in the revision', async () => {

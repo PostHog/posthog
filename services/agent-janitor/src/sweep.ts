@@ -6,8 +6,11 @@
  *      claimed_at; a healthy worker should be able to pick it back up. The
  *      conversation state persisted by the runner survives.
  *
- *   2. Stuck `waiting` sessions → **fail** (no user reply ever came). Uses a
- *      separate threshold since waiting is normal for parked sessions.
+ *   2. Idle `completed` (open) sessions → **close** after the configured
+ *      threshold. Under the new state machine `completed` is open by
+ *      default — the user can still /send. Long-idle ones never get a
+ *      follow-up; we don't want them lingering forever, so the sweep
+ *      eventually transitions them to `closed` (the proper terminal).
  *
  * Production wires this against the PgSessionQueue, whose `reapStuckRunning`
  * does the work in one SQL statement. Tests can inject their own candidate
@@ -20,8 +23,8 @@ export interface SweepDeps {
     queue: SessionQueue
     /** running sessions older than this are re-queued for handoff. Default 5min. */
     stuckRunningThresholdMs?: number
-    /** waiting sessions older than this are marked failed. Default 24h. */
-    stuckWaitingThresholdMs?: number
+    /** completed sessions idle for longer than this are auto-closed. Default 24h. */
+    idleCompletedThresholdMs?: number
     /**
      * Poison-pill threshold: a stuck-running session that has been re-queued
      * this many times is failed instead. Catches sessions that consistently
@@ -29,11 +32,11 @@ export interface SweepDeps {
      */
     maxRetries?: number
     /**
-     * Candidate lister for the `waiting` policy. Production passes a function
-     * that selects waiting sessions older than the threshold from PG. Tests
-     * inject any AgentSession[].
+     * Candidate lister for the idle-completed policy. Production passes a
+     * function that selects `completed` sessions older than the threshold
+     * from PG. Tests inject any AgentSession[].
      */
-    listWaitingCandidates?: () => Promise<AgentSession[]>
+    listIdleCompletedCandidates?: () => Promise<AgentSession[]>
     /**
      * Approval-gated tools store (see plan
      * docs/agent-platform/plans/approval-gated-tools.md). When wired, the
@@ -49,8 +52,8 @@ export interface SweepResult {
     requeued: number
     /** Stuck running sessions that exceeded the retry threshold and were failed. */
     poisoned: number
-    /** Stuck waiting sessions that aged out past `stuckWaitingThresholdMs`. */
-    failed: number
+    /** Idle completed sessions that aged out past `idleCompletedThresholdMs` and were closed. */
+    closed: number
     /** Queued approval requests aged past `expires_at` that were terminated this sweep. */
     expired_approvals: number
 }
@@ -58,24 +61,28 @@ export interface SweepResult {
 export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
     const now = (deps.now ?? (() => new Date()))()
     const runningTtl = deps.stuckRunningThresholdMs ?? 5 * 60_000
-    const waitingTtl = deps.stuckWaitingThresholdMs ?? 24 * 60 * 60_000
+    const idleCompletedTtl = deps.idleCompletedThresholdMs ?? 24 * 60 * 60_000
     const maxRetries = deps.maxRetries ?? 3
 
     // Policy 1: re-queue stuck running OR poison-pill if past retry budget.
     const { requeued, poisoned } = await deps.queue.reapStuckRunning(runningTtl, maxRetries)
 
-    // Policy 2: fail stuck waiting (unanswered user prompts).
-    let failed = 0
-    if (deps.listWaitingCandidates) {
-        const candidates = await deps.listWaitingCandidates()
+    // Policy 2: auto-close idle completed sessions. Under the new state
+    // machine `completed` is open by default — the user can still /send.
+    // Long-idle ones never get a follow-up and we don't want them lingering
+    // forever, so the sweep eventually transitions them to `closed` (the
+    // proper terminal).
+    let closed = 0
+    if (deps.listIdleCompletedCandidates) {
+        const candidates = await deps.listIdleCompletedCandidates()
         for (const s of candidates) {
-            if (s.state !== 'waiting') {
+            if (s.state !== 'completed') {
                 continue
             }
             const updated = Date.parse(s.updated_at)
-            if (Number.isFinite(updated) && now.getTime() - updated > waitingTtl) {
-                await deps.queue.update(s.id, { state: 'failed' })
-                failed++
+            if (Number.isFinite(updated) && now.getTime() - updated > idleCompletedTtl) {
+                await deps.queue.update(s.id, { state: 'closed' })
+                closed++
             }
         }
     }
@@ -106,5 +113,5 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         }
     }
 
-    return { requeued, poisoned, failed, expired_approvals: expiredApprovals }
+    return { requeued, poisoned, closed, expired_approvals: expiredApprovals }
 }

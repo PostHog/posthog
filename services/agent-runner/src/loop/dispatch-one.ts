@@ -77,8 +77,15 @@ export interface DispatchOneDeps {
 
 export type DispatchSignal =
     | { kind: 'continue' }
-    | { kind: 'suspend'; prompt: string }
-    | { kind: 'end'; summary?: string }
+    /**
+     * Explicit turn-end. Session lands at `completed` (open). The
+     * optional `prompt` is the UI focus hint surfaced by
+     * `meta-ask-for-input`; the runner emits the `ask_for_input` bus
+     * event when present.
+     */
+    | { kind: 'end_turn'; prompt?: string }
+    /** Hard close. Session lands at `closed` (terminal). */
+    | { kind: 'close'; summary?: string }
 
 export async function dispatchOne(call: ToolCall, deps: DispatchOneDeps): Promise<DispatchSignal> {
     // Translate the provider-safe name (what the model emits) back to the
@@ -164,11 +171,11 @@ export async function dispatchOne(call: ToolCall, deps: DispatchOneDeps): Promis
         timestamp: Date.now(),
     }
     deps.session.conversation.push(toolResult)
-    if (outcome.kind === 'suspend') {
-        return { kind: 'suspend', prompt: outcome.prompt }
+    if (outcome.kind === 'end_turn') {
+        return { kind: 'end_turn', prompt: outcome.prompt }
     }
-    if (outcome.kind === 'end') {
-        return { kind: 'end', summary: outcome.summary }
+    if (outcome.kind === 'close') {
+        return { kind: 'close', summary: outcome.summary }
     }
     return { kind: 'continue' }
 }
@@ -179,9 +186,9 @@ function toolResultText(outcome: Awaited<ReturnType<typeof dispatchTool>>): stri
             return JSON.stringify(outcome.result)
         case 'error':
             return outcome.message
-        case 'suspend':
-            return JSON.stringify({ suspended: true })
-        case 'end':
+        case 'end_turn':
+            return JSON.stringify({ ended_turn: true })
+        case 'close':
             return JSON.stringify({ ended: true })
     }
 }

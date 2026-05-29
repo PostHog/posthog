@@ -55,11 +55,12 @@ describe('janitor HTTP', () => {
         await queue.enqueue(c)
         const res = await request(app).get('/sessions').query({ application_id: 'app-1' })
         expect(res.status).toBe(200)
-        const ids = (res.body.sessions as Array<{ id: string }>).map((s) => s.id)
+        const ids = (res.body.results as Array<{ id: string }>).map((s) => s.id)
         expect(ids).toEqual(['s-b', 's-a'])
+        expect(res.body.count).toBe(2)
         // Summaries strip the heavy conversation body.
-        expect(Object.keys(res.body.sessions[0])).not.toContain('conversation')
-        expect(res.body.sessions[0]).toMatchObject({ turns: 1, state: 'running' })
+        expect(Object.keys(res.body.results[0])).not.toContain('conversation')
+        expect(res.body.results[0]).toMatchObject({ turns: 1, state: 'running' })
     })
 
     it('GET /sessions without application_id returns a structured 400', async () => {
@@ -165,19 +166,19 @@ describe('janitor HTTP', () => {
         })
         // state=completed,failed → both completed and failed across revs
         const both = await request(app).get('/sessions').query({ application_id: 'app-1', state: 'completed,failed' })
-        expect((both.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual([
+        expect((both.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual([
             'done-r1',
             'done-r2',
             'fail-r1',
         ])
         // revision_id filter scopes to one revision
         const r1 = await request(app).get('/sessions').query({ application_id: 'app-1', revision_id: 'rev-1' })
-        expect((r1.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
+        expect((r1.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
         // created_after excludes older sessions
         const recent = await request(app)
             .get('/sessions')
             .query({ application_id: 'app-1', created_after: '2026-05-01T00:00:00Z' })
-        expect((recent.body.sessions as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
+        expect((recent.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
     })
 
     it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
@@ -209,8 +210,8 @@ describe('janitor HTTP', () => {
             ],
         })
         const res = await request(app).get('/sessions').query({ application_id: 'app-1' })
-        expect(res.body.sessions[0].preview).toBe('hello back!')
-        expect(res.body.sessions[0].usage_total).toMatchObject({
+        expect(res.body.results[0].preview).toBe('hello back!')
+        expect(res.body.results[0].usage_total).toMatchObject({
             tokens_in: 50,
             tokens_out: 10,
             cost_total: 0.0007,
@@ -327,7 +328,7 @@ describe('janitor HTTP', () => {
         const { app } = mk()
         const res = await request(app).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ requeued: 0, poisoned: 0, failed: 0, expired_approvals: 0 })
+        expect(res.body).toEqual({ requeued: 0, poisoned: 0, closed: 0, expired_approvals: 0 })
     })
 
     it('enforces internal secret when configured', async () => {

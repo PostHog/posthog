@@ -55,7 +55,8 @@ describe('native tool dispatch: real e2e', () => {
         const res = await request(c.ingress).post('/agents/compound/run').send({ message: 'go' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
-        expect(session!.state).toBe('completed')
+        // meta-end-session is the hard-close path under the new state machine.
+        expect(session!.state).toBe('closed')
     })
 
     it('rejects tools not declared in the revision spec', async () => {
