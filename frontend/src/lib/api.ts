@@ -493,7 +493,7 @@ export class ApiRequest {
 
     // # AI observability
 
-    public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
+    public aiObservabilityTranslate(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
@@ -728,6 +728,23 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
+    }
+
+    // # Metrics
+    public metrics(projectId?: ProjectType['id']): ApiRequest {
+        return this.environmentsDetail(projectId).addPathComponent('metrics')
+    }
+
+    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('has_metrics')
+    }
+
+    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('query')
+    }
+
+    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -1461,12 +1478,13 @@ export class ApiRequest {
     public integrationSlackChannels(
         id: IntegrationType['id'],
         forceRefresh: boolean,
+        params?: { search?: string; limit?: number; offset?: number },
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
             .addPathComponent('channels')
-            .withQueryString({ force_refresh: forceRefresh })
+            .withQueryString({ force_refresh: forceRefresh, ...params })
     }
 
     public integrationSlackChannelsById(
@@ -2146,7 +2164,7 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
-    llmAnalytics: {
+    aiObservability: {
         translate(params: { text: string; targetLanguage?: string }): Promise<{
             translation: string
             detected_language?: string
@@ -2157,7 +2175,7 @@ const api = {
                 text: params.text,
                 target_language: params.targetLanguage,
             }
-            return new ApiRequest().llmAnalyticsTranslate().create({ data })
+            return new ApiRequest().aiObservabilityTranslate().create({ data })
         },
     },
     insights: {
@@ -2781,6 +2799,43 @@ const api = {
             filename: string
         }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
+        },
+    },
+
+    metrics: {
+        async hasMetrics(): Promise<boolean> {
+            return new ApiRequest()
+                .metricsHasMetrics()
+                .get()
+                .then((response) => Boolean(response.hasMetrics))
+        },
+        async query({
+            query,
+            signal,
+        }: {
+            query: {
+                metricName: string
+                aggregation: 'sum' | 'avg' | 'count' | 'p95'
+                dateFrom: string
+                dateTo?: string
+            }
+            signal?: AbortSignal
+        }): Promise<{ results: { time: string; value: number }[] }> {
+            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
+        },
+        async values({
+            search,
+            limit,
+            signal,
+        }: {
+            search?: string
+            limit?: number
+            signal?: AbortSignal
+        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
+            return new ApiRequest()
+                .metricsValues()
+                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
+                .get({ signal })
         },
     },
 
@@ -5799,9 +5854,10 @@ const api = {
         },
         async slackChannels(
             id: IntegrationType['id'],
-            forceRefresh: boolean
-        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string }> {
-            return await new ApiRequest().integrationSlackChannels(id, forceRefresh).get()
+            forceRefresh: boolean,
+            params?: { search?: string; limit?: number; offset?: number }
+        ): Promise<{ channels: SlackChannelType[]; lastRefreshedAt: string; has_more?: boolean }> {
+            return await new ApiRequest().integrationSlackChannels(id, forceRefresh, params).get()
         },
         async slackChannelsById(
             id: IntegrationType['id'],

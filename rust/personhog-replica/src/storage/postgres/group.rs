@@ -33,7 +33,7 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties::text as "group_properties!",
+                   group_type_index, group_key, group_properties::text as "group_properties?",
                    created_at,
                    properties_last_updated_at::text as "properties_last_updated_at?",
                    properties_last_operation::text as "properties_last_operation?",
@@ -56,6 +56,7 @@ impl GroupStorage for PostgresStorage {
         team_id: i64,
         identifiers: &[GroupIdentifier],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<Group>> {
         if identifiers.is_empty() {
             return Ok(Vec::new());
@@ -80,10 +81,11 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties::text as "group_properties!",
+                   g.group_type_index, g.group_key,
+                   CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as "group_properties?",
                    g.created_at,
-                   g.properties_last_updated_at::text as "properties_last_updated_at?",
-                   g.properties_last_operation::text as "properties_last_operation?",
+                   CASE WHEN $4::boolean THEN g.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $4::boolean THEN g.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    g.version
             FROM posthog_group g
             INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
@@ -92,7 +94,8 @@ impl GroupStorage for PostgresStorage {
             "#,
             team_id as i32,
             &group_type_indexes,
-            &group_keys
+            &group_keys,
+            include_properties
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -113,6 +116,7 @@ impl GroupStorage for PostgresStorage {
         &self,
         keys: &[GroupKey],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<(GroupKey, Group)>> {
         if keys.is_empty() {
             return Ok(Vec::new());
@@ -138,10 +142,11 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties::text as "group_properties!",
+                   g.group_type_index, g.group_key,
+                   CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as "group_properties?",
                    g.created_at,
-                   g.properties_last_updated_at::text as "properties_last_updated_at?",
-                   g.properties_last_operation::text as "properties_last_operation?",
+                   CASE WHEN $4::boolean THEN g.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $4::boolean THEN g.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    g.version
             FROM posthog_group g
             INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
@@ -149,7 +154,8 @@ impl GroupStorage for PostgresStorage {
             "#,
             &team_ids,
             &group_type_indexes,
-            &group_keys
+            &group_keys,
+            include_properties
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -443,6 +449,7 @@ impl GroupStorage for PostgresStorage {
         cursor_id: i64,
         limit: i32,
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<(Vec<Group>, bool)> {
         let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
@@ -475,10 +482,11 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties::text as "group_properties!",
+                   group_type_index, group_key,
+                   CASE WHEN $12::boolean THEN group_properties::text ELSE NULL END as "group_properties?",
                    created_at,
-                   properties_last_updated_at::text as "properties_last_updated_at?",
-                   properties_last_operation::text as "properties_last_operation?",
+                   CASE WHEN $12::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $12::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    version
             FROM posthog_group
             WHERE team_id = $1
@@ -500,6 +508,7 @@ impl GroupStorage for PostgresStorage {
             cursor_created_at,
             cursor_id,
             fetch_limit,
+            include_properties,
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -551,7 +560,7 @@ impl GroupStorage for PostgresStorage {
             INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties::text as "group_properties!",
+                      group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
                       properties_last_updated_at::text as "properties_last_updated_at?",
                       properties_last_operation::text as "properties_last_operation?",
@@ -604,7 +613,7 @@ impl GroupStorage for PostgresStorage {
                 version = version + 1
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties::text as "group_properties!",
+                      group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
                       properties_last_updated_at::text as "properties_last_updated_at?",
                       properties_last_operation::text as "properties_last_operation?",

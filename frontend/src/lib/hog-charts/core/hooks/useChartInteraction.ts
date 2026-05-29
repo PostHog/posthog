@@ -36,6 +36,10 @@ interface UseChartInteractionOptions<Meta> {
     resolvePositionValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
+    /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
+     *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
+     *  Chart-type adapters provide this; consumers do not. */
+    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
 interface UseChartInteractionResult<Meta> {
@@ -63,6 +67,7 @@ export function useChartInteraction<Meta = unknown>({
     resolvePositionValue,
     interactionAxis = 'x',
     labelToCoord,
+    wrapClickData,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     // Falls back to the value resolver when the chart doesn't distinguish position from
     // value (i.e. non-stacked charts, where the two are identical).
@@ -122,6 +127,7 @@ export function useChartInteraction<Meta = unknown>({
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the most
     // recent commit, so an effect-deferred ref is correct here.
     const hoverIndexRef = useLatest(hoverIndex)
+    const hoverPositionRef = useLatest(hoverPosition)
 
     // Precompute the (coord, index) lookup table once per (labels, scale) change.
     const labelPositions = useMemo(
@@ -216,12 +222,26 @@ export function useChartInteraction<Meta = unknown>({
         }
 
         if (onPointClick) {
-            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue)
+            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, hoverPositionRef.current)
             if (clickData) {
-                onPointClick(clickData)
+                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
             }
         }
-    }, [onPointClick, series, labels, resolveValue, pinnable, tooltipCtx, isPinned, clearTooltip, pin, hoverIndexRef])
+    }, [
+        onPointClick,
+        series,
+        labels,
+        resolveValue,
+        pinnable,
+        tooltipCtx,
+        isPinned,
+        clearTooltip,
+        pin,
+        hoverIndexRef,
+        hoverPositionRef,
+        wrapClickData,
+        scales,
+    ])
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 

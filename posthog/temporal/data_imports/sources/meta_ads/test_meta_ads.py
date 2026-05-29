@@ -6,11 +6,15 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsResumeConfig,
     _iter_simple_pagination,
     _iter_time_range_pagination,
+    _next_smaller_limit,
+    _override_limit,
     _strip_access_token,
 )
+from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 
 
 def _mock_response(status: int, body: dict) -> mock.MagicMock:
@@ -233,7 +237,7 @@ class TestTimeRangePagination:
         # Second request uses the stripped URL plus access_token via params (no duplicate token).
         assert (
             mock_get.return_value.get.call_args_list[1].args[0]
-            == "https://graph.facebook.com/v20/act_1/insights?after=abc"
+            == "https://graph.facebook.com/v20/act_1/insights?after=abc&limit=500"
         )
         assert mock_get.return_value.get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
 
@@ -342,7 +346,7 @@ class TestTimeRangePagination:
         # Two requests: the resumed mid-chunk URL, then nothing more to fetch within this chunk.
         # (There is a final "past end_date" save_state, but no additional HTTP call is made.)
         assert mock_get.return_value.get.call_count == 1
-        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_next
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_next + "&limit=500"
         # access_token is injected fresh — never served from the saved URL.
         assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
 
@@ -431,3 +435,237 @@ class TestTimeRangePagination:
         # The first successful request was for a 7-day chunk.
         tr = json.loads(mock_get.return_value.get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
+
+
+class TestOverrideLimit:
+    @pytest.mark.parametrize(
+        "url,limit,expected",
+        [
+            (
+                "https://graph.facebook.com/v20/x?after=abc",
+                100,
+                "https://graph.facebook.com/v20/x?after=abc&limit=100",
+            ),
+            (
+                # Existing limit is replaced (not duplicated).
+                "https://graph.facebook.com/v20/x?after=abc&limit=500",
+                50,
+                "https://graph.facebook.com/v20/x?after=abc&limit=50",
+            ),
+            (
+                "https://graph.facebook.com/v20/x?limit=500&after=abc",
+                100,
+                "https://graph.facebook.com/v20/x?after=abc&limit=100",
+            ),
+            (
+                "https://graph.facebook.com/v20/x",
+                100,
+                "https://graph.facebook.com/v20/x?limit=100",
+            ),
+        ],
+    )
+    def test_overrides(self, url: str, limit: int, expected: str) -> None:
+        assert _override_limit(url, limit) == expected
+
+
+class TestNextSmallerLimit:
+    @pytest.mark.parametrize(
+        "current,expected",
+        [
+            (500, 100),
+            (100, 50),
+            # Smallest rung — no further fallback available.
+            (50, None),
+            # Non-standard limit between rungs picks the largest rung below it.
+            (250, 100),
+            # Non-standard limit below the smallest rung — exhausted.
+            (10, None),
+            # Non-standard limit above the largest rung steps down to the largest rung.
+            (1000, 500),
+        ],
+    )
+    def test_step(self, current: int, expected: int | None) -> None:
+        assert _next_smaller_limit(current) == expected
+
+
+class TestMidChunkLimitFallback:
+    URL = "https://graph.facebook.com/v20/act_1/insights"
+    PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}
+
+    def test_mid_chunk_timeout_retries_with_smaller_limit_and_persists(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        responses = [
+            # Initial chunk request returns page 1 + a cursor.
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # Cursor request times out at the default limit.
+            _mock_response(500, timeout_body),
+            # Retry with smaller limit succeeds.
+            _mock_response(200, {"data": [{"ad_id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-04-21", "until": "2026-04-21"},
+                    None,
+                    manager,
+                )
+            )
+
+        assert batches == [[{"ad_id": "1"}], [{"ad_id": "2"}]]
+
+        # Initial request used the default 500 limit.
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
+        assert first_params["limit"] == 500
+        # Second request (the timeout one) used limit=500 on the cursor URL.
+        assert (
+            mock_get.return_value.get.call_args_list[1].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        )
+        # Retry uses the SAME cursor with limit reduced to the next rung (100).
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=100"
+        )
+
+        # The mid-chunk save (before the cursor request) recorded chunk_limit=None
+        # because the limit hadn't been shrunk yet at save time.
+        mid_chunk: MetaAdsResumeConfig = manager.save_state.call_args_list[0].args[0]
+        assert mid_chunk.chunk_next_url == "https://graph.facebook.com/v20/act_1/insights?after=p1"
+        assert mid_chunk.chunk_limit is None
+
+        # After retry succeeds and the chunk completes, the chunk-boundary save
+        # records the reduced limit (100) so future resumes inherit it.
+        final: MetaAdsResumeConfig = manager.save_state.call_args_list[-1].args[0]
+        assert final.chunk_limit == 100
+        assert final.chunk_next_url is None
+
+    def test_resume_honors_chunk_limit_for_mid_chunk_url(self) -> None:
+        saved_cursor = "https://graph.facebook.com/v20/act_1/insights?after=resume"
+        state = MetaAdsResumeConfig(
+            end_date="2026-04-21",
+            chunk_since="2026-04-21",
+            chunk_size_days=1,
+            chunk_next_url=saved_cursor,
+            chunk_limit=50,
+        )
+        manager = _build_manager(can_resume=True, state=state)
+        responses = [_mock_response(200, {"data": [{"ad_id": "x"}], "paging": {}})]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, state, manager
+                )
+            )
+
+        # The resumed cursor was reissued with the persisted limit (50), not the default 500.
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_cursor + "&limit=50"
+
+    def test_resume_honors_chunk_limit_for_initial_chunk_request(self) -> None:
+        # When resume state has chunk_limit but no chunk_next_url, the fresh
+        # initial chunk request must also use the reduced limit.
+        state = MetaAdsResumeConfig(
+            end_date="2026-04-21",
+            chunk_since="2026-04-21",
+            chunk_size_days=1,
+            chunk_next_url=None,
+            chunk_limit=100,
+        )
+        manager = _build_manager(can_resume=True, state=state)
+        responses = [_mock_response(200, {"data": [{"ad_id": "y"}], "paging": {}})]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, state, manager
+                )
+            )
+
+        sent_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
+        assert sent_params["limit"] == 100
+
+    def test_exhausting_limit_ladder_raises(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        responses = [
+            # Initial chunk: page 1 + cursor.
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # All limits in PAGE_LIMIT_FALLBACK_SIZES time out.
+            *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            gen = _iter_time_range_pagination(
+                self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+            )
+            # Drain the first batch (which succeeds), then expect the failure.
+            assert next(gen) == [{"ad_id": "1"}]
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(gen)
+
+    def test_non_timeout_mid_chunk_error_does_not_retry(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            _mock_response(401, {"error": {"message": "Invalid OAuth access token", "code": 190}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            gen = _iter_time_range_pagination(
+                self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+            )
+            assert next(gen) == [{"ad_id": "1"}]
+            with pytest.raises(Exception, match="Meta API request failed: 401"):
+                list(gen)
+
+        # Exactly two requests: initial + the failed cursor. No retry happened.
+        assert mock_get.return_value.get.call_count == 2
+
+
+class TestNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            # Token refresh failure raised by get_integration.
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
+            # 400 from Meta when the ad account no longer belongs to the authorised user.
+            'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
+            # 400 when a specific endpoint cannot be accessed with the granted permissions.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 500 when Meta's backend refuses to service the query even after adaptive
+            # chunking has shrunk the window to its smallest size.
+            'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+        ],
+    )
+    def test_errors_match_pattern(self, error_message: str) -> None:
+        patterns = MetaAdsSource().get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
+        )
