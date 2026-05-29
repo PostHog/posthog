@@ -127,6 +127,8 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
 
         assert "AI summary skipped" in mocked_email_messages[0].html_body
         assert "AI credit usage limit" in mocked_email_messages[0].html_body
+        # The notice links straight to the billing page so the user can lift the limit.
+        assert "/organization/billing" in mocked_email_messages[0].html_body
 
     def test_no_summary_skipped_notice_when_summary_present(self, MockEmailMessage: MagicMock) -> None:
         # A generated summary renders instead of the skip notice — never both.

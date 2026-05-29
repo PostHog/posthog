@@ -106,6 +106,7 @@ def send_email_subscription_report(
             "total_asset_count": total_asset_count,
             "change_summary": change_summary,
             "summary_skipped_over_budget": summary_skipped_over_budget,
+            "billing_url": absolute_uri(f"/organization/billing?{utm_tags}"),
         },
     )
     message.add_recipient(email=email)

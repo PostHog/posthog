@@ -11,6 +11,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
+from posthog.utils import absolute_uri
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
@@ -168,6 +169,18 @@ def _prepare_slack_message(
     elif summary_skipped_over_budget:
         blocks.append(
             {"type": "context", "elements": [{"type": "mrkdwn", "text": SUMMARY_SKIPPED_OVER_BUDGET_MESSAGE}]}
+        )
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Manage AI credit limit"},
+                        "url": f"{absolute_uri('/organization/billing')}?{utm_tags}",
+                    }
+                ],
+            }
         )
 
     blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
