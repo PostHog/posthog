@@ -1993,7 +1993,7 @@ def list_recordings_from_query(
             # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
             # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
             session_ids_to_exclude: list[str] = []
-            if not query_for_list.session_ids:
+            if query_for_list.session_ids is None:
                 with timer("load_viewed_recordings_to_exclude"):
                     session_ids_to_exclude = _viewed_session_ids_to_exclude(
                         query_for_list.hide_viewed_recordings, user, team
@@ -2105,6 +2105,12 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
     return viewed_session_recordings
 
 
+# The exclusion list is inlined into the ClickHouse query, so an unbounded set (e.g. a large team in
+# 'any-user' mode) could exceed max_query_size and make the query fail or run slowly. Cap it; the
+# client-side filter still hides any viewed recordings beyond the cap.
+MAX_VIEWED_SESSION_IDS_TO_EXCLUDE = 10_000
+
+
 def _viewed_session_ids_to_exclude(
     hide_viewed_recordings: HideViewedRecordings | None, user: User | None, team: Team
 ) -> list[str]:
@@ -2117,16 +2123,22 @@ def _viewed_session_ids_to_exclude(
 
     Not bounded by date: SessionRecordingViewed only stores the view time (created_at), which does not
     correspond to the recording's start_time, so a date bound would exclude/include the wrong rows.
+    Bounded by count: see MAX_VIEWED_SESSION_IDS_TO_EXCLUDE. Ordered by session_id so the truncation
+    is deterministic across paginated requests rather than returning an arbitrary slice each time.
     """
+    queryset = SessionRecordingViewed.objects.filter(team=team)
     if hide_viewed_recordings == HideViewedRecordings.CURRENT_USER:
         if not user:
             return []
-        return list(SessionRecordingViewed.objects.filter(team=team, user=user).values_list("session_id", flat=True))
+        queryset = queryset.filter(user=user)
+    elif hide_viewed_recordings != HideViewedRecordings.ANY_USER:
+        return []
 
-    if hide_viewed_recordings == HideViewedRecordings.ANY_USER:
-        return list(SessionRecordingViewed.objects.filter(team=team).values_list("session_id", flat=True).distinct())
-
-    return []
+    return list(
+        queryset.values_list("session_id", flat=True)
+        .distinct()
+        .order_by("session_id")[:MAX_VIEWED_SESSION_IDS_TO_EXCLUDE]
+    )
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:
