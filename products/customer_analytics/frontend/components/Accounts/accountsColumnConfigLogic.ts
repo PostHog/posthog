@@ -15,24 +15,22 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
 
-// Columns aliased into the `context.columns.X` namespace are always included in the
-// SELECT — the table cell renderers depend on them for row identity (id) and the
-// external_id display in the Account cell, but they're hidden from the visible
-// columns via QueryContextColumn.hidden = true.
-export const ACCOUNTS_HOGQL_PINNED_SELECT: string[] = [
-    'id AS `context.columns.id`',
-    'external_id AS `context.columns.external_id`',
-]
+// Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
+// row identity (id) and copy-able external_id ride along with the display name.
+export const ACCOUNTS_NAME_COLUMN = 'name'
 
-// User-configurable defaults — the shape the table ships with out of the box.
 export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
-    'name',
+    ACCOUNTS_NAME_COLUMN,
     'accounts.tags.names AS tag_names',
     'accounts.notebooks.count AS notebook_count',
     'csm',
     'account_executive',
     'account_owner',
 ]
+
+function ensureNameColumn(columns: string[]): string[] {
+    return columns.includes(ACCOUNTS_NAME_COLUMN) ? columns : [ACCOUNTS_NAME_COLUMN, ...columns]
+}
 
 export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
 
@@ -193,9 +191,10 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         selectColumns: [
             [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
             {
-                setSelectColumns: (_, { columns }) => columns,
+                setSelectColumns: (_, { columns }) => ensureNameColumn(columns),
                 selectColumn: (state, { column }) => (state.includes(column) ? state : [...state, column]),
-                unselectColumn: (state, { column }) => state.filter((c) => c !== column),
+                unselectColumn: (state, { column }) =>
+                    column === ACCOUNTS_NAME_COLUMN ? state : state.filter((c) => c !== column),
                 moveColumn: (state, { oldIndex, newIndex }) => {
                     if (oldIndex === newIndex || oldIndex < 0 || oldIndex >= state.length) {
                         return state
@@ -207,7 +206,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 },
                 resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
                 loadSavedColumnConfigurationSuccess: (state, { savedColumnConfiguration }) =>
-                    savedColumnConfiguration ? savedColumnConfiguration.columns : state,
+                    savedColumnConfiguration ? ensureNameColumn(savedColumnConfiguration.columns) : state,
             },
         ],
         columnConfiguratorVisible: [

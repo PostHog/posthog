@@ -15,7 +15,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 
-import { AccountColumnGroup, AccountColumnGroupKey, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import {
+    ACCOUNTS_NAME_COLUMN,
+    AccountColumnGroup,
+    AccountColumnGroupKey,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
 
 const HOGQL_DOCS_URL = 'https://posthog.com/docs/hogql'
 
@@ -135,6 +140,9 @@ function SelectedAccountColumn({
 }): JSX.Element {
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const label = extractDisplayLabel(column)
+    // `name` carries the row identity (account id) and external_id for the
+    // Account cell — removing it would break row expansion and role updates.
+    const isMandatory = column === ACCOUNTS_NAME_COLUMN
 
     return (
         <div
@@ -151,13 +159,20 @@ function SelectedAccountColumn({
                     {label}
                 </span>
                 <div className="flex-1" />
-                <Tooltip title="Edit">
-                    <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
-                        <IconPencil data-attr="column-display-item-edit-icon" />
-                    </LemonButton>
-                </Tooltip>
-                <Tooltip title="Remove">
-                    <LemonButton onClick={() => onRemove(column)} status="danger" size="small">
+                {isMandatory ? null : (
+                    <Tooltip title="Edit">
+                        <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
+                            <IconPencil data-attr="column-display-item-edit-icon" />
+                        </LemonButton>
+                    </Tooltip>
+                )}
+                <Tooltip title={isMandatory ? 'This column is required' : 'Remove'}>
+                    <LemonButton
+                        onClick={() => onRemove(column)}
+                        status="danger"
+                        size="small"
+                        disabledReason={isMandatory ? 'This column is required' : undefined}
+                    >
                         <IconX data-attr="column-display-item-remove-icon" />
                     </LemonButton>
                 </Tooltip>

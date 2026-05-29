@@ -9,6 +9,11 @@ import type { UserBasicType } from '~/types'
 import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import {
+    ACCOUNTS_HOGQL_DEFAULT_SELECT,
+    ACCOUNTS_NAME_COLUMN,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
 import { ACCOUNTS_PAGE_SIZE, accountsLogic, savingRoleKey } from './accountsLogic'
 
 // `hogqlQuery.source` is typed as the full DataTableNode source union; this logic
@@ -241,6 +246,38 @@ describe('accountsLogic', () => {
             logic.actions.setCurrentPage(3)
             logic.actions.toggleSort('notebook_count')
             await expectLogic(logic).toMatchValues({ currentPage: 1 })
+        })
+    })
+
+    describe('selectColumns', () => {
+        it('starts with the default select and includes the mandatory name column', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            expect(config?.values.selectColumns).toEqual(ACCOUNTS_HOGQL_DEFAULT_SELECT)
+            expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
+        })
+
+        it('hogqlQuery.source.select equals selectColumns verbatim — no pinned aliases', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(source.select).toEqual(config?.values.selectColumns)
+        })
+
+        it('refuses to remove the name column via unselectColumn', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.unselectColumn(ACCOUNTS_NAME_COLUMN)
+            expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
+        })
+
+        it('re-inserts the name column when setSelectColumns omits it', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.setSelectColumns(['csm', 'account_executive'])
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm', 'account_executive'])
+        })
+
+        it('keeps user ordering when setSelectColumns already contains name', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.setSelectColumns(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
+            expect(config?.values.selectColumns).toEqual(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
         })
     })
 
