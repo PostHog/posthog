@@ -30,10 +30,7 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import {
-    hasPinnedContext,
-    taxonomicFilterPinnedPropertiesLogic,
-} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -54,6 +51,7 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     getEventDefinitionIcon,
@@ -108,6 +106,7 @@ import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/h
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { InlineHogQLEditor } from './InlineHogQLEditor'
+import { RECENT_PINNED_TAB_DEFINITIONS } from './recentPinnedTabDefinitions'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
@@ -375,6 +374,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             items,
         }),
         openRevealBarrier: true,
+        setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
     })),
     reducers(({ props, selectors }) => ({
         searchQuery: [
@@ -454,6 +454,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             {
                 setSearchQuery: (_, { searchQuery }: { searchQuery: string }) => !(searchQuery ?? '').trim(),
                 openRevealBarrier: () => true,
+            },
+        ],
+        includeStaleEvents: [
+            // Per-session opt-in to surface event definitions whose last ingested occurrence
+            // is older than STALE_EVENT_DAYS. Resets back to false on every fresh search so
+            // the user re-opts in deliberately rather than carrying stale results across
+            // unrelated queries.
+            false,
+            {
+                setIncludeStaleEvents: (_, { includeStaleEvents }: { includeStaleEvents: boolean }) =>
+                    includeStaleEvents,
+                setSearchQuery: () => false,
+                setActiveTab: () => false,
             },
         ],
     })),
@@ -907,7 +920,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                         o.value
                                     )
                             ),
-                        getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+                        getIcon: getRevenueAnalyticsDefinitionIcon,
                         getName: (option: PropertyDefinition) => {
                             const coreDefinition = getCoreFilterDefinition(
                                 option.id,
@@ -1260,28 +1273,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
                         ),
                         getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
-                        localItemsSearch: (
-                            items: TaxonomicDefinitionTypes[],
-                            query: string
-                        ): TaxonomicDefinitionTypes[] => {
-                            // Note: This function doesn't have direct access to the current value
-                            // The actual filtering logic needs to be implemented in the infinite list logic
-                            // For now, just handle search filtering
+                        localItemsSearch: (items, query) => {
                             if (!query) {
                                 return items
                             }
-
-                            return items.filter((item: TaxonomicDefinitionTypes) => {
-                                // Type guard for FeatureFlagType
-                                if ('key' in item && 'name' in item) {
-                                    const flag = item as unknown as FeatureFlagType
-                                    return (flag.key || flag.name || '').toLowerCase().includes(query.toLowerCase())
-                                }
-                                // For other types, check if they have a name property
-                                if ('name' in item) {
-                                    return (item.name || '').toLowerCase().includes(query.toLowerCase())
-                                }
-                                return true
+                            return items.filter((item) => {
+                                const flag = item as unknown as FeatureFlagType
+                                return (flag.key || flag.name || '').toLowerCase().includes(query.toLowerCase())
                             })
                         },
                         excludedProperties:
@@ -1447,32 +1445,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             'name' in item ? (item.name ?? null) : null,
                         getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
                     },
-                    {
-                        name: 'Recent',
-                        searchPlaceholder: 'recent',
-                        type: TaxonomicFilterGroupType.RecentFilters,
-                        isLocalOnly: true,
-                        isMetaGroup: true,
-                        logic: recentTaxonomicFiltersLogic,
-                        value: 'recentFilterItems',
-                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                            'name' in item ? (item.name ?? null) : null,
-                        getPopoverHeader: () => 'Recent',
-                    } as TaxonomicFilterGroup,
-                    {
-                        name: 'Pinned',
-                        searchPlaceholder: 'pinned',
-                        type: TaxonomicFilterGroupType.PinnedFilters,
-                        isLocalOnly: true,
-                        isMetaGroup: true,
-                        logic: taxonomicFilterPinnedPropertiesLogic,
-                        value: 'pinnedFilterItems',
-                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                            'name' in item ? (item.name ?? null) : null,
-                        getPopoverHeader: () => 'Pinned',
-                    } as TaxonomicFilterGroup,
+                    ...RECENT_PINNED_TAB_DEFINITIONS,
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
@@ -1803,6 +1776,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
 
+                const isEventTab =
+                    sourceGroupType === TaxonomicFilterGroupType.Events ||
+                    sourceGroupType === TaxonomicFilterGroupType.CustomEvents
+                const wasStale =
+                    isEventTab && item && typeof item === 'object' && 'last_seen_at' in item
+                        ? isDefinitionStale(item)
+                        : undefined
+
                 posthog.capture('taxonomic filter item selected', {
                     groupType: values.activeTab,
                     sourceGroupType,
@@ -1812,6 +1793,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,
+                    wasStale,
                     ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
@@ -1960,8 +1942,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType: activeTaxonomicGroup?.type,
                     inputMode,
                     pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
+                    excludeStale: !values.includeStaleEvents,
                 })
             }
+        },
+
+        setIncludeStaleEvents: ({ includeStaleEvents }) => {
+            posthog.capture('taxonomic filter include stale toggled', {
+                includeStaleEvents,
+                groupType: values.activeTab,
+                searchQuery: values.searchQuery || undefined,
+            })
         },
 
         infiniteListResultsReceived: async ({ groupType, results }, breakpoint) => {

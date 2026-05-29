@@ -185,6 +185,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 'taxonomicGroupTypes',
                 'topMatchItemsWithSkeletons',
                 'anyGroupLoading',
+                'includeStaleEvents',
             ],
             teamLogic,
             ['currentTeamId'],
@@ -195,7 +196,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         actions: [
             taxonomicFilterLogic(props),
-            ['setSearchQuery', 'setActiveTab', 'selectItem', 'infiniteListResultsReceived'],
+            ['setSearchQuery', 'setActiveTab', 'selectItem', 'infiniteListResultsReceived', 'setIncludeStaleEvents'],
         ],
     })),
     actions({
@@ -248,6 +249,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         return createEmptyListStorage(searchQuery)
                     }
 
+                    const eventsTab =
+                        listGroupType === TaxonomicFilterGroupType.Events ||
+                        listGroupType === TaxonomicFilterGroupType.CustomEvents
                     const searchParams = {
                         [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
@@ -261,6 +265,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
                         // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
+                        ...(eventsTab && !values.includeStaleEvents ? { exclude_stale: 'true' } : {}),
                     }
 
                     const start = performance.now()
@@ -1031,6 +1036,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (props.listGroupType !== TaxonomicFilterGroupType.SuggestedFilters) {
                     actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
                 }
+            }
+        },
+        setIncludeStaleEvents: () => {
+            const affectsThisTab =
+                props.listGroupType === TaxonomicFilterGroupType.Events ||
+                props.listGroupType === TaxonomicFilterGroupType.CustomEvents
+            if (affectsThisTab && values.hasRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
             }
         },
         togglePinnedRow: ({ rowIndex }) => {

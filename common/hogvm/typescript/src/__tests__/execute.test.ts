@@ -102,6 +102,11 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'bla', op.CALL_GLOBAL, 'toFloat', 1], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'asd', op.CALL_GLOBAL, 'toUUID', 1], options)).toBe('asd')
 
+        const r = execSync(['_h', op.CALL_GLOBAL, 'randomFloat', 0], options) as number
+        expect(typeof r).toBe('number')
+        expect(r).toBeGreaterThanOrEqual(0)
+        expect(r).toBeLessThan(1)
+
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.EQ], options)).toBe(false)
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
     })

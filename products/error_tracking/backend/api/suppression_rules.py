@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
-from .utils import RuleReorderingMixin, generate_byte_code, generate_match_all_bytecode
+from .utils import RuleReorderingMixin, generate_byte_code, generate_match_all_bytecode, has_filter_values
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +36,7 @@ class ErrorTrackingSuppressionRuleFiltersField(serializers.JSONField):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Expected an object.")
 
-        if _has_filter_values(value):
+        if has_filter_values(value):
             try:
                 PropertyGroupFilterValue(**value)
             except (PydanticValidationError, TypeError) as err:
@@ -102,7 +102,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         json_filters = request.validated_data.get("filters")
 
         if json_filters is not None:
-            if _has_filter_values(json_filters):
+            if has_filter_values(json_filters):
                 parsed_filters = PropertyGroupFilterValue(**json_filters)
                 suppression_rule.filters = json_filters
                 suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
@@ -158,7 +158,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         if json_filters is None:
             json_filters = {"type": "AND", "values": []}
 
-        if _has_filter_values(json_filters):
+        if has_filter_values(json_filters):
             bytecode = generate_byte_code(self.team, PropertyGroupFilterValue(**json_filters))
         else:
             bytecode = generate_match_all_bytecode()
@@ -180,15 +180,6 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
         serializer = ErrorTrackingSuppressionRuleSerializer(suppression_rule)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-def _has_filter_values(json_filters: dict) -> bool:
-    """Check whether a filter dict contains any actual filter values."""
-    values = json_filters.get("values", [])
-    if not values:
-        return False
-    # Check nested groups (the outer group wraps inner groups with actual filters)
-    return any(v.get("values") or "key" in v for v in values)
 
 
 # Properties that require server-side symbol resolution to have meaningful

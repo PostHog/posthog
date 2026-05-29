@@ -73,6 +73,7 @@ from products.data_warehouse.backend.data_load.create_table import create_table_
 from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
+from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
@@ -355,6 +356,8 @@ async def handle_model_ready(
 
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
+            if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+                await database_sync_to_async(prepare_executable_query)(saved_query)
 
             await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(

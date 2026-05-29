@@ -3,6 +3,9 @@ import * as d3 from 'd3'
 import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
+/** Inner padding fraction applied to the band scale when `BarChartConfig.bandPadding` is unset. */
+export const DEFAULT_BAND_PADDING = 0.2
+
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
 
 export interface ScaleSet {
@@ -193,8 +196,9 @@ export interface StackedBand {
 function buildStackData(
     series: Series[],
     labels: string[],
-    offset?: typeof d3.stackOffsetNone
+    options: { offset?: typeof d3.stackOffsetNone; allowNegative?: boolean } = {}
 ): Map<string, StackedBand> {
+    const { offset, allowNegative = false } = options
     const visibleSeries = series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
     if (visibleSeries.length === 0) {
         return new Map()
@@ -217,7 +221,8 @@ function buildStackData(
         const tableData = labels.map((_, i) => {
             const row: Record<string, number> = {}
             for (const s of axisSeries) {
-                row[s.key] = Math.max(0, s.data[i] ?? 0)
+                const raw = s.data[i] ?? 0
+                row[s.key] = allowNegative ? raw : Math.max(0, raw)
             }
             return row
         })
@@ -245,7 +250,14 @@ export function computeStackData(series: Series[], labels: string[]): Map<string
 }
 
 export function computePercentStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
-    return buildStackData(series, labels, d3.stackOffsetExpand)
+    return buildStackData(series, labels, { offset: d3.stackOffsetExpand })
+}
+
+/** Stack that preserves negative segments — positives accumulate upward from 0, negatives
+ *  downward from 0 (d3.stackOffsetDiverging). Used by Lifecycle, where `dormant` is emitted
+ *  as a negative series so it renders below the zero baseline. */
+export function computeDivergingStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
+    return buildStackData(series, labels, { offset: d3.stackOffsetDiverging, allowNegative: true })
 }
 
 /** Returns the stacked top of each series so the tooltip anchor and value-label position
@@ -310,28 +322,30 @@ export function createBarScales(
         bandPadding?: number
         groupPadding?: number
         stackedSeries?: Series[]
+        /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
+        maxBandRange?: number
     } = {}
 ): BarScaleSet {
     const {
         scaleType = 'linear',
         barLayout = 'stacked',
         axisOrientation = 'vertical',
-        bandPadding = 0.2,
+        bandPadding = DEFAULT_BAND_PADDING,
         groupPadding = 0.1,
         stackedSeries,
+        maxBandRange,
     } = options
 
     const isHorizontal = axisOrientation === 'horizontal'
     const tickCount = yTickCountForHeight(isHorizontal ? dimensions.plotWidth : dimensions.plotHeight)
 
+    const bandAxisStart = isHorizontal ? dimensions.plotTop : dimensions.plotLeft
+    const bandAxisExtent = isHorizontal ? dimensions.plotHeight : dimensions.plotWidth
+    const cappedExtent = maxBandRange != null ? Math.min(bandAxisExtent, maxBandRange) : bandAxisExtent
     const band = d3
         .scaleBand<string>()
         .domain(labels)
-        .range(
-            isHorizontal
-                ? [dimensions.plotTop, dimensions.plotTop + dimensions.plotHeight]
-                : [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
-        )
+        .range([bandAxisStart, bandAxisStart + cappedExtent])
         .paddingInner(bandPadding)
         .paddingOuter(bandPadding / 2)
 

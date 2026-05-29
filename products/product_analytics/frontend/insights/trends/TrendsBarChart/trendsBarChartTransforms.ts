@@ -1,4 +1,5 @@
 import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
+import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
 import { hexToRGBA } from 'lib/utils'
 import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
 
@@ -18,6 +19,8 @@ export interface TrendsBarResultLike {
     compare?: boolean
     compare_label?: string | null
     action?: { order?: number } | null
+    // Formula rows carry a top-level `order` instead of `action.order`.
+    order?: number | null
     breakdown_value?: unknown
     filter?: unknown
 }
@@ -64,6 +67,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     interval?: IntervalType | null
     timezone?: string
     allDays?: string[]
+    xAxisLabel?: string | null
+    yAxisLabel?: string | null
     goalLines?: SchemaGoalLine[] | null
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
@@ -77,11 +82,15 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {
         xAxis: {
+            label: normalizeAxisLabel(opts.xAxisLabel),
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
         },
-        yAxis,
+        yAxis: {
+            ...yAxis,
+            label: normalizeAxisLabel(opts.yAxisLabel),
+        },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         barLayout: opts.isPercentStackView ? 'percent' : opts.isGrouped ? 'grouped' : 'stacked',
@@ -89,20 +98,28 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     }
 }
 
+/** Separator between display label and series id in synthetic band keys. */
+const BAND_KEY_SEP = '\u001f'
+
 // Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with
 // data=0 except at their own band — d3.stack reduces this to one visible segment per band.
 // Trade-off: only the last series gets rounded-corner caps.
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
-): { series: Series<M>[]; labels: string[] } {
+): { series: Series<M>[]; labels: string[]; displayLabels: string[] } {
     // Hidden results are dropped entirely — keeping them as `excluded` series would leave
     // a phantom band on the category axis with no bar.
     const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
-    // d3.scaleBand collapses duplicate domain entries — suffix compare rows so each gets its own band.
-    const labels = visible.map((r) => {
+    const displayLabels = visible.map((r) => {
         const base = r.label ?? ''
         return r.compare_label ? `${base} - ${r.compare_label}` : base
+    })
+    // Suffix the band key with the series identity so duplicate display labels from
+    // different series get distinct bands (breakdowns of one series still share a band).
+    const labels = visible.map((r, i) => {
+        const seriesId = r.action?.order ?? r.order ?? 0
+        return `${displayLabels[i]}${BAND_KEY_SEP}${seriesId}`
     })
     const n = visible.length
     const series = visible.map((r, index) => {
@@ -113,5 +130,5 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
         }
         return buildMainTrendsBarSeries(r, index, opts, data)
     })
-    return { series, labels }
+    return { series, labels, displayLabels }
 }
