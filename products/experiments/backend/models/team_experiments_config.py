@@ -84,5 +84,25 @@ class TeamExperimentsConfig(models.Model):
         ),
     )
 
+    default_sequential_testing_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Default for enabling sequential testing (always-valid p-values) on new experiments. "
+            "Overridden by the experiment-level `stats_config.frequentist.sequential_testing_enabled` "
+            "setting when set. Only applies to the frequentist statistical method."
+        ),
+    )
+
+    default_sequential_tuning_parameter = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text=(
+            "Default tuning parameter for sequential testing. Roughly the sample size at which the "
+            "confidence sequence is tightest. Overridden by the experiment-level "
+            "`stats_config.frequentist.sequential_tuning_parameter` setting when set."
+        ),
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)

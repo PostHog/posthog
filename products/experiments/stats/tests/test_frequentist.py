@@ -1,10 +1,22 @@
+import math
 from typing import Any, cast
 
 from unittest import TestCase
 
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
+from products.experiments.stats.frequentist.tests import SequentialTwoSidedTTest
+from products.experiments.stats.frequentist.utils import (
+    sequential_interval_halfwidth,
+    sequential_p_value,
+    sequential_rho,
+)
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
+from products.experiments.stats.shared.statistics import (
+    ProportionStatistic,
+    RatioStatistic,
+    SampleMeanStatistic,
+    StatisticError,
+)
 
 
 def create_test_result_dict(result: Any) -> dict[str, Any]:
@@ -149,3 +161,113 @@ class TestTwoSidedTTest(TestCase):
         expected_uplift = get_expected_uplift(expected_dict)
         self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
         self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
+
+
+class TestSequentialMath(TestCase):
+    """Unit tests for the sequential testing primitives (rho, half-width, p-value)."""
+
+    def test_sequential_rho_matches_formula(self):
+        alpha = 0.05
+        n_tuning = 5000.0
+        rho = sequential_rho(alpha, n_tuning)
+        log_alpha = math.log(alpha)
+        expected = math.sqrt((-2 * log_alpha + math.log(-2 * log_alpha + 1)) / n_tuning)
+        self.assertAlmostEqual(rho, expected, places=10)
+
+    def test_sequential_rho_rejects_invalid_alpha(self):
+        with self.assertRaises(StatisticError):
+            sequential_rho(0.0, 5000)
+        with self.assertRaises(StatisticError):
+            sequential_rho(1.0, 5000)
+
+    def test_sequential_rho_rejects_nonpositive_tuning_parameter(self):
+        with self.assertRaises(StatisticError):
+            sequential_rho(0.05, 0)
+        with self.assertRaises(StatisticError):
+            sequential_rho(0.05, -1)
+
+    def test_sequential_halfwidth_wider_than_fixed_horizon(self):
+        # Per-observation variance sigma^2 = 1, total n = 5000.
+        # Fixed-horizon halfwidth (1.96 * SE) uses SE = sqrt(sigma^2/n).
+        s2 = 1.0
+        n = 5000
+        alpha = 0.05
+        seq_halfwidth = sequential_interval_halfwidth(s2, n, 5000, alpha)
+        fixed_halfwidth = 1.96 * math.sqrt(s2 / n)
+        self.assertGreater(seq_halfwidth, fixed_halfwidth)
+
+    def test_sequential_p_value_clamps_to_one_with_small_n(self):
+        # Tiny effect, tiny n: e-value < 1 so p-value clamps to 1.
+        p = sequential_p_value(
+            point_estimate=0.01,
+            pooled_variance=1.0,
+            n=10,
+            sequential_tuning_parameter=5000,
+            alpha=0.05,
+        )
+        self.assertEqual(p, 1.0)
+
+    def test_sequential_p_value_drops_with_strong_evidence(self):
+        # Strong, well-powered effect should produce a small always-valid p-value.
+        # SE^2 = 0.0001 (so SE = 0.01) means a 0.5 effect is ~50 standard errors out.
+        p_strong = sequential_p_value(
+            point_estimate=0.5,
+            pooled_variance=0.0001,
+            n=10000,
+            sequential_tuning_parameter=5000,
+            alpha=0.05,
+        )
+        self.assertLess(p_strong, 0.05)
+
+
+class TestSequentialTwoSidedTTest(TestCase):
+    """End-to-end behavior of SequentialTwoSidedTTest via FrequentistMethod."""
+
+    def test_sequential_ci_is_wider_than_fixed_horizon_ci(self):
+        from products.experiments.stats.frequentist.method import TestType
+
+        stat_a = SampleMeanStatistic(sum=1922.7, sum_squares=94698.29, n=2461)
+        stat_b = SampleMeanStatistic(sum=1196.87, sum_squares=37377.9767, n=2507)
+
+        config_fixed = FrequentistConfig(
+            alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE
+        )
+        config_seq = FrequentistConfig(
+            alpha=0.05,
+            test_type=TestType.TWO_SIDED,
+            difference_type=DifferenceType.RELATIVE,
+            sequential_testing_enabled=True,
+            sequential_tuning_parameter=5000,
+        )
+
+        fixed_result = FrequentistMethod(config_fixed).run_test(stat_a, stat_b)
+        seq_result = FrequentistMethod(config_seq).run_test(stat_a, stat_b)
+
+        fixed_width = fixed_result.confidence_interval[1] - fixed_result.confidence_interval[0]
+        seq_width = seq_result.confidence_interval[1] - seq_result.confidence_interval[0]
+
+        self.assertGreater(seq_width, fixed_width)
+        self.assertAlmostEqual(seq_result.point_estimate, fixed_result.point_estimate, places=6)
+        self.assertEqual(seq_result.test_type, "sequential_two_sided")
+        self.assertTrue(math.isnan(seq_result.degrees_of_freedom))
+
+    def test_sequential_p_value_with_zero_effect_returns_one(self):
+        from products.experiments.stats.frequentist.method import TestType
+
+        stat_a = ProportionStatistic(sum=100, n=2000)
+        stat_b = ProportionStatistic(sum=100, n=2000)
+
+        config = FrequentistConfig(
+            alpha=0.05,
+            test_type=TestType.TWO_SIDED,
+            difference_type=DifferenceType.ABSOLUTE,
+            sequential_testing_enabled=True,
+            sequential_tuning_parameter=5000,
+        )
+        result = FrequentistMethod(config).run_test(stat_a, stat_b)
+        self.assertEqual(result.p_value, 1.0)
+        self.assertFalse(result.is_significant)
+
+    def test_invalid_tuning_parameter_raises(self):
+        with self.assertRaises(StatisticError):
+            SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=0)

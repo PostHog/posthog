@@ -498,6 +498,8 @@ class ExperimentQueryRunner(QueryRunner):
                 test_variants=test_variants,
                 stats_config=self.experiment.stats_config,
                 cuped_config=self.cuped_config,
+                team_default_sequential_testing_enabled=self._team_experiments_config.default_sequential_testing_enabled,
+                team_default_sequential_tuning_parameter=self._team_experiments_config.default_sequential_tuning_parameter,
             )
 
         return get_bayesian_experiment_result(
