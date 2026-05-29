@@ -48,6 +48,7 @@ from posthog.temporal.data_imports.sources.common.base import AnySource, Externa
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -607,8 +608,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
-        # Explicit cast: Mock attribute access returns a Mock that orjson can't serialize.
-        return bool(getattr(source, "supports_column_selection", False))
+        # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
+        return bool(source.supports_column_selection)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1252,34 +1253,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
-                get_postgres_source_table_location(
-                    schema_name=schema_name,
-                    source_schema=source_schema,
-                    default_schema=default_source_schema,
+
+            metadata_source_catalog: str | None
+            metadata_source_schema: str | None
+            metadata_source_table_name: str | None
+            if source_type_model == ExternalDataSourceType.POSTGRES:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_postgres_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                    )
                 )
-            )
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_postgres_source_location(
-                schema_name=schema_name,
-                schema_metadata={
-                    "source_catalog": source_schema.source_catalog if source_schema else None,
-                    "source_schema": source_schema.source_schema if source_schema else None,
-                    "source_table_name": source_schema.source_table_name if source_schema else None,
-                },
-                default_schema=default_source_schema,
-            )
-            # Postgres writes here so direct-mode `DataWarehouseTable` and the column picker have
-            # data immediately. Non-Postgres sources populate via `reconcile_schema_metadata` on
-            # the next `refresh_schemas` run.
+            else:
+                metadata_source_catalog = source_schema.source_catalog if source_schema else None
+                metadata_source_schema = source_schema.source_schema if source_schema else None
+                metadata_source_table_name = source_schema.source_table_name if source_schema else None
+
             schema_metadata = (
                 sql_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
+                    source_catalog=metadata_source_catalog,
+                    source_schema=metadata_source_schema,
+                    source_table_name=metadata_source_table_name,
                 )
-                if source_type_model == ExternalDataSourceType.POSTGRES
+                if source.supports_column_selection
                 else {}
             )
 
@@ -1330,15 +1329,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 enabled_columns=enabled_columns,
             )
 
-            # For CDC schemas with PostHog-managed mode, add table to publication
+            # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`
+            # guarantees non-None schema/table in that branch above. `cast` narrows for mypy
+            # without a runtime check.
             if is_cdc_schema and should_sync and cdc_enabled:
                 cdc_config = PostgresCDCConfig.from_source(new_source_model)
                 if cdc_config.management_mode == "posthog" and cdc_config.publication_name:
                     self._add_table_to_cdc_publication(
                         new_source_model,
                         cdc_config.publication_name,
-                        resolved_source_schema,
-                        resolved_source_table_name,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
                     )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -1355,9 +1356,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
                     ),
-                    source_catalog=resolved_source_catalog,
-                    source_schema=resolved_source_schema,
-                    source_table_name=resolved_source_table_name,
+                    source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
                 )
                 schema_model.save(update_fields=["table"])
 
@@ -1770,7 +1771,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Direct call (not via hook): tests that mock `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
@@ -1779,6 +1779,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif isinstance(source, SQLSource) and source.supports_column_selection:
+                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
@@ -2067,12 +2069,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
         sources = SourceRegistry.get_all_sources()
-        configs = {name: source.get_source_config for name, source in sources.items()}
+        results = {}
+        for source_type, source in sources.items():
+            config = source.get_source_config.model_dump()
+            config["supportsColumnSelection"] = bool(source.supports_column_selection)
+            results[str(source_type)] = config
 
-        return Response(
-            status=status.HTTP_200_OK,
-            data={str(key): value.model_dump() for key, value in configs.items()},
-        )
+        return Response(status=status.HTTP_200_OK, data=results)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(methods=["GET"], detail=False)

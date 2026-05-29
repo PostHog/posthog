@@ -27213,6 +27213,15 @@ class SourceConfig(BaseModel):
         default=[],
         description="Tables to suggest enabling, with optional tooltip explaining why",
     )
+    supportsColumnSelection: bool | None = Field(
+        default=False,
+        description=(
+            "Whether the source-creation wizard should expose the per-column projection"
+            " picker. Mirrors `SQLSource.supports_column_selection` so the wizard"
+            " doesn't show a picker for drivers that ignore `enabled_columns` at sync"
+            " time."
+        ),
+    )
     unreleasedSource: bool | None = None
     webhookFields: (
         list[
