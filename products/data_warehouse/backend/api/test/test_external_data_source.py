@@ -5041,6 +5041,36 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
+    def test_create_custom_source_rejected_when_team_ineligible(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Custom",
+                "prefix": "custom_",
+                "payload": {"manifest_json": "{}"},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Custom REST source is not available for this team."
+
+    def test_create_custom_source_allowed_when_team_eligible(self):
+        with patch(
+            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
+            return_value=True,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Custom",
+                    "prefix": "custom_",
+                    "payload": {"manifest_json": "{}"},
+                },
+            )
+        # Past the team gate, the request fails later on the (empty) manifest rather
+        # than on availability — i.e. the eligibility check no longer blocks it.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] != "Custom REST source is not available for this team."
+
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""
         source = self._create_external_data_source()

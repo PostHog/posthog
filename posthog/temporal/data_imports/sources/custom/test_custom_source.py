@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
+    is_custom_source_available_for_team,
     validate_manifest,
     validate_manifest_urls,
 )
@@ -251,3 +252,19 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert err is not None
+
+
+class TestIsCustomSourceAvailableForTeam(SimpleTestCase):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allows_pilot_team_on_us_cloud(self):
+        assert is_custom_source_available_for_team(2) is True
+
+    @parameterized.expand([("EU",), ("DEV",), ("E2E",), ("",), (None,)])
+    def test_rejects_non_us_deployment(self, deployment):
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            assert is_custom_source_available_for_team(2) is False
+
+    @parameterized.expand([(1,), (3,), (999,), (None,)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_rejects_other_teams_even_on_us(self, team_id):
+        assert is_custom_source_available_for_team(team_id) is False
