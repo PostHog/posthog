@@ -43,6 +43,10 @@ class TestParserMode(BaseTest):
         with patch("posthog.hogql.parser._RUST_PARSER_AVAILABLE", False):
             self.assertEqual(_resolve_parser_mode(None, None), ("cpp-json", None))
 
+    def test_resolve_parser_mode_rejects_both_mode_and_backend(self):
+        with self.assertRaises(ValueError):
+            _resolve_parser_mode(ParserMode.RUST_PY_ONLY, "cpp-json")
+
     def test_shadow_silent_when_backends_agree(self):
         with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
             with patch("posthog.hogql.parser.capture_exception") as captured:

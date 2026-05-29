@@ -273,7 +273,16 @@ def _resolve_parser_mode(
     pair because tests rely on it to opt into cpp-only parsing.
     Resolution happens here at the call site and is never written back
     onto the modifier, so the query hash is unaffected.
+
+    `parser_mode` and `backend` are mutually exclusive: the first names a
+    primary+shadow pair, the second forces a single backend with no shadow.
+    Passing both is a caller error and raises, rather than silently letting
+    one win.
     """
+    if parser_mode is not None and backend is not None:
+        raise ValueError(
+            f"pass either parser_mode or backend, not both (got parser_mode={parser_mode}, backend={backend})"
+        )
     if parser_mode is not None:
         return _PARSER_MODE_BACKENDS[parser_mode]
     if backend is not None:
