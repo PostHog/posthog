@@ -24,12 +24,15 @@ const { Pool } = pg
 import { migrate } from '@posthog/agent-migrations'
 import {
     AnalyticsSink,
+    applySchema as applyMemorySchema,
     CaptureAnalyticsSink,
     createLogger,
     EncryptedFields,
     FsBundleStore,
+    FullTextRecaller,
     installProcessHandlers,
     KafkaLogSink,
+    Memory,
     NoopAnalyticsSink,
     NoopSessionEventBus,
     PgRevisionStore,
@@ -40,6 +43,7 @@ import {
     selectSandboxPool,
     SessionEventBus,
 } from '@posthog/agent-shared'
+import { setMemory } from '@posthog/agent-tools'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { posthogLlmGatewayModel } from './models/llm-gateway-model'
@@ -62,6 +66,13 @@ async function main(): Promise<void> {
     // Belt-and-braces in dev; prod also runs `bin/migrate --scope=agent_runtime`
     // as a one-shot job before the service starts. Idempotent.
     await migrate({ databaseUrl: config.agentDbUrl })
+
+    // Agent memory (slice): the agent_memory_* tables aren't in
+    // @posthog/agent-migrations yet, so apply the slice schema here
+    // (idempotent). Graduation folds this into a migration + swaps the
+    // FTS recaller for embeddings. See docs/agent-platform/plans/agent-memory-mnemion-slice.md.
+    await applyMemorySchema(agentDb)
+    setMemory(new Memory(agentDb, new FullTextRecaller()))
 
     const defaultApiKey = defaultApiKeyFromConfig(config)
     const revisions = new PgRevisionStore(posthogDb)

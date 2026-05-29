@@ -36,6 +36,8 @@ export interface NativeToolSchema {
 
 export interface ToolContext {
     teamId: number
+    /** The agent (application) running this session — the memory scope key. */
+    applicationId: string
     sessionId: string
     /** Resolved integration tokens, keyed by integration id ("slack:T01..."). */
     integrations: Record<string, IntegrationCredentials>

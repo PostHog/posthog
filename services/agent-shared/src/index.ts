@@ -45,3 +45,5 @@ export * from './runtime/process-handlers'
 export * from './runtime/encryption'
 
 export * from './config/platform'
+
+export * from './memory'

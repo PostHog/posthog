@@ -104,6 +104,7 @@ export async function dispatchTool(
     try {
         const result = await native.run(args, {
             teamId: input.teamId,
+            applicationId: input.rev.application_id,
             sessionId: input.sessionId,
             integrations: input.integrations,
             secret: input.secret,
