@@ -18,6 +18,7 @@ const EMPTY_FILTERS: OverviewFilters = {
     csmFilter: null,
     accountExecutiveFilter: null,
     accountOwnerFilter: null,
+    tileFilter: null,
 }
 
 describe('stripHogqlAlias', () => {
@@ -150,6 +151,14 @@ describe('buildOverviewAccountsQuery', () => {
             csm: 42,
             allRolesUnassigned: true,
         })
+    })
+
+    it('forwards a selected tileFilter into the AccountsQuery so metric values stay in sync with the table', () => {
+        const result = buildOverviewAccountsQuery(tiles, {
+            ...EMPTY_FILTERS,
+            tileFilter: { tileId: 'b', expression: 'health_score < 6' },
+        })
+        expect(result).toMatchObject({ filterExpression: 'health_score < 6' })
     })
 })
 

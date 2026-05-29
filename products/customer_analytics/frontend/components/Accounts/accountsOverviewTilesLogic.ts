@@ -105,6 +105,7 @@ export interface OverviewFilters {
     csmFilter: RoleFilterValue
     accountExecutiveFilter: RoleFilterValue
     accountOwnerFilter: RoleFilterValue
+    tileFilter: TileFilter | null
 }
 
 // Build an AccountsQuery in metrics mode — the backend runner reuses the same
@@ -141,6 +142,9 @@ export function buildOverviewAccountsQuery(
     }
     if (filters.accountOwnerFilter !== null) {
         query.accountOwner = filters.accountOwnerFilter
+    }
+    if (filters.tileFilter) {
+        query.filterExpression = filters.tileFilter.expression
     }
     return query
 }
@@ -306,6 +310,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
+                s.tileFilter,
             ],
             (
                 searchQuery: string,
@@ -313,7 +318,8 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 allRolesUnassigned: boolean,
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue
+                accountOwnerFilter: RoleFilterValue,
+                tileFilter: TileFilter | null
             ): OverviewFilters => ({
                 searchQuery,
                 tagsFilter,
@@ -321,6 +327,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 csmFilter,
                 accountExecutiveFilter,
                 accountOwnerFilter,
+                tileFilter,
             }),
         ],
         overviewQuery: [
@@ -360,6 +367,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             setCsmFilter: reload,
             setAccountExecutiveFilter: reload,
             setAccountOwnerFilter: reload,
+            setTileFilter: reload,
             refreshAccounts: reload,
             toggleTileSelection: ({ tile }) => {
                 const expression = tileToRowFilter(tile)
