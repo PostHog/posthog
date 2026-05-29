@@ -1292,6 +1292,7 @@ impl FeatureFlagMatcher {
         let conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
+        let early_exit_enabled = flag.filters.early_exit.unwrap_or(false);
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level
@@ -1412,9 +1413,10 @@ impl FeatureFlagMatcher {
                 request_hash_key_override,
             )?;
 
-            // Check for early exit: OutOfRolloutBound can only occur after properties
-            // have already been verified, so no need to re-check them
-            if flag.filters.early_exit.unwrap_or(false)
+            // OutOfRolloutBound means the condition's property filters (if any) already
+            // matched and only the rollout check failed, so re-evaluating later groups
+            // can't change the outcome.
+            if early_exit_enabled
                 && !is_match
                 && reason == FeatureFlagMatchReason::OutOfRolloutBound
             {

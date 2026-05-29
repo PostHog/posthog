@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { IconFlag, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconFlag } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -18,6 +18,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
@@ -125,14 +126,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
 
-            {filters.early_exit && (
-                <div className="flex items-center gap-1.5 text-xs text-muted">
-                    <Tooltip title="Conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped.">
-                        <IconInfo className="text-sm" />
-                    </Tooltip>
-                    <span>Stops evaluation at first matching group</span>
-                </div>
-            )}
+            {filters.early_exit && <EarlyExitIndicator />}
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 

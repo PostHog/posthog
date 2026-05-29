@@ -72,6 +72,7 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
+import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -917,14 +918,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         return (
             <div className="flex flex-col gap-2">
                 <LemonLabel>Release conditions</LemonLabel>
-                {releaseFilters.early_exit && (
-                    <div className="flex items-center gap-1.5 text-xs text-muted">
-                        <Tooltip title="Conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped.">
-                            <IconInfo className="text-sm" />
-                        </Tooltip>
-                        <span>Stops evaluation at first matching group</span>
-                    </div>
-                )}
+                {releaseFilters.early_exit && <EarlyExitIndicator />}
                 {filterGroups.map((group: FeatureFlagGroupType, index: number) => {
                     // Use description if available, otherwise summarize the filters
                     const summary =
@@ -1102,7 +1096,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             data-attr="flag-early-exit"
                             checked={releaseFilters.early_exit ?? false}
                             onChange={(checked) => setEarlyExit(checked)}
-                            label="Stop evaluation at first matching group"
+                            label="Stop evaluation at first matching condition set"
                             info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
                         />
                     </div>

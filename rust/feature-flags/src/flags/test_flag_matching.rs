@@ -9303,10 +9303,9 @@ mod tests {
             .await
             .unwrap();
 
-        // Should continue to second condition and match there
         let flag_result = result.flags.get("no-early-exit-test-flag").unwrap();
         assert!(flag_result.enabled);
-        // The test should match the second condition since the first has 0% rollout
+        assert_eq!(flag_result.reason.condition_index, Some(1));
     }
 
     /// early_exit only fires on the *matching* condition, not at index 0 unconditionally.
