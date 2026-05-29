@@ -27,7 +27,6 @@ export class ScopeBuilder<S extends Record<string, object> = Record<never, objec
     }
 
     build(name: string): Scope<S> {
-        const runner = new ComponentRunner<S>(name, this.components)
-        return new Scope<S>(name, () => runner.getContainer(), runner)
+        return new Scope<S>(name, new ComponentRunner<S>(name, this.components))
     }
 }

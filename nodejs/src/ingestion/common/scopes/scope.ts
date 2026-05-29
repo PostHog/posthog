@@ -1,9 +1,8 @@
 import { logger } from '../../../utils/logger'
 import { CallerSet } from './caller-set'
+import { Component, Started } from './component'
 import { ExtendedRunner } from './extended-runner'
-import { Runner } from './runner'
 import { ScopeBuilder } from './scope-builder'
-import { ScopeContext, StateMachine } from './state-machine'
 
 /**
  * Returned by `Scope.start()`. The handle's `stop` removes this caller
@@ -17,42 +16,39 @@ export interface StartedScope<S extends Record<string, object>> {
 }
 
 /**
- * The owning system: assembles a state machine, refcount, and runner into
- * a startable, refcounted handle over a container of started values.
+ * The owning system: wraps a `Component` in a refcount so concurrent and
+ * repeated callers share a single boot, and the underlying component is
+ * torn down only once the last caller releases. Start and stop never run
+ * concurrently: an in-flight transition is awaited before the next one is
+ * evaluated, and the started state is re-checked afterwards.
  */
 export class Scope<S extends Record<string, object> = Record<never, object>> {
-    private readonly machine = new StateMachine()
     private readonly callers = new CallerSet()
-    private readonly containerProvider: () => S
-    private readonly runner: Runner
-    private readonly ctx: ScopeContext
+    private transition: Promise<void> | null = null
+    private current?: Started<S>
 
     constructor(
         readonly name: string,
-        containerProvider: () => S,
-        runner: Runner
-    ) {
-        this.containerProvider = containerProvider
-        this.runner = runner
-        this.ctx = {
-            runStart: () => this.runner.start(),
-            runStop: () => this.runner.stop(),
-            callerCount: () => this.callers.size(),
-        }
-    }
+        private readonly component: Component<S>
+    ) {}
 
     async start(): Promise<StartedScope<S>> {
         const release = this.callers.register()
         logger.info(`Scope[${this.name}]: start requested (callers=${this.callers.size()})`)
         try {
-            await this.machine.start(this.ctx)
+            await this.ensureStarted()
         } catch (err) {
             release()
             logger.error(`Scope[${this.name}]: start failed`, { error: err })
             throw err
         }
         logger.info(`Scope[${this.name}]: started`)
-        return this.makeHandle(release)
+        const container = this.current!.value
+        return {
+            name: this.name,
+            container,
+            stop: () => this.releaseCaller(release),
+        }
     }
 
     /**
@@ -69,28 +65,54 @@ export class Scope<S extends Record<string, object> = Record<never, object>> {
         name: string,
         configure: (parentContainer: S, builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S2>
     ): Scope<S & S2> {
-        const runner = new ExtendedRunner<S, S2>(this, configure, name)
-        return new Scope<S & S2>(name, () => runner.getContainer(), runner)
+        return new Scope<S & S2>(name, new ExtendedRunner<S, S2>(this, configure, name))
     }
 
-    private makeHandle(release: () => boolean): StartedScope<S> {
-        return {
-            name: this.name,
-            container: this.containerProvider(),
-            stop: async (): Promise<void> => {
-                if (!release()) {
-                    return
-                }
-                logger.info(`Scope[${this.name}]: stop requested (callers=${this.callers.size()})`)
-                try {
-                    await this.machine.stop(this.ctx)
-                } catch (err) {
-                    logger.error(`Scope[${this.name}]: stop failed`, { error: err })
-                    throw err
-                }
-                logger.info(`Scope[${this.name}]: stopped`)
-            },
+    private async ensureStarted(): Promise<void> {
+        while (this.transition) {
+            await this.transition
         }
+        if (this.current) {
+            return
+        }
+        const boot = this.component.start().then((result) => {
+            this.current = result
+        })
+        this.transition = boot.finally(() => {
+            this.transition = null
+        })
+        await this.transition
+    }
+
+    private async releaseCaller(release: () => boolean): Promise<void> {
+        if (!release()) {
+            return
+        }
+        logger.info(`Scope[${this.name}]: stop requested (callers=${this.callers.size()})`)
+        try {
+            await this.ensureStoppedWhenIdle()
+        } catch (err) {
+            logger.error(`Scope[${this.name}]: stop failed`, { error: err })
+            throw err
+        }
+        logger.info(`Scope[${this.name}]: stopped`)
+    }
+
+    private async ensureStoppedWhenIdle(): Promise<void> {
+        while (this.transition) {
+            await this.transition
+        }
+        if (this.callers.size() > 0 || !this.current) {
+            return
+        }
+        const result = this.current
+        const teardown = result.stop().finally(() => {
+            this.current = undefined
+        })
+        this.transition = teardown.finally(() => {
+            this.transition = null
+        })
+        await this.transition
     }
 }
 

@@ -1,3 +1,9 @@
+/** A started value paired with the `stop` callback that tears it down. */
+export interface Started<T> {
+    value: T
+    stop: () => Promise<void>
+}
+
 /**
  * Defines the lifecycle of a single container value. `start()` produces the
  * value plus a `stop` callback that tears it down. Anyone holding the value
@@ -7,7 +13,7 @@
  * start/stop hat.
  */
 export interface Component<T> {
-    start(): Promise<{ value: T; stop: () => Promise<void> }>
+    start(): Promise<Started<T>>
 }
 
 export type ValueOf<C> = C extends Component<infer T> ? T : never
