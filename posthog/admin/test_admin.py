@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -175,11 +176,15 @@ class TestProductAdminRegistration:
     # `admin/` package. `autodiscover_modules("admin")` only imports the package's
     # `__init__`, so it must import those submodules for the `@admin.register`
     # decorators to fire — otherwise the models silently vanish from Django admin.
-    def test_moved_product_models_are_registered(self):
+    @pytest.mark.parametrize(
+        "model",
+        [HogFlow, HogFlowTemplate, HogFlowBatchJob, HogFunction, Plugin, PluginConfig],
+        ids=lambda m: m.__name__,
+    )
+    def test_moved_product_models_are_registered(self, model):
         # Tests skip the lazy admin registry, so trigger registration explicitly.
         register_all_admin()
-        for model in (HogFlow, HogFlowTemplate, HogFlowBatchJob, HogFunction, Plugin, PluginConfig):
-            assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
+        assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
 
 
 class TestOrganizationMemberInlineConfig(BaseTest):
