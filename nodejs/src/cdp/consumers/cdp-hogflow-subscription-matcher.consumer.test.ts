@@ -177,10 +177,60 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             ])
             const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
             expect(lookup).not.toBeUndefined()
-            expect(lookup.params[0]).toEqual([1])
-            expect(lookup.params[1].sort()).toEqual(['user-1', 'user-2'])
-            expect(lookup.params[2].sort()).toEqual(['person-uuid-1', 'person-uuid-2'])
-            expect(lookup.params[3]).toEqual(['flow-1'])
+            // Params are correlated (team, id) pairs: distinctTeamIds/distinctIds zip row-wise,
+            // and personTeamIds/personIds zip row-wise. Both events are team 1.
+            expect(lookup.params[0]).toEqual([1, 1]) // distinctTeamIds
+            expect(lookup.params[1]).toEqual(['user-1', 'user-2']) // distinctIds
+            expect(lookup.params[2]).toEqual([1, 1]) // personTeamIds
+            expect(lookup.params[3]).toEqual(['person-uuid-1', 'person-uuid-2']) // personIds
+            expect(lookup.params[4]).toEqual(['flow-1']) // functionIds
+        })
+
+        it('correlates team_id with distinct_id so a cross-team pairing is never queried or woken', async () => {
+            // Bug scenario: event A is (team 1, alice), event B is (team 2, bob). A naive
+            // `team_id = ANY([1,2]) AND distinct_id = ANY([alice,bob])` query would also match
+            // a parked job at (team 1, bob) — a team/id combination that no event in the batch
+            // actually carried. The lookup must only ever ask for (team 1, alice) and (team 2, bob).
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }),
+                'flow-2': makeHogFlow({ id: 'flow-2', team_id: 2 }),
+            })
+
+            // Pretend the DB still returned the cross-team false positive (team 1, bob). The
+            // in-memory guard must reject it because no batch event was for (team 1, bob).
+            matcher.findRows = [
+                {
+                    id: 'job-cross',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'bob',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [
+                { ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) },
+            ]
+            matcher.updateRowCount = 1
+
+            await matcher.runWake([
+                makeGlobals({ project: { id: 1, name: 'T1', url: '' }, event: { ...makeGlobals({}).event, distinct_id: 'alice', uuid: 'e1' }, person: undefined }),
+                makeGlobals({ project: { id: 2, name: 'T2', url: '' }, event: { ...makeGlobals({}).event, distinct_id: 'bob', uuid: 'e2' }, person: undefined }),
+            ])
+
+            // The correlated lookup params zip (team, distinct_id) row-wise: {(1,alice),(2,bob)}.
+            // (1,bob) must not appear — that's the cross-team combination that doesn't exist.
+            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            expect(lookup).not.toBeUndefined()
+            const pairs = lookup.params[0].map((teamId: number, i: number) => `${teamId}:${lookup.params[1][i]}`)
+            expect(pairs).toEqual(['1:alice', '2:bob'])
+            expect(pairs).not.toContain('1:bob')
+            // And the query is genuinely correlated (tuple form), not independent ANY/ANY.
+            expect(lookup.sql).toContain('(team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))')
+
+            // The stray cross-team candidate is filtered in-memory → no job is woken.
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
         })
 
         it('scopes the lookup to qualifying flows, excluding non-wait flows on the same team', async () => {
@@ -191,7 +241,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             await matcher.runWake([makeGlobals({})])
             const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
             expect(lookup).not.toBeUndefined()
-            expect(lookup.params[3]).toEqual(['flow-1'])
+            expect(lookup.params[4]).toEqual(['flow-1'])
         })
 
         it('skips cyclotron entirely when no team in the batch has a wait_until_condition or conversion goal', async () => {

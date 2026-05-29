@@ -80,7 +80,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        const { teamIds, distinctIds, personIds, byDistinctId, byPersonId } = indexBatch(invocationGlobals)
+        const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
+            indexBatch(invocationGlobals)
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
             return
         }
@@ -111,7 +112,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        const candidates = await this.findParkedJobs(candidateTeamIds, distinctIds, personIds, Object.keys(hogflows))
+        const candidates = await this.findParkedJobs(
+            distinctTeamIds,
+            distinctIds,
+            personTeamIds,
+            personIds,
+            Object.keys(hogflows)
+        )
         if (candidates.length === 0) {
             return
         }
@@ -225,8 +232,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private async findParkedJobs(
-        teamIds: number[],
+        distinctTeamIds: number[],
         distinctIds: string[],
+        personTeamIds: number[],
         personIds: string[],
         functionIds: string[]
     ): Promise<ParkedCandidate[]> {
@@ -237,8 +245,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
         // sequential scan; splitting lets each branch hit its own composite index.
-        // The function_id filter keeps the result to flows the matcher can act on,
-        // skipping jobs parked in non-wait flows on the same teams.
+        // Each branch correlates (team_id, id) as a tuple via `unnest(teams, ids)`, which
+        // zips the parallel arrays row-wise — a job only matches when its team and its id
+        // came from the SAME event. Filtering team_id and distinct_id independently with
+        // ANY/ANY would match a job whose team and distinct_id came from two different
+        // events in the batch (a cross-team false-positive candidate). The function_id
+        // filter further scopes to flows the matcher can act on.
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
         let result
         try {
@@ -248,19 +260,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
              WHERE status = 'available'
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
-               AND team_id = ANY($1::int[])
-               AND function_id = ANY($4::uuid[])
-               AND distinct_id = ANY($2::text[])
+               AND function_id = ANY($5::uuid[])
+               AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
              SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
-               AND team_id = ANY($1::int[])
-               AND function_id = ANY($4::uuid[])
-               AND person_id = ANY($3::text[])`,
-                [teamIds, distinctIds, personIds, functionIds]
+               AND function_id = ANY($5::uuid[])
+               AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
             )
         } finally {
             stopTimer()
@@ -398,7 +408,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
 type IndexedBatch = {
     teamIds: number[]
+    // Parallel arrays of (teamId, id) pairs, zipped row-wise in the lookup query so a
+    // job only matches when BOTH its team and its id came from the same event. Sending
+    // deduped teamId[] + id[] separately would let the query's ANY/ANY form match a job
+    // whose team and distinct_id came from two different events (cross-team false positive).
+    distinctTeamIds: number[]
     distinctIds: string[]
+    personTeamIds: number[]
     personIds: string[]
     byDistinctId: Map<string, HogFunctionInvocationGlobals[]>
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
@@ -418,32 +434,48 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
 // and bucket every event under all the keys it could match a candidate by.
 function indexBatch(invocationGlobals: HogFunctionInvocationGlobals[]): IndexedBatch {
     const teamIds = new Set<number>()
-    const distinctIds = new Set<string>()
-    const personIds = new Set<string>()
+    const distinctTeamIds: number[] = []
+    const distinctIds: string[] = []
+    const personTeamIds: number[] = []
+    const personIds: string[] = []
     const byDistinctId = new Map<string, HogFunctionInvocationGlobals[]>()
     const byPersonId = new Map<string, HogFunctionInvocationGlobals[]>()
 
     for (const globals of invocationGlobals) {
         const teamId = globals.project.id
-        if (typeof teamId === 'number') {
-            teamIds.add(teamId)
+        // A job is always team-scoped, so an event with no numeric team can't match one.
+        if (typeof teamId !== 'number') {
+            continue
         }
+        teamIds.add(teamId)
+
         const distinctId = globals.event.distinct_id
         if (distinctId) {
-            distinctIds.add(distinctId)
-            pushToMap(byDistinctId, `${teamId}:${distinctId}`, globals)
+            const key = `${teamId}:${distinctId}`
+            // First time we see this (team, distinct_id) pair, add it to the lookup arrays.
+            if (!byDistinctId.has(key)) {
+                distinctTeamIds.push(teamId)
+                distinctIds.push(distinctId)
+            }
+            pushToMap(byDistinctId, key, globals)
         }
         const personId = globals.person?.id
         if (personId) {
-            personIds.add(personId)
-            pushToMap(byPersonId, `${teamId}:${personId}`, globals)
+            const key = `${teamId}:${personId}`
+            if (!byPersonId.has(key)) {
+                personTeamIds.push(teamId)
+                personIds.push(personId)
+            }
+            pushToMap(byPersonId, key, globals)
         }
     }
 
     return {
         teamIds: [...teamIds],
-        distinctIds: [...distinctIds],
-        personIds: [...personIds],
+        distinctTeamIds,
+        distinctIds,
+        personTeamIds,
+        personIds,
         byDistinctId,
         byPersonId,
     }
