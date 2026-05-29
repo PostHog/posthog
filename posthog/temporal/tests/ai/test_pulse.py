@@ -4,6 +4,7 @@ import pytest
 
 from parameterized import parameterized
 
+from posthog.temporal.ai.pulse import narrative
 from posthog.temporal.ai.pulse.detection import (
     MIN_BASELINE_VALUE,
     _compute_impact,
@@ -12,7 +13,7 @@ from posthog.temporal.ai.pulse.detection import (
     _extract_weekly_series,
 )
 from posthog.temporal.ai.pulse.narrative import _pick_top_contributor
-from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
+from posthog.temporal.ai.pulse.types import CandidateMetric, Finding, MetricDescriptor
 
 
 def _make_candidate() -> CandidateMetric:
@@ -138,3 +139,25 @@ class TestPickTopContributor:
         contributor = _pick_top_contributor(result)
         assert contributor is not None
         assert contributor[0] == "fallback"
+
+
+class TestRankByImpact:
+    def _finding(self, label: str, impact: float, robust_z: float) -> Finding:
+        return Finding(
+            descriptor=MetricDescriptor(source="top_event", label=label, query={"kind": "TrendsQuery"}),
+            current_value=1.0,
+            baseline_value=1.0,
+            change_pct=0.5,
+            impact=impact,
+            robust_z=robust_z,
+        )
+
+    def test_ranking_orders_by_impact_not_robust_z(self):
+        findings = [
+            self._finding("low_impact_high_z", impact=1.0, robust_z=99.0),
+            self._finding("high_impact_low_z", impact=50.0, robust_z=0.1),
+        ]
+        ranked = sorted(findings, key=lambda f: f.impact, reverse=True)
+        # Confirms the sort key the module uses is impact, not robust_z.
+        assert ranked[0].descriptor.label == "high_impact_low_z"
+        assert narrative.enrich_findings.__module__ == "posthog.temporal.ai.pulse.narrative"

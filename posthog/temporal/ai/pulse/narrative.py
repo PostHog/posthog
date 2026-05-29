@@ -121,7 +121,7 @@ async def _generate_narrative(team_id: int, finding: Finding, attribution: dict[
         "current_value": round(finding.current_value, 2),
         "baseline_value": round(finding.baseline_value, 2),
         "change_pct": round(finding.change_pct, 3),
-        "z_score": round(finding.z_score, 2),
+        "robust_z": round(finding.robust_z, 2),
         "attribution": attribution,
     }
 
@@ -161,7 +161,8 @@ async def _enrich_one(
                 current_value=finding.current_value,
                 baseline_value=finding.baseline_value,
                 change_pct=finding.change_pct,
-                z_score=finding.z_score,
+                impact=finding.impact,
+                robust_z=finding.robust_z,
                 attribution_breakdown=attribution,
                 narrative=narrative,
             )
@@ -177,14 +178,15 @@ async def _enrich_one(
                 current_value=finding.current_value,
                 baseline_value=finding.baseline_value,
                 change_pct=finding.change_pct,
-                z_score=finding.z_score,
+                impact=finding.impact,
+                robust_z=finding.robust_z,
                 attribution_breakdown=None,
                 narrative=_fallback_narrative(finding),
             )
 
 
 async def enrich_findings(team_id: int, findings: list[Finding], max_findings: int) -> list[EnrichedFinding]:
-    ranked = sorted(findings, key=lambda f: abs(f.z_score), reverse=True)[:max_findings]
+    ranked = sorted(findings, key=lambda f: f.impact, reverse=True)[:max_findings]
 
     @database_sync_to_async
     def _get_team() -> Team:
@@ -194,7 +196,5 @@ async def enrich_findings(team_id: int, findings: list[Finding], max_findings: i
     enrichment_semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
     attribution_semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
     return list(
-        await asyncio.gather(
-            *[_enrich_one(team, f, enrichment_semaphore, attribution_semaphore) for f in ranked]
-        )
+        await asyncio.gather(*[_enrich_one(team, f, enrichment_semaphore, attribution_semaphore) for f in ranked])
     )

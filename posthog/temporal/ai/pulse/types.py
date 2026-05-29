@@ -54,7 +54,8 @@ class EnrichedFinding(BaseModel):
     current_value: float
     baseline_value: float
     change_pct: float
-    z_score: float
+    impact: float
+    robust_z: float
     attribution_breakdown: dict[str, Any] | None = None
     narrative: str
 
@@ -67,7 +68,7 @@ class SelectCandidatesInputs(BaseModel):
 class DetectChangesInputs(BaseModel):
     team_id: int
     candidates: list[CandidateMetric]
-    z_threshold: float = 2.0
+    robust_z_threshold: float = 3.5
     min_change_pct: float = 0.25
 
 
