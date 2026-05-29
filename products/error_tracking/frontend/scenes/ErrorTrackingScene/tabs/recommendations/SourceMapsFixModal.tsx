@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconCheckCircle, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -19,9 +19,6 @@ export function SourceMapsFixModal(): JSX.Element {
         <LemonModal isOpen={isModalOpen} onClose={closeModal} width={540} title="Let the wizard set up source maps">
             <div className="flex flex-col gap-4">
                 <div className="flex items-start gap-3">
-                    <div className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0 bg-accent-highlight-secondary text-accent">
-                        <IconMagicWand className="text-xl" />
-                    </div>
                     <p className="text-secondary mb-0">
                         The PostHog wizard detects your framework, wires up source map uploads, and verifies everything
                         works — so your stack traces become readable. Just run this in your project's root directory:
