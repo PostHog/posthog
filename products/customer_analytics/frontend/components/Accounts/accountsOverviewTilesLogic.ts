@@ -152,7 +152,9 @@ export function buildOverviewHogqlQuery(tiles: AccountsOverviewTile[], filters: 
     }
     const selectClauses = tiles.map((tile) => `${tileSelectExpression(tile)} AS ${tileSelectAlias(tile)}`).join(', ')
     const whereClause = buildWhereClause(filters)
-    const query = `SELECT ${selectClauses} FROM system.accounts ${whereClause}`.trim()
+    // Alias the FROM as `accounts` so column expressions that walk joins
+    // (e.g. `accounts.health.score`) resolve — matches AccountsQueryRunner.
+    const query = `SELECT ${selectClauses} FROM system.accounts AS accounts ${whereClause}`.trim()
     return {
         kind: NodeKind.HogQLQuery,
         query,
@@ -163,27 +165,46 @@ export function buildOverviewHogqlQuery(tiles: AccountsOverviewTile[], filters: 
     }
 }
 
+function readNumeric(raw: unknown): number | null {
+    if (raw === null || raw === undefined) {
+        return null
+    }
+    const numeric = typeof raw === 'number' ? raw : Number(raw)
+    return Number.isFinite(numeric) ? numeric : null
+}
+
+// Zip by column alias rather than by row index — a stale response left in
+// state while a follow-up query is in flight would otherwise project values
+// onto the wrong tile when tiles are added or removed.
 export function parseTileValues(
-    response: { results?: unknown } | null,
+    response: { results?: unknown; columns?: unknown } | null,
     tiles: AccountsOverviewTile[]
 ): Record<string, number | null> {
     const values: Record<string, number | null> = {}
     const results = response && Array.isArray(response.results) ? response.results : null
     const row = results && Array.isArray(results[0]) ? (results[0] as unknown[]) : null
+    const columns = response && Array.isArray(response.columns) ? (response.columns as unknown[]) : null
     if (!row) {
         for (const tile of tiles) {
             values[tile.id] = null
         }
         return values
     }
-    tiles.forEach((tile, index) => {
-        const raw = row[index]
-        if (raw === null || raw === undefined) {
-            values[tile.id] = null
-            return
+    if (columns && columns.length === row.length) {
+        const indexByAlias = new Map<string, number>()
+        columns.forEach((name, index) => {
+            if (typeof name === 'string') {
+                indexByAlias.set(name, index)
+            }
+        })
+        for (const tile of tiles) {
+            const index = indexByAlias.get(tileSelectAlias(tile))
+            values[tile.id] = index === undefined ? null : readNumeric(row[index])
         }
-        const numeric = typeof raw === 'number' ? raw : Number(raw)
-        values[tile.id] = Number.isFinite(numeric) ? numeric : null
+        return values
+    }
+    tiles.forEach((tile, index) => {
+        values[tile.id] = readNumeric(row[index])
     })
     return values
 }
@@ -281,7 +302,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     })),
     loaders(({ values }) => ({
         tileQueryResponse: [
-            null as { results?: unknown } | null,
+            null as { results?: unknown; columns?: unknown } | null,
             {
                 loadTileValues: async (_: unknown, breakpoint) => {
                     const query = values.overviewHogqlQuery
@@ -349,8 +370,10 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         ],
         tileValues: [
             (s) => [s.tileQueryResponse, s.reconciledTiles],
-            (response: { results?: unknown } | null, tiles: AccountsOverviewTile[]): Record<string, number | null> =>
-                parseTileValues(response, tiles),
+            (
+                response: { results?: unknown; columns?: unknown } | null,
+                tiles: AccountsOverviewTile[]
+            ): Record<string, number | null> => parseTileValues(response, tiles),
         ],
     }),
     listeners(({ actions }) => {

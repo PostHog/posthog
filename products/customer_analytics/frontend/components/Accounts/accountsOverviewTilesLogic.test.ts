@@ -102,11 +102,11 @@ describe('buildOverviewHogqlQuery', () => {
         expect(buildOverviewHogqlQuery([], EMPTY_FILTERS)).toBeNull()
     })
 
-    it('builds a select with one column per tile and no WHERE when filters are empty', () => {
+    it('builds a select with one column per tile and aliases FROM as accounts', () => {
         const result = buildOverviewHogqlQuery(tiles, EMPTY_FILTERS)
         expect(result?.query).toBe(
             'SELECT count() AS tile_a, sum(health_score) AS tile_b, avg(health_score) AS tile_c, ' +
-                'countIf(health_score < 6) AS tile_d FROM system.accounts'
+                'countIf(health_score < 6) AS tile_d FROM system.accounts AS accounts'
         )
     })
 
@@ -145,12 +145,26 @@ describe('parseTileValues', () => {
         },
     ]
 
-    it('maps a single-row response by tile order', () => {
+    it('zips by column alias when columns are present', () => {
+        expect(parseTileValues({ columns: ['tile_b', 'tile_a'], results: [[7.5, 42]] }, tiles)).toEqual({
+            a: 42,
+            b: 7.5,
+        })
+    })
+
+    it('falls back to row order when columns are missing', () => {
         expect(parseTileValues({ results: [[42, 7.5]] }, tiles)).toEqual({ a: 42, b: 7.5 })
     })
 
+    it('returns null for tiles whose alias is not in the response', () => {
+        expect(parseTileValues({ columns: ['tile_a'], results: [[42]] }, tiles)).toEqual({ a: null, b: null })
+    })
+
     it('returns null for missing or malformed values', () => {
-        expect(parseTileValues({ results: [[null, 'not a number']] }, tiles)).toEqual({ a: null, b: null })
+        expect(parseTileValues({ columns: ['tile_a', 'tile_b'], results: [[null, 'not a number']] }, tiles)).toEqual({
+            a: null,
+            b: null,
+        })
     })
 
     it('returns all-nulls when results is missing or empty', () => {
