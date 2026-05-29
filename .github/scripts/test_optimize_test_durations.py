@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from optimize_test_durations import JUnitShard, _pick_outlier, outlier_merge_durations
+from optimize_test_durations import JUnitShard, MigrationTaxCorrector, _pick_outlier, outlier_merge_durations
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
 # _junit_to_pytest_id resolves cleanly.
@@ -107,6 +107,72 @@ class TestJUnitShardSegmentFilter:
         # Unknown segments fall back to lowercase passthrough — should just
         # match nothing in this fixture, not crash.
         assert JUnitShard.load_all(junit_dir, segment="Bogus") == []
+
+
+class TestJUnitCallTimeCorrection:
+    """JUnit call time is ground truth — floor contaminated / placeholder values."""
+
+    @staticmethod
+    def _shard(name: str, call_times: dict[str, float]) -> JUnitShard:
+        return JUnitShard(name=name, call_times=call_times)
+
+    def test_floors_migration_tax_contamination(self):
+        # Tax landed on a non-first test: recorded 408s, real call 4.3s.
+        durations = {"posthog/x.py::T::test_a": 408.0, "posthog/x.py::T::test_b": 2.0}
+        shards = [self._shard("core-1", {"posthog/x.py::T::test_a": 4.3, "posthog/x.py::T::test_b": 2.0})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/x.py::T::test_a"] == 4.3
+        assert result.corrected_durations["posthog/x.py::T::test_b"] == 2.0
+        assert result.carriers_found == 1
+
+    def test_floors_flat_default_placeholder(self):
+        # 60.0 is a pytest-split placeholder; JUnit knows the real call time.
+        durations = {"posthog/x.py::T::test_a": 60.0}
+        shards = [self._shard("core-1", {"posthog/x.py::T::test_a": 0.5})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/x.py::T::test_a"] == 0.5
+
+    def test_leaves_genuinely_slow_test_untouched(self):
+        # Real end-to-end test: recorded ~= call, small gap, not flooded.
+        durations = {"posthog/x.py::T::test_slow": 102.0}
+        shards = [self._shard("core-1", {"posthog/x.py::T::test_slow": 101.5})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/x.py::T::test_slow"] == 102.0
+        assert result.carriers_found == 0
+
+    def test_leaves_gray_zone_setup_untouched(self):
+        # Recorded 42s, call 1s: 41s gap is below the 120s tax threshold and
+        # not a flat default, so it's treated as legit setup and kept.
+        durations = {"posthog/x.py::T::test_setup_heavy": 42.0}
+        shards = [self._shard("core-1", {"posthog/x.py::T::test_setup_heavy": 1.0})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/x.py::T::test_setup_heavy"] == 42.0
+
+    def test_suffix_match_when_path_prefix_differs(self):
+        # durations key has a path prefix the JUnit id lacks — suffix match.
+        durations = {"posthog/api/test/x.py::T::test_a": 408.0}
+        shards = [self._shard("core-1", {"api/test/x.py::T::test_a": 3.0})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/api/test/x.py::T::test_a"] == 3.0
+
+    def test_no_junit_match_leaves_value(self):
+        # No JUnit entry for the test — can't verify, so keep the value.
+        durations = {"posthog/x.py::T::test_a": 408.0}
+        shards = [self._shard("core-1", {"posthog/x.py::T::test_other": 1.0})]
+        result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
+        assert result.corrected_durations["posthog/x.py::T::test_a"] == 408.0
+
+
+class TestStatisticalCorrection:
+    """No JUnit (Products): fall back to top-N outlier carriers."""
+
+    def test_subtracts_average_tax_from_outliers(self):
+        durations = {f"t{i}": 1.0 for i in range(10)}
+        durations["t0"] = 410.0  # one carrier
+        result = MigrationTaxCorrector(durations, expected_shard_count=1).correct()
+        # carrier floored toward its real (small) value after tax subtraction
+        assert result.corrected_durations["t0"] < 410.0
+        assert result.carriers_found == 1
 
 
 if __name__ == "__main__":
