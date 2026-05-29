@@ -8,7 +8,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
-from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
@@ -27,7 +27,6 @@ import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
-import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
@@ -116,6 +115,7 @@ from products.replay_vision.backend.api import (
     VisionQuotaViewSet,
 )
 from products.signals.backend.views import SignalViewSet
+from products.surveys.backend.routes import register_routes as register_survey_routes
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.presentation.views import (
     IntervieweeContextViewSet,
@@ -208,6 +208,9 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
+# Shared router handles, addressable by name, that products nest onto from their own
+# `register_routes(routers)`. See posthog/api/routing.py:RouterRegistry.
+routers = RouterRegistry()
 
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboards")  # Should be completely unused now
@@ -226,9 +229,11 @@ if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
     router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
-projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
-environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
+environments_router = routers.add(
+    "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
+)
 
 
 def register_grandfathered_environment_nested_viewset(
@@ -385,7 +390,9 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+# Surveys registers its own routes from products/surveys/backend/routes.py (pilot for
+# product-local route registration via RouterRegistry).
+register_survey_routes(routers)
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
@@ -697,7 +704,9 @@ environments_router.register(
 )
 
 # Organizations nested endpoints
-organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organizations_router = routers.add(
+    "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+)
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"integrations",

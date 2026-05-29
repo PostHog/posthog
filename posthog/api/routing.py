@@ -7,7 +7,7 @@ from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
-from rest_framework_extensions.routers import ExtendedDefaultRouter
+from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
@@ -49,6 +49,44 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
+
+
+class RouterRegistry:
+    """Named handles onto the shared API routers.
+
+    Passed to each product's ``register_routes(routers)`` so products register
+    their endpoints from their own folder without importing core router globals.
+    The shared parents (``projects``, ``environments``, ``organizations``) are
+    nested routers feeding a single OpenAPI schema, so a product can't own them
+    independently — it looks them up here by name and nests onto them.
+    """
+
+    def __init__(self) -> None:
+        self._named: dict[str, NestedRegistryItem] = {}
+
+    def add(self, name: str, item: NestedRegistryItem) -> NestedRegistryItem:
+        if name in self._named:
+            raise ValueError(f"Router {name!r} is already registered")
+        self._named[name] = item
+        return item
+
+    def get(self, name: str) -> NestedRegistryItem:
+        try:
+            return self._named[name]
+        except KeyError:
+            raise KeyError(f"Unknown parent router {name!r}. Known: {sorted(self._named)}") from None
+
+    @property
+    def projects(self) -> NestedRegistryItem:
+        return self.get("projects")
+
+    @property
+    def environments(self) -> NestedRegistryItem:
+        return self.get("environments")
+
+    @property
+    def organizations(self) -> NestedRegistryItem:
+        return self.get("organizations")
 
 
 # NOTE: Previously known as the StructuredViewSetMixin

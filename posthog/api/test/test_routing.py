@@ -14,7 +14,7 @@ from rest_framework.response import Response
 
 from posthog.api.annotation import AnnotationSerializer
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.api.routing import DefaultRouterPlusPlus, TeamAndOrgViewSetMixin
+from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.models.annotation import Annotation
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
@@ -285,3 +285,25 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
+
+
+def test_router_registry_add_returns_item_and_resolves_by_name():
+    registry = RouterRegistry()
+    item = DefaultRouterPlusPlus().register(r"things", FooViewSet, "things")
+    assert registry.add("things", item) is item
+    assert registry.get("things") is item
+
+
+def test_router_registry_rejects_duplicate_name():
+    registry = RouterRegistry()
+    item = DefaultRouterPlusPlus().register(r"things", FooViewSet, "things")
+    registry.add("things", item)
+    with pytest.raises(ValueError):
+        registry.add("things", item)
+
+
+def test_router_registry_get_unknown_name_lists_known():
+    registry = RouterRegistry()
+    registry.add("things", DefaultRouterPlusPlus().register(r"things", FooViewSet, "things"))
+    with pytest.raises(KeyError, match="things"):
+        registry.get("missing")
