@@ -1554,173 +1554,133 @@ jobs:
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
               run: |
+                  # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
+                  # Consult #team-devex before changing.
                   if [[ "$MODE" == "selected" ]]; then
-
+                      # Selected mode: collapse to one shard per active segment, skip
+                      # segments with no selected files, drop compat entirely.
+                      core_count=0
+                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-1",
+                          compat: false
+                        }]
+                      ')
+                      poe_count=0
+                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-poe-1",
+                          compat: false
+                        }]
+                      ')
+                      temporal_count=0
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "temporal-1",
+                          compat: false
+                        }]
+                      ')
+                      compat="[]"
                   else
-                    # Auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
-                    # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
-                    CORE_SHARDS=38
-                    CORE_POE_SHARDS=7
-                    TEMPORAL_SHARDS=7
-                    if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
-                      CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
-                      CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
-                      TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
-                      echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
-                    else
-                      echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
-                    fi
+                      # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
+                      # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
+                      CORE_SHARDS=38
+                      CORE_POE_SHARDS=7
+                      TEMPORAL_SHARDS=7
+                      if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
+                        CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
+                        CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
+                        TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
+                        echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      else
+                        echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      fi
 
-                    core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
-                      [range(1; $shards + 1) | {
-                        segment: "Core",
-                        "person-on-events": false,
-                        "python-version": "3.12.12",
-                        "clickhouse-server-image": $image,
-                        concurrency: $shards,
-                        group: .,
-                        artifact_key: ("core-" + (.|tostring)),
-                        compat: false
-                      }]
-                    ')
+                      core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
 
-                    core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
-                      [range(1; $shards + 1) | {
-                        segment: "Core",
-                        "person-on-events": true,
-                        "python-version": "3.12.12",
-                        "clickhouse-server-image": $image,
-                        concurrency: $shards,
-                        group: .,
-                        artifact_key: ("core-poe-" + (.|tostring)),
-                        compat: false
-                      }]
-                    ')
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
 
-                    temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
-                      [range(1; $shards + 1) | {
-                        segment: "Temporal",
-                        "person-on-events": false,
-                        "python-version": "3.12.12",
-                        "clickhouse-server-image": $image,
-                        concurrency: $shards,
-                        group: .,
-                        artifact_key: ("temporal-" + (.|tostring)),
-                        compat: false
-                      }]
-                    ')
+                      temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
 
-                    compat_source="${COMPAT_MATRIX_JSON:-[]}"
-                    compat=$(jq -cn --argjson compat "$compat_source" '
-                      [
-                        $compat
-                        | to_entries[]
-                        | .value + {
-                            segment: "Core",
-                            "person-on-events": false,
-                            "python-version": "3.12.12",
-                            "clickhouse-server-image": $image,
-                            concurrency: 1,
-                            group: 1,
-                            artifact_key: "core-1",
-                            compat: false
-                          }]
-                        ')
-                        poe_count=0
-                        [[ "$RUN_POE" == "true" ]] && poe_count=1
-                        core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
-                          [range(1; $n + 1) | {
-                            segment: "Core",
-                            "person-on-events": true,
-                            "python-version": "3.12.12",
-                            "clickhouse-server-image": $image,
-                            concurrency: 1,
-                            group: 1,
-                            artifact_key: "core-poe-1",
-                            compat: false
-                          }]
-                        ')
-                        temporal_count=0
-                        [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
-                        temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
-                          [range(1; $n + 1) | {
-                            segment: "Temporal",
-                            "person-on-events": false,
-                            "python-version": "3.12.12",
-                            "clickhouse-server-image": $image,
-                            concurrency: 1,
-                            group: 1,
-                            artifact_key: "temporal-1",
-                            compat: false
-                          }]
-                        ')
-                        compat="[]"
-                    else
-                        core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                          [range(1; 39) | {
-                            segment: "Core",
-                            "person-on-events": false,
-                            "python-version": "3.12.12",
-                            "clickhouse-server-image": $image,
-                            concurrency: 38,
-                            group: .,
-                            artifact_key: ("core-" + (.|tostring)),
-                            compat: false
-                          }]
-                        ')
-
-                        core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                          [range(1; 8) | {
-                            segment: "Core",
-                            "person-on-events": true,
-                            "python-version": "3.12.12",
-                            "clickhouse-server-image": $image,
-                            concurrency: 7,
-                            group: .,
-                            artifact_key: ("core-poe-" + (.|tostring)),
-                            compat: false
-                          }]
-                        ')
-
-                        temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                          [range(1; 8) | {
-                            segment: "Temporal",
-                            "person-on-events": false,
-                            "python-version": "3.12.12",
-                            "clickhouse-server-image": $image,
-                            concurrency: 7,
-                            group: .,
-                            artifact_key: ("temporal-" + (.|tostring)),
-                            compat: false
-                          }]
-                        ')
-
-                        compat_source="${COMPAT_MATRIX_JSON:-[]}"
-                        compat=$(jq -cn --argjson compat "$compat_source" '
-                          [
-                            $compat
-                            | to_entries[]
-                            | .value + {
-                                segment: "Core",
-                                "person-on-events": false,
-                                "python-version": "3.12.12",
-                                compat: true,
-                                artifact_key: ("compat-" + ((.key + 1)|tostring))
-                              }
-                          ]
-                        ')
-                    fi
-
-                    include=$(jq -cn \
-                      --argjson core "$core" \
-                      --argjson core_persons_on_events "$core_persons_on_events" \
-                      --argjson temporal "$temporal" \
-                      --argjson compat "$compat" \
-                      '$core + $core_persons_on_events + $temporal + $compat')
-
-                    echo "include=$include" >> "$GITHUB_OUTPUT"
-                    echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
+                      compat_source="${COMPAT_MATRIX_JSON:-[]}"
+                      compat=$(jq -cn --argjson compat "$compat_source" '
+                        [
+                          $compat
+                          | to_entries[]
+                          | .value + {
+                              segment: "Core",
+                              "person-on-events": false,
+                              "python-version": "3.12.12",
+                              compat: true,
+                              artifact_key: ("compat-" + ((.key + 1)|tostring))
+                            }
+                        ]
+                      ')
                   fi
+
+                  include=$(jq -cn \
+                    --argjson core "$core" \
+                    --argjson core_persons_on_events "$core_persons_on_events" \
+                    --argjson temporal "$temporal" \
+                    --argjson compat "$compat" \
+                    '$core + $core_persons_on_events + $temporal + $compat')
+
+                  echo "include=$include" >> "$GITHUB_OUTPUT"
+                  echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
 
     django:
         needs:
