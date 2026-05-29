@@ -509,7 +509,7 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
 class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
     """When the gate (`_is_internal_debug_team`) fires, PostHog employees can
     read any teammate's task/run by ID — but the bypass is deliberately narrow:
-    only the `retrieve` action on TaskViewSet and read-only methods on
+    only the `retrieve` action on TaskViewSet and read-only actions on
     TaskRunViewSet. List views, write actions, and other teams remain
     creator-scoped. The unaffected cases live in `TestTaskCreatorScoping`
     above; the deployment-region requirement is covered by
@@ -596,6 +596,18 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/?ph_debug=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(run.id))
+
+    def test_connection_token_on_other_user_run_still_404s_with_ph_debug(self):
+        # connection_token is a GET but mints a write-capable sandbox JWT — the
+        # read-only debug bypass must NOT expose it for another user's run.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/?ph_debug=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_write_action_on_other_user_task_still_returns_404(self, _mock_workflow):

@@ -1576,9 +1576,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         task_filter = Task.objects.filter(id=task_id, team=self.team)
         # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>.
+        # Allowlist read-only actions only — connection_token is a GET but mints a write-capable token.
         is_internal_debug_read = (
             _is_internal_debug_team(self.team_id)
-            and self.request.method in ("GET", "HEAD")
+            and self.action in ("list", "retrieve", "logs", "session_logs", "stream")
             and self.request.query_params.get("ph_debug") == "true"
         )
         if not is_internal_debug_read:

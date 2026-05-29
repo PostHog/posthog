@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -79,10 +79,4 @@ export const slackTaskContextSceneLogic = kea<slackTaskContextSceneLogicType>([
     selectors({
         canSubmit: [(s) => [s.url, s.resultLoading], (url, loading): boolean => url.trim().length > 0 && !loading],
     }),
-
-    listeners(({ actions }) => ({
-        clearResult: () => {
-            actions.setSubmissionError(null)
-        },
-    })),
 ])
