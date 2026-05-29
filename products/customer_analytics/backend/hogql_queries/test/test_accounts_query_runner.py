@@ -399,6 +399,23 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         _, response = self._run_query(metrics=["count()"], select=[])
         self.assertEqual(response.metricsResults, [1])
 
+    def test_filter_expression_narrows_the_row_set(self):
+        create_account(team_id=self.team.id, name="A", _properties={"score": 80})
+        create_account(team_id=self.team.id, name="B", _properties={"score": 20})
+        create_account(team_id=self.team.id, name="C", _properties={"score": 10})
+        ids = self._ids(filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50")
+        self.assertEqual(len(ids), 2)
+
+    def test_filter_expression_combines_with_search(self):
+        create_account(team_id=self.team.id, name="Match", _properties={"score": 5})
+        create_account(team_id=self.team.id, name="WrongScore", _properties={"score": 99})
+        create_account(team_id=self.team.id, name="WrongName", _properties={"score": 5})
+        names = self._names(
+            search="match",
+            filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
+        )
+        self.assertEqual(names, ["Match"])
+
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertTrue(runner.validate_query_runner_access(self.user))

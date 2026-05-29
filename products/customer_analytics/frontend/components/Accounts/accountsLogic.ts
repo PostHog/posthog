@@ -78,6 +78,13 @@ const ROLE_LABELS: Record<AccountRoleKey, string> = {
 
 export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
+// `tileId` carries the source tile so the overview can highlight which tile is
+// the active filter; `expression` is the HogQL fragment passed to AccountsQuery.
+export interface TileFilter {
+    tileId: string
+    expression: string
+}
+
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
@@ -91,6 +98,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setCsmFilter: (value: RoleFilterValue) => ({ value }),
         setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
+        setTileFilter: (filter: TileFilter | null) => ({ filter }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
@@ -140,6 +148,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountOwnerFilter: (_, { value }) => value,
             },
         ],
+        tileFilter: [
+            null as TileFilter | null,
+            {
+                setTileFilter: (_, { filter }) => filter,
+            },
+        ],
         sortOrder: [
             null as AccountSortOrder,
             {
@@ -182,6 +196,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
+                s.tileFilter,
                 s.sortOrder,
                 s.selectColumns,
             ],
@@ -192,6 +207,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
+                tileFilter: TileFilter | null,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[]
             ): DataTableNode => {
@@ -218,6 +234,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (accountOwnerFilter !== null) {
                     source.accountOwner = accountOwnerFilter
+                }
+                if (tileFilter) {
+                    source.filterExpression = tileFilter.expression
                 }
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)

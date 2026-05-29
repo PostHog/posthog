@@ -21864,6 +21864,13 @@ class AccountsQuery(BaseModel):
     accountOwner: str | int | None = None
     allRolesUnassigned: bool | None = None
     csm: str | int | None = None
+    filterExpression: str | None = Field(
+        default=None,
+        description=(
+            "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by"
+            " the overview tile click-to-filter affordance."
+        ),
+    )
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int | None = None
     metrics: list[str] | None = Field(

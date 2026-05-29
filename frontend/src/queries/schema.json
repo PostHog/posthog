@@ -33,6 +33,10 @@
                 "csm": {
                     "$ref": "#/definitions/AccountsRoleAssignmentFilter"
                 },
+                "filterExpression": {
+                    "$ref": "#/definitions/HogQLExpression",
+                    "description": "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance."
+                },
                 "kind": {
                     "const": "AccountsQuery",
                     "type": "string"

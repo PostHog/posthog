@@ -117,6 +117,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             for json_key in ROLE_FIELDS.values():
                 where_exprs.append(self._role_id_isnull(json_key))
 
+        if self.query.filterExpression and self.query.filterExpression.strip():
+            where_exprs.append(parse_expr(self.query.filterExpression))
+
         return where_exprs
 
     def to_query(self) -> ast.SelectQuery:

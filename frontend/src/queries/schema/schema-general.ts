@@ -2289,6 +2289,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     accountExecutive?: AccountsRoleAssignmentFilter
     accountOwner?: AccountsRoleAssignmentFilter
     allRolesUnassigned?: boolean
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
     offset?: integer

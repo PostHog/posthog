@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 
 import { AccountsOverviewTilesEditor } from './AccountsOverviewTilesEditor'
-import { accountsOverviewTilesLogic, AccountsOverviewTile } from './accountsOverviewTilesLogic'
+import { accountsOverviewTilesLogic, AccountsOverviewTile, isTileClickable } from './accountsOverviewTilesLogic'
 
 function tileCaption(tile: AccountsOverviewTile): string | undefined {
     const { metric } = tile
@@ -22,26 +22,24 @@ function tileCaption(tile: AccountsOverviewTile): string | undefined {
     }
 }
 
-function tileToOverviewItem(tile: AccountsOverviewTile, value: number | null): OverviewItem {
-    return {
-        key: tile.id,
-        value: value ?? undefined,
-        kind: 'unit',
-        caption: tileCaption(tile),
-    }
-}
-
 function tileLabelByKey(tiles: AccountsOverviewTile[]): (key: string) => string {
     const labelsById = new Map(tiles.map((tile) => [tile.id, tile.label]))
     return (key) => labelsById.get(key) ?? key
 }
 
 export function AccountsOverviewTiles(): JSX.Element {
-    const { reconciledTiles, tileValues, tileQueryResponseLoading, editorVisible } =
+    const { reconciledTiles, tileValues, tileQueryResponseLoading, editorVisible, selectedTileId } =
         useValues(accountsOverviewTilesLogic)
-    const { showEditor, hideEditor } = useActions(accountsOverviewTilesLogic)
+    const { showEditor, hideEditor, toggleTileSelection } = useActions(accountsOverviewTilesLogic)
 
-    const overviewItems = reconciledTiles.map((tile) => tileToOverviewItem(tile, tileValues[tile.id] ?? null))
+    const overviewItems: OverviewItem[] = reconciledTiles.map((tile) => ({
+        key: tile.id,
+        value: tileValues[tile.id] ?? undefined,
+        kind: 'unit',
+        caption: tileCaption(tile),
+        selected: selectedTileId === tile.id,
+        onClick: isTileClickable(tile) ? () => toggleTileSelection(tile) : undefined,
+    }))
 
     return (
         <div className="flex flex-col gap-2" data-attr="accounts-overview-tiles">

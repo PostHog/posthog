@@ -8,7 +8,7 @@ import { AccountsQuery, AccountsQueryResponse, NodeKind } from '~/queries/schema
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { accountsLogic, RoleFilterValue } from './accountsLogic'
+import { accountsLogic, RoleFilterValue, TileFilter } from './accountsLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 
 export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
@@ -81,6 +81,21 @@ export function tileMetricExpression(tile: AccountsOverviewTile): string {
         case 'count_threshold':
             return `countIf(${metric.columnExpression} ${metric.operator} ${metric.value})`
     }
+}
+
+// A tile only acts as a row-level predicate when it represents an
+// inherently row-level condition. `count_threshold` does; `count`/`sum`/`avg`
+// describe the whole set, not a subset.
+export function tileToRowFilter(tile: AccountsOverviewTile): string | null {
+    if (tile.metric.type !== 'count_threshold') {
+        return null
+    }
+    const { columnExpression, operator, value } = tile.metric
+    return `${columnExpression} ${operator} ${value}`
+}
+
+export function isTileClickable(tile: AccountsOverviewTile): boolean {
+    return tileToRowFilter(tile) !== null
 }
 
 export interface OverviewFilters {
@@ -178,6 +193,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 'csmFilter',
                 'accountExecutiveFilter',
                 'accountOwnerFilter',
+                'tileFilter',
             ],
             accountsColumnConfigLogic,
             ['accountsColumnGroups'],
@@ -191,6 +207,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 'setCsmFilter',
                 'setAccountExecutiveFilter',
                 'setAccountOwnerFilter',
+                'setTileFilter',
                 'refresh as refreshAccounts',
             ],
         ],
@@ -200,6 +217,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         updateTile: (id: string, tile: Omit<AccountsOverviewTile, 'id'>) => ({ id, tile }),
         removeTile: (id: string) => ({ id }),
         moveTile: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        toggleTileSelection: (tile: AccountsOverviewTile) => ({ tile }),
         resetTiles: true,
         showEditor: true,
         hideEditor: true,
@@ -315,15 +333,26 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             (response: AccountsQueryResponse | null, tiles: AccountsOverviewTile[]): Record<string, number | null> =>
                 parseTileValues(response, tiles),
         ],
+        selectedTileId: [(s) => [s.tileFilter], (filter: TileFilter | null): string | null => filter?.tileId ?? null],
     }),
-    listeners(({ actions }) => {
+    listeners(({ actions, values }) => {
         const reload = (): void => actions.loadTileValues(undefined)
         return {
             addTile: reload,
             updateTile: reload,
-            removeTile: reload,
+            removeTile: ({ id }) => {
+                if (values.tileFilter?.tileId === id) {
+                    actions.setTileFilter(null)
+                }
+                reload()
+            },
             moveTile: reload,
-            resetTiles: reload,
+            resetTiles: () => {
+                if (values.tileFilter) {
+                    actions.setTileFilter(null)
+                }
+                reload()
+            },
             refreshTileValues: reload,
             setSearchQuery: reload,
             setTagsFilter: reload,
@@ -332,6 +361,17 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             setAccountExecutiveFilter: reload,
             setAccountOwnerFilter: reload,
             refreshAccounts: reload,
+            toggleTileSelection: ({ tile }) => {
+                const expression = tileToRowFilter(tile)
+                if (!expression) {
+                    return
+                }
+                if (values.tileFilter?.tileId === tile.id) {
+                    actions.setTileFilter(null)
+                } else {
+                    actions.setTileFilter({ tileId: tile.id, expression })
+                }
+            },
         }
     }),
     afterMount(({ actions }) => {
