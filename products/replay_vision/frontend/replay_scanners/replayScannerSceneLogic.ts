@@ -23,6 +23,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
         setActiveTab: (tab: EditorTab) => ({ tab }),
+        setTemplateKey: (templateKey: string | null) => ({ templateKey }),
     }),
 
     reducers({
@@ -36,6 +37,12 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             'configuration' as EditorTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        templateKey: [
+            null as string | null,
+            {
+                setTemplateKey: (_, { templateKey }) => templateKey,
             },
         ],
     }),
@@ -77,6 +84,11 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             const scannerId = id || 'new'
             if (scannerId !== values.scannerId) {
                 actions.setScannerId(scannerId)
+            }
+            const templateKey =
+                scannerId === 'new' && typeof searchParams.template === 'string' ? searchParams.template : null
+            if (templateKey !== values.templateKey) {
+                actions.setTemplateKey(templateKey)
             }
             const raw = typeof searchParams.tab === 'string' ? searchParams.tab : ''
             const defaultTab: EditorTab = scannerId === 'new' ? 'configuration' : 'observations'

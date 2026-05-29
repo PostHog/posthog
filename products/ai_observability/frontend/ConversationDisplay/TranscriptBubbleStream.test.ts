@@ -1,7 +1,12 @@
 import posthog from 'posthog-js'
 
 import { CompatMessage } from '../types'
-import { captureUnrenderableMessageOnce, hasNonTextContent, unrenderableContentKinds } from './TranscriptBubbleStream'
+import {
+    buildStreamItems,
+    captureUnrenderableMessageOnce,
+    hasNonTextContent,
+    unrenderableContentKinds,
+} from './TranscriptBubbleStream'
 
 jest.mock('posthog-js', () => ({
     __esModule: true,
@@ -112,6 +117,104 @@ describe('unrenderableContentKinds', () => {
     it('returns [] for content with no unrenderable items', () => {
         expect(unrenderableContentKinds({ role: 'user', content: 'Hi' })).toEqual([])
         expect(unrenderableContentKinds({ role: 'user', content: [{ type: 'text', text: 'Hi' }] })).toEqual([])
+    })
+})
+
+describe('buildStreamItems — scaffold detection + grouping', () => {
+    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
+    const userTypedScaffold = (text: string): CompatMessage => ({
+        role: 'user',
+        content: [{ type: 'text', text }] as unknown as CompatMessage['content'],
+    })
+    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
+
+    it('returns plain bubbles for a non-scaffold conversation', () => {
+        const items = buildStreamItems([userText('Hi there'), assistant('Hello')])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble'])
+    })
+
+    it('groups a single scaffold-only user message into a one-pill group', () => {
+        const items = buildStreamItems([userText('<system_reminder>foo</system_reminder>')])
+        expect(items).toHaveLength(1)
+        expect(items[0].kind).toBe('scaffold-group')
+        if (items[0].kind === 'scaffold-group') {
+            expect(items[0].tagNames).toEqual(['system_reminder'])
+            expect(items[0].messages).toHaveLength(1)
+        }
+    })
+
+    it('groups consecutive scaffold messages into a single pill', () => {
+        // Four scaffold messages, then the user's real question.
+        const items = buildStreamItems([
+            userTypedScaffold('<system_reminder>foo</system_reminder>'),
+            userTypedScaffold('<system_reminder>\nbar\n</system_reminder>'),
+            userTypedScaffold('<voice_mode>off</voice_mode>'),
+            userTypedScaffold('<attached_context>\nbaz\n</attached_context>'),
+            userText('what changed?'),
+            assistant('looking into it...'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['scaffold-group', 'bubble', 'bubble'])
+        if (items[0].kind === 'scaffold-group') {
+            expect(items[0].messages).toHaveLength(4)
+            expect(items[0].tagNames).toEqual(['system_reminder', 'system_reminder', 'voice_mode', 'attached_context'])
+        }
+        if (items[1].kind === 'bubble') {
+            expect(items[1].text).toBe('what changed?')
+        }
+    })
+
+    it('breaks grouping when a bubble interrupts the scaffold run', () => {
+        // [scaffold, bubble, scaffold] should produce TWO groups, not one — the
+        // pill marks chronological position, not "all scaffolds ever".
+        const items = buildStreamItems([
+            userText('<system_reminder>a</system_reminder>'),
+            userText('first question'),
+            userText('<voice_mode>off</voice_mode>'),
+            assistant('reply'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['scaffold-group', 'bubble', 'scaffold-group', 'bubble'])
+    })
+
+    it('does not classify an assistant-role wrapper as scaffold (models can emit `<system_reminder>` in output)', () => {
+        const items = buildStreamItems([
+            userText('hi'),
+            // Unusual but legal: an assistant reply that contains a scaffold-looking wrapper. Render it.
+            { role: 'assistant', content: '<system_reminder>foo</system_reminder>' },
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble'])
+    })
+
+    it('does not classify a wrapper-plus-extra-text user message as scaffold', () => {
+        // User wrote actual text — we'd lose information by hiding it.
+        const items = buildStreamItems([userText('foo <system_reminder>bar</system_reminder> baz')])
+        expect(items.map((i) => i.kind)).toEqual(['bubble'])
+    })
+
+    it('does not classify unrelated wrapper tags as scaffold', () => {
+        // `<thinking>` and friends are not in the allowlist — models can emit them as visible content.
+        const items = buildStreamItems([
+            userText('<thinking>foo</thinking>'),
+            userText('<useful-context>foo</useful-context>'),
+            userText('<answer>42</answer>'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'bubble', 'bubble'])
+    })
+
+    it('drops `system`-role messages entirely (HIDDEN_ROLES) before scaffold classification', () => {
+        const items = buildStreamItems([{ role: 'system', content: 'You are an assistant.' }, userText('hello')])
+        expect(items.map((i) => i.kind)).toEqual(['bubble'])
+    })
+
+    it('keeps a single scaffold sandwiched between bubbles intact (no merging across bubbles)', () => {
+        const items = buildStreamItems([
+            userText('first'),
+            userText('<system_reminder>x</system_reminder>'),
+            assistant('reply'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'scaffold-group', 'bubble'])
+        if (items[1].kind === 'scaffold-group') {
+            expect(items[1].messages).toHaveLength(1)
+        }
     })
 })
 
