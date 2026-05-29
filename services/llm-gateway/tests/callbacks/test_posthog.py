@@ -310,7 +310,7 @@ class TestPostHogCallback:
         assert "$ai_cache_creation_input_tokens" not in props
 
     @pytest.mark.parametrize(
-        "cost_breakdown,expected_input_cost,expected_output_cost",
+        "cost_breakdown,expected_props",
         [
             pytest.param(
                 {
@@ -320,14 +320,17 @@ class TestPostHogCallback:
                     "output_cost": 0.006,
                     "total_cost": 0.012,
                 },
-                0.006,
-                0.006,
+                {
+                    "$ai_input_cost_usd": 0.003,
+                    "$ai_output_cost_usd": 0.006,
+                    "$ai_cache_read_cost_usd": 0.001,
+                    "$ai_cache_creation_cost_usd": 0.002,
+                },
                 id="anthropic_with_cache",
             ),
             pytest.param(
                 {"input_cost": 0.02, "output_cost": 0.03},
-                0.02,
-                0.03,
+                {"$ai_input_cost_usd": 0.02, "$ai_output_cost_usd": 0.03},
                 id="no_cache_components",
             ),
         ],
@@ -339,8 +342,7 @@ class TestPostHogCallback:
         auth_user: AuthenticatedUser,
         mock_posthog_client: tuple,
         cost_breakdown: dict,
-        expected_input_cost: float,
-        expected_output_cost: float,
+        expected_props: dict,
     ) -> None:
         _, mock_client = mock_posthog_client
         kwargs = {
@@ -362,10 +364,13 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
         props = mock_client.capture.call_args.kwargs["properties"]
-        # Cache components fold into $ai_input_cost_usd because the analytics
-        # schema only materializes input/output/total cost columns.
-        assert props["$ai_input_cost_usd"] == pytest.approx(expected_input_cost)
-        assert props["$ai_output_cost_usd"] == expected_output_cost
+        # Each LiteLLM cost_breakdown component maps 1:1 to its own PostHog
+        # property — disjoint, so the sum reconciles to $ai_total_cost_usd.
+        for key, value in expected_props.items():
+            assert props[key] == value
+        for key in ("$ai_cache_read_cost_usd", "$ai_cache_creation_cost_usd"):
+            if key not in expected_props:
+                assert key not in props
 
     @pytest.mark.asyncio
     async def test_on_success_omits_per_side_cost_when_breakdown_absent(
@@ -387,6 +392,8 @@ class TestPostHogCallback:
         props = mock_client.capture.call_args.kwargs["properties"]
         assert "$ai_input_cost_usd" not in props
         assert "$ai_output_cost_usd" not in props
+        assert "$ai_cache_read_cost_usd" not in props
+        assert "$ai_cache_creation_cost_usd" not in props
 
     @pytest.mark.asyncio
     async def test_on_success_emits_reasoning_tokens_when_present(
