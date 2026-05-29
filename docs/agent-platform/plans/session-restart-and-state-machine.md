@@ -49,8 +49,8 @@ ones spawn a fresh session.
 ## 3. Meta tools
 
 Three always-on meta tools the runner intercepts. The system prompt
-should teach the model which to reach for and when (see
-`docs/agent-platform/plans/_TODO.md` — flesh out framework system prompt).
+should teach the model which to reach for and when — see
+[`framework-system-prompt.md`](framework-system-prompt.md) §3.1.
 
 ### `@posthog/meta-end-turn`
 
@@ -173,8 +173,9 @@ Shipped in one branch. Backwards-compat notes:
   `tool_result` and user messages into the session, no state-machine
   interaction. A session that's parked on an approval lands at
   `completed` (open); after the approval the runner picks it back up.
-- `_TODO.md` — flesh out the framework system prompt (the new meta
-  tools need explicit guidance about when to use each).
+- [`framework-system-prompt.md`](framework-system-prompt.md) — the new
+  meta tools need explicit guidance about when to use each; that plan
+  owns the preamble.
 - `long-running-sessions.md` — the `idleCompletedThresholdMs` sweep
   could be tuned per agent so long-running ops agents stay open longer
   than chat-style agents.

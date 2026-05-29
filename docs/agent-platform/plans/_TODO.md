@@ -173,26 +173,11 @@ message, session_id? })` tool, sessions exposed as MCP
         running sweep, but you don't want every rolling deploy to
         bounce sessions off that net.
 
-- [ ] **Framework system prompt — flesh out the content.** Right now
-      [`system-prompt.ts`](../../../services/agent-runner/src/loop/system-prompt.ts)
-      stitches together the bundle's `agent.md` with a thin platform
-      preamble. The session-restart work landed the new meta tools
-      (`meta-end-turn`, `meta-end-session`, `meta-ask-for-input`) —
-      see [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md)
-      — and the model needs explicit guidance on when to use each.
-      More broadly, the platform preamble should cover: meta-tool
-      catalogue + decision rules (when to end the turn vs close the
-      session forever; how to use ask-for-input as a UI focus hint;
-      the consequences of `allow_restart`), conversation-state
-      contract (what `completed` / `closed` mean for the user), tool
-      failure handling guidance, reasoning-budget hints (when
-      `spec.reasoning` is set), the author-prompt vs system-prompt
-      seam (what the framework reserves the right to inject vs what
-      `agent.md` controls), and a precedence note so authors know
-      the framework guidance loses to explicit `agent.md` overrides.
-      Punted out of the session-restart change so the e2e wasn't
-      gated on prose; pick up once we can measure model adherence in
-      real-inference runs. Promote to its own plan when picked up.
+- [x] ~~**Framework system prompt — flesh out the content**~~ — see
+      [`framework-system-prompt.md`](framework-system-prompt.md). Meta-tool
+      decision rules, conversation-state contract, tool failure handling,
+      reasoning-budget hint, author-prompt vs framework-prompt seam,
+      override markers, and an MCP tool to preview the assembled prompt.
 
 - [ ] **Auto-chaining via a gateway agent (Slack-first).** Today Slack
       mentions are routed 1:1 — `@my-helpdesk-agent` triggers
