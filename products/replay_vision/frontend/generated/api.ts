@@ -19,6 +19,7 @@ import type {
     ReplayObservationApi,
     ReplayScannerApi,
     VisionObservationsListParams,
+    VisionQuotaApi,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
 } from './api.schemas'
@@ -83,6 +84,20 @@ export const visionObservationsRetrieve = async (
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
     return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/vision/quota/`
+}
+
+export const environmentVisionQuotaRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<VisionQuotaApi> => {
+    return apiMutator<VisionQuotaApi>(getEnvironmentVisionQuotaRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

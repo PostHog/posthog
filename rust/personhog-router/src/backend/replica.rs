@@ -32,7 +32,7 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
 use tracing::info;
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_caller_tag, current_client_name};
 
 use super::retry::with_retry;
 use super::PersonHogBackend;
@@ -216,8 +216,8 @@ impl ReplicaBackend {
 }
 
 /// Wraps a gRPC call with retry logic. Clones the request for each attempt.
-/// Forwards the `x-client-name` header so the downstream service can
-/// attribute metrics to the originating client.
+/// Forwards `x-client-name` and `x-caller-tag` headers so the downstream
+/// service can attribute metrics to the originating client and code path.
 ///
 /// The `$client_fn` parameter selects the channel pool: `next_heavy_client`
 /// for RPCs returning large Person/Group payloads, `next_light_client` for
@@ -228,10 +228,14 @@ macro_rules! retry_call {
             let mut client = $self.$client_fn();
             let req = $request.clone();
             let client_name = current_client_name();
+            let caller_tag = current_caller_tag();
             async move {
                 let mut request = Request::new(req);
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
+                }
+                if let Ok(val) = caller_tag.parse() {
+                    request.metadata_mut().insert("x-caller-tag", val);
                 }
                 client.$method(request).await.map(|r| r.into_inner())
             }

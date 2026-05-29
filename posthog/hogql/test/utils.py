@@ -77,6 +77,14 @@ def pretty_dataclasses(obj, seen=None, indent=0):
         elements = [pretty_dataclasses(item, seen, indent + 2) for item in obj]
         return "[\n" + ",\n".join(next_indent + element for element in elements) + "\n" + indent_space + "]"
 
+    elif isinstance(obj, tuple):
+        # AST fields typed `list[tuple[...]]` (Dict.items, TryCatchStatement.catches) — render
+        # tuple as `(...)` so snapshots distinguish it from list at the same level.
+        if len(obj) == 0:
+            return "()"
+        elements = [pretty_dataclasses(item, seen, indent + 2) for item in obj]
+        return "(\n" + ",\n".join(next_indent + element for element in elements) + "\n" + indent_space + ")"
+
     elif isinstance(obj, dict):
         if len(obj) == 0:
             return "{}"

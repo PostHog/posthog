@@ -28,6 +28,11 @@ from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_operator,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.sql import (
+    AnsiIdentifierQuoter,
+    compute_projected_columns,
+    format_projected_select_clause,
+)
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
@@ -58,6 +63,9 @@ def filter_snowflake_incremental_fields(
     return results
 
 
+_SNOWFLAKE_IDENTIFIER_QUOTER = AnsiIdentifierQuoter()
+
+
 def _build_query(
     database: str,
     schema: str,
@@ -66,9 +74,14 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
 ) -> tuple[str, tuple[Any, ...]]:
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause = format_projected_select_clause(projected, _SNOWFLAKE_IDENTIFIER_QUOTER)
+
     if not should_use_incremental_field:
-        return "SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
+        return f"SELECT {select_clause} FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -77,11 +90,14 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = incremental_type_to_operator(incremental_field_type)
-    return f"SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) {operator} %s ORDER BY IDENTIFIER(%s) ASC", (
-        f"{database}.{schema}.{table_name}",
-        incremental_field,
-        db_incremental_field_last_value,
-        incremental_field,
+    return (
+        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) {operator} %s ORDER BY IDENTIFIER(%s) ASC",
+        (
+            f"{database}.{schema}.{table_name}",
+            incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        ),
     )
 
 
@@ -390,11 +406,13 @@ class SnowflakeImplementation(
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")
+                primary_keys = self.get_primary_keys_for_table(cursor, database, schema, table_name)
                 inner_query, inner_query_params = _build_query(
                     database,
                     schema,
@@ -403,8 +421,9 @@ class SnowflakeImplementation(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
                 )
-                primary_keys = self.get_primary_keys_for_table(cursor, database, schema, table_name)
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
         def get_rows() -> Iterator[Any]:
@@ -420,6 +439,8 @@ class SnowflakeImplementation(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
                     logger.debug(f"Snowflake query: {query.format(params)}")
                     streaming_cursor.execute(query, params)

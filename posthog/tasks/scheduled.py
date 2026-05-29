@@ -10,6 +10,7 @@ from celery.schedules import crontab
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
     send_error_tracking_weekly_digest,
@@ -24,7 +25,6 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
@@ -317,7 +317,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Send AI observability usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(
         crontab(hour="4", minute="15"),
-        send_llm_analytics_usage_reports.s(),
+        send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
     )
 

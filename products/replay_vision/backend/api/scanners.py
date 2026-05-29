@@ -22,6 +22,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
@@ -35,6 +36,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import estimate_scanner_session_volume
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
@@ -345,6 +347,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+
+        snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
+        if snapshot.exhausted:
+            raise QuotaLimitExceeded(
+                detail=(
+                    f"Monthly Replay Vision quota of {snapshot.monthly_quota} observations reached; "
+                    f"resets at {snapshot.period_end.isoformat()}."
+                )
+            )
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)

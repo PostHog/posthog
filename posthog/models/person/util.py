@@ -50,7 +50,7 @@ from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
 
-PERSONHOG_BATCH_SIZE = 500
+PERSONHOG_BATCH_SIZE = 250
 
 
 if TYPE_CHECKING:
