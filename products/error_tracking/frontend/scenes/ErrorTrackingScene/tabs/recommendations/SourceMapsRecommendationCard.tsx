@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useActions } from 'kea'
 
 import { IconMagicWand } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { RecommendationCard } from './RecommendationCard'
 import { SourceMapsFixModal } from './SourceMapsFixModal'
+import { sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
 import type { SourceMapsRecommendation } from './types'
 
 const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
@@ -17,7 +18,7 @@ export function SourceMapsRecommendationCard({
     dismissed?: boolean
 }): JSX.Element | null {
     const { unresolved_pct, lookback_hours } = recommendation.meta
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const { openModal } = useActions(sourceMapsFixWizardLogic)
     const isFirstLoad = recommendation.computed_at === null
 
     if (isFirstLoad) {
@@ -43,14 +44,8 @@ export function SourceMapsRecommendationCard({
             </div>
             <div className="flex items-center gap-2 mt-2 max-w-xs mx-auto">
                 <div className="flex-1">
-                    <LemonButton
-                        type="primary"
-                        icon={<IconMagicWand />}
-                        onClick={() => setIsModalOpen(true)}
-                        fullWidth
-                        center
-                    >
-                        Fix with AI
+                    <LemonButton type="primary" icon={<IconMagicWand />} onClick={openModal} fullWidth center>
+                        Fix with wizard
                     </LemonButton>
                 </div>
                 <div className="flex-1">
@@ -59,7 +54,7 @@ export function SourceMapsRecommendationCard({
                     </LemonButton>
                 </div>
             </div>
-            <SourceMapsFixModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+            <SourceMapsFixModal />
         </RecommendationCard>
     )
 }
