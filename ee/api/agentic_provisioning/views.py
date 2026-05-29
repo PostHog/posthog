@@ -1939,7 +1939,7 @@ def deep_links(request: Request) -> Response:
             "user_id": access_token.user_id,
             "team_id": team_id,
             "purpose": purpose,
-            "path": path if path else None,
+            "path": path or None,
         },
         timeout=DEEP_LINK_TTL_SECONDS,
     )
@@ -2339,7 +2339,11 @@ def _is_safe_deep_link_path(path: object) -> bool:
         isinstance(path, str)
         and len(path) <= DEEP_LINK_MAX_PATH_LENGTH
         and path.startswith("/")
+        # Reject protocol-relative (`//`) and backslash-host (`/\`) forms. Django already
+        # normalizes the backslash before checking, but reject it explicitly so the guard
+        # doesn't depend on that internal behavior.
         and not path.startswith("//")
+        and not path.startswith("/\\")
         and url_has_allowed_host_and_scheme(path, allowed_hosts=None)
     )
 
@@ -2347,6 +2351,10 @@ def _is_safe_deep_link_path(path: object) -> bool:
 def _deep_link_redirect_path(purpose: str, team_id: int | None, path: str | None = None) -> str:
     if path and _is_safe_deep_link_path(path):
         return path
+    if path:
+        # Unreachable in normal operation (mint-time validation already ran); a hit here means
+        # cache tampering or a mint-side regression.
+        logger.warning("agentic_login.unsafe_path_in_cache", path=path)
     if team_id and Team.objects.filter(id=team_id).exists():
         return f"/project/{team_id}"
     return "/"
