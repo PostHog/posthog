@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import unittest
 from freezegun import freeze_time
@@ -12,9 +12,15 @@ from posthog.hogql.parser import parse_select
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    find_missing_contiguous_windows,
+    parse_ttl_schedule,
+    split_ranges_by_ttl,
+)
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     BOUNCES_INSERT_TEMPLATE,
+    DIMENSIONAL_TTL_SECONDS,
     STATS_INSERT_TEMPLATE,
     _base_placeholders,
     ensure_web_bounces_dimensional_precomputed,
@@ -203,3 +209,51 @@ class TestWebDimensionalPrecomputeTemplates(unittest.TestCase):
         # Stats is per-pathname; bounces has no pathname dimension.
         assert "pathname" in stats_aliases
         assert "pathname" not in bounces_aliases
+
+
+class TestColdBackfillSplitsByTtlBandNotPerDay(unittest.TestCase):
+    """A cold N-day request does NOT issue one INSERT per day.
+
+    `find_missing_contiguous_windows` merges all missing days into a single
+    contiguous range; `split_ranges_by_ttl` then cuts that range only at the
+    TTL-band cutoffs. So the number of INSERTs equals the number of TTL bands the
+    window spans (a handful), and the bulk of history is one big INSERT — not 90.
+    """
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_dimensional_schedule_90d_cold_range_is_three_bands(self):
+        end = datetime(2024, 6, 15, 12, tzinfo=UTC)
+        start = end - timedelta(days=90)
+
+        # Cold cache (no existing jobs) -> a single contiguous missing range.
+        missing = find_missing_contiguous_windows([], start, end)
+        assert len(missing) == 1
+
+        bands = split_ranges_by_ttl(missing, parse_ttl_schedule(DIMENSIONAL_TTL_SECONDS, team_timezone="UTC"))
+
+        # DIMENSIONAL_TTL_SECONDS has 3 entries (0d / 2d / default) -> 3 INSERTs,
+        # oldest first. NOT 90.
+        ttls = [ttl for _s, _e, ttl in bands]
+        assert ttls == [90 * 86400, 86400, 3600]
+
+        # The bulk of history is ONE query covering many days, not one-per-day.
+        oldest_start, oldest_end, _ = bands[0]
+        assert (oldest_end - oldest_start).days >= 60
+
+        # Bands tile the window contiguously and cover the whole ~90 days.
+        for (_s1, e1, _t1), (s2, _e2, _t2) in zip(bands, bands[1:]):
+            assert e1 == s2
+        assert sum((e - s).days for s, e, _ in bands) >= 90
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_today_yesterday_7d_rest_schedule_is_four_bands(self):
+        # The exact schedule shape described in review: today / yesterday / last
+        # 7 days / the rest -> four INSERTs for a cold 90-day range.
+        end = datetime(2024, 6, 15, 12, tzinfo=UTC)
+        start = end - timedelta(days=90)
+        schedule = parse_ttl_schedule(
+            {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60},
+            team_timezone="UTC",
+        )
+        bands = split_ranges_by_ttl(find_missing_contiguous_windows([], start, end), schedule)
+        assert len(bands) == 4
