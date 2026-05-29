@@ -351,48 +351,29 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 1;
-    config.flags_bucket_replenish_rate = 1.0;
-
-    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team = insert_new_team_in_redis(redis_client.clone())
-        .await
-        .unwrap();
-    let token = team.api_token.clone();
-
-    let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
-    context
-        .insert_person(team.id, "user123".to_string(), None)
-        .await
-        .unwrap();
-
-    let remote_config = json!({
-        "supportedCompression": ["gzip", "gzip-js"],
-        "config": {}
-    });
-    insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
+    config.flags_bucket_replenish_rate = 0.5;
 
     let server = ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
-
-    let payload = json!({
-        "token": token,
-        "distinct_id": "user123",
-    });
+    let malformed_body = "not valid json";
 
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")
-        .json(&payload)
+        .body(malformed_body)
         .send()
         .await?;
 
-    assert_eq!(response.status(), StatusCode::OK, "First request allowed");
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "First request allowed past rate limiter"
+    );
 
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")
-        .json(&payload)
+        .body(malformed_body)
         .send()
         .await?;
 
@@ -402,20 +383,21 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "Second request blocked"
     );
 
-    // Replenish window is ~1s (1 token/sec); 1100ms gives a small buffer without
-    // depending on sub-100ms inter-request timing on loaded CI runners.
-    tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+    // The token limiter falls back to IP when token extraction fails. Using the
+    // malformed-body path keeps this test focused on limiter timing instead of
+    // the cold valid-flags request path.
+    tokio::time::sleep(tokio::time::Duration::from_millis(2100)).await;
 
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")
-        .json(&payload)
+        .body(malformed_body)
         .send()
         .await?;
 
     assert_eq!(
         response.status(),
-        StatusCode::OK,
+        StatusCode::BAD_REQUEST,
         "Third request allowed after replenishment"
     );
 
