@@ -294,7 +294,10 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <>
                             <div>
-                                <LemonLabel>Variant to keep</LemonLabel>
+                                <LemonLabel showOptional>Variant to keep</LemonLabel>
+                                <div className="text-xs text-muted mb-1">
+                                    Leave blank to end the experiment without rolling out a variant.
+                                </div>
                                 <div className="w-1/2 mt-1">
                                     <LemonSelect
                                         className="w-full"
