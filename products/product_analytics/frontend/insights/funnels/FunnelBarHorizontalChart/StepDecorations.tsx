@@ -62,10 +62,7 @@ export function StepDecorations({
                 const isOptional = isStepOptional(stepIndex + 1)
                 const isFirstStep = stepIndex === 0
                 const isUnordered = funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
-                const showLineBefore = stepIndex > 0
-                const showLineAfter = stepIndex < steps.length - 1
                 const gapHeight = rowHeight * gapFraction
-                const metadataTop = rowHeight - gapHeight
 
                 const dimRow = isOptional ? 'opacity-60' : ''
 
@@ -88,7 +85,7 @@ export function StepDecorations({
                             style={{ position: 'absolute', top: 0, left: 0, width: plotLeft, height: rowHeight }}
                             className={clsx('flex flex-col items-center justify-center', isOptional && 'opacity-70')}
                         >
-                            {showLineBefore && (
+                            {stepIndex > 0 && (
                                 <div style={{ ...lineStyle, top: 0, height: `calc(50% - ${halfGlyph})` }} />
                             )}
                             {isOptional && hasOptionalSteps && (
@@ -109,7 +106,7 @@ export function StepDecorations({
                                     )}
                                 </SeriesGlyph>
                             </div>
-                            {showLineAfter && (
+                            {stepIndex < steps.length - 1 && (
                                 <div style={{ ...lineStyle, top: `calc(50% + ${halfGlyph})`, bottom: 0 }} />
                             )}
                         </div>
@@ -152,7 +149,7 @@ export function StepDecorations({
                         <div
                             style={{
                                 position: 'absolute',
-                                top: metadataTop,
+                                top: rowHeight - gapHeight,
                                 left: plotLeft,
                                 width: plotWidth,
                                 height: gapHeight,

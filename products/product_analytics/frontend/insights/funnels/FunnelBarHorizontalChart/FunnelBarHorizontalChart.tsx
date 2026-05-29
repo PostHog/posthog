@@ -24,8 +24,7 @@ function getFillerColor(): string {
     if (typeof document === 'undefined') {
         return 'rgba(0, 0, 0, 0.08)'
     }
-    const value = getComputedStyle(document.body).getPropertyValue('--color-border-primary').trim()
-    return value || 'rgba(0, 0, 0, 0.08)'
+    return getComputedStyle(document.body).getPropertyValue('--color-border-primary').trim() || 'rgba(0, 0, 0, 0.08)'
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
