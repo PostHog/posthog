@@ -602,3 +602,17 @@ class TestNormalizeAndValidateAppUrl(APIBaseTest):
         with self.assertRaises(ToolbarOAuthError) as cm:
             normalize_and_validate_app_url(self.team, "example.com/page")
         assert cm.exception.code == "invalid_app_url"
+
+    @parameterized.expand(
+        [
+            # urlparse sees hostname='example.com' (the allowed domain), but a browser
+            # following the redirect treats `\` as a path separator and routes to
+            # attacker.example, leaking the toolbar OAuth code.
+            ("raw_backslash", "https://attacker.example\\@example.com/page"),
+            ("percent_encoded_backslash", "https://attacker.example%5C@example.com/page"),
+        ]
+    )
+    def test_rejects_backslash_authority_bypass(self, _name, app_url):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            normalize_and_validate_app_url(self.team, app_url)
+        assert cm.exception.code == "forbidden_app_url"
