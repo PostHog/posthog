@@ -3,31 +3,42 @@ import { isObject } from 'lib/utils'
 
 import { isEmptyJSONStructure, parsePartialJSON, safeStringify } from '../utils'
 
-function isJsonContainer(value: unknown): value is Record<string, unknown> | unknown[] {
+export type JSONDisplayContainer = Record<string, unknown> | unknown[]
+
+export interface JSONDisplayOptions {
+    allowEmptyContainers?: boolean
+}
+
+export function isJsonContainer(value: unknown): value is JSONDisplayContainer {
     return Array.isArray(value) || isObject(value)
 }
 
-function parseStringifiedJsonContainer(value: unknown): unknown {
+export function getJsonContainerForDisplay(value: unknown, options?: JSONDisplayOptions): JSONDisplayContainer | null {
+    const allowEmptyContainers = options?.allowEmptyContainers ?? true
+
     if (typeof value !== 'string') {
-        return value
+        return isJsonContainer(value) && (allowEmptyContainers || !isEmptyJSONStructure(value)) ? value : null
     }
 
     const trimmed = value.trim()
     if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-        return value
+        return null
     }
 
     try {
         const parsed = parsePartialJSON(value)
         const isLiteralEmptyContainer = trimmed === '{}' || trimmed === '[]'
-        if (isJsonContainer(parsed) && (!isEmptyJSONStructure(parsed) || isLiteralEmptyContainer)) {
+        if (
+            isJsonContainer(parsed) &&
+            (!isEmptyJSONStructure(parsed) || (allowEmptyContainers && isLiteralEmptyContainer))
+        ) {
             return parsed
         }
     } catch {
         // Keep bracket-prefixed plain text, such as "[Thinking: ...]", readable.
     }
 
-    return value
+    return null
 }
 
 export function JSONValueDisplay({
@@ -39,9 +50,9 @@ export function JSONValueDisplay({
     collapsed?: number
     searchQuery?: string
 }): JSX.Element {
-    const parsedValue = parseStringifiedJsonContainer(value)
+    const parsedValue = getJsonContainerForDisplay(value)
 
-    if (isJsonContainer(parsedValue)) {
+    if (parsedValue) {
         return <HighlightedJSONViewer src={parsedValue} name={null} collapsed={collapsed} searchQuery={searchQuery} />
     }
 
