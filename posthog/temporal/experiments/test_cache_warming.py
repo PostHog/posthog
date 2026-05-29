@@ -105,10 +105,10 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-10T12:00:00Z")
     def test_temporal_activity_warms_query_cache_for_saved_metric(self):
         """
-        Saved metrics take a different path: the frontend merges
-        ExperimentToSavedMetric.metadata.breakdowns into a breakdownFilter on
-        the metric before posting to /query. The activity must apply the same
-        merge or the cache key diverges. This test covers that path.
+        Saved metrics go through two backend-side transformations before /query
+        sees them: the API serializer adds `fingerprint`, and the frontend wraps
+        with `breakdownFilter` from the link metadata. The activity must apply
+        both or the response cache key diverges from what /query reads.
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -158,12 +158,21 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
                 )
         flush_persons_and_events()
 
-        # Build the metric the way the frontend does for saved metrics:
-        # wrap with breakdownFilter merged from link.metadata.breakdowns
-        # (see sharedMetricsToExperimentMetrics in experimentLogic.tsx).
+        fingerprint = compute_metric_fingerprint(
+            metric_dict,
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+            only_count_matured_users=experiment.only_count_matured_users,
+        )
+
+        # Build the metric the way /query sees it for saved metrics:
+        # fingerprint added by the API serializer (presentation/serializers.py)
+        # plus breakdownFilter wrapped by sharedMetricsToExperimentMetrics on the frontend.
         frontend_metric_dict = {
             **metric_dict,
             "breakdownFilter": {"breakdowns": []},
+            "fingerprint": fingerprint,
         }
         frontend_query = ExperimentQuery.model_validate(
             {
@@ -175,13 +184,6 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
 
         cache.clear()
 
-        fingerprint = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-        )
         with patch("posthog.temporal.experiments.activities.close_old_connections"):
             activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, metric_dict["uuid"], fingerprint
