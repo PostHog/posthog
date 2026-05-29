@@ -7128,6 +7128,13 @@ class ExperimentParameters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    excluded_variants: list[str] | None = Field(
+        default=None,
+        description=(
+            "Variant keys to exclude from metric result calculations. Excluded variants"
+            " are still served to users but omitted from statistical analysis."
+        ),
+    )
     feature_flag_variants: list[ExperimentVariant] | None = Field(
         default=None,
         description=(
@@ -7449,11 +7456,11 @@ class HogQLQueryModifiers(BaseModel):
     parserMode: ParserMode | None = Field(
         default=None,
         description=(
-            "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary,"
-            " rust-py runs as a sampled shadow). `*_shadow` modes return the primary"
-            " result and sample-compare against the other parser, reporting divergences"
-            " without failing the request. The `rust_py_*` modes drive the same"
-            " hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
+            "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is"
+            " primary, cpp runs as a sampled shadow). `*_shadow` modes return the"
+            " primary result and sample-compare against the other parser, reporting"
+            " divergences without failing the request. The `rust_py_*` modes drive the"
+            " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )
@@ -22611,7 +22618,7 @@ class ExperimentHoldoutType(BaseModel):
     created_by: UserBasicType | None = None
     description: str | None = None
     filters: list[FeatureFlagGroupType]
-    id: float | None = None
+    id: int
     name: str
     updated_at: str | None = None
 

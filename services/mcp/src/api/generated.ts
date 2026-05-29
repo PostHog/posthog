@@ -385,7 +385,7 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
-      /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+      /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -16343,6 +16343,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentParameters {
+      /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
+      excluded_variants?: string[] | null;
       /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
       feature_flag_variants?: ExperimentVariant[] | null;
       /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
@@ -16590,7 +16592,7 @@ export namespace Schemas {
       created_by?: UserBasicType | null;
       description?: string | null;
       filters: FeatureFlagGroupType[];
-      id?: number | null;
+      id: number;
       name: string;
       updated_at?: string | null;
     }
@@ -17720,8 +17722,6 @@ export namespace Schemas {
      */
     export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
 
-    export type FeatureFlagFiltersSchemaSuperGroupsItem = { [key: string]: unknown };
-
     export interface FeatureFlagFiltersSchema {
       /** Release condition groups for the feature flag. */
       groups?: FeatureFlagConditionGroupSchema[];
@@ -17734,8 +17734,6 @@ export namespace Schemas {
       aggregation_group_type_index?: number | null;
       /** Optional payload values keyed by variant key. */
       payloads?: FeatureFlagFiltersSchemaPayloads;
-      /** Additional super condition groups used by experiments. */
-      super_groups?: FeatureFlagFiltersSchemaSuperGroupsItem[];
       /**
          * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
          * @nullable
