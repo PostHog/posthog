@@ -64,10 +64,18 @@ export async function resolveAgent(
 }
 
 /**
- * The revision must declare a trigger of the given type. Otherwise return null
+ * The revision must declare a trigger of the given type. Otherwise return false
  * and let the caller 404. Mirrors the old "agent has only a slack trigger →
  * POST /run → 404" behavior — agents only accept the surfaces they opt into.
+ *
+ * Defensive against malformed specs: a revision with no `triggers` field
+ * shouldn't blow up here with "Cannot read property 'some' of undefined" and
+ * 500. Treat it as "no triggers declared" → 404.
  */
 export function hasTrigger(agent: ResolvedAgent, type: string): boolean {
-    return agent.revision.spec.triggers.some((t) => t.type === type)
+    const triggers = agent.revision.spec?.triggers
+    if (!Array.isArray(triggers)) {
+        return false
+    }
+    return triggers.some((t) => t?.type === type)
 }

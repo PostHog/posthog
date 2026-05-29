@@ -31,12 +31,12 @@ const EXAMPLE_FILE = path.join(CONSOLE_ROOT, '.env.local.example')
 
 const DEFAULTS = {
     POSTHOG_BASE_URL: 'http://localhost:8010',
-    POSTHOG_AGENTS_BASE: 'http://localhost:3010',
+    POSTHOG_AGENTS_BASE: 'http://localhost:3030',
     CONSOLE_BASE_URL: 'http://localhost:3040',
 }
 
 async function main() {
-    const { clientId, clientSecret, redirectUri } = await runDjango()
+    const { clientId, clientSecret } = await runDjango()
 
     const existing = await readEnvFile(ENV_FILE)
     const merged = { ...existing }

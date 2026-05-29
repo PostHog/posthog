@@ -99,4 +99,29 @@ describe('chat trigger: real e2e', () => {
         const res = await request(c.ingress).post('/agents/ghost/run').send({ message: 'x' })
         expect(res.status).toBe(404)
     })
+
+    it('404s an agent with no live revision (never 500)', async () => {
+        // Create an application but skip the live-revision promotion so the
+        // resolver returns null. The dock was 500-ing here because some
+        // downstream path wasn't defensive; this asserts we surface the
+        // missing-revision case as a clean 404.
+        await c.revisions.createApplication({
+            team_id: 1, // matches buildCluster's default teamId
+            slug: 'pre-promotion',
+            name: 'pre-promotion',
+            description: '',
+        })
+        const res = await request(c.ingress).post('/agents/pre-promotion/run').send({ message: 'x' })
+        expect(res.status).toBe(404)
+        expect(res.body).toMatchObject({ error: 'no_agent' })
+    })
+
+    it('404s an agent whose live revision lacks a chat trigger (never 500)', async () => {
+        // Deploy with an empty trigger list — `hasTrigger` should be
+        // defensive about both missing trigger arrays and unmatched types.
+        await c.deployAgent({ slug: 'no-chat', spec: { triggers: [{ type: 'webhook', config: { path: '/w' } }] } })
+        const res = await request(c.ingress).post('/agents/no-chat/run').send({ message: 'x' })
+        expect(res.status).toBe(404)
+        expect(res.body).toMatchObject({ error: 'no_chat_trigger' })
+    })
 })

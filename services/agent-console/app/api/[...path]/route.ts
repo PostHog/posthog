@@ -122,7 +122,22 @@ async function buildRequestInit(request: NextRequest): Promise<RequestInit> {
 async function proxy(url: string, init: RequestInit, session: SessionPayload): Promise<Response> {
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${session.accessToken}`)
-    return await fetch(url, { ...init, headers })
+    try {
+        return await fetch(url, { ...init, headers })
+    } catch (err) {
+        // Network-layer failure — upstream is down, DNS failed, etc.
+        // Surface as a clean 502 with an actionable body so the dock
+        // can render "Agent platform unreachable" instead of a generic
+        // 500.
+        return NextResponse.json(
+            {
+                error: 'upstream_unreachable',
+                upstream: url,
+                detail: err instanceof Error ? err.message : String(err),
+            },
+            { status: 502 }
+        )
+    }
 }
 
 export const GET = handle
