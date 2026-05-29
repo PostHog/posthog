@@ -45,9 +45,13 @@ test.describe('Cohorts', () => {
         await dynamicItem.click()
         await page.locator('.Toastify__toast-body').getByRole('button', { name: 'View cohort' }).click()
 
-        // The panel's open state persists across the client-side nav, but re-open it
-        // idempotently so the test doesn't hang if persistence ever changes
-        await page.locator('[data-attr=open-context-panel-button]').first().click()
+        // The panel's open state persists across the client-side nav. The open
+        // button is unmounted while the panel is open, so only click it if the
+        // panel actually closed.
+        const reopenPanelButton = page.locator('[data-attr=open-context-panel-button]').first()
+        if (await reopenPanelButton.isVisible().catch(() => false)) {
+            await reopenPanelButton.click()
+        }
 
         const staticItem = page.getByRole('button', { name: 'Duplicate as static cohort' })
         await expect(staticItem).toBeEnabled({ timeout: 30_000 })
