@@ -6,7 +6,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { parseEmailTrackingCode } from './tracking-code'
+import { TRACKING_CODE_HEADER_NAME, parseEmailTrackingCode } from './tracking-code'
 
 /**
  * ---------- SNS envelope types ----------
@@ -383,9 +383,16 @@ export class SesWebhookHandler {
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
-            const tags = rec.mail.tags
+            // Prefer the custom MIME header (carries the full code including distinct_id, unbounded).
+            // Fall back to the SES EmailTag for messages sent before the header carrier was added,
+            // or where the configuration set hasn't yet enabled `IncludeOriginalHeaders`.
+            const headerValue = rec.mail.headers?.find(
+                (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
+            )?.value
+            const tagValue = rec.mail.tags?.ph_id?.[0]
+            const trackingCodeRaw = headerValue ?? tagValue ?? ''
             const { functionId, invocationId, teamId, actionId, parentRunId, distinctId } =
-                parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+                parseEmailTrackingCode(trackingCodeRaw) || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })

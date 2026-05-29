@@ -521,13 +521,37 @@ describe('EmailService', () => {
             )
         })
 
-        it('should not include unsubscribe headers for transactional emails', async () => {
+        it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Headers).toBeUndefined()
+            const headers = sentCommand.input.Content.Simple.Headers
+            const headerNames = headers.map((h: { Name: string }) => h.Name)
+            expect(headerNames).not.toContain('List-Unsubscribe')
+            expect(headerNames).not.toContain('List-Unsubscribe-Post')
+            expect(headerNames).toContain('X-PostHog-Tracking-Code')
+        })
+
+        it('attaches the X-PostHog-Tracking-Code header carrying the full tracking code', async () => {
+            // The header is the authoritative tracking-code carrier (the EmailTag is the
+            // bounded backwards-compat fallback). It rides on every outbound message,
+            // regardless of transactional vs. marketing category.
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            const trackingHeader = sentCommand.input.Content.Simple.Headers.find(
+                (h: { Name: string }) => h.Name === 'X-PostHog-Tracking-Code'
+            )
+            expect(trackingHeader).toBeDefined()
+            expect(typeof trackingHeader.Value).toBe('string')
+            expect(trackingHeader.Value.length).toBeGreaterThan(0)
+            // The SES EmailTag carries a *different* (shorter) code so it stays under the
+            // 256-char tag-value limit even when distinct_id is long.
+            expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
         })
 
         it('should report a missing message id', async () => {
