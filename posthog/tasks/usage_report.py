@@ -1755,8 +1755,12 @@ def get_teams_with_sdk_logs_records_in_period(
 
     `team_ids_with_logs` must be the team_ids that produced any log records in the same period
     (typically the result of `get_teams_with_logs_records_in_period`). It's used as a primary-key
-    pre-filter on the `logs` table — without it, scanning the `resource_attributes` map cluster-wide
+    pre-filter on `logs_distributed` — without it, scanning the `resource_attributes` map cluster-wide
     hits the Logs cluster's per-query scan-bytes ceiling. If the input is empty, the query is skipped.
+
+    NB: query the physical `logs_distributed` table, not `logs`. `logs` is the HogQL table alias and
+    only resolves inside HogQL (`parse_select`); raw `sync_execute` runs ClickHouse SQL directly, where
+    no `logs` table exists — using it fails the whole usage-report run (see PR #60611 revert).
     """
     if not team_ids_with_logs:
         return {suffix: [] for suffix in SDK_TELEMETRY_NAMES.values()}
@@ -1768,7 +1772,7 @@ def get_teams_with_sdk_logs_records_in_period(
                 team_id,
                 resource_attributes['telemetry.sdk.name'] AS sdk_name,
                 count() AS count
-            FROM logs
+            FROM logs_distributed
             WHERE team_id IN %(team_ids)s
               AND timestamp >= %(begin)s
               AND timestamp < %(end)s

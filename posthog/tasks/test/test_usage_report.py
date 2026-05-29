@@ -2778,7 +2778,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         lines += self._logs_records_json(self.org_1_team_2.id, None, 6)
         # Team 3 has log records but no app_metrics2 row, so the pre-filter excludes it entirely.
         lines += self._logs_records_json(org_1_team_3.id, "posthog-ios", 9)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{lines}")
+        sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
