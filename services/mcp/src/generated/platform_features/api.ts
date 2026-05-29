@@ -448,6 +448,18 @@ export const CommentsCountRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary product during onboarding. Resolved from the most recent `user showed product intent` event with `intent_context = onboarding product selected - primary`. Returns `null` when no such event has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ */
+export const EnvironmentsPromotedProductIntentRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this environment (aka team).'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
  */
 export const UserHomeSettingsRetrieveParams = /* @__PURE__ */ zod.object({

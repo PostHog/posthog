@@ -12,6 +12,7 @@ import {
     CommentsListQueryParams,
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
+    EnvironmentsPromotedProductIntentRetrieveParams,
     ListQueryParams,
     MembersListQueryParams,
     RetrieveParams,
@@ -26,6 +27,24 @@ import {
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const PromotedProductIntentGetSchema = EnvironmentsPromotedProductIntentRetrieveParams.omit({ project_id: true })
+
+const promotedProductIntentGet = (): ToolBase<
+    typeof PromotedProductIntentGetSchema,
+    Schemas.PromotedProductIntent
+> => ({
+    name: 'promoted-product-intent-get',
+    schema: PromotedProductIntentGetSchema,
+    handler: async (context: Context, params: z.infer<typeof PromotedProductIntentGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PromotedProductIntent>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/environments/${encodeURIComponent(String(params.id))}/promoted_product_intent/`,
+        })
+        return result
+    },
+})
 
 const ActivityLogListSchema = ActivityLogListQueryParams.extend({
     page_size: z
@@ -481,6 +500,7 @@ const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema,
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'promoted-product-intent-get': promotedProductIntentGet,
     'activity-log-list': activityLogList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'advanced-activity-logs-list': advancedActivityLogsList,

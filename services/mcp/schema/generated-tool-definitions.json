@@ -3933,6 +3933,23 @@
             "readOnlyHint": false
         }
     },
+    "promoted-product-intent-get": {
+        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get the team's promoted product.",
+        "title": "Get the team's promoted product.",
+        "required_scopes": ["project:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "promoted-product",
+        "feature_flag_variant": "intent_plus"
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
