@@ -18,6 +18,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.util import PERSONHOG_BATCH_SIZE
 from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.personhog_client.metrics import (
@@ -75,8 +76,7 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    # batching is needed to prevent timeouts when reading from Postgres
-    BATCH_SIZE = 1000
+    BATCH_SIZE = PERSONHOG_BATCH_SIZE
 
     def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
         from posthog.personhog_client.client import get_personhog_client
