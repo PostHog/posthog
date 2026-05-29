@@ -6444,7 +6444,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID.",
+        "description": "Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

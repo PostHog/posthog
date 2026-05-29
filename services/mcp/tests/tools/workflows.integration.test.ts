@@ -266,17 +266,6 @@ describe('Workflows', { concurrent: false }, () => {
             expect(renamed.id).toBe(created.id)
             expect(renamed.name).toBe('mcp-test-renamed')
         })
-
-        it('should archive a workflow via status transition', async () => {
-            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
-            createdWorkflowIds.push(created.id)
-
-            const archived = parseToolResponse(
-                await updateTool.handler(context, { id: created.id, status: 'archived' })
-            )
-
-            expect(archived.status).toBe('archived')
-        })
     })
 
     // workflows-run hits the invocations endpoint, which forwards to the CDP plugin

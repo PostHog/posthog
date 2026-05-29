@@ -624,24 +624,32 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             logger.warning("Failed to capture hog_flow_created event", error=str(e))
 
     def perform_update(self, serializer):
-        # Guardrail for MCP callers: don't let an LLM edit a live workflow that's actively
-        # processing events. Status-only PATCHes are always allowed (so workflows-enable /
-        # workflows-disable / workflows-archive work idempotently); anything that also
-        # touches other fields on an active workflow is rejected. Only fires for
-        # x-posthog-client: mcp; the frontend and raw API are unaffected.
-        #
-        # We check the raw request payload, not serializer.validated_data — HogFlowSerializer.validate
-        # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise
-        # make every status-only PATCH look like an edit.
-        if (
-            self._is_mcp_request(self.request)
-            and serializer.instance.status == HogFlow.State.ACTIVE
-            and (set(self.request.data.keys()) - {"status"})
-        ):
-            raise exceptions.ValidationError(
-                "You can't edit an enabled (active) workflow via MCP. "
-                "Disable it first with workflows-disable, then make your changes."
-            )
+        # Guardrails for MCP callers (gated on x-posthog-client: mcp; the frontend and raw API
+        # are unaffected). We check the raw request payload, not serializer.validated_data —
+        # HogFlowSerializer.validate injects derived fields like 'trigger' and
+        # 'billable_action_types' which would otherwise make every status-only PATCH look like
+        # an edit.
+        if self._is_mcp_request(self.request):
+            keys = set(self.request.data.keys())
+            has_status = "status" in keys
+            has_non_status = bool(keys - {"status"})
+
+            # 1. Live workflows can't be edited. Status-only PATCHes (i.e. the lifecycle
+            # tools) pass through.
+            if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
+                raise exceptions.ValidationError(
+                    "You can't edit an enabled (active) workflow via MCP. "
+                    "Disable it first with workflows-disable, then make your changes."
+                )
+
+            # 2. Status changes must go through the dedicated lifecycle tools, which send
+            # status-only PATCHes. Mixed payloads are rejected so MCP can't sneak a status
+            # transition through workflows-update.
+            if has_status and has_non_status:
+                raise exceptions.ValidationError(
+                    "Status changes via MCP must use workflows-enable / workflows-disable / "
+                    "workflows-archive — they can't be combined with other field updates."
+                )
 
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id

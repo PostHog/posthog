@@ -634,6 +634,34 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert response.json()["status"] == "active"
 
+    def test_mcp_cannot_mix_status_with_other_field_updates(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}",
+            {"name": "Renamed", "status": "active"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 400, response.json()
+        assert "workflows-enable / workflows-disable / workflows-archive" in response.json()["detail"]
+
+    def test_non_mcp_can_mix_status_with_other_field_updates(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}",
+            {"name": "Renamed", "status": "active"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "active"
+        assert response.json()["name"] == "Renamed"
+
     def test_edges_validation_accepts_list_of_edges(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

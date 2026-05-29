@@ -201,9 +201,6 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             if (params.description !== undefined) {
                 body['description'] = params.description
             }
-            if (params.status !== undefined) {
-                body['status'] = params.status
-            }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking
             }
