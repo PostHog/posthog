@@ -307,4 +307,5 @@ class TestCalculateActivity(BaseTest):
         assert len(result.error_message) <= 2000
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.status == ExperimentMetricResult.Status.FAILED
+        assert row.error_message is not None
         assert len(row.error_message) <= 2000
