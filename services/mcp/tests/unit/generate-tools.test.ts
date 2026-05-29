@@ -546,6 +546,219 @@ describe('inject_body', () => {
     })
 })
 
+describe('anyOf / oneOf body schemas (discriminated unions)', () => {
+    // Polymorphic Python serializers (e.g. file-download-batch-exports) emit
+    // request bodies as `anyOf` of per-variant object schemas. Without union
+    // handling, `bodyFieldNames` stays empty and the generated handler POSTs
+    // with no body — the server rejects the request as "field required".
+    const unionResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            kind: { type: 'string', enum: ['a'] },
+                                            shared_field: { type: 'string' },
+                                            only_in_a: { type: 'string' },
+                                        },
+                                        required: ['kind', 'shared_field'],
+                                    },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            kind: { type: 'string', enum: ['b'] },
+                                            shared_field: { type: 'string' },
+                                            only_in_b: { type: 'number' },
+                                        },
+                                        required: ['kind', 'shared_field', 'only_in_b'],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it('emits body assembly for every field, guarding variant-specific access with `in`', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            unionResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // Body is initialized and forwarded.
+        expect(result.code).toContain('const body: Record<string, unknown> = {}')
+        expect(result.code).toContain('body,')
+
+        // Every field across all variants is assembled into the body.
+        expect(result.code).toContain(`body["kind"] = params.kind`)
+        expect(result.code).toContain(`body["shared_field"] = params.shared_field`)
+        expect(result.code).toContain(`body["only_in_a"] = params.only_in_a`)
+        expect(result.code).toContain(`body["only_in_b"] = params.only_in_b`)
+
+        // Fields present in every variant don't need the `in` guard.
+        expect(result.code).toContain('if (params.kind !== undefined)')
+        expect(result.code).toContain('if (params.shared_field !== undefined)')
+        // Fields only in some variants must be guarded with `'X' in params` so
+        // accessing them on the inferred union type still type-checks.
+        expect(result.code).toContain(`if ('only_in_a' in params && params.only_in_a !== undefined)`)
+        expect(result.code).toContain(`if ('only_in_b' in params && params.only_in_b !== undefined)`)
+    })
+
+    it('flattens allOf composition inside a union variant', () => {
+        // Mirrors the common OpenAPI pattern of a variant that extends a base
+        // schema via allOf (e.g. `$ref` + extra properties). Without allOf
+        // handling the base-schema fields would be dropped from the body.
+        const spec = makeSpec({
+            components: {
+                schemas: {
+                    BaseFields: {
+                        type: 'object',
+                        properties: {
+                            base_field: { type: 'string' },
+                        },
+                        required: ['base_field'],
+                    },
+                },
+            },
+        })
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    {
+                                        allOf: [
+                                            { $ref: '#/components/schemas/BaseFields' },
+                                            {
+                                                type: 'object',
+                                                properties: {
+                                                    kind: { type: 'string', enum: ['a'] },
+                                                    only_in_a: { type: 'string' },
+                                                },
+                                                required: ['kind'],
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            base_field: { type: 'string' },
+                                            kind: { type: 'string', enum: ['b'] },
+                                        },
+                                        required: ['base_field', 'kind'],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            spec,
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // allOf-composed fields reach the body builder, treated as shared
+        // (present in every variant) rather than variant-specific.
+        expect(result.code).toContain(`body["base_field"] = params.base_field`)
+        expect(result.code).toContain('if (params.base_field !== undefined)')
+        expect(result.code).toContain('if (params.kind !== undefined)')
+        // The variant-only field still gets `in`-guarded.
+        expect(result.code).toContain(`if ('only_in_a' in params && params.only_in_a !== undefined)`)
+    })
+
+    it('resolves $ref-based union variants from components.schemas', () => {
+        const spec = makeSpec({
+            components: {
+                schemas: {
+                    VariantA: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, payload_a: { type: 'string' } },
+                        required: ['kind'],
+                    },
+                    VariantB: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, payload_b: { type: 'string' } },
+                        required: ['kind'],
+                    },
+                },
+            },
+        })
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                oneOf: [
+                                    { $ref: '#/components/schemas/VariantA' },
+                                    { $ref: '#/components/schemas/VariantB' },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            spec,
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(`body["payload_a"] = params.payload_a`)
+        expect(result.code).toContain(`body["payload_b"] = params.payload_b`)
+    })
+})
+
 describe('rename_params', () => {
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {

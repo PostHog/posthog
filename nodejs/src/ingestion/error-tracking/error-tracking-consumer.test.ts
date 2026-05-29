@@ -60,6 +60,7 @@ const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
     fetchPerson: jest.fn().mockResolvedValue(undefined),
     fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
     fetchPersonsByPersonIds: jest.fn(),
+    fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
     createPerson: jest.fn(),
     updatePerson: jest.fn(),
     updatePersonAssertVersion: jest.fn(),

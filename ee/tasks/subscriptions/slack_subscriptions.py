@@ -11,10 +11,21 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
+from posthog.utils import absolute_uri
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
+
+
+# Shown in place of the AI summary when generation was skipped because the org is
+# over its AI credit budget. Wording kept in sync with the email template's notice.
+def summary_skipped_over_budget_message(billing_url: str) -> str:
+    return (
+        "_AI summary skipped — your organization has reached its AI credit usage limit. "
+        f"Increase the limit in <{billing_url}|Billing settings> to resume summaries._"
+    )
+
 
 # Slack API error codes that indicate transient server-side issues — safe to retry.
 # These are 5xx-equivalents in Slack's string-coded error model. Permanent errors
@@ -84,7 +95,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
 
     # Normal image block for successful assets
-    image_url = asset.get_public_content_url()
+    image_url = asset.get_subscription_delivery_content_url()
     alt_text = None
     if asset.insight:
         alt_text = asset.insight.name or asset.insight.derived_name
@@ -123,6 +134,7 @@ def _prepare_slack_message(
     total_asset_count: int,
     is_new_subscription: bool = False,
     change_summary: str | None = None,
+    summary_skipped_over_budget: bool = False,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -157,6 +169,14 @@ def _prepare_slack_message(
         if len(summary_text) > 3000:
             summary_text = summary_text[:2997] + "..."
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+    elif summary_skipped_over_budget:
+        billing_url = f"{absolute_uri('/organization/billing')}?{utm_tags}"
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": summary_skipped_over_budget_message(billing_url)}],
+            }
+        )
 
     blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 
@@ -279,9 +299,15 @@ async def send_slack_message_with_integration_async(
     total_asset_count: int,
     is_new_subscription: bool = False,
     change_summary: str | None = None,
+    summary_skipped_over_budget: bool = False,
 ) -> SlackDeliveryResult:
     message_data = _prepare_slack_message(
-        subscription, assets, total_asset_count, is_new_subscription, change_summary=change_summary
+        subscription,
+        assets,
+        total_asset_count,
+        is_new_subscription,
+        change_summary=change_summary,
+        summary_skipped_over_budget=summary_skipped_over_budget,
     )
     slack_integration = SlackIntegration(integration)
 
