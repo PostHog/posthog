@@ -112,7 +112,7 @@ jobs:
                   crates=$(echo "$result" | jq -c '.crates')
                   count=$(echo "$result" | jq '.crates | length')
                   rebuild=$(echo "$result" | jq -r '.rebuild_all')
-                  echo "Affected crates ($count), rebuild_all=$rebuild"
+                  echo "Affected crates ($count), rebuild_all=$rebuild: $crates"
                   echo "crates=$crates" >> "$GITHUB_OUTPUT"
 
             # Bin-pack affected packages into balanced test shards.
