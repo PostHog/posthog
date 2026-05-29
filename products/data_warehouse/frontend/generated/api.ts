@@ -949,6 +949,59 @@ export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
     )
 }
 
+export const getExternalDataSourcesCdcStatusRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/cdc_status/`
+}
+
+/**
+ * Live CDC health for an existing source: slot/publication existence and WAL lag.
+
+Reads from the source DB via the engine adapter. Returns ``{"enabled": false}``
+when CDC is off, or the stored config plus live ``slot_exists`` /
+``publication_exists`` / ``lag_bytes`` when on. 400s if the source DB is
+unreachable so the UI can show a degraded/unreachable state.
+ */
+export const externalDataSourcesCdcStatusRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesCdcStatusRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/check_cdc_prerequisites_for_source/`
+}
+
+/**
+ * Validate CDC prerequisites for an existing source using its stored credentials.
+
+The detail=False ``check_cdc_prerequisites`` action is for the creation wizard,
+where the client still holds the raw connection config (incl. password) in the
+form. On the Configuration page the source already exists and secret fields are
+stripped from API responses — so the client can't supply them. This reads the
+stored (encrypted) credentials from the DB via the adapter instead.
+
+Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
+``cdc_slot_name`` (optional), ``cdc_publication_name`` (optional).
+ */
+export const externalDataSourcesCheckCdcPrerequisitesForSourceCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
 export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/create_webhook/`
 }
@@ -984,6 +1037,66 @@ export const externalDataSourcesDeleteWebhookCreate = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+export const getExternalDataSourcesDisableCdcCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/disable_cdc/`
+}
+
+/**
+ * Disable CDC on an existing source.
+
+Cancels any running CDC extraction workflow, deletes the extraction schedule,
+delegates engine-side teardown to the source's adapter (drops slot/publication
+for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
+``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
+``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
+strategy before they resume.
+ */
+export const externalDataSourcesDisableCdcCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesDisableCdcCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+export const getExternalDataSourcesEnableCdcCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/enable_cdc/`
+}
+
+/**
+ * Enable CDC on an existing source.
+
+Provisions engine-side CDC resources via the source's adapter, writes the CDC
+config into ``source.job_inputs``, and ensures the CDC extraction schedule
+exists. Re-runs prereq checks server-side so we never trust a stale
+client-side check.
+
+Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
+plus engine-specific identifier hints (e.g. ``cdc_slot_name``,
+``cdc_publication_name`` for Postgres). Universal tuning fields:
+``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
+(optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
+ */
+export const externalDataSourcesEnableCdcCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1069,6 +1182,32 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedExternalDataSourceSerializersApi),
+    })
+}
+
+export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/update_cdc_settings/`
+}
+
+/**
+ * Update CDC tuning fields without enabling/disabling.
+
+Lets users edit ``cdc_auto_drop_slot``, ``cdc_lag_warning_threshold_mb``, and
+``cdc_lag_critical_threshold_mb`` independently. These fields are universal
+across engines. Engine-specific identifiers (slot name, management mode, …)
+are immutable post-enable — switching them requires disable + enable.
+ */
+export const externalDataSourcesUpdateCdcSettingsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesUpdateCdcSettingsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
