@@ -18,6 +18,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     _block_for_asset,
+    _prepare_slack_message,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
@@ -604,3 +605,54 @@ class TestSlackErrorTruncation(APIBaseTest):
         text = block["text"]["text"]
         assert "*My Test subscription*" in text
         assert ASSET_GENERATION_FAILED_MESSAGE in text
+
+
+class TestSlackSummaryNotice(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
+        self.subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+    def _block_texts(self, change_summary: str | None, summary_skipped_over_budget: bool) -> list[str]:
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            change_summary=change_summary,
+            summary_skipped_over_budget=summary_skipped_over_budget,
+        )
+        return [block.get("text", {}).get("text", "") for block in message.blocks] + [
+            element.get("text", "")
+            for block in message.blocks
+            for element in block.get("elements", [])
+            if isinstance(element, dict)
+        ]
+
+    def test_shows_over_budget_notice_when_summary_skipped(self) -> None:
+        texts = self._block_texts(change_summary=None, summary_skipped_over_budget=True)
+        notice = next((t for t in texts if "AI summary skipped" in t), None)
+        assert notice is not None
+        # "Billing settings" is an inline mrkdwn link (<url|label>) in the notice text itself.
+        assert "/organization/billing" in notice
+        assert "|Billing settings>" in notice
+
+    def test_no_notice_when_summary_present(self) -> None:
+        # A generated summary wins — the over-budget notice never doubles up with it.
+        texts = self._block_texts(change_summary="- trending up", summary_skipped_over_budget=True)
+        assert any("*AI summary:*" in text for text in texts)
+        assert all("AI summary skipped" not in text for text in texts)
+
+    def test_no_notice_when_under_budget_and_no_summary(self) -> None:
+        texts = self._block_texts(change_summary=None, summary_skipped_over_budget=False)
+        assert all("AI summary skipped" not in text for text in texts)

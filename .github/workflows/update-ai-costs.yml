@@ -159,7 +159,6 @@ jobs:
                     --base master \
                     --head chore/llma-update-ai-costs \
                     --label "automated" --label "llm-analytics" \
-                    --reviewer "PostHog/team-ai-observability" \
                     --reviewer "PostHog/team-ai-gateway")
                   echo "Created $new_pr_url"
 

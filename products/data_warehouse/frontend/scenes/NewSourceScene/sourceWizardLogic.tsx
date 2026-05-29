@@ -1349,6 +1349,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     getDatabaseSchemaPayload(values.source)
                 )
 
+                // Backend `cdc_available` only reflects the team flag — clear it when the
+                // user didn't toggle CDC on for this source in step 1.
+                const sourceCdcEnabled = !!values.source.payload?.cdc_enabled
+                if (!sourceCdcEnabled) {
+                    for (const schema of schemas) {
+                        schema.cdc_available = false
+                    }
+                }
+
                 let showToast = false
 
                 for (const schema of schemas) {
@@ -1368,7 +1377,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         showToast = true
                         schema.should_sync = schema.should_sync_default ?? true
 
-                        const cdcEnabled = values.source.payload?.cdc_enabled
+                        const cdcEnabled = sourceCdcEnabled
                         if (cdcEnabled && schema.cdc_available) {
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {

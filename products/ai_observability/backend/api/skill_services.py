@@ -302,6 +302,82 @@ def _copy_files(
     )
 
 
+def create_skill(
+    team: Team,
+    *,
+    user: User,
+    name: str,
+    description: str,
+    body: str,
+    license: str | None = None,
+    compatibility: str | None = None,
+    allowed_tools: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    files: list[dict[str, str]] | None = None,
+) -> LLMSkill:
+    if files and len(files) > MAX_SKILL_FILE_COUNT:
+        raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
+
+    if files:
+        seen_paths: set[str] = set()
+        for item in files:
+            path = item["path"]
+            if path in seen_paths:
+                raise LLMSkillFilePathConflictError(path=path)
+            seen_paths.add(path)
+
+    with transaction.atomic():
+        # Lock any existing rows for this (team, name) so a concurrent create can't slip past.
+        existing = list(
+            LLMSkill.objects.select_for_update()
+            .filter(team=team, name=name, deleted=False)
+            .values_list("id", flat=True)
+        )
+        if existing:
+            raise LLMSkillDuplicateNameConflictError()
+
+        try:
+            new_skill = LLMSkill.objects.create(
+                team=team,
+                name=name,
+                description=description,
+                body=body,
+                license=license or "",
+                compatibility=compatibility or "",
+                allowed_tools=allowed_tools or [],
+                metadata=metadata or {},
+                version=1,
+                is_latest=True,
+                created_by=user,
+            )
+        except IntegrityError as err:
+            err_str = str(err)
+            if "unique_llm_skill_latest_per_team" in err_str or "unique_llm_skill_version_per_team" in err_str:
+                raise LLMSkillDuplicateNameConflictError() from err
+            raise
+
+        if files:
+            try:
+                LLMSkillFile.objects.bulk_create(
+                    [
+                        LLMSkillFile(
+                            skill=new_skill,
+                            path=item["path"],
+                            content=item.get("content", ""),
+                            content_type=item.get("content_type", "text/plain"),
+                        )
+                        for item in files
+                    ]
+                )
+            except IntegrityError as err:
+                if "unique_skill_file_path" in str(err):
+                    raise LLMSkillFilePathConflictError(path="") from err
+                raise
+
+    refreshed = get_active_skill_queryset(team).filter(pk=new_skill.pk).first()
+    return refreshed if refreshed is not None else new_skill
+
+
 def duplicate_skill(
     team: Team,
     *,

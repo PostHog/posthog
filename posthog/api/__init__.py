@@ -3,16 +3,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import (
-    data_color_theme,
-    hog_flow,
-    hog_flow_template,
-    metalytics,
-    my_notifications,
-    project,
-    user_integration,
-    user_push_token,
-)
+from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
@@ -40,6 +31,7 @@ import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
+import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
 import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
@@ -74,6 +66,7 @@ from products.ai_observability.backend.api import (
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -120,6 +113,7 @@ from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
     ReplayScannerViewSet,
     SessionReplayObservationViewSet,
+    VisionQuotaViewSet,
 )
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
@@ -141,6 +135,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     SavedHeatmapViewSet,
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -165,8 +160,6 @@ from . import (
     exports,
     health_issue,
     hog,
-    hog_function,
-    hog_function_template,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -179,8 +172,6 @@ from . import (
     organization_invite,
     organization_member,
     personal_api_key,
-    plugin,
-    plugin_log_entry,
     project_secret_api_key,
     proxy_record,
     query,
@@ -244,19 +235,33 @@ def register_grandfathered_environment_nested_viewset(
     prefix: str, viewset: type[viewsets.GenericViewSet], basename: str, parents_query_lookups: list[str]
 ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
     """
-    Register the environment-specific viewset under both /environments/:team_id/ (correct endpoint)
-    and /projects/:team_id/ (legacy, but supported for backward compatibility endpoint).
-    DO NOT USE ON ANY NEW ENDPOINT YOU'RE ADDING!
+    Register a team-nested viewset under both /api/projects/:team_id/ (canonical)
+    and /api/environments/:team_id/ (backward-compat alias).
+
+    Background: PostHog briefly split projects and environments as separate
+    concepts then rolled the split back. /api/projects/ is the canonical path;
+    /api/environments/ is preserved only for clients that integrated against it
+    during the split (SDKs, customer integrations) and is auto-marked
+    `deprecated: true` in the generated OpenAPI schema by the postprocess hook
+    in posthog.api.documentation whenever a matching /api/projects/ route exists.
+
+    DO NOT USE FOR NEW ENDPOINTS. New team-nested endpoints should register
+    directly under projects_router. This helper exists to preserve the dual-route
+    surface for endpoints that were already exposed both ways before the rollback.
+
+    Returns (environment_nested, project_nested) — note that despite the names,
+    the project_nested route is the canonical one; the environment_nested route
+    is the deprecated alias.
     """
     if parents_query_lookups[0] != "team_id":
-        raise ValueError("Only endpoints with team_id as the first parent query lookup can be environment-nested")
+        raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
     if not basename.startswith("environment_"):
-        raise ValueError("Only endpoints with a basename starting with `environment_` can be environment-nested")
+        raise ValueError("Only endpoints with a basename starting with `environment_` can use this helper")
     environment_nested = environments_router.register(prefix, viewset, basename, parents_query_lookups)
-    legacy_project_nested = projects_router.register(
+    project_nested = projects_router.register(
         prefix, viewset, basename.replace("environment_", "project_"), parents_query_lookups
     )
-    return environment_nested, legacy_project_nested
+    return environment_nested, project_nested
 
 
 environment_plugins_configs_router, legacy_project_plugins_configs_router = (
@@ -1373,6 +1378,11 @@ register_grandfathered_environment_nested_viewset(
 )
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
+# Metrics endpoints
+register_grandfathered_environment_nested_viewset(
+    r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"]
+)
+
 environments_router.register(
     r"logs/explainLogWithAI",
     logs.LogExplainViewSet,
@@ -1657,6 +1667,12 @@ environments_router.register(
     r"vision/observations",
     SessionReplayObservationViewSet,
     "environment_vision_observations",
+    ["team_id"],
+)
+environments_router.register(
+    r"vision/quota",
+    VisionQuotaViewSet,
+    "environment_vision_quota",
     ["team_id"],
 )
 

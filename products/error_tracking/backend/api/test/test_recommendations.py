@@ -9,9 +9,9 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import uuid7
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
