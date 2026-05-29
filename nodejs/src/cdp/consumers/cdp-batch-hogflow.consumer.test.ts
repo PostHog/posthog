@@ -19,6 +19,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
     let hub: Hub
     let team: Team
     let mockQueueInvocations: jest.MockedFunction<any>
+    let mockUpdateStatus: jest.MockedFunction<any>
 
     const insertHogFlow = async (hogFlow: HogFlow) => {
         const teamId = hogFlow.team_id ?? team.id
@@ -48,6 +49,10 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
         } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
+
+        // Avoid real HTTP calls to the Django internal status endpoint
+        mockUpdateStatus = jest.fn().mockResolvedValue(undefined)
+        processor['hogFlowBatchJobStatusService'].updateStatus = mockUpdateStatus
 
         await processor.start()
     })
@@ -189,6 +194,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const result = await processor._parseKafkaBatch(messages)
 
             expect(result).toHaveLength(0)
+            // A deactivated workflow cancels the queued batch job rather than leaving it stuck
+            expect(mockUpdateStatus).toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'cancelled')
         })
 
         it('should filter out messages with archived hogflow status', async () => {
@@ -325,6 +332,10 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             })
 
             expect(mockGetBlastRadiusPersons).toHaveBeenCalledWith(team, batchRequest.filters, undefined, null)
+
+            // The batch job should move from active (fan-out started) to completed (audience resolved)
+            expect(mockUpdateStatus).toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'active')
+            expect(mockUpdateStatus).toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'completed')
         })
 
         it('should paginate through getBlastRadiusPersons until has_more is false', async () => {
@@ -551,6 +562,9 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 ],
                 'hog_flow'
             )
+
+            expect(mockUpdateStatus).toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'failed')
+            expect(mockUpdateStatus).not.toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'completed')
         })
 
         it('should record a missing_filters failure when filters.properties is empty', async () => {
@@ -601,6 +615,10 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 ],
                 'hog_flow'
             )
+
+            expect(mockUpdateStatus).toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'failed')
+            // Missing filters never start fan-out, so the job is never marked active
+            expect(mockUpdateStatus).not.toHaveBeenCalledWith(team.id, batchRequest.parentRunId, 'active')
         })
     })
 

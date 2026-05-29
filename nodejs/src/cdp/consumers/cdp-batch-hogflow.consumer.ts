@@ -11,6 +11,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consume
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { logger, serializeError } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
+import { HogFlowBatchJobStatusService } from '../services/hogflows/hogflow-batch-job-status.service'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
@@ -38,6 +39,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
     private cyclotronJobQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
+    private hogFlowBatchJobStatusService: HogFlowBatchJobStatusService
 
     constructor(
         config: PluginsServerConfig,
@@ -49,9 +51,9 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         super(config, deps)
         this.cyclotronJobQueue = jobQueue
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
-        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
-            new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
-        )
+        const internalFetchService = new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
+        this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(internalFetchService)
+        this.hogFlowBatchJobStatusService = new HogFlowBatchJobStatusService(internalFetchService)
     }
 
     private createHogFlowInvocation({
@@ -108,13 +110,16 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
 
         if (!filters.properties || !filters.properties.length) {
             logger.error('Batch HogFlow request missing property filters', { batchHogFlowRequest })
-            this.recordBatchTriggerFailure(
+            await this.recordBatchTriggerFailure(
                 batchHogFlowRequestMessage,
                 'missing_filters',
                 'Batch trigger has no property filters configured.'
             )
             return []
         }
+
+        // The batch job is now being fanned out into per-person invocations.
+        await this.hogFlowBatchJobStatusService.updateStatus(team.id, batchHogFlowRequest.parentRunId, 'active')
 
         // Build default variables from hogFlow
         const defaultVariables =
@@ -197,7 +202,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
             captureException(error, {
                 tags: { hogFlowId: hogFlow.id, parentRunId: batchHogFlowRequest.parentRunId },
             })
-            this.recordBatchTriggerFailure(
+            await this.recordBatchTriggerFailure(
                 batchHogFlowRequestMessage,
                 'audience_query_failed',
                 `Failed to resolve batch audience: ${message}`
@@ -210,17 +215,22 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
             `Created ${allInvocations.length} invocations for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
         )
 
+        // The audience has been fully resolved into per-person invocations; the batch fan-out is done.
+        await this.hogFlowBatchJobStatusService.updateStatus(team.id, batchHogFlowRequest.parentRunId, 'completed')
+
         return allInvocations
     }
 
-    private recordBatchTriggerFailure(
+    private async recordBatchTriggerFailure(
         batchHogFlowRequestMessage: BatchHogFlowRequestMessage,
         reason: 'missing_filters' | 'audience_query_failed',
         userMessage: string
-    ): void {
+    ): Promise<void> {
         const { batchHogFlowRequest, hogFlow } = batchHogFlowRequestMessage
 
         counterBatchHogFlowTriggerFailed.labels({ hog_flow_id: hogFlow.id, reason }).inc()
+
+        await this.hogFlowBatchJobStatusService.updateStatus(hogFlow.team_id, batchHogFlowRequest.parentRunId, 'failed')
 
         this.hogFunctionMonitoringService.queueAppMetric(
             {
@@ -314,6 +324,13 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
 
                     if (teamHogFlow.status !== 'active') {
                         logger.info('Skipping inactive HogFlow for batch request', { batchHogFlowRequest })
+                        // The workflow was deactivated between job creation and processing — cancel the job
+                        // so it doesn't sit queued forever.
+                        await this.hogFlowBatchJobStatusService.updateStatus(
+                            team.id,
+                            batchHogFlowRequest.parentRunId,
+                            'cancelled'
+                        )
                         return
                     }
 

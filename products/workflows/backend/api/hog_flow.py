@@ -4,6 +4,7 @@ import uuid as uuid_mod
 from datetime import timedelta
 from typing import Optional, cast
 
+from django.core import exceptions as django_exceptions
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -710,6 +711,39 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
+
+    @extend_schema(exclude=True)
+    def internal_update_batch_job_status(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the CDP batch consumer to update a batch job's status as it is processed
+        (queued -> active -> completed/failed/cancelled).
+        Requires Bearer token authentication via INTERNAL_API_SECRET. Called service-to-service by the
+        Node CDP consumer, never from the frontend, so it is excluded from the generated API client.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        new_status = request.data.get("status")
+        valid_statuses = {state.value for state in HogFlowBatchJob.State}
+        if new_status not in valid_statuses:
+            return Response({"error": f"Invalid status '{new_status}'"}, status=400)
+
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team_id=int(team_id))
+        except (HogFlowBatchJob.DoesNotExist, ValueError, django_exceptions.ValidationError):
+            return Response({"error": "Batch job not found"}, status=404)
+
+        # Don't let a redelivered message regress a job that already reached a terminal state.
+        terminal_statuses = {
+            HogFlowBatchJob.State.COMPLETED,
+            HogFlowBatchJob.State.CANCELLED,
+            HogFlowBatchJob.State.FAILED,
+        }
+        if batch_job.status not in terminal_statuses:
+            batch_job.status = new_status
+            batch_job.save(update_fields=["status", "updated_at"])
+
+        return Response({"id": str(batch_job.id), "status": batch_job.status})
 
     def internal_process_due_schedules(self, request: Request, **kwargs) -> Response:
         """
