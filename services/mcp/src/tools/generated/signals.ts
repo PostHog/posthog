@@ -107,6 +107,9 @@ const inboxReportsStateCreate = (): ToolBase<
         if (params.dismissal_note !== undefined) {
             body['dismissal_note'] = params.dismissal_note
         }
+        if (params.snooze_for !== undefined) {
+            body['snooze_for'] = params.snooze_for
+        }
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/state/`,

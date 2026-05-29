@@ -133,6 +133,12 @@ export interface SignalReportStateRequestApi {
      * @maxLength 4000
      */
     dismissal_note?: string
+    /**
+     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+     * @minimum 1
+     * @maximum 100000
+     */
+    snooze_for?: number
 }
 
 /**

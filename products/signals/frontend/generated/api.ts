@@ -157,12 +157,18 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
 /**
  * Transition a report to a new state. The model validates allowed transitions.
 
+The request body is validated by SignalReportStateRequestSerializer — only the
+fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
+and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
+so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+
 Body: {
     "state": "suppressed" | "potential",
     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
     "dismissal_reason": "<any string code, owned by the caller>",
     "dismissal_note": "free-form text",
-    ...other kwargs passed to transition_to
+    # Optional, only honored for state == "potential":
+    "snooze_for": <number of additional signals before re-promotion>,
 }
  */
 export const signalsReportsStateCreate = async (

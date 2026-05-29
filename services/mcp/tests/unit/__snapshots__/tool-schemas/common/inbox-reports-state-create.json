@@ -14,6 +14,12 @@
             "description": "A UUID string identifying this signal report.",
             "type": "string"
         },
+        "snooze_for": {
+            "description": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "number"
+        },
         "state": {
             "description": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential",
             "enum": ["suppressed", "potential"],

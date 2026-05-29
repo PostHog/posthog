@@ -76,7 +76,9 @@ tools:
             - task:write
         annotations:
             readOnly: false
-            destructive: false
+            # Suppressing hides a report from the inbox and writes a dismissal artefact, so MCP
+            # clients should treat this as destructive and confirm before an agent triggers it.
+            destructive: true
             idempotent: false
         enrich_url: '{id}'
         title: Dismiss or snooze a signal report
