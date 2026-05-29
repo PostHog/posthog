@@ -25,9 +25,23 @@ interface PlaygroundOpts {
     previewRevisionId?: string
 }
 
+/**
+ * Per-area concierge agent. Each top-level surface (`/agents`,
+ * `/billing`, ...) declares which deployed agent it wants the dock
+ * to chat with via `useSetDockConciergeAgent({ slug })` from its
+ * route layout. When `null`, the dock falls back to a fixture
+ * runner so the chat surface still renders.
+ */
+export interface DockConciergeAgent {
+    slug: string
+}
+
 interface DockStore {
     context: ChatContext
+    /** Concierge agent the active route has declared, or null. */
+    conciergeAgent: DockConciergeAgent | null
     setPage: (page: ConciergePageContext) => void
+    setConciergeAgent: (agent: DockConciergeAgent | null) => void
     enterPlayground: (agent: AgentApplicationRef, opts?: PlaygroundOpts) => void
     exitPlayground: () => void
 }
@@ -94,6 +108,7 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     // `currentPage` is what the active route reports; `playgroundState` is
     // an orthogonal sticky overlay. The effective context derives from both.
     const [currentPage, setCurrentPage] = useState<ConciergePageContext>({ kind: 'unknown' })
+    const [conciergeAgent, setConciergeAgentState] = useState<DockConciergeAgent | null>(null)
     const [playgroundState, setPlaygroundState] = useState<PlaygroundState | null>(null)
 
     // Restore the playground overlay on mount so a reload doesn't drop
@@ -123,6 +138,7 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     // `setPage` every time `context` updates, which makes `useSetDockPage`'s
     // useEffect re-fire and loop.
     const setPage = useCallback((page: ConciergePageContext): void => setCurrentPage(page), [])
+    const setConciergeAgent = useCallback((agent: DockConciergeAgent | null): void => setConciergeAgentState(agent), [])
     const enterPlayground = useCallback((agent: AgentApplicationRef, opts?: PlaygroundOpts): void => {
         const next: PlaygroundState = { agent, previewRevisionId: opts?.previewRevisionId }
         setPlaygroundState(next)
@@ -134,8 +150,8 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     }, [])
 
     const value: DockStore = useMemo(
-        () => ({ context, setPage, enterPlayground, exitPlayground }),
-        [context, setPage, enterPlayground, exitPlayground]
+        () => ({ context, conciergeAgent, setPage, setConciergeAgent, enterPlayground, exitPlayground }),
+        [context, conciergeAgent, setPage, setConciergeAgent, enterPlayground, exitPlayground]
     )
 
     return <DockCtx.Provider value={value}>{children}</DockCtx.Provider>
@@ -148,7 +164,9 @@ export function useDockStore(): DockStore {
         // that render leaf components in isolation don't blow up.
         return {
             context: DEFAULT_CONTEXT,
+            conciergeAgent: null,
             setPage: () => {},
+            setConciergeAgent: () => {},
             enterPlayground: () => {},
             exitPlayground: () => {},
         }
@@ -167,4 +185,25 @@ export function useSetDockPage(page: ConciergePageContext): void {
     const key = JSON.stringify(page)
     const memoized = useCallback(() => setPage(page), [setPage, key]) // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(memoized, [memoized])
+}
+
+/**
+ * Call from a route layout to declare which deployed agent the dock
+ * should chat with in this area. Pass `null` (or skip the prop) to
+ * leave the dock on its fixture fallback.
+ *
+ * Per-area concierge example:
+ *   /agents/* → `useSetDockConciergeAgent({ slug: 'agent-concierge' })`
+ *   /billing  → `useSetDockConciergeAgent({ slug: 'billing-bot' })`
+ *
+ * Clears on unmount so leaving the area returns the dock to its
+ * fixture fallback.
+ */
+export function useSetDockConciergeAgent(agent: DockConciergeAgent | null): void {
+    const { setConciergeAgent } = useDockStore()
+    const slug = agent?.slug ?? null
+    useEffect(() => {
+        setConciergeAgent(slug ? { slug } : null)
+        return () => setConciergeAgent(null)
+    }, [setConciergeAgent, slug])
 }

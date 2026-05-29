@@ -28,6 +28,7 @@ const SCOPES = [
     'project:read',
     'agent_application:read',
     'agent_application:write',
+    'ai_gateway:read',
 ].join(' ')
 
 export function getOAuthClient(): OAuthClient {

@@ -249,14 +249,19 @@ function PlaygroundDock({
 }
 
 function ConciergeDock(): React.ReactElement {
-    const { context } = useDockStore()
+    const { context, conciergeAgent } = useDockStore()
     const focus = useFocusStore()
     const handlers = useDockHandlers(context)
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
 
-    // v0: concierge agent isn't deployed yet — keep the fake runner
-    // for now so the dock has something to show. Swap to useRealRunner
-    // once a concierge slug is configured.
+    // Each top-level area declares its concierge agent via
+    // `useSetDockConciergeAgent({ slug })` in its route layout (e.g.
+    // `/agents` → `agent-concierge`, `/billing` → `billing-bot`). When
+    // those agents land, switch on `conciergeAgent` here: resolve the
+    // ref via `getAgent` and run through `useRealRunner` instead of
+    // the fixture runner. Until then, the slug is observed but unused
+    // — the fake runner keeps the dock populated.
+    void conciergeAgent
     const runner = useFakeRunner({
         initialSession: waitingSession,
         scripts: conciergeScripts,

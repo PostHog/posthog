@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { ChatSession } from '@posthog/agent-chat'
 import type { FleetStats } from '@posthog/agent-chat/fixtures'
 
-import { useSetDockPage } from '@/components/dock-context'
+import { useSetDockConciergeAgent, useSetDockPage } from '@/components/dock-context'
 import { AgentsListSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
@@ -36,6 +36,7 @@ export function AgentsListClient(): React.ReactElement {
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
     useSetDockPage({ kind: 'agent-list' })
+    useSetDockConciergeAgent({ slug: 'agent-concierge' })
 
     const agents = useResource(() => listAgents(teamId), [teamId])
     // Fleet endpoints are Phase C — tolerate 404 so the agents list still
