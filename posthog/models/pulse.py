@@ -2,7 +2,7 @@ from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import TeamScopedManager
-from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDModel, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDModel
 
 
 class PulseDigestStatus(models.TextChoices):
@@ -119,8 +119,8 @@ class PulseFinding(RootTeamMixin, CreatedMetaFields, UUIDModel):
         return f"PulseFinding({self.metric_label}, {self.change_pct:+.0%})"
 
 
-class PulseSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
-    """Per-team config for how/when Pulse delivers digests."""
+class PulseSubscription(RootTeamMixin, ModelActivityMixin, CreatedMetaFields, UUIDModel):
+    """Per-team config for how/when Pulse runs and how sensitive detection is."""
 
     team = models.OneToOneField("Team", on_delete=models.CASCADE, related_name="pulse_subscription")
 
@@ -130,13 +130,26 @@ class PulseSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         choices=PulseSubscriptionFrequency.choices,
         default=PulseSubscriptionFrequency.WEEKLY,
     )
-    # Which channels are enabled — subset of {"in_app", "slack", "email"}
-    enabled_channels = models.JSONField(default=list, blank=True)
-    slack_channel_id = models.CharField(max_length=64, blank=True, default="")
-    email_recipients = models.JSONField(default=list, blank=True)
+    detection_mode = models.CharField(
+        max_length=20,
+        choices=DetectionMode.choices,
+        default=DetectionMode.CHANGE_V1,
+    )
+    sensitivity = models.CharField(
+        max_length=20,
+        choices=Sensitivity.choices,
+        default=Sensitivity.BALANCED,
+    )
+    # CUSTOM sensitivity reads these directly; presets override them at resolution time.
+    min_change_pct = models.FloatField(default=0.25)
+    baseline_weeks = models.IntegerField(default=4)
+    max_findings = models.IntegerField(default=5)
+    robust_z_threshold = models.FloatField(default=3.5)  # secondary signal only
 
     last_scan_at = models.DateTimeField(null=True, blank=True)
     next_scan_at = models.DateTimeField(null=True, blank=True)
+
+    objects = TeamScopedManager()  # type: ignore[misc]
 
     def __str__(self) -> str:
         return f"PulseSubscription(team={self.team_id}, {self.frequency}, enabled={self.enabled})"

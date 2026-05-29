@@ -11,6 +11,8 @@ from posthog.models.pulse import (
     PulseDigest,
     PulseDigestStatus,
     PulseFinding,
+    PulseSubscription,
+    PulseSubscriptionFrequency,
     Sensitivity,
 )
 from posthog.models.scoping import team_scope
@@ -127,3 +129,28 @@ class TestPulseFindingShape(BaseTest):
         finding = self._make_finding(digest)
         with team_scope(self.team.id):
             assert list(PulseFinding.objects.all()) == [finding]
+
+
+class TestPulseSubscriptionConfig(BaseTest):
+    def test_default_config_fields(self):
+        sub = PulseSubscription.objects.create(team=self.team)
+        assert sub.enabled is False
+        assert sub.frequency == PulseSubscriptionFrequency.WEEKLY
+        assert sub.detection_mode == DetectionMode.CHANGE_V1
+        assert sub.sensitivity == Sensitivity.BALANCED
+        assert sub.min_change_pct == 0.25
+        assert sub.baseline_weeks == 4
+        assert sub.max_findings == 5
+        assert sub.robust_z_threshold == 3.5
+
+    def test_channel_recipient_fields_removed(self):
+        field_names = {f.name for f in PulseSubscription._meta.get_fields()}
+        assert "enabled_channels" not in field_names
+        assert "slack_channel_id" not in field_names
+        assert "email_recipients" not in field_names
+
+    def test_subscription_scoped_query(self):
+        sub = PulseSubscription.objects.create(team=self.team)
+        with pytest.raises(TeamScopeError, match="No team context set"):
+            list(PulseSubscription.objects.all())
+        assert list(PulseSubscription.objects.for_team(self.team.id)) == [sub]
