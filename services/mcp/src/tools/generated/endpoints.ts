@@ -7,8 +7,6 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
-    EndpointsOpenapiSpecRetrieveParams,
-    EndpointsOpenapiSpecRetrieveQueryParams,
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
@@ -48,9 +46,6 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         }
         if (params.is_materialized !== undefined) {
             body['is_materialized'] = params.is_materialized
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'POST',
@@ -107,26 +102,6 @@ const endpointMaterializationStatus = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_status/`,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
-    },
-})
-
-const EndpointOpenapiSpecSchema = EndpointsOpenapiSpecRetrieveParams.omit({ project_id: true }).extend(
-    EndpointsOpenapiSpecRetrieveQueryParams.shape
-)
-
-const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({
-    name: 'endpoint-openapi-spec',
-    schema: EndpointOpenapiSpecSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointOpenapiSpecSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/openapi.json/`,
-            query: {
-                version: params.version,
-            },
-        })
-        return result
     },
 })
 
@@ -195,9 +170,6 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         }
         if (params.version !== undefined) {
             body['version'] = params.version
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
@@ -281,7 +253,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-delete': endpointDelete,
     'endpoint-get': endpointGet,
     'endpoint-materialization-status': endpointMaterializationStatus,
-    'endpoint-openapi-spec': endpointOpenapiSpec,
     'endpoint-run': endpointRun,
     'endpoint-update': endpointUpdate,
     'endpoint-versions': endpointVersions,

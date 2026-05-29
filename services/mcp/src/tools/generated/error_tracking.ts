@@ -129,7 +129,10 @@ const ErrorTrackingGroupingRulesUpdateSchema = ErrorTrackingGroupingRulesUpdateP
     ErrorTrackingGroupingRulesUpdateBody.shape
 )
 
-const errorTrackingGroupingRulesUpdate = (): ToolBase<typeof ErrorTrackingGroupingRulesUpdateSchema, unknown> => ({
+const errorTrackingGroupingRulesUpdate = (): ToolBase<
+    typeof ErrorTrackingGroupingRulesUpdateSchema,
+    Schemas.ErrorTrackingGroupingRule
+> => ({
     name: 'error-tracking-grouping-rules-update',
     schema: ErrorTrackingGroupingRulesUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingGroupingRulesUpdateSchema>) => {
@@ -138,7 +141,16 @@ const errorTrackingGroupingRulesUpdate = (): ToolBase<typeof ErrorTrackingGroupi
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
-        const result = await context.api.request<unknown>({
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
+        if (params.disabled_data !== undefined) {
+            body['disabled_data'] = params.disabled_data
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingGroupingRule>({
             method: 'PUT',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/${encodeURIComponent(String(params.id))}/`,
             body,
@@ -292,7 +304,7 @@ const ErrorTrackingSuppressionRulesUpdateSchema = ErrorTrackingSuppressionRulesU
 
 const errorTrackingSuppressionRulesUpdate = (): ToolBase<
     typeof ErrorTrackingSuppressionRulesUpdateSchema,
-    unknown
+    Schemas.ErrorTrackingSuppressionRule
 > => ({
     name: 'error-tracking-suppression-rules-update',
     schema: ErrorTrackingSuppressionRulesUpdateSchema,
@@ -302,10 +314,16 @@ const errorTrackingSuppressionRulesUpdate = (): ToolBase<
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
+        if (params.disabled_data !== undefined) {
+            body['disabled_data'] = params.disabled_data
+        }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.ErrorTrackingSuppressionRule>({
             method: 'PUT',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/suppression_rules/${encodeURIComponent(String(params.id))}/`,
             body,

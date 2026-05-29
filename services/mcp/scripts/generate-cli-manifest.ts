@@ -16,6 +16,7 @@ import type { EnabledQueryWrapperToolConfig, EnabledToolConfig } from './yaml-co
 
 export interface CliParam {
     name: string
+    description?: string
     /** Apply a client-side cast before the value hits the wire (e.g. `string-int`). */
     cast?: string
     /** Send under this wire name instead of `name` (mirrors MCP `rename_params`). */
@@ -60,6 +61,7 @@ export interface CliTool {
     mcp_name: string
     category: string
     verb: string
+    description?: string
     method: string
     path: string
     scopes: string[]
@@ -80,7 +82,13 @@ interface ResolvedOp {
     method: string
     path: string
     operation: {
-        parameters?: Array<{ in: string; name: string; required?: boolean; schema?: { type?: string } }>
+        parameters?: Array<{
+            in: string
+            name: string
+            required?: boolean
+            schema?: { type?: string }
+            description?: string
+        }>
         summary?: string
         description?: string
     }
@@ -102,12 +110,9 @@ interface Helpers {
         fallback: string
     ) => string
     extractKindFromSchemaRef: (querySchema: JsonSchemaRoot, schemaRef: string) => string
-    /** Top-level body-field metadata (default + scalar type) from the OpenAPI request schema, keyed by wire name. */
-    bodyMeta: (resolved: ResolvedOp) => Record<string, { default?: unknown; type?: string }>
+    /** Top-level body-field metadata (default + scalar type + description) from the OpenAPI request schema, keyed by wire name. */
+    bodyMeta: (resolved: ResolvedOp) => Record<string, { default?: unknown; type?: string; description?: string }>
 }
-
-// resolveDescription is intentionally not consumed here yet — tool descriptions are surfaced via the
-// MCP definitions pipeline; the CLI's `--help` will pull them in a follow-up.
 
 export interface CategoryBundle {
     /** `feature` is unused for naming now; `category` is the human display name we slugify. */
@@ -172,6 +177,10 @@ function categorySlug(display: string): string {
 }
 
 /** Tool name → verb under its category, stripping the category words. e.g. ("create-feature-flag","feature-flag") → "create". */
+const VERB_ALIASES: Record<string, string> = {
+    'get-all': 'list',
+}
+
 function deriveVerb(mcpName: string, slug: string): string {
     // Remove the full slug, its plural, and individual long tokens, so e.g. "feature-flag-get-all" → "get-all".
     const tokens = slug.split('-').filter((t) => t.length >= 4)
@@ -181,7 +190,8 @@ function deriveVerb(mcpName: string, slug: string): string {
         verb = verb.replace(new RegExp(`(^|-)${variant}(?=-|$)`, 'g'), '')
     }
     verb = verb.replace(/^-+|-+$/g, '').replace(/-+/g, '-')
-    return verb || mcpName
+    verb = verb || mcpName
+    return VERB_ALIASES[verb] ?? verb
 }
 
 function buildParam(
@@ -190,7 +200,7 @@ function buildParam(
     config: EnabledToolConfig,
     resolved: ResolvedOp,
     renamedFields: Record<string, string>,
-    bodyMeta: Record<string, { default?: unknown; type?: string }>
+    bodyMeta: Record<string, { default?: unknown; type?: string; description?: string }>
 ): CliParam {
     const param: CliParam = { name }
 
@@ -215,13 +225,16 @@ function buildParam(
         if (typeof meta?.type === 'string') {
             param.type = meta.type
         }
+        if (meta?.description) {
+            param.description = meta.description
+        }
     }
 
     if (location === 'path') {
         param.required = true
     }
 
-    // Type/required from the OpenAPI parameter for path & query.
+    // Type/required/description from the OpenAPI parameter for path & query.
     if (location !== 'body') {
         const op = resolved.operation.parameters?.find((p) => p.name === name && p.in === location)
         if (op) {
@@ -231,6 +244,9 @@ function buildParam(
             }
             if (location === 'query') {
                 param.required = Boolean(op.required)
+            }
+            if (op.description) {
+                param.description = op.description
             }
         }
     }
@@ -250,7 +266,7 @@ export function generateCliManifest(
     helpers: Helpers
 ): Record<string, CliTool> {
     const manifest: Record<string, CliTool> = {}
-    const { composeToolSchema, extractKindFromSchemaRef, bodyMeta } = helpers
+    const { composeToolSchema, resolveDescription, extractKindFromSchemaRef, bodyMeta } = helpers
 
     // Track verbs per category slug so two tools never collide on `<category> <verb>`.
     const usedVerbs = new Map<string, Set<string>>()
@@ -268,7 +284,7 @@ export function generateCliManifest(
         return verb
     }
 
-    for (const { config: category, enabledTools, enabledWrappers } of categories) {
+    for (const { config: category, enabledTools, enabledWrappers, yamlDir } of categories) {
         const slug = categorySlug(category.category)
 
         // REST tools
@@ -297,10 +313,12 @@ export function generateCliManifest(
                 params.body = bodyParams
             }
 
+            const description = resolveDescription(config, yamlDir, resolved.operation.summary ?? '')
             const tool: CliTool = {
                 mcp_name: name,
                 category: slug,
                 verb: assignVerb(slug, name),
+                ...(description ? { description } : {}),
                 method: isSoftDelete ? 'PATCH' : resolved.method,
                 path: resolved.path,
                 scopes: config.scopes,

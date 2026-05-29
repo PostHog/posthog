@@ -183,24 +183,78 @@ const featureFlagsActivityRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsBulkDeleteCreateSchema = FeatureFlagsBulkDeleteCreateBody
+const FeatureFlagsBulkDeleteCreateSchema = FeatureFlagsBulkDeleteCreateBody.omit({
+    _create_in_folder: true,
+    _should_create_usage_dashboard: true,
+})
 
-const featureFlagsBulkDeleteCreate = (): ToolBase<
-    typeof FeatureFlagsBulkDeleteCreateSchema,
-    Schemas.BulkDeleteResponse
-> => ({
+const featureFlagsBulkDeleteCreate = (): ToolBase<typeof FeatureFlagsBulkDeleteCreateSchema, unknown> => ({
     name: 'feature-flags-bulk-delete-create',
     schema: FeatureFlagsBulkDeleteCreateSchema,
     handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkDeleteCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
-        if (params.ids !== undefined) {
-            body['ids'] = params.ids
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
         }
-        const result = await context.api.request<Schemas.BulkDeleteResponse>({
+        if (params.active !== undefined) {
+            body['active'] = params.active
+        }
+        if (params.created_at !== undefined) {
+            body['created_at'] = params.created_at
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        if (params.ensure_experience_continuity !== undefined) {
+            body['ensure_experience_continuity'] = params.ensure_experience_continuity
+        }
+        if (params.rollback_conditions !== undefined) {
+            body['rollback_conditions'] = params.rollback_conditions
+        }
+        if (params.performed_rollback !== undefined) {
+            body['performed_rollback'] = params.performed_rollback
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.evaluation_contexts !== undefined) {
+            body['evaluation_contexts'] = params.evaluation_contexts
+        }
+        if (params.analytics_dashboards !== undefined) {
+            body['analytics_dashboards'] = params.analytics_dashboards
+        }
+        if (params.has_enriched_analytics !== undefined) {
+            body['has_enriched_analytics'] = params.has_enriched_analytics
+        }
+        if (params.creation_context !== undefined) {
+            body['creation_context'] = params.creation_context
+        }
+        if (params.is_remote_configuration !== undefined) {
+            body['is_remote_configuration'] = params.is_remote_configuration
+        }
+        if (params.has_encrypted_payloads !== undefined) {
+            body['has_encrypted_payloads'] = params.has_encrypted_payloads
+        }
+        if (params.evaluation_runtime !== undefined) {
+            body['evaluation_runtime'] = params.evaluation_runtime
+        }
+        if (params.bucketing_identifier !== undefined) {
+            body['bucketing_identifier'] = params.bucketing_identifier
+        }
+        if (params.last_called_at !== undefined) {
+            body['last_called_at'] = params.last_called_at
+        }
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_delete/`,
             body,
@@ -209,18 +263,78 @@ const featureFlagsBulkDeleteCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsBulkKeysCreateSchema = FeatureFlagsBulkKeysCreateBody
+const FeatureFlagsBulkKeysCreateSchema = FeatureFlagsBulkKeysCreateBody.omit({
+    _create_in_folder: true,
+    _should_create_usage_dashboard: true,
+})
 
-const featureFlagsBulkKeysCreate = (): ToolBase<typeof FeatureFlagsBulkKeysCreateSchema, Schemas.BulkKeysResponse> => ({
+const featureFlagsBulkKeysCreate = (): ToolBase<typeof FeatureFlagsBulkKeysCreateSchema, unknown> => ({
     name: 'feature-flags-bulk-keys-create',
     schema: FeatureFlagsBulkKeysCreateSchema,
     handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.ids !== undefined) {
-            body['ids'] = params.ids
+        if (params.name !== undefined) {
+            body['name'] = params.name
         }
-        const result = await context.api.request<Schemas.BulkKeysResponse>({
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.active !== undefined) {
+            body['active'] = params.active
+        }
+        if (params.created_at !== undefined) {
+            body['created_at'] = params.created_at
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        if (params.ensure_experience_continuity !== undefined) {
+            body['ensure_experience_continuity'] = params.ensure_experience_continuity
+        }
+        if (params.rollback_conditions !== undefined) {
+            body['rollback_conditions'] = params.rollback_conditions
+        }
+        if (params.performed_rollback !== undefined) {
+            body['performed_rollback'] = params.performed_rollback
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.evaluation_contexts !== undefined) {
+            body['evaluation_contexts'] = params.evaluation_contexts
+        }
+        if (params.analytics_dashboards !== undefined) {
+            body['analytics_dashboards'] = params.analytics_dashboards
+        }
+        if (params.has_enriched_analytics !== undefined) {
+            body['has_enriched_analytics'] = params.has_enriched_analytics
+        }
+        if (params.creation_context !== undefined) {
+            body['creation_context'] = params.creation_context
+        }
+        if (params.is_remote_configuration !== undefined) {
+            body['is_remote_configuration'] = params.is_remote_configuration
+        }
+        if (params.has_encrypted_payloads !== undefined) {
+            body['has_encrypted_payloads'] = params.has_encrypted_payloads
+        }
+        if (params.evaluation_runtime !== undefined) {
+            body['evaluation_runtime'] = params.evaluation_runtime
+        }
+        if (params.bucketing_identifier !== undefined) {
+            body['bucketing_identifier'] = params.bucketing_identifier
+        }
+        if (params.last_called_at !== undefined) {
+            body['last_called_at'] = params.last_called_at
+        }
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_keys/`,
             body,

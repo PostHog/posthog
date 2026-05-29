@@ -58,18 +58,25 @@ pub fn augment_with_categories(mut cmd: Command, manifest: &Manifest) -> Command
         if existing.contains(category) {
             continue;
         }
+        let verbs: Vec<&str> = tools.iter().map(|t| t.verb.as_str()).collect();
+        let cat_about = format!("{} ({})", verbs.join(", "), tools.len());
         let mut cat_cmd = Command::new(leak(category))
-            .about(format!("{category} commands"))
+            .about(leak(&cat_about))
             .subcommand_required(true)
             .arg_required_else_help(true);
 
         for tool in tools {
+            let about = if tool.description.is_empty() {
+                format!("{} {}", tool.method, tool.path)
+            } else {
+                tool.description.clone()
+            };
             let mut verb_cmd = Command::new(leak(&tool.verb))
-                .about(format!("{} {}", tool.method, tool.path))
-                .long_about(format!(
-                    "{} {}\nMCP tool: {}",
-                    tool.method, tool.path, tool.mcp_name
-                ));
+                .about(leak(&about))
+                .long_about(leak(&format!(
+                    "{}\n\n{} {}\nMCP tool: {}",
+                    about, tool.method, tool.path, tool.mcp_name
+                )));
 
             for p in all_params(tool) {
                 if p.flag_eligible {
@@ -78,11 +85,13 @@ pub fn augment_with_categories(mut cmd: Command, manifest: &Manifest) -> Command
                     } else {
                         p.ty.to_uppercase()
                     };
-                    verb_cmd = verb_cmd.arg(
-                        Arg::new(leak(&p.name))
-                            .long(leak(&p.name))
-                            .value_name(leak(&value_name)),
-                    );
+                    let mut arg = Arg::new(leak(&p.name))
+                        .long(leak(&p.name))
+                        .value_name(leak(&value_name));
+                    if let Some(desc) = &p.description {
+                        arg = arg.help(leak(desc));
+                    }
+                    verb_cmd = verb_cmd.arg(arg);
                 }
             }
             verb_cmd = verb_cmd

@@ -748,8 +748,8 @@ function composeToolSchema(
 function extractBodyFieldMeta(
     resolved: ResolvedOperation,
     spec: OpenApiSpec
-): Record<string, { default?: unknown; type?: string }> {
-    const meta: Record<string, { default?: unknown; type?: string }> = {}
+): Record<string, { default?: unknown; type?: string; description?: string }> {
+    const meta: Record<string, { default?: unknown; type?: string; description?: string }> = {}
     if (!['POST', 'PATCH', 'PUT'].includes(resolved.method)) {
         return meta
     }
@@ -765,12 +765,15 @@ function extractBodyFieldMeta(
         if (prop.readOnly) {
             continue
         }
-        const entry: { default?: unknown; type?: string } = {}
+        const entry: { default?: unknown; type?: string; description?: string } = {}
         if (prop.default !== undefined) {
             entry.default = prop.default
         }
         if (typeof prop.type === 'string') {
             entry.type = prop.type
+        }
+        if (typeof prop.description === 'string') {
+            entry.description = prop.description
         }
         if (Object.keys(entry).length > 0) {
             meta[name] = entry

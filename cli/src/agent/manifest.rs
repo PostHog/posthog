@@ -23,6 +23,8 @@ pub struct Tool {
     pub mcp_name: String,
     pub category: String,
     pub verb: String,
+    #[serde(default)]
+    pub description: String,
     pub method: String,
     pub path: String,
     #[serde(default)]
@@ -87,6 +89,8 @@ pub struct Param {
     #[serde(rename = "type", default)]
     pub ty: String,
     #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub required: bool,
     #[serde(default)]
     pub flag_eligible: bool,
@@ -99,8 +103,6 @@ pub struct Param {
     /// Default applied when the caller omits the field (mirrors the MCP schema's zod `.default()`).
     #[serde(default)]
     pub default: Option<Value>,
-    #[serde(default)]
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

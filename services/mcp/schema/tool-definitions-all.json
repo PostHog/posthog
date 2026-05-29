@@ -1,148 +1,4 @@
 {
-    "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Create account",
-        "title": "Create account",
-        "required_scopes": ["account:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-destroy": {
-        "description": "Permanently delete a Customer Analytics account by id.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Delete account",
-        "title": "Delete account",
-        "required_scopes": ["account:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "List accounts",
-        "title": "List accounts",
-        "required_scopes": ["account:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-notebooks-create": {
-        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Create account notebook",
-        "title": "Create account notebook",
-        "required_scopes": ["account:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-notebooks-destroy": {
-        "description": "Permanently delete an account notebook by its `short_id`.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Delete account notebook",
-        "title": "Delete account notebook",
-        "required_scopes": ["account:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-notebooks-list": {
-        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "List account notebooks",
-        "title": "List account notebooks",
-        "required_scopes": ["account:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-notebooks-retrieve": {
-        "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Get account notebook",
-        "title": "Get account notebook",
-        "required_scopes": ["account:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-partial-update": {
-        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags on the account.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Update account",
-        "title": "Update account",
-        "required_scopes": ["account:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
-    "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
-        "category": "Customer analytics",
-        "feature": "customer_analytics",
-        "summary": "Get account",
-        "title": "Get account",
-        "required_scopes": ["account:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "customer-analytics-csp"
-    },
     "action-create": {
         "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
         "category": "Actions",
@@ -1066,21 +922,6 @@
             "readOnlyHint": false
         }
     },
-    "dashboard-create-text-tile": {
-        "description": "Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings, dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards if you need precise placement.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Create dashboard text tile",
-        "title": "Create dashboard text tile",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "dashboard-delete": {
         "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
         "category": "Dashboards",
@@ -1127,7 +968,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -1147,21 +988,6 @@
         "feature": "dashboards",
         "summary": "Update dashboard",
         "title": "Update dashboard",
-        "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "dashboard-update-text-tile": {
-        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Update dashboard text tile",
-        "title": "Update dashboard text tile",
         "required_scopes": ["dashboard:write"],
         "new_mcp": true,
         "annotations": {
@@ -1371,21 +1197,6 @@
         "feature": "endpoints",
         "summary": "Get materialization status",
         "title": "Get materialization status",
-        "required_scopes": ["endpoint:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "endpoint-openapi-spec": {
-        "description": "Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a spec for a specific version.",
-        "category": "Endpoints",
-        "feature": "endpoints",
-        "summary": "Get endpoint OpenAPI spec",
-        "title": "Get endpoint OpenAPI spec",
         "required_scopes": ["endpoint:read"],
         "new_mcp": true,
         "annotations": {
@@ -2309,21 +2120,6 @@
             "readOnlyHint": true
         }
     },
-    "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "List direct-query connections",
-        "title": "List direct-query connections",
-        "required_scopes": ["external_data_source:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "external-data-sources-create": {
         "description": "Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to discover source types and 'external-data-sources-db-schema' to validate credentials and discover available tables. Present the db-schema results to the user showing each table's available sync methods, incremental fields, detected primary keys, and columns so they can configure before creation. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.",
         "category": "Data warehouse",
@@ -2734,51 +2530,6 @@
         "summary": "Get user blast radius",
         "title": "Get user blast radius",
         "required_scopes": ["feature_flag:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "file-download-batch-exports-cancel-create": {
-        "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
-        "category": "Data pipelines",
-        "feature": "batch_exports",
-        "summary": "Cancel a running file download export",
-        "title": "Cancel a running file download export",
-        "required_scopes": ["batch_export:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
-        "category": "Data pipelines",
-        "feature": "batch_exports",
-        "summary": "Start file download export",
-        "title": "Start file download export",
-        "required_scopes": ["batch_export:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "file-download-batch-exports-retrieve": {
-        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
-        "category": "Data pipelines",
-        "feature": "batch_exports",
-        "summary": "Get file download export status",
-        "title": "Get file download export status",
-        "required_scopes": ["batch_export:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -3401,21 +3152,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-personal-spend": {
-        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get my LLM spend analysis",
-        "title": "Get my LLM spend analysis",
-        "required_scopes": ["user:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "llma-prompt-create": {
@@ -5655,230 +5391,6 @@
             "readOnlyHint": false
         }
     },
-    "user-interview-topics-add-interviewee": {
-        "description": "Append a single interviewee identifier to a user interview topic. Email-shaped identifiers (including the `Display Name <email@host>` form) go to `interviewee_emails`; everything else goes to `interviewee_distinct_ids`. Idempotent — adding an identifier that is already present leaves the topic unchanged. Returns the updated topic.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Add an interviewee to a topic",
-        "title": "Add an interviewee to a topic",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-create": {
-        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Create user interview topic",
-        "title": "Create user interview topic",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-generate-links": {
-        "description": "Generate one public, unauthenticated interview link per targeted interviewee on a user interview topic. For each identifier in the topic's `interviewee_emails` and `interviewee_distinct_ids`, materializes (or reuses) an IntervieweeContext row and an enabled SharingConfiguration, and returns the merged voice-agent context alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required. Calling this multiple times is safe: existing share links are reused.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Generate public interview links for a topic",
-        "title": "Generate public interview links for a topic",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-interviewees-bulk-create": {
-        "description": "Create up to 500 per-interviewee context rows for a topic in a single request. Each item is (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over `user-interview-topics-interviewees-create` when adding many rows.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Create many per-interviewee context rows at once",
-        "title": "Create many per-interviewee context rows at once",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-interviewees-create": {
-        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict. Prefer `user-interview-topics-interviewees-bulk-create` when adding many rows at once.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Add per-interviewee context to a topic",
-        "title": "Add per-interviewee context to a topic",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-interviewees-destroy": {
-        "description": "Remove the extra context attached to a single interviewee on a user interview topic. Only deletes the `IntervieweeContext` row — does not change the topic's targeting (`interviewee_emails` / `interviewee_distinct_ids`). Use `user-interview-topics-remove-interviewee` if you want to drop the interviewee from targeting as well.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Delete a per-interviewee context row",
-        "title": "Delete a per-interviewee context row",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-interviewees-list": {
-        "description": "List the per-interviewee context rows attached to a single user interview topic. Each row is (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "List per-interviewee contexts for a topic",
-        "title": "List per-interviewee contexts for a topic",
-        "required_scopes": ["user_interview:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-interviewees-partial-update": {
-        "description": "Update the `agent_context` field on a per-interviewee context row. Pass only the fields you want to change. Does not modify the topic's targeting; use `user-interview-topics-add-interviewee` / `user-interview-topics-remove-interviewee` for that.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Update a per-interviewee context row",
-        "title": "Update a per-interviewee context row",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-links-csv": {
-        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Export interview links for a topic as CSV",
-        "title": "Export interview links for a topic as CSV",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-list": {
-        "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "List user interview topics",
-        "title": "List user interview topics",
-        "required_scopes": ["user_interview:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-partial-update": {
-        "description": "Update fields on a user interview topic. Pass only the fields you want to change. For incremental edits to targeting, prefer `user-interview-topics-add-interviewee` and `user-interview-topics-remove-interviewee` — sending `interviewee_emails` or `interviewee_distinct_ids` here replaces the entire array.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Update a user interview topic",
-        "title": "Update a user interview topic",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-remove-interviewee": {
-        "description": "Remove an interviewee identifier from a topic's targeting. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration tied to that interviewee on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Remove an interviewee from a topic",
-        "title": "Remove an interviewee from a topic",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-retrieve": {
-        "description": "Retrieve a single user interview topic by ID, including its full targeting (`interviewee_emails`, `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and metadata. Use this to list the current interviewees on a topic before adding, editing, or removing them.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Get user interview topic",
-        "title": "Get user interview topic",
-        "required_scopes": ["user_interview:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interview-topics-send-invites": {
-        "description": "Generate (if not yet created) and email a personalized public interview link to every targeted interviewee on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per share via the messaging system's idempotency record, and a token rotation produces a fresh send key.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Email interview invites to every targeted interviewee",
-        "title": "Email interview invites to every targeted interviewee",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
     "user-interviews-list": {
         "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic — use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview.",
         "category": "User interview topics",
@@ -5901,22 +5413,6 @@
         "feature": "user_interviews",
         "summary": "Retrieve a user interview response",
         "title": "Retrieve a user interview response",
-        "required_scopes": ["user_interview:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "user-interviews"
-    },
-    "user-interviews-search": {
-        "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Semantic search across interview responses",
-        "title": "Semantic search across interview responses",
         "required_scopes": ["user_interview:read"],
         "new_mcp": true,
         "annotations": {
@@ -6076,137 +5572,6 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
-    },
-    "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Create replay vision scanner",
-        "title": "Create replay vision scanner",
-        "required_scopes": ["replay_scanner:write", "session_recording:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-delete": {
-        "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Delete replay vision scanner",
-        "title": "Delete replay vision scanner",
-        "required_scopes": ["replay_scanner:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-get": {
-        "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Get replay vision scanner",
-        "title": "Get replay vision scanner",
-        "required_scopes": ["replay_scanner:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-list": {
-        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "List replay vision scanners",
-        "title": "List replay vision scanners",
-        "required_scopes": ["replay_scanner:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-observations-get": {
-        "description": "Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result` including any event citations linking the LLM output back to specific events in the originating session. Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying recording.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Get scanner observation",
-        "title": "Get scanner observation",
-        "required_scopes": ["replay_scanner:read", "session_recording:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-observations-list": {
-        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "List scanner observations",
-        "title": "List scanner observations",
-        "required_scopes": ["replay_scanner:read", "session_recording:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-scan-session": {
-        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Run scanner against a session now",
-        "title": "Run scanner against a session now",
-        "required_scopes": ["replay_scanner:write", "session_recording:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
-    },
-    "vision-scanners-update": {
-        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Update replay vision scanner",
-        "title": "Update replay vision scanner",
-        "required_scopes": ["replay_scanner:write", "session_recording:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-vision"
     },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
