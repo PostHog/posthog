@@ -179,6 +179,99 @@ def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     return _is_host_safe(parsed.hostname, team_id)
 
 
+class _LeaveMissing(dict):
+    """Format mapping that leaves unknown ``{name}`` placeholders untouched."""
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _endpoint_request_urls(endpoint: Any) -> list[str]:
+    """Absolute URLs an endpoint may send a request — and the credential — to.
+
+    The REST engine binds scalar ``params`` into the path before deciding whether
+    it's absolute (``_bind_path_params`` runs ``path.format(**params)``, then
+    ``RESTClient._join_url`` treats an ``http(s)://`` result as absolute). We
+    resolve the path the same way and report it if it comes out absolute — so a
+    template like ``"{target}"`` (``params={"target": "https://attacker/"}``) or
+    ``"{scheme}://attacker/"`` (``params={"scheme": "https"}``) is caught even
+    though neither the literal path nor any single param value is itself a URL.
+    Otherwise the retarget guard would miss it and ship the preserved credential
+    to a new host on the next sync. (SSRF to internal hosts is separately caught
+    at request time by the transport-layer guard, which vets the live peer IP;
+    this is only about detecting a *new destination* for the re-entry check.)
+    """
+    if not isinstance(endpoint, dict):
+        return []
+    path = endpoint.get("path")
+    if not isinstance(path, str):
+        return []
+
+    params = endpoint.get("params")
+    bindable = (
+        _LeaveMissing({name: value for name, value in params.items() if isinstance(value, str)})
+        if isinstance(params, dict)
+        else _LeaveMissing()
+    )
+    try:
+        resolved = path.format_map(bindable)
+    except (ValueError, IndexError, KeyError):
+        # Malformed / positional format string — it's re-vetted at request time anyway.
+        resolved = path
+
+    return [resolved] if resolved.startswith(("http://", "https://")) else []
+
+
+def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
+    """Hostnames a stored manifest will send requests — and the credential — to.
+
+    Lets the API layer detect when an update retargets the source at a new host
+    so it can require the credential to be re-entered: an editor who can't read
+    the stored secret must not be able to redirect it to a server they control.
+    Returns an empty set for anything unparseable — the caller treats "no hosts"
+    as "nothing new", and a malformed manifest is rejected elsewhere.
+    """
+    if not isinstance(manifest_json, str):
+        return frozenset()
+    try:
+        manifest = json.loads(manifest_json)
+    except json.JSONDecodeError:
+        return frozenset()
+    if not isinstance(manifest, dict):
+        return frozenset()
+
+    urls: list[Any] = []
+    client = manifest.get("client")
+    if isinstance(client, dict):
+        urls.append(client.get("base_url"))
+    resources = manifest.get("resources")
+    if isinstance(resources, list):
+        for resource in resources:
+            endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+            # Relative paths inherit base_url's host; absolute paths and absolute
+            # URLs bound into path placeholders introduce a new request host.
+            urls.extend(_endpoint_request_urls(endpoint))
+
+    # `_url_hostname` returns an already-lowercased host.
+    hosts = {host for url in urls if isinstance(url, str) and (host := _url_hostname(url))}
+    return frozenset(hosts)
+
+
+def _url_hostname(url: str) -> str | None:
+    """The host the HTTP client will actually connect to.
+
+    `urlparse` treats a backslash — and its ``%5c`` encoding — as ordinary
+    userinfo, so ``https://evil.example\\@trusted.example/`` parses as host
+    ``trusted.example`` here, while requests/urllib3 (per the WHATWG URL rules)
+    treat ``\\`` as a path separator and connect to ``evil.example``. Normalizing
+    those to ``/`` before parsing keeps the retarget guard aligned with the real
+    destination, so an ambiguous-authority URL can't smuggle the credential to a
+    new host while appearing unchanged.
+    """
+    normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
+    return urlparse(normalized).hostname
+
+
 @SourceRegistry.register
 class CustomSource(SimpleSource[CustomSourceConfig]):
     """User-defined REST API source.

@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
     is_custom_source_available_for_team,
+    manifest_request_hosts,
     validate_manifest,
     validate_manifest_urls,
 )
@@ -478,6 +479,89 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert err is not None
+
+
+class TestManifestRequestHosts(SimpleTestCase):
+    def _manifest(self, base_url: str, resource_paths: list[str]) -> str:
+        return json.dumps(
+            {
+                "client": {"base_url": base_url},
+                "resources": [{"name": f"r{i}", "endpoint": {"path": p}} for i, p in enumerate(resource_paths)],
+            }
+        )
+
+    def test_base_url_host(self):
+        assert manifest_request_hosts(self._manifest("https://api.example.com/v1", ["/users"])) == frozenset(
+            {"api.example.com"}
+        )
+
+    def test_absolute_resource_paths_add_hosts(self):
+        # Relative paths inherit base_url's host; only absolute URLs introduce a new host.
+        manifest = self._manifest("https://api.example.com", ["/users", "https://cdn.other.net/data"])
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "cdn.other.net"})
+
+    def test_path_param_absolute_url_is_collected(self):
+        # A scalar param bound into a "{placeholder}" becomes the request URL at sync time
+        # (_bind_path_params), so its host must be tracked even though the literal path is relative.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {
+                        "name": "r",
+                        "endpoint": {"path": "{target}", "params": {"target": "https://attacker.example.net/"}},
+                    }
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_path_param_split_scheme_is_resolved(self):
+        # The absolute URL is split across the template and a param ("{scheme}://host" +
+        # {"scheme": "https"}); neither piece is a URL on its own, but the bound path is.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {
+                        "name": "r",
+                        "endpoint": {"path": "{scheme}://attacker.example.net/data", "params": {"scheme": "https"}},
+                    }
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_url_param_not_referenced_in_path_is_ignored(self):
+        # A URL-valued query param that isn't a path placeholder is a normal query value, not a
+        # request destination — it must not be counted (avoids false re-entry prompts).
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {"name": "r", "endpoint": {"path": "/users", "params": {"callback": "https://other.net/"}}}
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
+
+    def test_backslash_authority_resolves_to_real_host(self):
+        # `https://evil\@trusted/` connects to `evil` (urllib3/WHATWG) even though urlparse
+        # alone reads `trusted` — the guard must see the real destination, not be fooled.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://attacker.example.net\\@api.example.com/"},
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"attacker.example.net"})
+
+    def test_host_is_lowercased(self):
+        assert manifest_request_hosts(self._manifest("https://API.Example.COM", [])) == frozenset({"api.example.com"})
+
+    @parameterized.expand([("not json", "{nope}"), ("non_string", 123), ("none", None), ("json_array", "[1, 2]")])
+    def test_unparseable_returns_empty(self, _name, raw):
+        assert manifest_request_hosts(raw) == frozenset()
 
 
 class TestIsCustomSourceAvailableForTeam(SimpleTestCase):
