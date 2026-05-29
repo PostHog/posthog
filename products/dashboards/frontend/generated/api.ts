@@ -13,15 +13,18 @@ import type {
     BulkUpdateTagsResponseApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
+    CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
+    DashboardTileApi,
     DashboardsAnalyzeRefreshResultCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
+    DashboardsCreateTextTileCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
     DashboardsDestroyParams,
     DashboardsListParams,
@@ -33,6 +36,7 @@ import type {
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
+    DashboardsUpdateTextTileCreateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
@@ -44,6 +48,7 @@ import type {
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     SharingConfigurationApi,
+    UpdateTextTileRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -589,6 +594,47 @@ export const dashboardsCopyTileCreate = async (
     })
 }
 
+export const getDashboardsCreateTextTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCreateTextTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/create_text_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/create_text_tile/`
+}
+
+/**
+ * Add a markdown text tile to a dashboard.
+
+Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+or annotations between insight tiles to give the dashboard structure.
+ */
+export const dashboardsCreateTextTileCreate = async (
+    projectId: string,
+    id: number,
+    createTextTileRequestApi: CreateTextTileRequestApi,
+    params?: DashboardsCreateTextTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileApi> => {
+    return apiMutator<DashboardTileApi>(getDashboardsCreateTextTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createTextTileRequestApi),
+    })
+}
+
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
     id: number,
@@ -765,6 +811,44 @@ export const dashboardsStreamTilesRetrieve = async (
     return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDashboardsUpdateTextTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsUpdateTextTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/update_text_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/update_text_tile/`
+}
+
+/**
+ * Update the markdown body, layout, or color of an existing text tile on a dashboard.
+ */
+export const dashboardsUpdateTextTileCreate = async (
+    projectId: string,
+    id: number,
+    updateTextTileRequestApi: UpdateTextTileRequestApi,
+    params?: DashboardsUpdateTextTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileApi> => {
+    return apiMutator<DashboardTileApi>(getDashboardsUpdateTextTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(updateTextTileRequestApi),
     })
 }
 

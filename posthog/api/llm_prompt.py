@@ -60,7 +60,7 @@ from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrot
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from products.llm_analytics.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.api.metrics import llma_track_latency
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"

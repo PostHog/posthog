@@ -27,6 +27,10 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
+const productAliases: Record<string, string> = {
+    llm_analytics: 'ai_observability',
+}
+
 // ------------------------------------------------------------------
 // Types
 // ------------------------------------------------------------------
@@ -98,6 +102,12 @@ function operationIdToToolName(operationId: string): string {
 function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+    const matchingTags = new Set([
+        product,
+        ...Object.entries(productAliases)
+            .filter(([, target]) => target === product)
+            .map(([source]) => source),
+    ])
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
@@ -105,7 +115,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
                 continue
             }
             const tags = op['x-product'] ?? []
-            if (tags.includes(product)) {
+            if (tags.some((tag) => matchingTags.has(tag.replace(/-/g, '_')))) {
                 ops.push({
                     operationId: op.operationId,
                     method: method.toUpperCase(),
@@ -127,10 +137,17 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
 function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
-    const needle = `/${product.replace(/-/g, '_').toLowerCase()}/`
+    const productsToMatch = [
+        product,
+        ...Object.entries(productAliases)
+            .filter(([, target]) => target === product)
+            .map(([source]) => source),
+    ]
+    const needles = productsToMatch.map((productName) => `/${productName.replace(/-/g, '_').toLowerCase()}/`)
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
-        if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
+        const normalizedPath = urlPath.toLowerCase().replace(/-/g, '_')
+        if (!needles.some((needle) => normalizedPath.includes(needle))) {
             continue
         }
 

@@ -71,6 +71,28 @@ See [serializer-fields.md](references/serializer-fields.md) for patterns and exa
 
 See [viewset-annotations.md](references/viewset-annotations.md) for patterns and examples.
 
+### URL routing — where to register new team-nested endpoints
+
+PostHog briefly split projects and environments as separate concepts then rolled
+the split back. **`/api/projects/:team_id/...` is the canonical path** for any
+team-nested endpoint. `/api/environments/:team_id/...` is a backward-compat alias
+preserved only for clients that integrated against it during the split.
+
+For a **new** team-nested endpoint, register directly under `projects_router` in
+`posthog/api/__init__.py`:
+
+```python
+projects_router.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])
+```
+
+Do **not** register new endpoints under `environments_router`. Do **not** use
+`register_grandfathered_environment_nested_viewset` — it exists only for
+endpoints that were already exposed on both routes before the rollback.
+
+If existing clients need `/api/environments/...` too, the OpenAPI postprocess
+hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks
+the env-side path as `deprecated: true` whenever both routes exist.
+
 ### Facade products (DataclassSerializer)
 
 For products using the facade pattern (e.g., `visual_review`) with `DataclassSerializer` wrapping frozen dataclasses from `contracts.py`:

@@ -23,6 +23,22 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai_observability.eval_reports.schedule import (
+    create_count_trigger_schedule,
+    create_eval_reports_schedule,
+)
+from posthog.temporal.ai_observability.evaluation_clustering.schedule import (
+    create_evaluation_clustering_schedule,
+    create_evaluation_sampler_schedule,
+)
+from posthog.temporal.ai_observability.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.ai_observability.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
 from posthog.temporal.alerts.schedule import (
     create_cleanup_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
@@ -40,22 +56,6 @@ from posthog.temporal.experiments.schedule import (
 )
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
-from posthog.temporal.llm_analytics.eval_reports.schedule import (
-    create_count_trigger_schedule,
-    create_eval_reports_schedule,
-)
-from posthog.temporal.llm_analytics.evaluation_clustering.schedule import (
-    create_evaluation_clustering_schedule,
-    create_evaluation_sampler_schedule,
-)
-from posthog.temporal.llm_analytics.trace_clustering.schedule import (
-    create_generation_clustering_coordinator_schedule,
-    create_trace_clustering_coordinator_schedule,
-)
-from posthog.temporal.llm_analytics.trace_summarization.schedule import (
-    create_batch_generation_summarization_schedule,
-    create_batch_trace_summarization_schedule,
-)
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs

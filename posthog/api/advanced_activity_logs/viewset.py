@@ -1,3 +1,4 @@
+import re
 import json
 import hashlib
 import logging
@@ -210,6 +211,30 @@ class JSONStringFilterField(serializers.JSONField):
     pass
 
 
+_IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
+_IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def _validate_ip_or_wildcard(value: str) -> None:
+    v = (value or "").strip()
+    if not v or not _IP_FILTER_RE.match(v):
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+    if "*" in v:
+        return  # wildcard patterns are accepted as-is
+    if _IPV4_RE.match(v):
+        if not all(int(octet) <= 255 for octet in v.split(".")):
+            raise serializers.ValidationError(
+                "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+            )
+        return
+    if ":" not in v:
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+
+
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(
         required=False,
@@ -242,6 +267,15 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         required=False,
         default=[],
         help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+    )
+    ip_addresses = serializers.ListField(
+        child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
+        required=False,
+        default=[],
+        help_text=(
+            "Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns "
+            "using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined."
+        ),
     )
     team_ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -319,6 +353,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "item_id",
             "detail",
             "client",
+            "ip_address",
             "created_at",
         ]
 

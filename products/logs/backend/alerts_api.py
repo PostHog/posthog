@@ -19,18 +19,18 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
-from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
 from products.logs.backend.alert_state_machine import (

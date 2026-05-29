@@ -102,11 +102,11 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import (
+    AIObservabilitySummarizationBurstThrottle,
+    AIObservabilitySummarizationDailyThrottle,
+    AIObservabilitySummarizationSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
-    LLMAnalyticsSummarizationBurstThrottle,
-    LLMAnalyticsSummarizationDailyThrottle,
-    LLMAnalyticsSummarizationSustainedThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
@@ -1338,9 +1338,9 @@ class InsightViewSet(
         """Apply LLM-specific throttles to AI analysis endpoints."""
         if self.action in ["analyze", "suggestions", "generate_metadata"]:
             return [
-                LLMAnalyticsSummarizationBurstThrottle(),
-                LLMAnalyticsSummarizationSustainedThrottle(),
-                LLMAnalyticsSummarizationDailyThrottle(),
+                AIObservabilitySummarizationBurstThrottle(),
+                AIObservabilitySummarizationSustainedThrottle(),
+                AIObservabilitySummarizationDailyThrottle(),
             ]
         return super().get_throttles()
 
