@@ -313,6 +313,22 @@ tools:
             Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision
             id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` /
             `agent-applications-revisions-bundle-retrieve`.
+    agent-applications-revisions-system-prompt:
+        operation: agent_applications_revisions_system_prompt
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview the assembled system prompt for a revision
+        description: >
+            Returns the fully-assembled system prompt the runner would pass to the model at session start — framework
+            preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before
+            promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for
+            debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell
+            whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.
     agent-applications-revisions-update:
         operation: agent_applications_revisions_update
         enabled: false
@@ -331,23 +347,9 @@ tools:
             unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in
             the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this
             on a draft before calling `agent-applications-revisions-freeze-create`.
-    agent-applications-revisions-system-prompt:
-        operation: agent_applications_revisions_system_prompt
-        enabled: true
-        scopes:
-            - agent_application:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Preview the assembled system prompt for a revision
-        description: >
-            Returns the fully-assembled system prompt the runner would pass to the model at session start —
-            framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model
-            actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs
-            took effect or for debugging author-vs-framework precedence. Response also includes
-            `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in
-            effect. Works on any revision state.
+    agent-applications-session-logs:
+        operation: agent_applications_session_logs
+        enabled: false
     agent-applications-sessions-list:
         operation: agent_applications_sessions_list
         enabled: true
