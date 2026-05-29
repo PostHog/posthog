@@ -586,6 +586,8 @@ export interface ActivityLogApi {
      * @nullable
      */
     client?: string | null
+    /** @nullable */
+    ip_address?: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -922,6 +924,7 @@ export type ActivityLogListParams = {
 * `LogsExclusionRule` - LogsExclusionRule
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
+* `InstanceSetting` - InstanceSetting
  * @minLength 1
  */
     scope?: ActivityLogListScope
@@ -997,6 +1000,7 @@ export const ActivityLogListScope = {
     LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    InstanceSetting: 'InstanceSetting',
 } as const
 
 /**
@@ -1059,6 +1063,7 @@ export const ActivityLogListScope = {
  * `LogsExclusionRule` - LogsExclusionRule
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
+ * `InstanceSetting` - InstanceSetting
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1122,6 +1127,7 @@ export const ActivityLogListScopesItem = {
     LogsExclusionRule: 'LogsExclusionRule',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    InstanceSetting: 'InstanceSetting',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1145,6 +1151,10 @@ export type AdvancedActivityLogsListParams = {
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string
+    /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[]
     /**
      * When set, filters rows authored by the system (no user).
      * @nullable

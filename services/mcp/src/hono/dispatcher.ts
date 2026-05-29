@@ -17,18 +17,19 @@ import type {
     PingRequest,
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
+import { randomUUID } from 'node:crypto'
 
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
+import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv } from './constants'
-import { initDurationSeconds } from './metrics'
-import { ToolCatalog } from './tool-catalog'
-
-import { trackInitEvent } from './analytics'
 import { InstructionsBuilder } from './instructions'
+import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
+import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
 export { McpDispatcher }
@@ -69,11 +70,20 @@ const Method = {
 const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.ToolsList, Method.ToolsCall])
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
-    return typeof msg === 'object' && msg !== null && 'id' in msg && typeof (msg as { method?: unknown }).method === 'string'
+    return (
+        typeof msg === 'object' &&
+        msg !== null &&
+        'id' in msg &&
+        typeof (msg as { method?: unknown }).method === 'string'
+    )
 }
 
 type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
-type JsonRpcErrorResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; error: { code: number; message: string } }
+type JsonRpcErrorResponse = {
+    jsonrpc: typeof JSONRPC_VERSION
+    id: number | string
+    error: { code: number; message: string }
+}
 type JsonRpcResponse = JsonRpcResultResponse | JsonRpcErrorResponse
 
 function jsonRpcResult(id: number | string, result: unknown): JsonRpcResultResponse {
@@ -85,10 +95,10 @@ function jsonRpcMethodError(id: number | string, code: number, message: string):
 }
 
 function jsonRpcErrorResponse(id: unknown, code: number, message: string): Response {
-    return new Response(
-        JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
+    return new Response(JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+    })
 }
 
 class McpDispatcher {
@@ -103,7 +113,7 @@ class McpDispatcher {
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
         this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env)
+        this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
@@ -144,22 +154,26 @@ class McpDispatcher {
             return new Response(null, { status: 202 })
         }
 
+        const hasInit = requests.some((r) => r.method === Method.Initialize)
+        if (hasInit) {
+            props.mcpSessionId = randomUUID()
+        }
+
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         const state = needsState ? await this.stateResolver.resolve(props) : undefined
 
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (props.mcpSessionId) {
+            headers['Mcp-Session-Id'] = props.mcpSessionId
+        }
+
         if (!wasArray && requests.length === 1) {
             const result = await this.dispatch(requests[0]!, props, state)
-            return new Response(JSON.stringify(result), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
+            return new Response(JSON.stringify(result), { status: 200, headers })
         }
 
         const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
-        return new Response(JSON.stringify(results), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        })
+        return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
     private async dispatch(
@@ -174,13 +188,13 @@ class McpDispatcher {
                 case Method.Initialize:
                     return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
                 case Method.ToolsList:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!))
                 case Method.ToolsCall:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, props, state!))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, state!))
                 case Method.ResourcesList:
                     return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
-                    return jsonRpcResult(id, this.resourceCatalog.readResource(params))
+                    return jsonRpcResult(id, await this.resourceCatalog.readResource(params))
                 case Method.PromptsList:
                     return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
                 case Method.PromptsGet:
@@ -201,26 +215,33 @@ class McpDispatcher {
         props: RequestProperties,
         state: ResolvedState
     ): Promise<InitializeResult> {
-        const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
-        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
-            ? requestedVersion
-            : LATEST_PROTOCOL_VERSION
+        try {
+            const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
+            const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
+                ? requestedVersion
+                : LATEST_PROTOCOL_VERSION
 
-        const instructions = await this.instructionsBuilder.build(props, state)
+            await this.resourceCatalog.revalidateContextMillResources('initialize')
+            const instructions = await this.instructionsBuilder.build(props, state)
 
-        initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
+            initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
+            initTotal.inc({ status: 'success' })
 
-        void trackInitEvent(props, state)
+            void trackInitEvent(state)
 
-        return {
-            protocolVersion,
-            capabilities: {
-                tools: { listChanged: false },
-                resources: { listChanged: false },
-                prompts: { listChanged: false },
-            },
-            serverInfo: { name: 'PostHog', version: '1.0.0' },
-            ...(instructions ? { instructions } : {}),
+            return {
+                protocolVersion,
+                capabilities: {
+                    tools: { listChanged: false },
+                    resources: { listChanged: false },
+                    prompts: { listChanged: false },
+                },
+                serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                ...(instructions ? { instructions } : {}),
+            }
+        } catch (error) {
+            initTotal.inc({ status: 'error' })
+            throw error
         }
     }
 }

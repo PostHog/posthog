@@ -118,6 +118,8 @@ import {
     convertCurrentURLFilter,
     hasURLSearchParams,
 } from './constants'
+import { FOCUS_MODE_TILE_IDS, computeFocusHiddenTiles } from './focus-mode/focusModeMapping'
+import { WebAnalyticsConcern } from './focus-mode/types'
 import { webAnalyticsHealthLogic } from './health'
 import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
@@ -230,7 +232,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        setHiddenTiles: (hiddenTiles: TileId[]) => ({ hiddenTiles }),
         resetTileVisibility: () => true,
+        openFocusModeModal: true,
+        closeFocusModeModal: true,
+        setFocusModeConcerns: (concerns: WebAnalyticsConcern[]) => ({ concerns }),
+        setFocusModeDraftConcerns: (concerns: WebAnalyticsConcern[]) => ({ concerns }),
+        setFocusModeEnabled: (enabled: boolean) => ({ enabled }),
+        toggleFocusModeConcern: (concern: WebAnalyticsConcern) => ({ concern }),
+        enterFocusMode: true,
+        exitFocusMode: true,
+        applyFocusMode: true,
         zoomIntoPeriod: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         resetZoom: true,
         setPreZoomDateFilter: (
@@ -508,7 +520,40 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         }
                         return state.includes(tileId) ? state : [...state, tileId]
                     },
+                    setHiddenTiles: (_, { hiddenTiles }) => hiddenTiles,
                     resetTileVisibility: () => [],
+                },
+            ],
+            focusModeModalOpen: [
+                false,
+                {
+                    openFocusModeModal: () => true,
+                    closeFocusModeModal: () => false,
+                    setProductTab: (state, { tab }) => (tab === ProductTab.ANALYTICS ? state : false),
+                },
+            ],
+            focusModeConcerns: [
+                [] as WebAnalyticsConcern[],
+                persistConfig,
+                {
+                    setFocusModeConcerns: (_, { concerns }) => concerns,
+                },
+            ],
+            focusModeEnabled: [
+                false,
+                persistConfig,
+                {
+                    setFocusModeEnabled: (_, { enabled }) => enabled,
+                    resetTileVisibility: () => false,
+                },
+            ],
+            focusModeDraftConcerns: [
+                [] as WebAnalyticsConcern[],
+                {
+                    setFocusModeDraftConcerns: (_, { concerns }) => concerns,
+                    closeFocusModeModal: () => [],
+                    toggleFocusModeConcern: (state, { concern }) =>
+                        state.includes(concern) ? state.filter((item) => item !== concern) : [...state, concern],
                 },
             ],
         }
@@ -923,6 +968,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        showFocusMode: [
+            (s) => [s.featureFlags, s.productTab],
+            (featureFlags, productTab: ProductTab): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] && productTab === ProductTab.ANALYTICS,
+        ],
+        hasSavedFocusMode: [
+            (s) => [s.focusModeConcerns],
+            (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
+        ],
+        isFocusModeActive: [
+            (s) => [s.showFocusMode, s.focusModeEnabled, s.focusModeConcerns],
+            (showFocusMode: boolean, focusModeEnabled: boolean, focusModeConcerns: WebAnalyticsConcern[]): boolean =>
+                showFocusMode && focusModeEnabled && focusModeConcerns.length > 0,
+        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -1160,6 +1219,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                // Apply the per-team opt-in here so every stats-table tab (Path,
+                                // Entry path, End path, channel breakdowns, etc.) consistently
+                                // reaches the lazy precompute gate. The backend gate decides
+                                // per-breakdown which combinations are actually served from the
+                                // precompute. `source` overrides can still pin this off for a
+                                // specific tab if ever needed.
+                                useWebAnalyticsPrecompute,
                                 ...source,
                             },
                             embedded: false,
@@ -1246,6 +1312,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
                                 ],
+                                useWebAnalyticsPrecompute,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(
@@ -1304,7 +1371,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1 2xl:col-span-2' : 'md:col-span-2',
                             orderWhenLargeClassName: '2xl:order-1',
                         },
                         activeTabId: graphsTab,
@@ -1378,8 +1445,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: '2xl:order-4',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1' : 'md:col-span-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-2' : '2xl:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1410,6 +1477,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeHost: includeHostPath,
                                               includeAvgTimeOnPage:
                                                   !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
+                                              useWebAnalyticsPrecompute,
                                           },
                                           {
                                               ...pathTabExtras,
@@ -1526,6 +1594,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
+                                                  doPathCleaning: isPathCleaningEnabled,
                                               },
                                               embedded: false,
                                               showActions: true,
@@ -1551,7 +1620,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.SOURCES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: '2xl:order-2',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-3' : '2xl:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1788,7 +1857,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.DEVICES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: '2xl:order-3',
+                            orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-4' : '2xl:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -2043,6 +2112,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
+                                        // Web overview attributes session metrics to the session's start hour;
+                                        // mirror that here so visitor counts line up across the dashboard.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
+                                        },
                                     },
                                 },
                                 docs: {
@@ -2169,6 +2243,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // Backend gate decides whether this query is actually served
+                                      // from the precomputed table; we just pass the per-team opt-in.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2278,6 +2355,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                      // The backend frustration lazy precompute gate decides whether
+                                      // this query is actually served from the precomputed table; we
+                                      // just pass the per-team opt-in through so it's eligible.
+                                      useWebAnalyticsPrecompute,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2757,6 +2838,30 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (tab === ProductTab.BOT_ANALYTICS && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
                     actions.setDates('-1d', null)
                 }
+            },
+            openFocusModeModal: () => {
+                actions.setFocusModeDraftConcerns(values.focusModeConcerns)
+            },
+            enterFocusMode: () => {
+                if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
+                    return
+                }
+                actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeConcerns))
+                actions.setFocusModeEnabled(true)
+            },
+            exitFocusMode: () => {
+                const focusModeTileSet = new Set<TileId>(FOCUS_MODE_TILE_IDS)
+                actions.setHiddenTiles(values.hiddenTiles.filter((tileId) => !focusModeTileSet.has(tileId)))
+                actions.setFocusModeEnabled(false)
+            },
+            applyFocusMode: () => {
+                if (!values.showFocusMode || values.focusModeDraftConcerns.length === 0) {
+                    return
+                }
+                actions.setFocusModeConcerns(values.focusModeDraftConcerns)
+                actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeDraftConcerns))
+                actions.setFocusModeEnabled(true)
+                actions.closeFocusModeModal()
             },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)

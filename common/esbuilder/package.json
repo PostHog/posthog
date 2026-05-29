@@ -3,6 +3,7 @@
     "version": "0.0.0",
     "main": "utils.mjs",
     "dependencies": {
+        "@tailwindcss/postcss": "4.2.4",
         "autoprefixer": "^10.4.13",
         "chokidar": "^3.5.3",
         "cors": "^2.8.5",

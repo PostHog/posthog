@@ -74,12 +74,14 @@ describe('PersonsManager', () => {
                     properties: { foo: '1' },
                     name: 'distinct_id_A_1',
                     url: `http://localhost:8000/project/${team.id}/person/distinct_id_A_1`,
+                    distinct_id: 'distinct_id_A_1',
                 },
                 {
                     id: persons[1].uuid,
                     properties: { foo: '2' },
                     name: 'distinct_id_B_1',
                     url: `http://localhost:8000/project/${team.id}/person/distinct_id_B_1`,
+                    distinct_id: 'distinct_id_B_1',
                 },
             ])
         })
@@ -99,12 +101,14 @@ describe('PersonsManager', () => {
                     properties: { foo: '1' },
                     name: 'foo:distinct_id_A_1',
                     url: `http://localhost:8000/project/${team.id}/person/foo%3Adistinct_id_A_1`,
+                    distinct_id: 'foo:distinct_id_A_1',
                 },
                 {
                     id: person2.uuid,
                     properties: { foo: '2' },
                     name: 'foo:bar:distinct_id_B_1',
                     url: `http://localhost:8000/project/${team.id}/person/foo%3Abar%3Adistinct_id_B_1`,
+                    distinct_id: 'foo:bar:distinct_id_B_1',
                 },
             ])
         })
@@ -121,12 +125,14 @@ describe('PersonsManager', () => {
                     properties: { foo: '1' },
                     name: 'distinct_id_A_1',
                     url: `http://localhost:8000/project/${team.id}/person/distinct_id_A_1`,
+                    distinct_id: 'distinct_id_A_1',
                 },
                 {
                     id: persons[2].uuid,
                     properties: { foo: '3' },
                     name: 'distinct_id_A_1',
                     url: `http://localhost:8000/project/${team2.id}/person/distinct_id_A_1`,
+                    distinct_id: 'distinct_id_A_1',
                 },
             ])
         })

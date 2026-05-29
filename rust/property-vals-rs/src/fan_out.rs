@@ -1,37 +1,63 @@
 use serde_json::Value;
 
-use crate::types::{Event, GroupIdentify, PropertyType, TupleKey};
+use crate::config::ExcludedPropertyKeys;
+use crate::types::{Event, GroupIdentify, PropertyType, PropertyValueMessage, TupleKey};
 
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
-pub fn fan_out(event: &Event) -> Vec<TupleKey> {
+pub fn fan_out(event: &Event, excluded: &ExcludedPropertyKeys) -> Vec<(TupleKey, u64)> {
     let mut out = Vec::new();
 
     if let Some(raw) = &event.properties {
-        emit_from_blob(event.team_id, PropertyType::Event, raw, &mut out);
+        emit_from_blob(event.team_id, PropertyType::Event, raw, excluded, &mut out);
     }
     if let Some(raw) = &event.person_properties {
-        emit_from_blob(event.team_id, PropertyType::Person, raw, &mut out);
+        emit_from_blob(event.team_id, PropertyType::Person, raw, excluded, &mut out);
     }
 
     out
 }
 
-pub fn fan_out_group(event: &GroupIdentify) -> Vec<TupleKey> {
+pub fn fan_out_group(
+    event: &GroupIdentify,
+    excluded: &ExcludedPropertyKeys,
+) -> Vec<(TupleKey, u64)> {
     let mut out = Vec::new();
     if let Some(raw) = &event.group_properties {
         emit_from_blob(
             event.team_id,
             PropertyType::Group(event.group_type_index),
             raw,
+            excluded,
             &mut out,
         );
     }
     out
 }
 
-fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mut Vec<TupleKey>) {
+pub fn extract_tuple(msg: &PropertyValueMessage) -> Vec<(TupleKey, u64)> {
+    if msg.property_key.is_empty() || msg.property_value.is_empty() {
+        return Vec::new();
+    }
+    vec![(
+        TupleKey {
+            team_id: msg.team_id,
+            property_type: msg.property_type,
+            property_key: msg.property_key.clone(),
+            property_value: msg.property_value.clone(),
+        },
+        msg.property_count,
+    )]
+}
+
+fn emit_from_blob(
+    team_id: i64,
+    property_type: PropertyType,
+    raw: &str,
+    excluded: &ExcludedPropertyKeys,
+    out: &mut Vec<(TupleKey, u64)>,
+) {
     let parsed: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return,
@@ -47,6 +73,10 @@ fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mu
             continue;
         }
 
+        if excluded.contains(key) {
+            continue;
+        }
+
         let property_value = coerce_to_string(value);
 
         if key.is_empty() || key.chars().count() > MAX_PROPERTY_KEY_LEN {
@@ -56,12 +86,15 @@ fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mu
             continue;
         }
 
-        out.push(TupleKey {
-            team_id,
-            property_type,
-            property_key: key.clone(),
-            property_value,
-        });
+        out.push((
+            TupleKey {
+                team_id,
+                property_type,
+                property_key: key.clone(),
+                property_value,
+            },
+            1,
+        ));
     }
 }
 
@@ -136,42 +169,51 @@ mod tests {
         }
     }
 
-    fn check_tuple_invariants(t: &TupleKey, expected_team: i64) {
+    fn none() -> ExcludedPropertyKeys {
+        ExcludedPropertyKeys::default()
+    }
+
+    fn excluded(keys: &[&str]) -> ExcludedPropertyKeys {
+        keys.join(",").parse().unwrap()
+    }
+
+    fn check_tuple_invariants(t: &TupleKey, count: u64, expected_team: i64) {
         assert_eq!(t.team_id, expected_team);
         assert!(!t.property_key.is_empty());
         assert!(!t.property_value.is_empty());
         assert!(t.property_key.chars().count() <= MAX_PROPERTY_KEY_LEN);
         assert!(t.property_value.chars().count() <= MAX_PROPERTY_VALUE_LEN);
+        assert_eq!(count, 1, "stage-1 fan-out always emits count=1");
     }
 
     proptest! {
         #[test]
         fn fan_out_outputs_obey_caps_and_team(e in arb_event()) {
-            for t in fan_out(&e) {
-                check_tuple_invariants(&t, e.team_id);
+            for (t, n) in fan_out(&e, &none()) {
+                check_tuple_invariants(&t, n, e.team_id);
             }
         }
 
         #[test]
         fn fan_out_group_outputs_obey_caps_and_team(g in arb_group_identify()) {
-            for t in fan_out_group(&g) {
-                check_tuple_invariants(&t, g.team_id);
+            for (t, n) in fan_out_group(&g, &none()) {
+                check_tuple_invariants(&t, n, g.team_id);
             }
         }
 
         #[test]
         fn fan_out_is_pure(e in arb_event()) {
-            prop_assert_eq!(fan_out(&e), fan_out(&e));
+            prop_assert_eq!(fan_out(&e, &none()), fan_out(&e, &none()));
         }
 
         #[test]
         fn fan_out_group_is_pure(g in arb_group_identify()) {
-            prop_assert_eq!(fan_out_group(&g), fan_out_group(&g));
+            prop_assert_eq!(fan_out_group(&g, &none()), fan_out_group(&g, &none()));
         }
 
         #[test]
         fn fan_out_group_property_type_matches_index(g in arb_group_identify()) {
-            for t in fan_out_group(&g) {
+            for (t, _) in fan_out_group(&g, &none()) {
                 prop_assert_eq!(t.property_type, PropertyType::Group(g.group_type_index));
             }
         }
@@ -179,22 +221,23 @@ mod tests {
 
     #[test]
     fn event_property_produces_event_type_tuple() {
-        let tuples = fan_out(&event(r#"{"$browser":"Chrome"}"#));
+        let tuples = fan_out(&event(r#"{"$browser":"Chrome"}"#), &none());
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Event);
-        assert_eq!(tuples[0].property_key, "$browser");
-        assert_eq!(tuples[0].property_value, "Chrome");
+        assert_eq!(tuples[0].0.property_type, PropertyType::Event);
+        assert_eq!(tuples[0].0.property_key, "$browser");
+        assert_eq!(tuples[0].0.property_value, "Chrome");
+        assert_eq!(tuples[0].1, 1);
     }
 
     #[test]
     fn json_null_value_is_dropped() {
-        let tuples = fan_out(&event(r#"{"nullable_field":null}"#));
+        let tuples = fan_out(&event(r#"{"nullable_field":null}"#), &none());
         assert!(tuples.is_empty());
     }
 
     #[test]
     fn empty_string_value_is_dropped() {
-        let tuples = fan_out(&event(r#"{"blank":""}"#));
+        let tuples = fan_out(&event(r#"{"blank":""}"#), &none());
         assert!(tuples.is_empty());
     }
 
@@ -205,60 +248,53 @@ mod tests {
             properties: None,
             person_properties: Some(r#"{"email":"foo@bar.com"}"#.to_string()),
         };
-        let tuples = fan_out(&ev);
+        let tuples = fan_out(&ev, &none());
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Person);
-        assert_eq!(tuples[0].property_key, "email");
-        assert_eq!(tuples[0].property_value, "foo@bar.com");
+        assert_eq!(tuples[0].0.property_type, PropertyType::Person);
+        assert_eq!(tuples[0].0.property_key, "email");
+        assert_eq!(tuples[0].0.property_value, "foo@bar.com");
     }
 
     #[test]
     fn bool_value_coerces_to_string() {
-        let tuples = fan_out(&event(r#"{"a_bool":true}"#));
+        let tuples = fan_out(&event(r#"{"a_bool":true}"#), &none());
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_value, "true");
+        assert_eq!(tuples[0].0.property_value, "true");
     }
 
     #[test]
     fn number_value_coerces_to_string() {
-        let tuples = fan_out(&event(r#"{"a_number":42}"#));
+        let tuples = fan_out(&event(r#"{"a_number":42}"#), &none());
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_value, "42");
+        assert_eq!(tuples[0].0.property_value, "42");
     }
 
     #[test]
     fn unparseable_blob_emits_nothing() {
-        let tuples = fan_out(&event(r#"not valid json"#));
+        let tuples = fan_out(&event(r#"not valid json"#), &none());
         assert!(tuples.is_empty());
     }
 
     #[test]
     fn empty_object_emits_nothing() {
-        let tuples = fan_out(&event("{}"));
+        let tuples = fan_out(&event("{}"), &none());
         assert!(tuples.is_empty());
     }
 
     #[test]
     fn group_identify_index_0_emits_group_type() {
-        let tuples = fan_out_group(&group_identify(0, r#"{"plan":"enterprise"}"#));
+        let tuples = fan_out_group(&group_identify(0, r#"{"plan":"enterprise"}"#), &none());
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Group(0));
-        assert_eq!(tuples[0].property_key, "plan");
-        assert_eq!(tuples[0].property_value, "enterprise");
+        assert_eq!(tuples[0].0.property_type, PropertyType::Group(0));
+        assert_eq!(tuples[0].0.property_key, "plan");
+        assert_eq!(tuples[0].0.property_value, "enterprise");
     }
 
     #[test]
-    fn group_identify_index_4_emits_group_4_type() {
-        let tuples = fan_out_group(&group_identify(4, r#"{"region":"us-east"}"#));
+    fn group_identify_emits_group_type_matching_index() {
+        let tuples = fan_out_group(&group_identify(4, r#"{"region":"us-east"}"#), &none());
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Group(4));
-    }
-
-    #[test]
-    fn group_identify_high_index_still_emits() {
-        let tuples = fan_out_group(&group_identify(7, r#"{"plan":"enterprise"}"#));
-        assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Group(7));
+        assert_eq!(tuples[0].0.property_type, PropertyType::Group(4));
     }
 
     #[test]
@@ -268,12 +304,143 @@ mod tests {
             group_type_index: 0,
             group_properties: None,
         };
-        assert!(fan_out_group(&g).is_empty());
+        assert!(fan_out_group(&g, &none()).is_empty());
     }
 
     #[test]
     fn group_identify_unparseable_drops() {
-        let tuples = fan_out_group(&group_identify(0, "not valid json"));
+        let tuples = fan_out_group(&group_identify(0, "not valid json"), &none());
         assert!(tuples.is_empty());
+    }
+
+    #[test]
+    fn excluded_event_property_keys_are_skipped() {
+        let blob =
+            r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1"}"#;
+        let exclusions = excluded(&["$insert_id", "distinct_id", "$session_id"]);
+        let tuples = fan_out(&event(blob), &exclusions);
+        assert_eq!(tuples.len(), 1, "only $browser should survive exclusion");
+        assert_eq!(tuples[0].0.property_key, "$browser");
+        assert_eq!(tuples[0].0.property_value, "Chrome");
+    }
+
+    #[test]
+    fn excluded_person_property_keys_are_skipped() {
+        let ev = Event {
+            team_id: 2,
+            properties: None,
+            person_properties: Some(
+                r#"{"email":"a@b.com","$session_id":"s1","plan":"enterprise"}"#.to_string(),
+            ),
+        };
+        let tuples = fan_out(&ev, &excluded(&["$session_id"]));
+        assert_eq!(tuples.len(), 2);
+        let keys: Vec<&str> = tuples
+            .iter()
+            .map(|(t, _)| t.property_key.as_str())
+            .collect();
+        assert!(keys.contains(&"email"));
+        assert!(keys.contains(&"plan"));
+        assert!(!keys.contains(&"$session_id"));
+    }
+
+    #[test]
+    fn excluded_group_property_keys_are_skipped() {
+        let g = group_identify(0, r#"{"plan":"enterprise","internal_id":"g-42"}"#);
+        let tuples = fan_out_group(&g, &excluded(&["internal_id"]));
+        assert_eq!(tuples.len(), 1);
+        assert_eq!(tuples[0].0.property_key, "plan");
+    }
+
+    #[test]
+    fn empty_exclusion_list_is_a_noop() {
+        let blob = r#"{"$browser":"Chrome","email":"a@b.com"}"#;
+        let with_default = fan_out(&event(blob), &none());
+        let parsed_empty: ExcludedPropertyKeys = "".parse().unwrap();
+        let with_parsed_empty = fan_out(&event(blob), &parsed_empty);
+        assert_eq!(with_default.len(), 2);
+        assert_eq!(with_default, with_parsed_empty);
+    }
+
+    fn pv_message(
+        team_id: i64,
+        property_type: PropertyType,
+        key: &str,
+        value: &str,
+        count: u64,
+    ) -> PropertyValueMessage {
+        PropertyValueMessage {
+            team_id,
+            property_type,
+            property_key: key.to_string(),
+            property_value: value.to_string(),
+            property_count: count,
+        }
+    }
+
+    #[test]
+    fn extract_tuple_emits_single_tuple_with_message_count() {
+        let msg = pv_message(2, PropertyType::Event, "$browser", "Chrome", 42);
+        let out = extract_tuple(&msg);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].0.team_id, 2);
+        assert_eq!(out[0].0.property_type, PropertyType::Event);
+        assert_eq!(out[0].0.property_key, "$browser");
+        assert_eq!(out[0].0.property_value, "Chrome");
+        assert_eq!(out[0].1, 42, "count must round-trip from the message");
+    }
+
+    #[test]
+    fn extract_tuple_carries_property_count_for_person_type() {
+        let msg = pv_message(7, PropertyType::Person, "email", "a@b.com", 5);
+        let out = extract_tuple(&msg);
+        assert_eq!(out[0].0.property_type, PropertyType::Person);
+        assert_eq!(out[0].1, 5);
+    }
+
+    #[test]
+    fn extract_tuple_carries_property_count_for_group_type() {
+        let msg = pv_message(7, PropertyType::Group(3), "plan", "enterprise", 11);
+        let out = extract_tuple(&msg);
+        assert_eq!(out[0].0.property_type, PropertyType::Group(3));
+        assert_eq!(out[0].1, 11);
+    }
+
+    #[test]
+    fn extract_tuple_drops_empty_key_or_value() {
+        let empty_key = pv_message(2, PropertyType::Event, "", "Chrome", 1);
+        assert!(extract_tuple(&empty_key).is_empty());
+        let empty_value = pv_message(2, PropertyType::Event, "$browser", "", 1);
+        assert!(extract_tuple(&empty_value).is_empty());
+    }
+
+    #[test]
+    fn property_value_message_round_trips_producer_wire_format() {
+        use crate::producer::Outgoing;
+        for (pt, expected) in [
+            (PropertyType::Event, "event"),
+            (PropertyType::Person, "person"),
+            (PropertyType::Group(0), "group_0"),
+            (PropertyType::Group(7), "group_7"),
+        ] {
+            let outgoing = Outgoing {
+                team_id: 2,
+                property_type: pt,
+                property_key: "$browser",
+                property_value: "Chrome",
+                property_count: 99,
+            };
+            let serialized = serde_json::to_string(&outgoing).unwrap();
+            assert!(
+                serialized.contains(&format!(r#""property_type":"{expected}""#)),
+                "expected {expected} in {serialized}"
+            );
+            let parsed: PropertyValueMessage = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(parsed.team_id, 2);
+            assert_eq!(parsed.property_type, pt);
+            assert_eq!(parsed.property_key, "$browser");
+            assert_eq!(parsed.property_value, "Chrome");
+            assert_eq!(parsed.property_count, 99);
+        }
     }
 }

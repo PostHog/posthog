@@ -173,6 +173,16 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+    if TEST:
+        # The persons DB schema is built by sqlx (rust/persons_migrations), not Django —
+        # PersonDBRouter.allow_migrate blocks every Django migration on it. Without MIGRATE=False,
+        # pytest-django's setup_databases still walks and records all ~1,300 Django migrations
+        # against the empty persons test database on every shard (~300s of pure overhead, scaling
+        # with migration count), even though the router skips the actual DDL. Skipping migrate here
+        # leaves conftest.run_persons_sqlx_migrations to build the real schema.
+        DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
+        DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
+
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
@@ -208,11 +218,23 @@ for route in product_routes:
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
-        # Tell Django's test runner to create an independent test database and run
-        # migrations (via the router). Without this, test databases are created
-        # but left empty. Reader shares the writer's test database so reads inside
-        # a write transaction see uncommitted data.
-        DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
+        # Skip the global migration-graph walk during test DB setup. Without
+        # `MIGRATE: False`, Django's `create_test_db` calls `migrate --database
+        # <alias>` with no app filter, which walks the full ~1300-migration
+        # graph for `state_forwards` on every alias — even though
+        # `ProductDBRouter.allow_migrate` gates DDL to just the owning product
+        # app. The state-machine walk runs regardless of the router and burns
+        # ~5 min per affected shard on a fresh test DB.
+        #
+        # `MIGRATE: False` makes `create_test_db` skip migrations and fall
+        # through to `run_syncdb=True`, which creates tables directly from the
+        # current model definitions for any app that `allow_migrate` permits.
+        # For Django-owned product DBs (`managed=True` models), that yields
+        # the same final-schema tables in milliseconds instead of minutes.
+        #
+        # Reader shares the writer's test database so reads inside a write
+        # transaction see uncommitted data.
+        DATABASES[writer_alias]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
 
     if DISABLE_SERVER_SIDE_CURSORS:

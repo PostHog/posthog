@@ -81,7 +81,7 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
                                     icon={
                                         <IconLlmAnalytics className="text-[var(--color-product-llm-analytics-light)]" />
                                     }
-                                    to={urls.llmAnalyticsTrace(traceId)}
+                                    to={urls.aiObservabilityTrace(traceId)}
                                 />
                             </Tooltip>
                             <span className="min-w-0 flex-1">{displayContent}</span>

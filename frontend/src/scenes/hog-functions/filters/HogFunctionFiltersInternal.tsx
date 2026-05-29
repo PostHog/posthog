@@ -53,12 +53,27 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     label: 'Log alert auto-disabled',
                     value: '$logs_alert_auto_disabled',
                 },
+                {
+                    label: 'Log alert errored',
+                    value: '$logs_alert_errored',
+                },
             ]
         case 'discussion-mention':
             return [
                 {
                     label: 'Discussion mention',
                     value: '$discussion_mention_created',
+                },
+            ]
+        case 'health-alerts':
+            return [
+                {
+                    label: 'Health check fired',
+                    value: '$health_check_issue_firing',
+                },
+                {
+                    label: 'Health check resolved',
+                    value: '$health_check_issue_resolved',
                 },
             ]
         default:
@@ -137,6 +152,10 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.Events]
         } else if (contextId === 'activity-log') {
             return [TaxonomicFilterGroupType.ActivityLogProperties]
+        } else if (contextId === 'logs-alerting') {
+            return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'health-alerts') {
+            return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
     }, [contextId])

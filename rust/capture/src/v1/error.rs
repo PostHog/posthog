@@ -6,7 +6,7 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::Level;
 
-use crate::v1::analytics::constants::{ACCEPT_ENCODING_ALL, ACCEPT_JSON, DEFAULT_RETRY_AFTER_SECS};
+use crate::v1::analytics::constants::DEFAULT_RETRY_AFTER_SECS;
 use crate::v1::constants::{CAPTURE_V1_ERROR_METRIC, CAPTURE_V1_UNKNOWN_PATH};
 use crate::v1::context::Context;
 
@@ -211,9 +211,7 @@ impl Error {
     }
 
     pub(crate) fn stat_error(&self, ctx: Option<&Context>) {
-        let path = ctx
-            .map(|c| c.path.clone())
-            .unwrap_or_else(|| CAPTURE_V1_UNKNOWN_PATH.to_owned());
+        let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
         counter!(
             CAPTURE_V1_ERROR_METRIC,
@@ -268,8 +266,6 @@ impl Error {
 
     pub fn response_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
-        headers.insert(header::ACCEPT, ACCEPT_JSON);
-        headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
         // 402 (BillingLimitExceeded) is intentionally non-retryable per RFC, so no Retry-After.
         if matches!(
