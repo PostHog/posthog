@@ -38681,6 +38681,11 @@
             "enum": ["last_event", "after_dropoff_period"],
             "type": "string"
         },
+        "SubscriptionFreeTierLimit": {
+            "const": 5,
+            "description": "Subscriptions a free-tier team may create.",
+            "type": "number"
+        },
         "SuggestedQuestionsQuery": {
             "additionalProperties": false,
             "properties": {

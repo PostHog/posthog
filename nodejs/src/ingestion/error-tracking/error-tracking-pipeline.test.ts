@@ -234,6 +234,7 @@ describe('ErrorTrackingPipeline', () => {
             fetchPerson: jest.fn(),
             fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByPersonIds: jest.fn(),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
             updatePersonAssertVersion: jest.fn(),

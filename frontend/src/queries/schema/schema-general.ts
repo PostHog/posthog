@@ -6311,6 +6311,11 @@ export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
 }
 
+/** Subscriptions a free-tier team may create. */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'
