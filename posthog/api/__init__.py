@@ -3,16 +3,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import (
-    data_color_theme,
-    hog_flow,
-    hog_flow_template,
-    metalytics,
-    my_notifications,
-    project,
-    user_integration,
-    user_push_token,
-)
+from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
@@ -75,6 +66,7 @@ from products.ai_observability.backend.api import (
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -143,6 +135,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     SavedHeatmapViewSet,
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -167,8 +160,6 @@ from . import (
     exports,
     health_issue,
     hog,
-    hog_function,
-    hog_function_template,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -181,8 +172,6 @@ from . import (
     organization_invite,
     organization_member,
     personal_api_key,
-    plugin,
-    plugin_log_entry,
     project_secret_api_key,
     proxy_record,
     query,

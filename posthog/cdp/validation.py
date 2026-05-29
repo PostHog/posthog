@@ -13,7 +13,11 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE, TYPES_WITH_TRANSPILED_FILTERS
+
+from products.cdp.backend.models.hog_functions.hog_function import (
+    TYPES_WITH_JAVASCRIPT_SOURCE,
+    TYPES_WITH_TRANSPILED_FILTERS,
+)
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL

@@ -739,6 +739,14 @@ export class ApiRequest {
         return this.metrics(projectId).addPathComponent('has_metrics')
     }
 
+    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('query')
+    }
+
+    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('values')
+    }
+
     // # Tracing
     public tracingSpans(): ApiRequest {
         return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')
@@ -2800,6 +2808,34 @@ const api = {
                 .metricsHasMetrics()
                 .get()
                 .then((response) => Boolean(response.hasMetrics))
+        },
+        async query({
+            query,
+            signal,
+        }: {
+            query: {
+                metricName: string
+                aggregation: 'sum' | 'avg' | 'count' | 'p95'
+                dateFrom: string
+                dateTo?: string
+            }
+            signal?: AbortSignal
+        }): Promise<{ results: { time: string; value: number }[] }> {
+            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
+        },
+        async values({
+            search,
+            limit,
+            signal,
+        }: {
+            search?: string
+            limit?: number
+            signal?: AbortSignal
+        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
+            return new ApiRequest()
+                .metricsValues()
+                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
+                .get({ signal })
         },
     },
 
@@ -4969,8 +5005,8 @@ const api = {
         async repositories(): Promise<{ repositories: string[] }> {
             return await new ApiRequest().tasks().withAction('repositories').get()
         },
-        async get(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).get()
+        async get(id: Task['id'], params: Record<string, any> = {}): Promise<Task> {
+            return await new ApiRequest().task(id).withQueryString(params).get()
         },
         async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
@@ -4988,11 +5024,11 @@ const api = {
             return await new ApiRequest().task(id).withAction('run').create()
         },
         runs: {
-            async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
-                return await new ApiRequest().taskRuns(taskId).get()
+            async list(taskId: Task['id'], params: Record<string, any> = {}): Promise<PaginatedResponse<TaskRun>> {
+                return await new ApiRequest().taskRuns(taskId).withQueryString(params).get()
             },
-            async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
-                return await new ApiRequest().taskRun(taskId, runId).get()
+            async get(taskId: Task['id'], runId: TaskRun['id'], params: Record<string, any> = {}): Promise<TaskRun> {
+                return await new ApiRequest().taskRun(taskId, runId).withQueryString(params).get()
             },
             async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
