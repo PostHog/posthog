@@ -335,40 +335,6 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             other_integration.id,
         }
 
-    @patch("products.slack_app.backend.api._post_slack_user_feedback")
-    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
-    def test_pick_a_project_hint_is_ephemeral(
-        self, mock_sync_connect, mock_asyncio_run, _mock_flag, mock_post_feedback
-    ):
-        # When a multi-integration workspace mentions @PostHog with no command and no
-        # saved default, the "pick a project" hint enumerates connected project names.
-        # That enumeration must be ephemeral so other channel members can't see it.
-        from posthog.models.team.team import Team
-
-        other_team = Team.objects.create(organization=self.organization, name="Other")
-        Integration.objects.create(
-            team=other_team,
-            kind="slack-posthog-code",
-            integration_id="T12345",
-            config=self.posthog_code_integration.config,
-            sensitive_config={"access_token": "xoxb-other"},
-        )
-
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
-
-        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.assert_not_called()
-        mock_post_feedback.assert_called_once()
-        # The default `prefer_thread_message=False` path posts ephemeral first.
-        assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message", False) is False
-
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")

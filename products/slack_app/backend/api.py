@@ -1302,8 +1302,7 @@ def _post_pick_a_project_hint(
         f"{format_project_candidate_list(candidates)}\n\n"
         "Use `@PostHog project <id>` to pick one — that also saves it as your default."
     )
-    # Ephemeral so other channel members don't see the connected-project enumeration.
-    _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text)
+    _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
 def _start_posthog_code_workflow(
