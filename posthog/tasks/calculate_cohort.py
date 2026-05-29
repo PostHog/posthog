@@ -30,6 +30,7 @@ from posthog.models.cohort.util import (
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
@@ -434,6 +435,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     retry_backoff_max=1800,
     max_retries=6,
 )
+@skip_team_scope_audit
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
@@ -469,6 +471,7 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
+@skip_team_scope_audit
 def calculate_cohort_from_list(
     cohort_id: int,
     items: list[str],
@@ -505,6 +508,7 @@ def calculate_cohort_from_list(
     max_retries=1,
     queue=CeleryQueue.LONG_RUNNING.value,
 )
+@skip_team_scope_audit
 def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
@@ -581,6 +585,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     max_retries=1,
     queue=CeleryQueue.LONG_RUNNING.value,
 )
+@skip_team_scope_audit
 def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
     One-time population task for static cohorts created from saved cohort criteria.
@@ -718,6 +723,7 @@ def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start
 
 
 @shared_task(ignore_result=True, max_retries=3)
+@skip_team_scope_audit
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:

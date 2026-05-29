@@ -1,10 +1,10 @@
 from typing import Any, Optional
 
-import requests
 from requests import Request, Response
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
@@ -119,7 +119,7 @@ def get_resource(name: str) -> EndpointResource:
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate Attio API credentials by making a test request."""
     try:
-        res = requests.get(
+        res = make_tracked_session().get(
             "https://api.attio.com/v2/self",
             headers={
                 "Authorization": f"Bearer {api_key}",

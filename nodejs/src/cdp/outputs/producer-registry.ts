@@ -1,7 +1,5 @@
 import { KafkaProducerRegistryBuilder } from '../../ingestion/outputs/kafka-producer-registry-builder'
 import {
-    MSK_PRODUCER,
-    MSK_PRODUCER_CONFIG_MAP,
     WAREHOUSE_PRODUCER,
     WAREHOUSE_PRODUCER_CONFIG_MAP,
     WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
@@ -24,8 +22,6 @@ import {
  *   batch hogflow request enqueue. Distinct env-var prefix from the legacy
  *   `KAFKA_CDP_PRODUCER_*` so output routing is decoupled from the cyclotron
  *   job queue's own producer.
- * - `MSK_PRODUCER` — legacy MSK cluster. Retained for outputs that historically
- *   used the default `KafkaProducerWrapper` and still need MSK destinations.
  * - `WAREHOUSE_PRODUCER` — dedicated cluster for warehouse source webhooks.
  */
 export function createCdpProducerRegistry(kafkaClientRack: string | undefined) {
@@ -33,6 +29,5 @@ export function createCdpProducerRegistry(kafkaClientRack: string | undefined) {
         .register(WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP)
         .register(WARPSTREAM_CALCULATED_EVENTS_PRODUCER, WARPSTREAM_CALCULATED_EVENTS_PRODUCER_CONFIG_MAP)
         .register(WARPSTREAM_CYCLOTRON_PRODUCER, WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP)
-        .register(MSK_PRODUCER, MSK_PRODUCER_CONFIG_MAP)
         .register(WAREHOUSE_PRODUCER, WAREHOUSE_PRODUCER_CONFIG_MAP)
 }

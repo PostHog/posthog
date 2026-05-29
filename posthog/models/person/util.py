@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import json
 import datetime
 from collections.abc import Callable
 from contextlib import ExitStack
-from typing import Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Optional, TypeVar, Union, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -26,7 +28,6 @@ from posthog.models.person.sql import (
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
-from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import (
@@ -36,7 +37,6 @@ from posthog.personhog_client.metrics import (
     get_client_name,
 )
 from posthog.personhog_client.proto import (
-    CheckCohortMembershipRequest,
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
@@ -45,11 +45,103 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
-    ListCohortMemberIdsRequest,
 )
 from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
+
+PERSONHOG_BATCH_SIZE = 250
+
+
+if TYPE_CHECKING:
+    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
+
+
+def _get_client():
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+    return client
+
+
+def _batched_get_persons_by_uuids(
+    team_id: int,
+    uuids: list[str],
+    operation: str,
+) -> list[person_pb2.Person]:
+    client = _get_client()
+    valid_persons: list[person_pb2.Person] = []
+    for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE):
+        batch = uuids[i : i + PERSONHOG_BATCH_SIZE]
+        resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=batch))
+
+        present_persons = [p for p in resp.persons if p.id]
+        batch_valid = [p for p in present_persons if p.team_id == team_id]
+
+        mismatched = len(present_persons) - len(batch_valid)
+        if mismatched:
+            PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
+            logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
+
+        valid_persons.extend(batch_valid)
+
+    return valid_persons
+
+
+def _batched_get_persons_by_distinct_ids(
+    team_id: int,
+    distinct_ids: list[str],
+    operation: str,
+    deduplicate_by_person: bool = True,
+) -> list[person_pb2.PersonWithDistinctIds]:
+    client = _get_client()
+    seen_person_ids: set[int] = set()
+    valid_results: list[person_pb2.PersonWithDistinctIds] = []
+
+    for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
+        batch = distinct_ids[i : i + PERSONHOG_BATCH_SIZE]
+        resp = client.get_persons_by_distinct_ids_in_team(
+            GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=batch)
+        )
+
+        present_results = [r for r in resp.results if r.person and r.person.id]
+        batch_valid = [r for r in present_results if r.person.team_id == team_id]
+
+        mismatched = len(present_results) - len(batch_valid)
+        if mismatched:
+            PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
+            logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
+
+        if deduplicate_by_person:
+            for r in batch_valid:
+                if r.person.id not in seen_person_ids:
+                    seen_person_ids.add(r.person.id)
+                    valid_results.append(r)
+        else:
+            valid_results.extend(batch_valid)
+
+    return valid_results
+
+
+def _batched_get_distinct_ids_for_persons(
+    team_id: int,
+    person_ids: list[int],
+    limit_per_person: int | None = None,
+) -> dict[int, list[str]]:
+    client = _get_client()
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
+        batch_ids = person_ids[i : i + PERSONHOG_BATCH_SIZE]
+        did_request = GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=batch_ids)
+        if limit_per_person is not None:
+            did_request.limit_per_person = limit_per_person
+        did_resp = client.get_distinct_ids_for_persons(did_request)
+        for pd in did_resp.person_distinct_ids:
+            distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+    return distinct_ids_by_person
+
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -220,50 +312,15 @@ def create_person_distinct_id(
 def _fetch_persons_by_distinct_ids_via_personhog(
     team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
 ) -> list[Person]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    resp = client.get_persons_by_distinct_ids_in_team(
-        GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
-    )
-
-    present_results = [r for r in resp.results if r.person and r.person.id]
-    valid_results = [r for r in present_results if r.person.team_id == team_id]
-
-    mismatched = len(present_results) - len(valid_results)
-    if mismatched:
-        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
-            operation="get_persons_by_distinct_ids", client_name=get_client_name()
-        ).inc(mismatched)
-        logger.warning(
-            "personhog_team_mismatch", operation="get_persons_by_distinct_ids", team_id=team_id, dropped=mismatched
-        )
-
-    # The RPC returns one result per distinct_id, so the same person can
-    # appear multiple times.  Deduplicate by person_id to return unique persons.
-    seen_person_ids: set[int] = set()
-    unique_results = []
-    for r in valid_results:
-        if r.person.id not in seen_person_ids:
-            seen_person_ids.add(r.person.id)
-            unique_results.append(r)
-    valid_results = unique_results
+    valid_results = _batched_get_persons_by_distinct_ids(team_id, distinct_ids, "get_persons_by_distinct_ids")
 
     person_ids = [r.person.id for r in valid_results]
     if not person_ids:
         return []
 
-    did_request = GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
-    if distinct_id_limit is not None:
-        did_request.limit_per_person = distinct_id_limit
-    distinct_ids_resp = client.get_distinct_ids_for_persons(did_request)
-
-    distinct_ids_by_person: dict[int, list[str]] = {}
-    for pd in distinct_ids_resp.person_distinct_ids:
-        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+        team_id, person_ids, limit_per_person=distinct_id_limit
+    )
 
     return [
         proto_person_to_model(r.person, distinct_ids=distinct_ids_by_person.get(r.person.id, [])) for r in valid_results
@@ -377,31 +434,9 @@ def get_persons_mapped_by_distinct_id(
         return result
 
     def personhog_fn() -> dict[str, Person]:
-        from posthog.personhog_client.client import get_personhog_client
-
-        client = get_personhog_client()
-        if client is None:
-            raise RuntimeError("personhog client not configured")
-
-        resp = client.get_persons_by_distinct_ids_in_team(
-            GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=distinct_ids)
+        valid_results = _batched_get_persons_by_distinct_ids(
+            team_id, distinct_ids, "get_persons_mapped_by_distinct_id", deduplicate_by_person=False
         )
-
-        present_results = [r for r in resp.results if r.person and r.person.id]
-        valid_results = [r for r in present_results if r.person.team_id == team_id]
-
-        mismatched = len(present_results) - len(valid_results)
-        if mismatched:
-            PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
-                operation="get_persons_mapped_by_distinct_id", client_name=get_client_name()
-            ).inc(mismatched)
-            logger.warning(
-                "personhog_team_mismatch",
-                operation="get_persons_mapped_by_distinct_id",
-                team_id=team_id,
-                dropped=mismatched,
-            )
-
         return {r.distinct_id: proto_person_to_model(r.person, distinct_ids=[r.distinct_id]) for r in valid_results}
 
     return _personhog_routed(
@@ -413,49 +448,27 @@ def get_persons_mapped_by_distinct_id(
 
 
 def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
-
-    present_persons = [p for p in resp.persons if p.id]
-    valid_persons = [p for p in present_persons if p.team_id == team_id]
-
-    mismatched = len(present_persons) - len(valid_persons)
-    if mismatched:
-        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_persons_by_uuids", client_name=get_client_name()).inc(
-            mismatched
-        )
-        logger.warning("personhog_team_mismatch", operation="get_persons_by_uuids", team_id=team_id, dropped=mismatched)
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    distinct_ids_resp = client.get_distinct_ids_for_persons(
-        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
-    )
-
-    distinct_ids_by_person: dict[int, list[str]] = {}
-    for pd in distinct_ids_resp.person_distinct_ids:
-        distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
 
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
+def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
     orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team.pk, uuid__in=uuids
+        team_id=team_id, uuid__in=uuids
     )
     return _personhog_routed(
         "get_persons_by_uuids",
         personhog_fn,
         orm_fn,
-        team_id=team.pk,
+        team_id=team_id,
     )
 
 
@@ -560,120 +573,6 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
     )
 
 
-def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    resp = client.check_cohort_membership(CheckCohortMembershipRequest(person_id=person_id, cohort_ids=cohort_ids))
-    membership_by_cohort: dict[int, bool] = {m.cohort_id: m.is_member for m in resp.memberships}
-    return {cohort_id: membership_by_cohort.get(cohort_id, False) for cohort_id in cohort_ids}
-
-
-def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
-    """Return ``{cohort_id: is_member}`` for the given person.
-
-    Routes through personhog when the gate is enabled, falling back to a Django
-    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
-    Membership for cohorts the person is not in is returned as ``False`` rather
-    than being omitted, so callers can index directly by cohort_id.
-    """
-    if not cohort_ids:
-        return {}
-
-    # Local import to avoid circulars (cohort → person via CohortPeople FK).
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
-
-    # Scope cohort_ids to the team via Cohort on the default DB before querying
-    # either the personhog RPC or the persons-DB CohortPeople table. Neither
-    # downstream path enforces team ownership (posthog_cohortpeople has no
-    # team_id column; the RPC just filters by person_id + cohort_id), so the
-    # tenant boundary has to be applied here. Cohorts belonging to a different
-    # team are reported as ``False`` rather than looked up. Same pattern as
-    # `posthog.models.team.util.delete_bulky_postgres_data`.
-    scoped_cohort_ids = list(Cohort.objects.filter(id__in=cohort_ids, team_id=team_id).values_list("id", flat=True))
-    if not scoped_cohort_ids:
-        return dict.fromkeys(cohort_ids, False)
-
-    def orm_fn() -> dict[int, bool]:
-        member_ids = set(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
-            .values_list("cohort_id", flat=True)
-        )
-        return {cohort_id: cohort_id in member_ids for cohort_id in scoped_cohort_ids}
-
-    scoped_result = _personhog_routed(
-        "check_cohort_membership",
-        lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
-        orm_fn,
-        team_id=team_id,
-    )
-    # Expand back to the caller's original cohort_ids; cohorts that were scoped
-    # out (not owned by this team) register as non-member.
-    return {cohort_id: scoped_result.get(cohort_id, False) for cohort_id in cohort_ids}
-
-
-def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
-    """Convenience single-cohort variant of ``check_cohort_membership``."""
-    return check_cohort_membership(team_id, person_id, [cohort_id]).get(cohort_id, False)
-
-
-_LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
-
-
-def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    all_ids: list[int] = []
-    cursor = 0
-    while True:
-        resp = client.list_cohort_member_ids(
-            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
-        )
-        all_ids.extend(resp.person_ids)
-        if resp.next_cursor == 0:
-            break
-        cursor = resp.next_cursor
-    return all_ids
-
-
-def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
-    """Return all person IDs belonging to a static cohort.
-
-    Routes through personhog when the gate is enabled, falling back to a Django
-    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
-    """
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
-
-    # Validate cohort ownership on the default DB before querying the persons DB
-    # or the personhog RPC — neither downstream path enforces team isolation
-    # (posthog_cohortpeople has no team_id column; the proto has no team_id field).
-    # Same pattern as check_cohort_membership / delete_bulky_postgres_data.
-    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
-        return []
-
-    def orm_fn() -> list[int]:
-        return list(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(cohort_id=cohort_id)
-            .values_list("person_id", flat=True)
-        )
-
-    return _personhog_routed(
-        "list_cohort_member_ids",
-        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
-        orm_fn,
-        team_id=team_id,
-    )
-
-
 def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
     """Look up a person by UUID or integer PK, routing through personhog when enabled."""
     try:
@@ -687,26 +586,10 @@ def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
 
 
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
-
-    resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
-    valid = [p for p in resp.persons if p.team_id == team_id]
-    mismatched = len(resp.persons) - len(valid)
-    if mismatched:
-        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(
-            operation="validate_person_uuids_exist", client_name=get_client_name()
-        ).inc(mismatched)
-        logger.warning(
-            "personhog_team_mismatch",
-            operation="validate_person_uuids_exist",
-            team_id=team_id,
-            dropped=mismatched,
-        )
-    return [p.uuid for p in valid]
+    # _batched_get_persons_by_uuids also filters out persons with id == 0 (server "not found" sentinel),
+    # which the previous single-RPC implementation did not do. This is intentionally more correct.
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "validate_person_uuids_exist")
+    return [p.uuid for p in valid_persons]
 
 
 def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
@@ -782,6 +665,30 @@ def _delete_person(
 
 
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_distinct_ids_for_person(
+                GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_distinct_ids_with_version", source="personhog", client_name=get_client_name()
+            ).inc()
+            return {d.distinct_id: int(d.version or 0) for d in resp.distinct_ids}
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_distinct_ids_with_version",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_distinct_ids_with_version_failure", team_id=person.team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_distinct_ids_with_version", source="django_orm", client_name=get_client_name()
+    ).inc()
     return {
         distinct_id: int(version or 0)
         for distinct_id, version in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)

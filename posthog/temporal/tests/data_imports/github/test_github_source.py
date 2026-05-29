@@ -152,6 +152,30 @@ class TestBuildInitialParams:
         assert params["sort"] == "created"
         assert params["direction"] == "asc"
 
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental_first_sync", True, None),
+            ("incremental_with_cutoff", True, datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_workflow_runs_always_minimal_params(
+        self, _name: str, should_use_incremental_field: bool, last_value: Any
+    ) -> None:
+        params = _build_initial_params(
+            GITHUB_ENDPOINTS["workflow_runs"],
+            "workflow_runs",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+            incremental_field="created_at",
+        )
+
+        # workflow_runs is always a plain paged read: no state/sort/direction,
+        # no `since`, and crucially no `created` filter (the filter caps results
+        # at 1,000). Incremental bounding happens client-side via desc
+        # early-stop in get_rows, so the request never changes shape.
+        assert params == {"per_page": 100}
+
 
 class TestBuildInitialUrl:
     def test_with_params(self) -> None:
@@ -347,8 +371,8 @@ class TestIsIssueNotPr:
 
 class TestValidateCredentials:
     def test_valid_credentials(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = mock.MagicMock(status_code=200)
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is True
@@ -361,26 +385,26 @@ class TestValidateCredentials:
         ]
     )
     def test_error_status_codes(self, _name: str, status_code: int, expected_message: str) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.return_value = mock.MagicMock(status_code=status_code)
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = mock.MagicMock(status_code=status_code)
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
         assert error == expected_message
 
     def test_json_error_response(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
             mock_response = mock.MagicMock(status_code=403)
             mock_response.json.return_value = {"message": "API rate limit exceeded"}
-            mock_get.return_value = mock_response
+            mock_get.return_value.get.return_value = mock_response
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
         assert error == "API rate limit exceeded"
 
     def test_request_exception(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = requests.exceptions.ConnectionError("Connection refused")
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
@@ -388,12 +412,12 @@ class TestValidateCredentials:
         assert "Connection refused" in error
 
     def test_sends_correct_headers(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = mock.MagicMock(status_code=200)
             validate_credentials("my-token", "owner/repo")
 
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args
+        mock_get.return_value.get.assert_called_once()
+        call_kwargs = mock_get.return_value.get.call_args
         assert call_kwargs is not None
         headers = call_kwargs.kwargs["headers"]
         assert headers["Authorization"] == "Bearer my-token"
@@ -439,6 +463,18 @@ class TestGithubSourceSortMode:
                 "desc",
             ),
             ("issues_always_asc", "issues", True, datetime(2026, 1, 15, tzinfo=UTC), "asc"),
+            # workflow_runs always emits newest-first (the API ignores sort), so
+            # sort_mode must be desc even on the first sync / full refresh —
+            # never the asc default that other endpoints use before a cutoff.
+            ("workflow_runs_full_refresh", "workflow_runs", False, None, "desc"),
+            ("workflow_runs_first_sync_no_cutoff", "workflow_runs", True, None, "desc"),
+            (
+                "workflow_runs_incremental_with_cutoff",
+                "workflow_runs",
+                True,
+                datetime(2026, 1, 15, tzinfo=UTC),
+                "desc",
+            ),
         ]
     )
     def test_sort_mode(
@@ -478,10 +514,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=responses,
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -493,7 +529,7 @@ class TestGetRowsResume:
                 )
             )
 
-        first_url = mock_get.call_args_list[0].args[0]
+        first_url = mock_get.return_value.get.call_args_list[0].args[0]
         assert first_url.startswith("https://api.github.com/repos/owner/repo/releases")
         manager.load_state.assert_not_called()
 
@@ -512,10 +548,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=responses,
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -527,7 +563,7 @@ class TestGetRowsResume:
                 )
             )
 
-        assert mock_get.call_args_list[0].args[0] == saved_url
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_url
         manager.load_state.assert_called_once()
 
     def test_empty_first_page_ends_loop(self) -> None:
@@ -535,10 +571,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=[_make_response(body=[], link="")],
-            ),
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = [_make_response(body=[], link="")]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -560,10 +596,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=[_make_response(body=[{"id": 1}], link="")],
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = [_make_response(body=[{"id": 1}], link="")]
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -577,7 +613,109 @@ class TestGetRowsResume:
 
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args.args[0]
-        assert saved.next_url == mock_get.call_args_list[0].args[0]
+        assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
+
+    def test_workflow_runs_envelope_is_unwrapped(self) -> None:
+        manager = _make_manager(can_resume=False)
+        envelope = {"total_count": 1, "workflow_runs": [{"id": 1001, "created_at": "2026-01-20T10:00:00Z"}]}
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert len(rows) == 1
+        assert rows[0]["id"] == 1001
+
+    def test_workflow_runs_empty_envelope_ends_loop(self) -> None:
+        manager = _make_manager(can_resume=False)
+        envelope = {"total_count": 0, "workflow_runs": []}
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert rows == []
+        manager.save_state.assert_not_called()
+
+    def test_workflow_runs_incremental_stops_at_cutoff_without_filter(self) -> None:
+        """Incremental workflow_runs paginates newest-first and stops once a
+        page crosses below the cursor — never sending a `created`/`since`
+        filter (which would cap results at 1,000). A page past the cutoff must
+        not be fetched."""
+        manager = _make_manager(can_resume=False)
+        cutoff = datetime(2026, 1, 20, tzinfo=UTC)
+        page1 = {
+            "total_count": 3,
+            "workflow_runs": [
+                {"id": 3, "created_at": "2026-01-25T00:00:00Z"},
+                {"id": 2, "created_at": "2026-01-22T00:00:00Z"},
+            ],
+        }
+        page2 = {"total_count": 3, "workflow_runs": [{"id": 1, "created_at": "2026-01-18T00:00:00Z"}]}
+        link_page1 = '<https://api.github.com/repos/owner/repo/actions/runs?page=2>; rel="next"'
+        # Only two responses are provided: a fetch of page 3 would raise
+        # StopIteration, so the test fails if early-stop doesn't fire.
+        responses = [
+            _make_response(body=page1, link=link_page1),
+            _make_response(
+                body=page2, link='<https://api.github.com/repos/owner/repo/actions/runs?page=3>; rel="next"'
+            ),
+        ]
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = responses
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cutoff,
+                    incremental_field="created_at",
+                )
+            )
+
+        assert [row["id"] for row in rows] == [3, 2, 1]
+        assert mock_get.return_value.get.call_count == 2
+        first_url = mock_get.return_value.get.call_args_list[0].args[0]
+        assert "created=" not in first_url
+        assert "since=" not in first_url
+        assert "/actions/runs" in first_url
 
     def test_mid_page_chunk_boundary_checkpoints_current_page(self) -> None:
         """If the chunk boundary lands mid-page, the checkpoint must point at
@@ -605,10 +743,10 @@ class TestGetRowsResume:
                 side_effect=batcher_factory,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=responses,
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -624,7 +762,7 @@ class TestGetRowsResume:
         # the next-page URL — otherwise item 3 (batched but not yet yielded)
         # would be skipped on resume.
         first_save = manager.save_state.call_args_list[0].args[0]
-        assert first_save.next_url == mock_get.call_args_list[0].args[0]
+        assert first_save.next_url == mock_get.return_value.get.call_args_list[0].args[0]
         assert first_save.next_url != "https://api.github.com/repos/owner/repo/releases?page=2"
 
 

@@ -146,7 +146,16 @@ class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
         foreign_integration = self._make_integration(foreign_team)
 
         serializer = BatchExportDestinationSerializer(
-            data={"type": "Databricks", "config": {}, field_name: foreign_integration.pk},
+            data={
+                "type": "Databricks",
+                "config": {
+                    "http_path": "/sql/1.0/warehouses/abc",
+                    "catalog": "main",
+                    "schema": "default",
+                    "table_name": "events",
+                },
+                field_name: foreign_integration.pk,
+            },
             context={"team_id": self.team.pk},
         )
         assert not serializer.is_valid()

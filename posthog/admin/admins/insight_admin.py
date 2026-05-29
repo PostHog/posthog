@@ -4,7 +4,8 @@ from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.filters import DeletedFilter
-from posthog.models import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 class InsightAdminForm(forms.ModelForm):
@@ -52,6 +53,7 @@ class InsightAdminForm(forms.ModelForm):
         return instance
 
 
+@admin.register(Insight)
 class InsightAdmin(admin.ModelAdmin):
     form = InsightAdminForm
     exclude = ("layouts",)

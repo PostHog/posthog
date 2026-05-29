@@ -39,10 +39,15 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Error message")
 
 
 class PaginationMode(Enum):
@@ -464,6 +469,8 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
 
 
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    if hostname and has_authority_bypass_chars(hostname):
+        return False
     # if the browser url encodes the hostname, we need to decode it first
     hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
     return hostname_in_allowed_url_list(allowed_url_list, hostname)

@@ -51,6 +51,13 @@ interface OpenApiParam {
     required?: boolean
     description?: string
     schema: OpenApiSchema
+    /**
+     * Set by the Django factories in posthog/api/openapi_parameters.py for
+     * params whose wire format is a URL-encoded JSON string but whose semantic
+     * shape is an object (e.g. variables_override / filters_override). The
+     * codegen widens these into z.union([z.string(), z.record(...)]).
+     */
+    'x-accepts-stringified-json'?: boolean
 }
 
 interface OpenApiSchema {
@@ -65,6 +72,8 @@ interface OpenApiSchema {
     required?: string[]
     $ref?: string
     allOf?: Array<OpenApiSchema | { $ref: string }>
+    anyOf?: Array<OpenApiSchema | { $ref: string }>
+    oneOf?: Array<OpenApiSchema | { $ref: string }>
     enum?: string[]
     maxLength?: number
     default?: unknown
@@ -118,7 +127,40 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const spec = JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    inlineParameterRefs(spec)
+    return spec
+}
+
+/**
+ * Replace ``{$ref: '#/components/parameters/...'}`` entries in operation parameters with the
+ * fully resolved parameter object. The rest of this script reads ``parameter.in`` /
+ * ``parameter.name`` directly, which would silently return ``undefined`` for ref-only entries
+ * and cause downstream tools to mis-handle path/query params (e.g. dropping the
+ * ``project_id`` / ``organization_id`` auto-resolved omit).
+ */
+function inlineParameterRefs(spec: OpenApiSpec): void {
+    const parameterComponents = (spec.components as { parameters?: Record<string, unknown> } | undefined)?.parameters
+    if (!parameterComponents) {
+        return
+    }
+    for (const methods of Object.values(spec.paths ?? {})) {
+        for (const op of Object.values(methods ?? {}) as Array<{ parameters?: unknown[] }>) {
+            if (!op?.parameters || !Array.isArray(op.parameters)) {
+                continue
+            }
+            op.parameters = op.parameters.map((param) => {
+                if (param && typeof param === 'object' && '$ref' in param && typeof param.$ref === 'string') {
+                    const name = param.$ref.replace('#/components/parameters/', '')
+                    const resolved = parameterComponents[name]
+                    if (resolved) {
+                        return resolved
+                    }
+                }
+                return param
+            })
+        }
+    }
 }
 
 /**
@@ -189,6 +231,88 @@ function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: s
 }
 
 /**
+ * Flatten body schema properties across the three composition keywords that
+ * can hide fields from a naive ``schema.properties`` read:
+ *
+ *  - ``properties``: own fields on the schema
+ *  - ``allOf``: composition / inheritance — every member must hold, so fields
+ *    are merged and required sets are unioned
+ *  - ``anyOf`` / ``oneOf``: discriminated unions (e.g. polymorphic Python
+ *    serializers) — at least one variant must hold, so fields are merged
+ *    while required is the intersection across variants
+ *
+ * Returns:
+ *  - ``properties``: the union of properties across all branches
+ *  - ``required``: fields that are required on every reachable branch
+ *  - ``variantSpecific``: fields only some union variants declare — the handler
+ *    must guard access with ``'X' in params`` to satisfy TypeScript narrowing
+ *    on the resulting Zod union type
+ *
+ * Without this flattening, the generated handler can silently omit fields and
+ * POST an empty (or partial) body — the same class of bug that exists when
+ * ``anyOf`` / ``oneOf`` is unhandled.
+ */
+function flattenBodySchemaProperties(
+    spec: OpenApiSpec,
+    schema: OpenApiSchema | undefined
+): { properties: Map<string, OpenApiSchema>; required: Set<string>; variantSpecific: Set<string> } {
+    if (!schema) {
+        return { properties: new Map(), required: new Set(), variantSpecific: new Set() }
+    }
+
+    // Start with own properties, then fold every allOf member in. Fields are
+    // merged (first writer wins on collision); required sets are unioned.
+    const baseProperties = new Map<string, OpenApiSchema>(Object.entries(schema.properties ?? {}))
+    const baseRequired = new Set<string>(schema.required ?? [])
+    for (const member of schema.allOf ?? []) {
+        const sub = flattenBodySchemaProperties(spec, resolveSchema(spec, member))
+        for (const [name, prop] of sub.properties) {
+            if (!baseProperties.has(name)) {
+                baseProperties.set(name, prop)
+            }
+        }
+        for (const r of sub.required) {
+            baseRequired.add(r)
+        }
+    }
+
+    const variantRefs = [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]
+    if (variantRefs.length === 0) {
+        return { properties: baseProperties, required: baseRequired, variantSpecific: new Set() }
+    }
+
+    const variants = variantRefs
+        .map((v) => resolveSchema(spec, v))
+        .filter((v): v is OpenApiSchema => !!v)
+        .map((v) => flattenBodySchemaProperties(spec, v))
+    const merged = new Map(baseProperties)
+    for (const v of variants) {
+        for (const [name, prop] of v.properties) {
+            if (!merged.has(name)) {
+                merged.set(name, prop)
+            }
+        }
+    }
+    const required = new Set(baseRequired)
+    const variantSpecific = new Set<string>()
+    for (const name of merged.keys()) {
+        // Locally-declared / allOf-composed fields are always present, so they
+        // are never variant-specific regardless of what each variant says.
+        if (baseProperties.has(name)) {
+            continue
+        }
+        if (variants.every((v) => v.properties.has(name))) {
+            if (variants.every((v) => v.required.has(name))) {
+                required.add(name)
+            }
+        } else {
+            variantSpecific.add(name)
+        }
+    }
+    return { properties: merged, required, variantSpecific }
+}
+
+/**
  * Resolve the response type name from an operation's success response.
  * Returns the Schemas.* type name if the $ref maps to a type that exists
  * in generated.ts, undefined otherwise.
@@ -235,6 +359,16 @@ function toCamelCase(str: string): string {
 }
 
 /**
+ * Escape a description string for embedding inside a single-quoted Zod
+ * `.describe('...')` call. Backslashes first, then single quotes, then collapse
+ * line breaks to spaces. Order matters — escape the escape character before
+ * anything else.
+ */
+function escapeForDescribe(desc: string): string {
+    return desc.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n\s*/g, ' ')
+}
+
+/**
  * Parse enrich_url template into prefix, field, and source.
  * '{id}' → { prefix: '', field: 'id', source: 'result' }
  * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
@@ -267,12 +401,21 @@ function operationIdToPascal(operationId: string): string {
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
+    /** Names of helpers imported from `@/tools/cast-helpers` (e.g. `castStringToInt`). */
+    castHelperImports: Set<string>
     /** Inline Zod declarations generated from schema_ref (emitted before the schema declaration) */
     schemaRefBlocks: string[]
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
     bodyFieldNames: string[]
+    /**
+     * Body fields that only appear in some variants of a union (anyOf/oneOf) body schema.
+     * The handler emits `'X' in params && params.X !== undefined` for these to satisfy
+     * TypeScript's union narrowing — referencing `params.X` directly fails type-checking
+     * because variant types that lack the field have no such property.
+     */
+    variantSpecificBodyFieldNames: Set<string>
     /** Maps alias → original field name for renamed params */
     renamedFields: Record<string, string>
     /** Maps param name → fallback key for optional params with state fallbacks */
@@ -291,6 +434,15 @@ function composeToolSchema(
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
     const bodyFieldNames: string[] = []
+    const variantSpecificBodyFieldNames = new Set<string>()
+    /**
+     * Params whose underlying Orval shape is `.optional()` (or `.nullish()`).
+     * Used by the cast branch in `param_overrides`: `z.preprocess(fn, source)`
+     * does not propagate optionality to the JSON Schema output, so we re-apply
+     * `.optional()` after the wrapper for fields that were optional at source.
+     * Path params are omitted (always required).
+     */
+    const optionalParamNames = new Set<string>()
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -354,6 +506,9 @@ function composeToolSchema(
             }
             for (const p of usefulQueryParams) {
                 queryParamNames.push(p.name)
+                if (!p.required) {
+                    optionalParamNames.add(p.name)
+                }
             }
         }
     }
@@ -367,38 +522,51 @@ function composeToolSchema(
 
             const bodyOmitFields = new Set<string>()
             const bodySchema = resolveSchema(spec, bodySchemaRef)
+            // PATCH bodies are partial — Orval emits every field as `.optional()`.
+            // For POST/PUT, optionality follows the body schema's `required` list.
+            const {
+                properties: bodyProperties,
+                required: bodyRequiredSet,
+                variantSpecific: bodyVariantSpecific,
+            } = flattenBodySchemaProperties(spec, bodySchema)
+            const bodyAllOptional = resolved.method === 'PATCH'
 
-            if (bodySchema?.properties) {
-                for (const [name, prop] of Object.entries(bodySchema.properties)) {
-                    // Orval excludes readOnly fields from Body schemas — skip them
-                    // so we don't try to .omit() keys that don't exist
-                    if (prop.readOnly) {
-                        continue
-                    }
+            for (const [name, prop] of bodyProperties) {
+                // Orval excludes readOnly fields from Body schemas — skip them
+                // so we don't try to .omit() keys that don't exist
+                if (prop.readOnly) {
+                    continue
+                }
 
-                    // exclude_params are removed at the Orval schema level by
-                    // applyNestedExclusions in generate-orval-schemas.mjs, so
-                    // they won't exist in the Zod schema. Skip them here to
-                    // avoid generating .omit() calls for nonexistent fields.
-                    if (excludeSet.has(name)) {
-                        continue
-                    }
+                // exclude_params are removed at the Orval schema level by
+                // applyNestedExclusions in generate-orval-schemas.mjs, so
+                // they won't exist in the Zod schema. Skip them here to
+                // avoid generating .omit() calls for nonexistent fields.
+                if (excludeSet.has(name)) {
+                    continue
+                }
 
-                    // Auto-exclude underscore-prefixed fields
-                    if (name.startsWith('_')) {
-                        bodyOmitFields.add(name)
-                        continue
-                    }
-                    if (includeSet && !includeSet.has(name)) {
-                        bodyOmitFields.add(name)
-                        continue
-                    }
+                // Auto-exclude underscore-prefixed fields
+                if (name.startsWith('_')) {
+                    bodyOmitFields.add(name)
+                    continue
+                }
+                if (includeSet && !includeSet.has(name)) {
+                    bodyOmitFields.add(name)
+                    continue
+                }
 
-                    // If this field is renamed, store the alias instead so the
-                    // handler references params.<alias>. The original→alias
-                    // mapping is tracked in renamedFields for body-building.
-                    const alias = renameMap.get(name)
-                    bodyFieldNames.push(alias ?? name)
+                // If this field is renamed, store the alias instead so the
+                // handler references params.<alias>. The original→alias
+                // mapping is tracked in renamedFields for body-building.
+                const alias = renameMap.get(name)
+                const fieldKey = alias ?? name
+                bodyFieldNames.push(fieldKey)
+                if (bodyVariantSpecific.has(name)) {
+                    variantSpecificBodyFieldNames.add(fieldKey)
+                }
+                if (bodyAllOptional || !bodyRequiredSet.has(name)) {
+                    optionalParamNames.add(fieldKey)
                 }
             }
 
@@ -429,7 +597,9 @@ function composeToolSchema(
     //   - schema_ref    → generate inline Zod from schema.json and use that
     //   - description   → wrap the existing Orval-derived field with .describe(...)
     //   - optional+fallback → make param optional and resolve from state when omitted
+    //   - cast          → wrap with z.preprocess(...) from @/tools/cast-helpers
     const toolInputsImports: string[] = []
+    const castHelperImports = new Set<string>()
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
@@ -447,6 +617,22 @@ function composeToolSchema(
                 paramFallbacks[paramName] = override.fallback
             }
 
+            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            if (castHelper) {
+                castHelperImports.add(castHelper)
+            }
+            // `z.preprocess(fn, source)` does not propagate inner `.optional()` to
+            // the JSON Schema output (zod 4 marks the wrapped field as required).
+            // Re-apply `.optional()` after the preprocess for fields whose source
+            // was optional, so the agent-facing tool schema stays accurate.
+            const wrapWithCast = (inner: string): string => {
+                if (!castHelper) {
+                    return inner
+                }
+                const wrapped = `z.preprocess(${castHelper}, ${inner})`
+                return optionalParamNames.has(paramName) ? `${wrapped}.optional()` : wrapped
+            }
+
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
                 schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
@@ -462,9 +648,9 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description || override.default !== undefined || override.optional) {
+            } else if (override.description || override.default !== undefined || override.optional || castHelper) {
                 // Locate the Orval source schema this param came from, so we can reference
-                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional().
+                // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional() / cast.
                 let sourceImport: string | null = null
                 if (bodyFieldNames.includes(paramName)) {
                     sourceImport = `${pascal}Body`
@@ -479,17 +665,12 @@ function composeToolSchema(
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
                     }
                     if (override.description) {
-                        const escaped = override.description
-                            .trim()
-                            .replace(/\\/g, '\\\\')
-                            .replace(/'/g, "\\'")
-                            .replace(/\n\s*/g, ' ')
-                        expr += `.describe('${escaped}')`
+                        expr += `.describe('${escapeForDescribe(override.description)}')`
                     }
                     if (override.optional) {
                         expr += '.optional()'
                     }
-                    schemaOverrides.push(`${paramName}: ${expr}`)
+                    schemaOverrides.push(`${paramName}: ${wrapWithCast(expr)}`)
                 }
             }
         }
@@ -511,14 +692,47 @@ function composeToolSchema(
         }
     }
 
+    // Query params marked `x-accepts-stringified-json` (set by Django factories
+    // in posthog/api/openapi_parameters.py) are stringified-JSON-objects on the
+    // wire but conceptually objects. Widen the schema to accept either shape so
+    // LLM agents can pass the object literal they just read from a sibling
+    // tool's response, without a JSON.stringify round-trip that frequently
+    // breaks on escaping. ApiClient.request() in services/mcp/src/api/client.ts
+    // JSON-stringify-s object query params automatically, so the schema-side
+    // union is sufficient — no handler changes required. Skipped when the YAML
+    // config also defines a param_overrides entry for the field, so explicit
+    // YAML always wins.
+    const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
+    const stringifiedJsonQueryParams = queryParams.filter(
+        (p) =>
+            p['x-accepts-stringified-json'] === true &&
+            // queryParamNames is the post-include/exclude set, so this drops
+            // params the YAML excluded via include_params / exclude_params.
+            queryParamNames.includes(p.name) &&
+            !explicitOverrideKeys.has(p.name)
+    )
+    if (stringifiedJsonQueryParams.length > 0) {
+        const overrideEntries = stringifiedJsonQueryParams.map((p) => {
+            let expr = 'z.union([z.string(), z.record(z.string(), z.unknown())]).optional()'
+            const desc = p.description ?? p.schema?.description
+            if (desc) {
+                expr += `.describe('${escapeForDescribe(desc)}')`
+            }
+            return `${p.name}: ${expr}`
+        })
+        schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
+    }
+
     return {
         orvalImports,
         toolInputsImports,
+        castHelperImports,
         schemaRefBlocks,
         schemaExpr,
         pathParamNames,
         queryParamNames,
         bodyFieldNames,
+        variantSpecificBodyFieldNames,
         renamedFields,
         paramFallbacks,
     }
@@ -644,6 +858,7 @@ function generateToolCode(
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    castHelperImports: Set<string>
     schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
@@ -675,7 +890,15 @@ function generateToolCode(
         }
     }
 
-    const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
+    let schemaExpr = composition.schemaExpr
+    if (config.validators && config.validators.length > 0) {
+        for (const fn of config.validators) {
+            schemaExpr = `(${schemaExpr}).superRefine(${fn})`
+            composition.toolInputsImports.push(fn)
+        }
+    }
+
+    const schemaDecl = `const ${schemaName} = ${schemaExpr}`
 
     const localVarParams = new Set(Object.keys(composition.paramFallbacks))
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
@@ -710,7 +933,10 @@ function generateToolCode(
 
     const softDeleteField = typeof config.soft_delete === 'string' ? config.soft_delete : 'deleted'
 
-    const hasBody = !isSoftDelete && composition.bodyFieldNames.length > 0
+    const injectBody = config.inject_body ?? {}
+    const injectBodyEntries = Object.entries(injectBody)
+    const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
+    const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0
 
     if (hasBody) {
@@ -719,7 +945,17 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body['${bodyKey}'] = params.${bf}\n`
+            // Variant-specific fields (only in some union variants) need an `in`
+            // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
+            const guard = composition.variantSpecificBodyFieldNames.has(bf)
+                ? `'${bf}' in params && params.${bf} !== undefined`
+                : `params.${bf} !== undefined`
+            handlerBody += `        if (${guard}) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
+        }
+        // inject_body: hardcoded values that always override caller-supplied params.
+        // Emitted last so they overwrite anything set above.
+        for (const [key, value] of injectBodyEntries) {
+            handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
 
@@ -782,7 +1018,10 @@ function generateToolCode(
     const appKey = config.ui_app ?? null
 
     const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
-    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
+    // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
+    // alone doesn't touch params, so don't count it here.
+    const paramsUsed =
+        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
@@ -806,6 +1045,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         code,
         orvalImports: composition.orvalImports,
         toolInputsImports: composition.toolInputsImports,
+        castHelperImports: composition.castHelperImports,
         schemaRefBlocks: composition.schemaRefBlocks,
         responseType,
         needsWithPostHogUrl,
@@ -826,6 +1066,7 @@ function generateCustomSchemaToolCode(
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    castHelperImports: Set<string>
     schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
@@ -886,8 +1127,17 @@ function generateCustomSchemaToolCode(
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
 
+    let baseSchemaExpr = config.input_schema as string
+    const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []
+    if (config.validators && config.validators.length > 0) {
+        for (const fn of config.validators) {
+            baseSchemaExpr = `(${baseSchemaExpr}).superRefine(${fn})`
+            toolInputsImports.push(fn)
+        }
+    }
+
     const code = `
-const ${schemaName} = ${config.input_schema}
+const ${schemaName} = ${baseSchemaExpr}
 
 const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
@@ -900,7 +1150,8 @@ ${handlerBody}    },
     return {
         code,
         orvalImports: [],
-        toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        toolInputsImports,
+        castHelperImports: new Set(),
         schemaRefBlocks: [],
         responseType,
         needsWithPostHogUrl: false,
@@ -977,6 +1228,7 @@ function generateCategoryFile(
 
     const allOrvalImports = new Set<string>()
     const allToolInputsImports = new Set<string>()
+    const allCastHelperImports = new Set<string>()
     const allSchemaRefBlocks: string[] = []
     const emittedSchemaRefDefs = new Set<string>()
     const toolCodes: string[] = []
@@ -995,6 +1247,9 @@ function generateCategoryFile(
         }
         for (const imp of result.toolInputsImports) {
             allToolInputsImports.add(imp)
+        }
+        for (const imp of result.castHelperImports) {
+            allCastHelperImports.add(imp)
         }
         // Collect schema_ref blocks, deduplicating by const name
         for (const block of result.schemaRefBlocks) {
@@ -1127,6 +1382,11 @@ function generateCategoryFile(
             ? `import { ${[...allToolInputsImports].sort().join(', ')} } from '@/schema/tool-inputs'\n`
             : ''
 
+    const castHelpersImportLine =
+        allCastHelperImports.size > 0
+            ? `import { ${[...allCastHelperImports].sort().join(', ')} } from '@/tools/cast-helpers'\n`
+            : ''
+
     // Build tool-utils import (WithPostHogUrl type + withPostHogUrl runtime helper)
     const toolUtilsTypeImports: string[] = []
     const toolUtilsValueImports: string[] = []
@@ -1157,7 +1417,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

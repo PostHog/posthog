@@ -19,6 +19,14 @@ export const ToolDefinitionSchema = z.object({
     feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
     /** One-line selection hint surfaced in the system prompt's query tool catalog. */
     system_prompt_hint: z.string().optional(),
+    /**
+     * When true, the tool is exposed even when the client passes a `features`
+     * or `tools` allowlist that wouldn't otherwise match. Reserved for
+     * cross-cutting utility tools (e.g. feedback) that should remain
+     * discoverable to every client without forcing them to opt in.
+     * Other filters (readOnly, AI consent, feature flags, scopes) still apply.
+     */
+    always_available: z.boolean().optional(),
     annotations: z.object({
         destructiveHint: z.boolean(),
         idempotentHint: z.boolean(),
@@ -86,6 +94,12 @@ export interface ToolFilterOptions {
      * Used to gate tools that declare `feature_flag` in their YAML config.
      */
     featureFlags?: Record<string, boolean> | undefined
+    /**
+     * Project IDs the token is restricted to (`scoped_teams` on the API key).
+     * When set, the backend 403s any org-level endpoint, so we drop tools that
+     * need `organization:*` scopes — they'd fail anyway.
+     */
+    scopedTeams?: number[] | undefined
 }
 
 /**
@@ -108,7 +122,7 @@ function normalizeFeatureName(name: string): string {
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags } = options || {}
+    const { features, tools, version, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -121,6 +135,8 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // Filter by features and/or tools allowlist (OR union).
     // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
     // Normalize hyphens to underscores so that both "error-tracking" and "error_tracking" match.
+    // Tools marked `always_available` bypass this allowlist so utility tools
+    // (e.g. feedback) stay discoverable for every client.
     const hasFeatures = features && features.length > 0
     const hasTools = tools && tools.length > 0
     if (hasFeatures || hasTools) {
@@ -128,6 +144,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         const allowedTools = hasTools ? new Set(tools) : null
 
         entries = entries.filter(([toolName, definition]) => {
+            if (definition.always_available) {
+                return true
+            }
             const matchesFeature = normalizedFeatures
                 ? definition.feature && normalizedFeatures.has(normalizeFeatureName(definition.feature))
                 : false
@@ -171,6 +190,14 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
             }
             return (definition.feature_flag_behavior ?? 'enable') === 'disable'
         })
+    }
+
+    // Hide tools that need org-level access when the session's token is
+    // project-scoped - the backend would 403 them
+    if (scopedTeams && scopedTeams.length > 0) {
+        entries = entries.filter(
+            ([_, definition]) => !(definition.required_scopes ?? []).some((scope) => scope.startsWith('organization'))
+        )
     }
 
     return entries.map(([toolName, _]) => toolName)

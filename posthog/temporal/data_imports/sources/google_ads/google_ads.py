@@ -4,6 +4,7 @@ import dataclasses
 import collections.abc
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import pyarrow as pa
 from google.ads.googleads.client import GoogleAdsClient
@@ -79,6 +80,11 @@ GoogleAdsSourceConfigUnion = GoogleAdsServiceAccountSourceConfig | GoogleAdsSour
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
     if isinstance(config, GoogleAdsSourceConfig):
+        # Temporal activities run in a thread pool where Django DB connections can go
+        # stale between uses (Postgres closes the connection server-side). This
+        # function is invoked lazily from inside `get_rows` after the schema fetch,
+        # so the connection has often been idle for minutes by the time we reach it.
+        close_old_connections()
         integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
 
         login_customer_id: str | None = None

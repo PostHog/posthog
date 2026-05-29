@@ -3,8 +3,12 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.ast import HogQLXAttribute, HogQLXTag, UUIDType
-from posthog.hogql.errors import InternalHogQLError
+from posthog.hogql.ast import AST_CLASSES, HogQLXAttribute, HogQLXTag, UUIDType
+from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
+from posthog.hogql.errors import (
+    InternalHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
 
@@ -165,6 +169,52 @@ class TestVisitor(BaseTest):
     def test_visit_interval_type(self):
         # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
         TraversingVisitor().visit(ast.IntervalType())
+
+    def test_cached_visit_method_name_matches_legacy_algorithm(self):
+        def legacy(cls_name: str) -> str:
+            name = camel_case_pattern.sub("_", cls_name).lower()
+            for old, new in _VISIT_NAME_REPLACEMENTS.items():
+                name = name.replace(old, new)
+            return f"visit_{name}"
+
+        def all_subclasses(cls):
+            seen: set[type] = set()
+            stack = [cls]
+            while stack:
+                c = stack.pop()
+                for sub in c.__subclasses__():
+                    if sub not in seen:
+                        seen.add(sub)
+                        stack.append(sub)
+            return seen
+
+        subclasses = all_subclasses(AST)
+        # `__subclasses__()` also returns pre-`@dataclass(slots=True)` ghost
+        # classes, so `subclasses` is always a superset of `AST_CLASSES`.
+        assert len(subclasses) >= len(AST_CLASSES), (
+            f"expected at least {len(AST_CLASSES)} AST subclasses, found {len(subclasses)}"
+        )
+        mismatches = [
+            (cls.__name__, cls._visit_method_name, legacy(cls.__name__))
+            for cls in subclasses
+            if cls._visit_method_name != legacy(cls.__name__)
+        ]
+        assert not mismatches, f"_visit_method_name mismatches: {mismatches}"
+
+    def test_accept_falls_back_to_visit_unknown(self):
+        class FallbackVisitor(Visitor):
+            def visit_unknown(self, node):
+                return f"unknown:{node.__class__.__name__}"
+
+        assert FallbackVisitor().visit(ast.Field(chain=["x"])) == "unknown:Field"
+
+    def test_accept_raises_when_no_visit_method_and_no_unknown(self):
+        class EmptyVisitor(Visitor):
+            pass
+
+        with self.assertRaises(HogQLNotImplementedError) as ctx:
+            EmptyVisitor().visit(ast.Field(chain=["x"]))
+        self.assertIn("visit_field", str(ctx.exception))
 
     @parameterized.expand(
         [

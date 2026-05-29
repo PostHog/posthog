@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
+from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
@@ -49,6 +50,21 @@ logger = structlog.get_logger(__name__)
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
+
+# Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
+# per install, so tenants who connected the Slack integration before the full scope set
+# was requested in prod (2026-05-04, #57177) must reconnect before mentions can work.
+POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
+    {
+        "app_mentions:read",
+        "users:read",
+        "users:read.email",
+        "chat:write",
+        "channels:history",
+        "groups:history",
+        "reactions:write",
+    }
+)
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -116,16 +132,8 @@ class SlackUserContext:
 
 
 @dataclass
-class RepoDecision:
-    mode: Literal["auto", "picker"]
-    repository: str | None
-    reason: str
-    llm_found_match: bool
-
-
-@dataclass
 class RulesCommand:
-    action: Literal["list", "add", "remove", "help", "default_set", "default_show", "default_clear"]
+    action: Literal["list", "add", "remove", "help", "deprecated_default_repo"]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
@@ -135,14 +143,22 @@ def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
     return f"posthog_code_slack_user_info:{integration_id}:{slack_user_id}"
 
 
-def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
+def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str) -> str:
+    return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
+
+
+def _format_slack_user_info_payload(
+    *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
+) -> dict[str, Any]:
     return {
         "user": {
+            "is_admin": is_admin,
+            "is_owner": is_owner,
             "profile": {
                 "email": email,
                 "display_name": display_name,
                 "real_name": real_name,
-            }
+            },
         }
     }
 
@@ -175,13 +191,16 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
         email=profile.email,
         display_name=profile.display_name,
         real_name=profile.real_name,
+        is_admin=profile.is_admin,
+        is_owner=profile.is_owner,
     )
 
 
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
     from products.slack_app.backend.models import SlackUserProfileCache
 
-    profile = user_info.get("user", {}).get("profile", {})
+    user = user_info.get("user", {})
+    profile = user.get("profile", {})
     try:
         SlackUserProfileCache.objects.update_or_create(
             integration_id=integration.id,
@@ -190,6 +209,8 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
                 "email": profile.get("email") or None,
                 "display_name": profile.get("display_name") or "",
                 "real_name": profile.get("real_name") or "",
+                "is_admin": bool(user.get("is_admin")),
+                "is_owner": bool(user.get("is_owner")),
             },
         )
     except DatabaseError:
@@ -213,6 +234,117 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
         cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return user_info
     return {}
+
+
+def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
+    from products.slack_app.backend.models import SlackUserProfileCache
+
+    try:
+        profile = SlackUserProfileCache.objects.filter(
+            integration_id=integration.id,
+            email__iexact=normalized_email,
+        ).first()
+    except DatabaseError:
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        return None
+    return profile.slack_user_id if profile else None
+
+
+def lookup_slack_user_id_by_email(
+    slack: SlackIntegration,
+    integration: Integration,
+    email: str,
+) -> str | None:
+    """Resolve a Slack user ID from a PostHog user email.
+
+    Uses ``SlackUserProfileCache`` (populated by ``resolve_slack_user`` and prior lookups),
+    then ``users.lookupByEmail``. Results are cached per integration + email.
+    """
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+
+    cache_key = _slack_user_id_by_email_cache_key(integration.id, normalized_email)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    slack_user_id = _get_slack_user_id_by_email_from_db(integration, normalized_email)
+    if slack_user_id:
+        cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return slack_user_id
+
+    try:
+        user_info = _normalize_slack_response(slack.client.users_lookupByEmail(email=email))
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        if error_code != "users_not_found":
+            logger.warning(
+                "slack_user_id_by_email_lookup_failed",
+                integration_id=integration.id,
+                email=email,
+                error=error_code,
+            )
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    if not user_info.get("ok"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    user = user_info.get("user")
+    if not isinstance(user, dict) or not user.get("id"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    slack_user_id = str(user["id"])
+    _persist_slack_user_info(integration, slack_user_id, user_info)
+    cache.set(
+        _slack_user_info_cache_key(integration.id, slack_user_id),
+        user_info,
+        timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
+    )
+    cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+    return slack_user_id
+
+
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Your team has used its monthly PostHog AI credits. "
+    "Top up at https://us.posthog.com/organization/billing to continue."
+)
+
+
+def post_quota_exhausted_denial(
+    *,
+    integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-credits denial message into a Slack thread.
+
+    Called by the workflow's quota gate after it determines the team is over
+    quota. Lives in this module so the Slack-posting helpers and the message
+    text stay co-located; the quota check itself lives in the temporal layer
+    (which is the only side allowed to import ``ee.billing``).
+    """
+    logger.info(
+        "posthog_code_slack_blocked_by_quota",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
 
 
 def _post_slack_user_feedback(
@@ -443,22 +575,13 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
         if numbers:
             return RulesCommand(action="remove", rule_numbers=numbers)
 
-    default_set_match = re.fullmatch(
-        r"default\s+repo\s+set\s+([\w.-]+/[\w.-]+)",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    if default_set_match:
-        return RulesCommand(action="default_set", repository=default_set_match.group(1))
-
-    if re.fullmatch(r"default\s+repo\s+show", cleaned, flags=re.IGNORECASE):
-        return RulesCommand(action="default_show")
-
-    if re.fullmatch(r"default\s+repo\s+clear", cleaned, flags=re.IGNORECASE):
-        return RulesCommand(action="default_clear")
-
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
+
+    # Intercept legacy `default repo` verbs so `default repo set org/repo` doesn't
+    # fall through into the explicit-repo cascade and spawn a junk task.
+    if re.fullmatch(r"default\s+repo\s+(set|show|clear)(\s+.*)?", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="deprecated_default_repo")
 
     return None
 
@@ -581,6 +704,73 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     return None
 
 
+def _flatten_block_text(node: Any) -> list[str]:
+    """Best-effort plain-text extraction from a Slack block-kit subtree.
+
+    Slack alert posts (subscriptions, log alerts, hog-function destinations) often
+    put the substantive content in `blocks` while the top-level `text` field is a
+    short fallback (or empty). Walking the block tree lets us surface that content
+    to the agent. Always wrap call sites in try/except — Slack block schemas evolve.
+    """
+    if node is None:
+        return []
+    if isinstance(node, str):
+        stripped = node.strip()
+        return [stripped] if stripped else []
+    if isinstance(node, list):
+        out: list[str] = []
+        for item in node:
+            out.extend(_flatten_block_text(item))
+        return out
+    if isinstance(node, dict):
+        # `context` blocks can carry useful labels — recurse into `elements` only.
+        if node.get("type") == "context":
+            return _flatten_block_text(node.get("elements"))
+        # Skip interactive/decorative blocks that carry no information for the agent.
+        if node.get("type") in ("actions", "divider", "image"):
+            return []
+        out = []
+        for key in ("text", "fields", "elements", "title", "pretext", "fallback"):
+            if key in node:
+                out.extend(_flatten_block_text(node[key]))
+        return out
+    return []
+
+
+def _extract_message_text(msg: dict) -> str:
+    # Always include `text` and `blocks`/`attachments`: PostHog's own alert templates put
+    # the headline in `text` and the values/details in blocks. Dedup so a string repeated
+    # across both (e.g. text == header block) shows up once.
+    pieces: list[str] = []
+    text = (msg.get("text") or "").strip()
+    if text:
+        pieces.append(text)
+
+    blocks = msg.get("blocks") or []
+    attachments = msg.get("attachments") or []
+    try:
+        pieces.extend(_flatten_block_text(blocks))
+    except Exception:
+        logger.warning("slack_thread_block_flatten_failed", exc_info=True)
+    try:
+        pieces.extend(_flatten_block_text(attachments))
+    except Exception:
+        logger.warning("slack_thread_attachment_flatten_failed", exc_info=True)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for piece in pieces:
+        if piece and piece not in seen:
+            seen.add(piece)
+            deduped.append(piece)
+    return "\n".join(deduped)
+
+
+def _resolve_bot_author_label(msg: dict) -> str:
+    bot_profile = msg.get("bot_profile") or {}
+    return bot_profile.get("name") or msg.get("username") or "Bot"
+
+
 def _collect_thread_messages(
     slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
 ) -> list[dict[str, str]]:
@@ -607,13 +797,27 @@ def _collect_thread_messages(
         return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
 
     messages = []
-    for msg in raw_messages:
-        if our_bot_id and msg.get("bot_id") == our_bot_id:
+    for index, msg in enumerate(raw_messages):
+        # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
+        # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
+        # always the originating message (e.g. a PostHog alert) that's the actual context
+        # for the task. Filtering it by bot_id breaks workspaces where the alerting Slack
+        # app and the `@PostHog` code app share an installation identity.
+        if index > 0 and our_bot_id and msg.get("bot_id") == our_bot_id:
             continue
+
         user_id = msg.get("user")
-        username = resolve_user(user_id) if user_id else "Unknown"
-        text = replace_user_mentions(msg.get("text", ""))
-        messages.append({"user": username, "text": text})
+        if user_id:
+            username = resolve_user(user_id)
+        elif msg.get("bot_id"):
+            username = _resolve_bot_author_label(msg)
+        else:
+            username = "Unknown"
+
+        text = replace_user_mentions(_extract_message_text(msg))
+        # `ts` lets downstream callers distinguish the initiator message from surrounding thread
+        # context, since `app_mention` events surface only the initiator's ts.
+        messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})
 
     return messages
 
@@ -651,43 +855,6 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
     if result:
         cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
     return result
-
-
-def select_repository(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-    integration: Integration,
-    all_repos: list[str],
-    user_id: int | None = None,
-    channel: str = "",
-) -> RepoDecision:
-    if not all_repos:
-        return RepoDecision(mode="picker", repository=None, reason="no_repos", llm_found_match=False)
-
-    if len(all_repos) == 1:
-        return RepoDecision(mode="auto", repository=all_repos[0], reason="single_repo", llm_found_match=False)
-
-    explicit_repo = _extract_explicit_repo(event_text, all_repos)
-    if explicit_repo:
-        return RepoDecision(mode="auto", repository=explicit_repo, reason="explicit_mention", llm_found_match=False)
-
-    if user_id and channel:
-        from posthog.models.user_repo_preference import UserRepoPreference
-
-        default = UserRepoPreference.get_default(
-            team_id=integration.team_id,
-            user_id=user_id,
-            scope_type="slack_channel",
-            scope_id=channel,
-        )
-        if default and default in all_repos:
-            return RepoDecision(mode="auto", repository=default, reason="user_default", llm_found_match=False)
-
-    matched = _match_repo_rule(event_text, thread_messages, integration.team_id, all_repos)
-    if matched:
-        return RepoDecision(mode="auto", repository=matched, reason="rule_match", llm_found_match=True)
-
-    return RepoDecision(mode="picker", repository=None, reason="no_rule_match", llm_found_match=False)
 
 
 def _replace_repo_picker_message_with_selection(
@@ -844,79 +1011,6 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     return True
 
 
-def _match_repo_rule(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-    team_id: int,
-    all_repos: list[str],
-) -> str | None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
-    rules = list(RepoRoutingRule.objects.filter(team_id=team_id).order_by("priority", "id"))
-    if not rules:
-        logger.info("posthog_code_rule_match_no_rules", team_id=team_id)
-        return None
-
-    _MAX_RULES_FOR_LLM = 20
-
-    connected_set = {r.lower() for r in all_repos}
-    eligible_rules = [r for r in rules if r.repository.lower() in connected_set][:_MAX_RULES_FOR_LLM]
-    if not eligible_rules:
-        logger.info(
-            "posthog_code_rule_match_no_eligible_rules",
-            team_id=team_id,
-            rule_repos=[r.repository for r in rules],
-            connected_repos=all_repos,
-        )
-        return None
-
-    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
-    rules_block = "\n".join(f"{i}: {r.rule_text} -> {r.repository}" for i, r in enumerate(eligible_rules))
-
-    prompt = (
-        "You are a routing classifier. Given a Slack conversation and a numbered list of rules, "
-        'return the JSON object {"rule_index": <int>} for the best-matching rule, '
-        'or {"rule_index": null} if none match.\n\n'
-        f"Rules:\n{rules_block}\n\n"
-        f"Conversation:\n{conversation}\n\n"
-        f"Latest message: {event_text}\n\n"
-        "Respond with ONLY the JSON object, no other text."
-    )
-
-    try:
-        client = get_llm_client("slack-posthog-code")
-        response = client.chat.completions.create(
-            model="claude-haiku-4-5-20251001",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=64,
-            temperature=0,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        # Strip markdown code fences if the LLM wrapped the response
-        if content.startswith("```"):
-            content = content.strip("`").removeprefix("json").strip()
-        logger.info("posthog_code_rule_match_llm_response", content=content, team_id=team_id)
-        parsed = json.loads(content)
-        idx = parsed.get("rule_index")
-        if idx is None:
-            logger.info("posthog_code_rule_match_llm_returned_null", team_id=team_id)
-            return None
-        if not isinstance(idx, int) or idx < 0 or idx >= len(eligible_rules):
-            logger.warning("posthog_code_rule_match_invalid_index", index=idx, rule_count=len(eligible_rules))
-            return None
-
-        matched_repo = eligible_rules[idx].repository
-        canonical = next((r for r in all_repos if r.lower() == matched_repo.lower()), None)
-        if not canonical:
-            logger.warning("posthog_code_rule_match_repo_not_connected", repo=matched_repo)
-            return None
-        logger.info("posthog_code_rule_match_success", repo=canonical, rule_index=idx, team_id=team_id)
-        return canonical
-    except Exception:
-        logger.exception("posthog_code_rule_match_failed", team_id=team_id)
-        return None
-
-
 def classify_task_needs_repo(
     event_text: str,
     thread_messages: list[dict[str, str]],
@@ -942,7 +1036,6 @@ def classify_task_needs_repo(
         "insight",
         "session replay",
         "recording",
-        "trace",
         "mcp",
         "webhook",
     )
@@ -983,12 +1076,21 @@ def classify_task_needs_repo(
         "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
         "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
         "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
+        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
+        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
+        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
+        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
+        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
+        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
+        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
+        "needs_repo. When in doubt, lean needs_repo=true — the discovery agent can still report "
+        "there's no good match.\n\n"
         f"Conversation:\n{conversation}\n\n"
         f"Latest message: {event_text}\n\n"
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
     )
     try:
-        client = get_llm_client("slack-posthog-code")
+        client = get_llm_client("slack_app_routing")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],
@@ -1028,6 +1130,29 @@ def _posthog_code_flag_subject(integration: Integration) -> User | None:
     return fallback.user if fallback else None
 
 
+def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
+
+    - "edit": Slack re-fires app_mention with a new event_id when a previously-posted
+      mention is edited. The new event_id bypasses Temporal workflow dedup, so without
+      this guard the edit spawns a duplicate task alongside the original.
+    - "bot_author": the message was authored by another Slack app/bot. Foreign bots
+      that quote `<@PostHog>` in their text (incident bots, alert relays, our own
+      notifications integration) would trigger reply loops on every re-post.
+    """
+    if event.get("edited") or event.get("subtype") == "message_changed":
+        return "edit"
+    if (
+        event.get("bot_id")
+        or event.get("bot_profile")
+        or event.get("app_id")
+        or event.get("subtype") == "bot_message"
+        or event.get("user") == "USLACKBOT"
+    ):
+        return "bot_author"
+    return None
+
+
 def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
     """Runtime gate for the coding agent on app_mention events.
 
@@ -1060,6 +1185,41 @@ def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
     except Exception:
         logger.exception("posthog_code_slack_flag_check_failed", integration_id=integration.id)
         return False
+
+
+def _notify_missing_slack_scopes(
+    slack: SlackIntegration,
+    event: dict,
+    missing: frozenset[str],
+) -> None:
+    """Tell the user the install is missing scopes and how to fix it.
+
+    `chat:write` has been part of the base Slack scope set since the integration existed,
+    so the feedback post itself is safe to attempt even when other scopes are absent.
+    """
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts") or event.get("ts", "")
+    slack_user_id = event.get("user", "")
+    integration = slack.integration
+
+    logger.warning(
+        "posthog_code_slack_missing_scopes",
+        integration_id=integration.id,
+        team_id=integration.team_id,
+        missing=sorted(missing),
+    )
+
+    if not channel or not thread_ts or not slack_user_id:
+        return
+
+    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    text = (
+        ":warning: PostHog can't reply because the Slack integration is missing required "
+        f"permissions: `{', '.join(sorted(missing))}`.\n"
+        f"A project admin needs to reconnect Slack from project settings: {settings_url}"
+    )
+
+    _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
 def route_posthog_code_event_to_relevant_region(
@@ -1099,6 +1259,21 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
                 )
+                return ROUTE_HANDLED_LOCALLY
+            ignore_reason = _app_mention_ignore_reason(event)
+            if ignore_reason:
+                logger.info(
+                    "posthog_code_event_app_mention_ignored",
+                    reason=ignore_reason,
+                    slack_team_id=slack_team_id,
+                    channel=event.get("channel"),
+                    message_ts=event.get("ts"),
+                )
+                return ROUTE_HANDLED_LOCALLY
+            slack = SlackIntegration(local_match)
+            missing_scopes = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
+            if missing_scopes:
+                _notify_missing_slack_scopes(slack, event, missing_scopes)
                 return ROUTE_HANDLED_LOCALLY
             if _resolve_pending_repo_picker_from_followup(event, local_match):
                 return ROUTE_HANDLED_LOCALLY

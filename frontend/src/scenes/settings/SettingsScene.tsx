@@ -6,7 +6,6 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Settings } from './Settings'
 import { settingsLogic } from './settingsLogic'
@@ -30,8 +29,11 @@ export function SettingsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name={title} resourceType={{ type: 'settings' }} />
-            <Settings logicKey="settingsScene" handleLocally />
+            <Settings
+                logicKey="settingsScene"
+                handleLocally
+                headerSlot={<h1 className="text-2xl font-semibold m-0 mb-4">{title}</h1>}
+            />
         </SceneContent>
     )
 }

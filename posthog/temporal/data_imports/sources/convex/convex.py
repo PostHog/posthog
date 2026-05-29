@@ -5,9 +5,14 @@ from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
+    RequestException,
+)
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 logger = logging.getLogger(__name__)
@@ -19,7 +24,7 @@ class ConvexResumeConfig:
     snapshot: int | None = None
 
 
-_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
+_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)?\.convex\.cloud$")
 
 
 class InvalidDeployUrlError(Exception):
@@ -43,7 +48,10 @@ def validate_deploy_url(deploy_url: str) -> str:
 
     host = (parsed.hostname or "").lower()
     if not host or not _CONVEX_CLOUD_HOST_RE.match(host):
-        raise InvalidDeployUrlError(f"Deployment URL host must match <deployment-name>.convex.cloud, got: {host!r}.")
+        raise InvalidDeployUrlError(
+            f"Deployment URL host must match <deployment-name>.convex.cloud or "
+            f"<deployment-name>.<region>.convex.cloud, got: {host!r}."
+        )
 
     if parsed.query:
         raise InvalidDeployUrlError("Deployment URL must not contain query parameters.")
@@ -63,7 +71,7 @@ def _headers(deploy_key: str) -> dict[str, str]:
 
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
-    response = requests.get(
+    response = make_tracked_session().get(
         url, headers=_headers(deploy_key), params={"deltaSchema": "true", "format": "json"}, timeout=30
     )
     response.raise_for_status()
@@ -97,7 +105,7 @@ def list_snapshot(
         if snapshot is not None:
             params["snapshot"] = snapshot
 
-        response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = make_tracked_session().get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
         response.raise_for_status()
         data = response.json()
 
@@ -146,7 +154,7 @@ def document_deltas(
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
 
-        response = requests.get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = make_tracked_session().get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
 
         if response.status_code == 400:
             error_data = response.json()
@@ -179,7 +187,7 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
     try:
         get_json_schemas(clean_url, deploy_key)
         return True, None
-    except requests.exceptions.HTTPError as e:
+    except HTTPError as e:
         if e.response is not None:
             try:
                 error_data = e.response.json()
@@ -193,9 +201,9 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
             if e.response.status_code in (401, 403):
                 return False, "Invalid deploy key. Check your Convex deploy key and try again."
         return False, str(e)
-    except requests.exceptions.ConnectionError:
+    except RequestsConnectionError:
         return False, "Could not connect to the Convex deployment. Check your deployment URL and try again."
-    except requests.exceptions.RequestException as e:
+    except RequestException as e:
         return False, str(e)
 
 

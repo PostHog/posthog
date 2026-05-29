@@ -1,12 +1,16 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
+import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
+    resolveYScaleForSeries,
     yTickCountForHeight,
 } from '../core/scales'
 import type { ScaleSet, StackedBand } from '../core/scales'
@@ -19,10 +23,17 @@ import type {
     CreateScalesFn,
     LineChartConfig,
     PointClickData,
+    ResolvedSeries,
     Series,
     TooltipContext,
     YAxisScale,
 } from '../core/types'
+
+// Brand for the private ChartScales._private slot used by LineChart. The base Chart
+// and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
+interface LineChartPrivate {
+    __lineChart: ScaleSet
+}
 
 export interface LineChartProps<Meta = unknown> {
     series: Series<Meta>[]
@@ -32,10 +43,21 @@ export interface LineChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
+    dataAttr?: string
     children?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function LineChart<Meta = unknown>({
+export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
+    return (
+        <ChartErrorBoundary onError={onError}>
+            <LineChartInner {...rest} />
+        </ChartErrorBoundary>
+    )
+}
+
+function LineChartInner<Meta = unknown>({
     series,
     labels,
     config,
@@ -43,38 +65,42 @@ export function LineChart<Meta = unknown>({
     tooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
-    const hasAreaFill = useMemo(() => series.some((s) => s.fill !== undefined && !s.fill.lowerData), [series])
+    const hasMultipleFilledSeries = useMemo(() => {
+        const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
+        return filledSeries.length >= 2
+    }, [series])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
             return computePercentStackData(series, labels)
         }
-        if (hasAreaFill) {
+        // Only stack when there are 2+ fillable series — a single area series has nothing to stack
+        // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
+        // renderer, which disables the gradient fill path.
+        if (hasMultipleFilledSeries) {
             return computeStackData(series, labels)
         }
         return undefined
-    }, [percentStackView, hasAreaFill, series, labels])
+    }, [percentStackView, hasMultipleFilledSeries, series, labels])
 
     const chartConfig = useMemo(() => {
+        const base = { ...config, isPercent: percentStackView }
         if (!percentStackView || config?.yTickFormatter) {
-            return config
+            return base
         }
         return {
-            ...config,
+            ...base,
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, percentStackView])
 
-    // Keep a ref to the raw d3 scales so the draw callback can use them
-    // without exposing d3 types through the ChartScales abstraction
-    const d3ScalesRef = useRef<ScaleSet | null>(null)
-
     const createScales: CreateScalesFn = useCallback(
-        (coloredSeries: Series[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
+        (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
             // When stacking (non-percent), use stacked top values so the y-domain
             // reflects the cumulative totals rather than individual series values
             let seriesForScale = coloredSeries
@@ -88,7 +114,6 @@ export function LineChart<Meta = unknown>({
                 scaleType: yScaleType,
                 percentStack: percentStackView,
             })
-            d3ScalesRef.current = d3Scales
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
 
@@ -104,24 +129,31 @@ export function LineChart<Meta = unknown>({
                 }
             }
 
+            // Stash raw d3 scales in the private slot so drawStatic can read them without
+            // a side-channel ref — every render gets a self-contained ChartScales object,
+            // which avoids strict-mode / concurrent-rendering races between the createScales
+            // pass and the static-draw effect.
+            const lineChartPrivate: LineChartPrivate = { __lineChart: d3Scales }
+
             return {
                 x: (label: string) => d3Scales.x(label),
                 y: (value: number) => d3Scales.y(value),
                 yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
                 yAxes,
+                _private: lineChartPrivate,
             }
         },
         [yScaleType, percentStackView, stackedData]
     )
 
     const drawStatic = useCallback(
-        ({ ctx, dimensions, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
-            const d3Scales = d3ScalesRef.current
+        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
+            const d3Scales = (scales._private as LineChartPrivate | undefined)?.__lineChart
             if (!d3Scales) {
                 return
             }
 
-            const resolveYScale = (s: Series): typeof d3Scales.y => {
+            const resolveYScale = (s: ResolvedSeries): typeof d3Scales.y => {
                 const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
                 return d3Scales.yAxes?.[axisId]?.scale ?? d3Scales.y
             }
@@ -137,6 +169,22 @@ export function LineChart<Meta = unknown>({
             if (showGrid) {
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
+
+            // Clip data drawing to the plot area so an overlay series with values outside
+            // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
+            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
+            // at the domain edge from rendering at half-thickness — line strokes and point
+            // markers extend past the value's pixel center.
+            const CLIP_PAD = 8
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(
+                dimensions.plotLeft,
+                dimensions.plotTop - CLIP_PAD,
+                dimensions.plotWidth,
+                dimensions.plotHeight + CLIP_PAD * 2
+            )
+            ctx.clip()
 
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
@@ -155,47 +203,45 @@ export function LineChart<Meta = unknown>({
                     drawPoints(drawCtx, s, yValues)
                 }
             }
+
+            ctx.restore()
         },
         [showGrid, stackedData]
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
-                return
+                return false
             }
-            const resolveChartYScale = (s: Series): ((value: number) => number) => {
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                return scales.yAxes?.[axisId]?.scale ?? scales.y
-            }
+            let drewAny = false
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded || s.fill?.lowerData) {
                     continue
                 }
+                // Auxiliary overlays (moving averages, trend lines) opt out of stacking.
+                // In percent-stack mode the y-scale domain is [0, 1], so mapping their raw
+                // values produces a highlight ring far outside the plot — skip them entirely.
+                if (s.overlay) {
+                    continue
+                }
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
-                const y = resolveChartYScale(s)(data[hoverIndex])
+                const y = resolveYScaleForSeries(scales, s)(data[hoverIndex])
                 if (x != null && isFinite(y)) {
                     drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
+                    drewAny = true
                 }
             }
+            return drewAny
         },
         [stackedData]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    // Stacked/percent-stacked areas: display each series's own segment value (resolveValue)
+    // but anchor the tooltip/value labels at the stacked top (resolvePositionValue).
+    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
+    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -209,7 +255,9 @@ export function LineChart<Meta = unknown>({
             tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}
+            dataAttr={dataAttr}
             resolveValue={resolveValue}
+            resolvePositionValue={resolvePositionValue}
         >
             {children}
         </Chart>

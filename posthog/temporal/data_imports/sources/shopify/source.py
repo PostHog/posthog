@@ -86,7 +86,12 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             return False, str(e)
 
     def get_schemas(
-        self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():

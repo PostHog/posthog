@@ -9,7 +9,7 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
@@ -27,6 +27,7 @@ import {
     PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
+import { CookielessManager, CookielessServerConfig } from '../ingestion/cookieless/cookieless-manager'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
@@ -40,6 +41,7 @@ import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
+import { ErrorTrackingSettingsManager } from '../utils/error-tracking-settings-manager'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -71,6 +73,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    CookielessServerConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -89,6 +92,8 @@ export class ErrorTrackingServer implements NodeServer {
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
+    private cookielessRedisPool?: RedisPool
+    private cookielessManager?: CookielessManager
     private pubsub?: PubSub
 
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
@@ -139,10 +144,23 @@ export class ErrorTrackingServer implements NodeServer {
         })
         logger.info('👍', 'Ingestion Redis ready')
 
+        logger.info('🤔', 'Connecting to cookieless Redis...')
+        this.cookielessRedisPool = createRedisPoolFromConfig({
+            connection: createCookielessRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Cookieless Redis ready')
+
+        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
+
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
+        const errorTrackingSettingsManager = this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED
+            ? new ErrorTrackingSettingsManager(this.postgres)
+            : undefined
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -202,13 +220,25 @@ export class ErrorTrackingServer implements NodeServer {
                     statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                     statefulOverflowLocalCacheTTLSeconds:
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                    pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
+                    preservePartitionLocality: this.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                    pipeline: this.config.INGESTION_PIPELINE ?? 'errortracking',
+                    rateLimiterEnabled: this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
+                    rateLimiterReportingMode: this.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
+                    rateLimiterRedisHost: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
+                    rateLimiterRedisPort: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
+                    rateLimiterRedisTls: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
+                    rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+                    fallbackRedisUrl: this.config.REDIS_URL,
+                    rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                    rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                 },
                 {
                     outputs,
                     teamManager,
+                    errorTrackingSettingsManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new GroupTypeManager(groupRepository, teamManager),
+                    cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
                 }
@@ -230,11 +260,12 @@ export class ErrorTrackingServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool].filter(Boolean) as RedisPool[],
+            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
                 await this.producerRegistry?.disconnectAll()
+                this.cookielessManager?.shutdown()
             },
         }
     }

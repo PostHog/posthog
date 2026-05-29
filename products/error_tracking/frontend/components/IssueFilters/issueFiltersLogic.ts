@@ -88,6 +88,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                 selectedQuickFilters: Record<string, SelectedQuickFilter>
             ): UniversalFiltersGroup => {
                 let omnisearchFilters: any[] = []
+                let omnisearchType: FilterLogicalOperator = FilterLogicalOperator.And
                 if (
                     !!filterGroup.values &&
                     Array.isArray(filterGroup.values) &&
@@ -95,6 +96,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                     isUniversalGroupFilterLike(filterGroup.values[0])
                 ) {
                     omnisearchFilters = filterGroup.values[0].values
+                    omnisearchType = filterGroup.values[0].type ?? FilterLogicalOperator.And
                 }
 
                 const filtersFromQuickFilters = Object.values(selectedQuickFilters).map((qf: SelectedQuickFilter) => {
@@ -108,12 +110,26 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                     }
                 })
 
+                // Quick filters always AND with the user's omnisearch group. When the user picked OR
+                // and there are quick filters, nest the omnisearch group so its OR is preserved while
+                // ANDing with the quick filters.
+                const shouldNestOmnisearch =
+                    omnisearchType === FilterLogicalOperator.Or &&
+                    omnisearchFilters.length > 1 &&
+                    filtersFromQuickFilters.length > 0
+
+                const innerValues = shouldNestOmnisearch
+                    ? [{ type: FilterLogicalOperator.Or, values: omnisearchFilters }, ...filtersFromQuickFilters]
+                    : [...omnisearchFilters, ...filtersFromQuickFilters]
+
+                const innerType = filtersFromQuickFilters.length === 0 ? omnisearchType : FilterLogicalOperator.And
+
                 return {
                     type: FilterLogicalOperator.And,
                     values: [
                         {
-                            type: FilterLogicalOperator.And,
-                            values: [...omnisearchFilters, ...filtersFromQuickFilters],
+                            type: innerType,
+                            values: innerValues,
                         },
                     ],
                 } as UniversalFiltersGroup

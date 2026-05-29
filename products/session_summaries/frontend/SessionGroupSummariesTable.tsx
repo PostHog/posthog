@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -106,6 +107,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                 }}
                 actions={<LemonTag type="warning">BETA</LemonTag>}
             />
+            <AllowTrainingCallout featureName="Session summaries" />
             <div className="deprecated-space-y-4">
                 <div className="flex justify-between gap-2 flex-wrap">
                     <LemonInput

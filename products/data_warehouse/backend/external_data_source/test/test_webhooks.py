@@ -4,15 +4,15 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
-from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
 )
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [
     pytest.mark.django_db,
@@ -341,3 +341,37 @@ class TestCreateAndRegisterWebhook:
         result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
 
         assert result.webhook_url == hog_fn_result.webhook_url
+
+    def test_propagates_pending_inputs_to_setup_result(self):
+        _, team = _create_org_and_team()
+        _create_hog_function_template()
+        webhook_source = _make_webhook_source()
+        ext_source = _create_external_data_source(team)
+        schemas = _create_schemas(team, ext_source, ["Customers"])
+
+        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
+        webhook_source.create_webhook.return_value = WebhookCreationResult(
+            success=True,
+            pending_inputs=["signing_secret"],
+        )
+
+        config = MagicMock()
+        result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
+
+        assert result.success is True
+        assert result.pending_inputs == ["signing_secret"]
+
+    def test_pending_inputs_default_to_empty_list(self):
+        _, team = _create_org_and_team()
+        _create_hog_function_template()
+        webhook_source = _make_webhook_source()
+        ext_source = _create_external_data_source(team)
+        schemas = _create_schemas(team, ext_source, ["Customers"])
+
+        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
+        webhook_source.create_webhook.return_value = WebhookCreationResult(success=True)
+
+        config = MagicMock()
+        result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
+
+        assert result.pending_inputs == []

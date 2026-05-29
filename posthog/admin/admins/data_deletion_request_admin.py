@@ -27,6 +27,7 @@ CRITERIA_FIELDS = {
     "events",
     "delete_all_events",
     "properties",
+    "person_properties",
     "start_time",
     "end_time",
     "hogql_predicate",
@@ -154,7 +155,12 @@ class DataDeletionRequestForm(forms.ModelForm):
     )
     properties = ArrayTextareaField(
         required=False,
-        help_text="One property name per line. You can also paste a JSON array. Required for property removal requests.",
+        help_text="One property name per line. You can also paste a JSON array. Required for property removal requests when person_properties is empty.",
+    )
+    person_properties = ArrayTextareaField(
+        required=False,
+        help_text="One property name per line. You can also paste a JSON array. "
+        "Properties to remove from events.person_properties. Required for property removal requests when properties is empty.",
     )
     hogql_predicate = forms.CharField(
         required=False,
@@ -194,20 +200,48 @@ def _build_event_filter(obj) -> tuple[str, dict]:
 
 
 def _build_property_filter(obj) -> tuple[str, dict]:
-    """Build the WHERE clause addition and params for matching properties."""
+    """Build the WHERE clause addition and params for matching properties.
+
+    Covers both ``events.properties`` (using ``fp_`` param prefix) and
+    ``events.person_properties`` (using ``pp_`` param prefix).  The two
+    presence checks are ORed so the stats count includes every event that
+    carries at least one target key in either column.
+    """
     event_clause = event_match_sql_fragment(obj)
     params: dict = event_match_params(obj)
-    properties = obj.properties
-    if len(properties) == 1:
-        property_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
-    else:
-        exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
-        property_clause = f"AND ({' OR '.join(exprs)})"
 
-    for i, prop in enumerate(properties):
-        for j, part in enumerate(prop.split(".")):
-            params[f"fp_{i}_{j}"] = part
+    presence_clauses: list[str] = []
 
+    properties = obj.properties or []
+    if properties:
+        if len(properties) == 1:
+            presence_clauses.append(jsonhas_expr(properties[0], "fp_0"))
+        else:
+            exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+            presence_clauses.append(f"({' OR '.join(exprs)})")
+        for i, prop in enumerate(properties):
+            for j, part in enumerate(prop.split(".")):
+                params[f"fp_{i}_{j}"] = part
+
+    person_properties = obj.person_properties or []
+    if person_properties:
+        if len(person_properties) == 1:
+            presence_clauses.append(jsonhas_expr(person_properties[0], "pp_0", column="person_properties"))
+        else:
+            exprs = [
+                jsonhas_expr(prop, f"pp_{i}", column="person_properties") for i, prop in enumerate(person_properties)
+            ]
+            presence_clauses.append(f"({' OR '.join(exprs)})")
+        for i, prop in enumerate(person_properties):
+            for j, part in enumerate(prop.split(".")):
+                params[f"pp_{i}_{j}"] = part
+
+    if not presence_clauses:
+        raise ValueError("Cannot build property filter: both properties and person_properties are empty.")
+
+    property_clause = (
+        f"AND ({' OR '.join(presence_clauses)})" if len(presence_clauses) > 1 else f"AND {presence_clauses[0]}"
+    )
     filter_clause = f"{event_clause} {property_clause}".strip()
     return _append_hogql_predicate(filter_clause, params, obj)
 
@@ -243,14 +277,28 @@ def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
     return _event_count_query_template(extra_filter), params
 
 
-def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
-    """Run event count + parts size queries against ClickHouse."""
+_STATS_MAX_EXECUTION_TIME = 300
+
+
+def _fetch_stats(team_id: int, extra_filter: str, params: dict, *, user_id: int | None = None) -> dict:
+    """Run event count + parts size queries against ClickHouse.
+
+    The same predicate is spliced into both queries: the row count against the
+    Distributed ``events`` proxy, and the parts inspection against the local
+    ``sharded_events``. The HogQL predicate emits unqualified column references,
+    so it works in both contexts.
+
+    ``user_id`` is threaded into the query tag so the acting staff user is
+    visible in ``system.query_log`` (the kill-switch + tag annotator pick it up
+    automatically via :class:`QueryTags`).
+    """
     from posthog.clickhouse.client import sync_execute
 
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
         team_id=team_id,
+        user_id=user_id,
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
@@ -261,12 +309,14 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
         )
 
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
         team_id=team_id,
+        user_id=user_id,
         workload=Workload.OFFLINE,
         query_type="delete_part_count",
     ):
@@ -274,7 +324,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
         cluster = django_settings.CLICKHOUSE_CLUSTER
 
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter from internal helpers; cluster from Django settings)
+        # nosemgrep: clickhouse-fstring-param-audit (filter built from internal helpers; cluster from Django settings)
         parts_result = sync_execute(
             f"""
             SELECT
@@ -298,6 +348,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _STATS_MAX_EXECUTION_TIME},
         )
 
     return {
@@ -310,27 +361,30 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
     }
 
 
-def fetch_event_deletion_stats(obj: DataDeletionRequest):
+def fetch_event_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
     """Count events and affected parts for an event removal request."""
     extra_filter, params = _build_event_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params)
+    return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
 
 
-def fetch_property_deletion_stats(obj: DataDeletionRequest):
+def fetch_property_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
     """Count events with matching properties and affected parts for a property removal request."""
-    if not obj.properties:
-        raise ValueError("Cannot fetch stats for a property removal request with no properties specified.")
+    if not obj.properties and not obj.person_properties:
+        raise ValueError(
+            "Cannot fetch stats for a property removal request with no properties or person_properties specified."
+        )
     extra_filter, params = _build_property_filter(obj)
-    return _fetch_stats(obj.team_id, extra_filter, params)
+    return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
 
 
-def fetch_deletion_stats(obj: DataDeletionRequest):
+def fetch_deletion_stats(obj: DataDeletionRequest, *, user_id: int | None = None):
     """Dispatch to the appropriate stats function based on request type."""
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
-        return fetch_property_deletion_stats(obj)
-    return fetch_event_deletion_stats(obj)
+        return fetch_property_deletion_stats(obj, user_id=user_id)
+    return fetch_event_deletion_stats(obj, user_id=user_id)
 
 
+@admin.register(DataDeletionRequest)
 class DataDeletionRequestAdmin(admin.ModelAdmin):
     form = DataDeletionRequestForm
     list_display = (
@@ -343,10 +397,12 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "end_time",
         "created_by",
         "approved",
+        "attempt_count",
+        "last_executed_at",
         "created_at",
     )
     list_filter = ("request_type", "status", "requires_approval", "approved")
-    search_fields = ("team_id", "events", "properties", "notes")
+    search_fields = ("team_id", "events", "properties", "person_properties", "notes")
     readonly_fields = (
         "status",
         "count",
@@ -365,6 +421,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "approved_by",
         "approved_at",
         "execution_mode",
+        "attempt_count",
+        "first_executed_at",
+        "last_executed_at",
         "rendered_count_query",
     )
     ordering = ("-created_at",)
@@ -383,6 +442,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "events",
                     "delete_all_events",
                     "properties",
+                    "person_properties",
                     "hogql_predicate",
                     "notes",
                     "requires_approval",
@@ -432,6 +492,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "approved_by",
                     "approved_at",
                     "execution_mode",
+                    "attempt_count",
+                    "first_executed_at",
+                    "last_executed_at",
                 ),
             },
         ),
@@ -471,8 +534,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
                 messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")
-        if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
+        if obj.request_type == RequestType.EVENT_REMOVAL and (obj.properties or obj.person_properties):
             obj.properties = []
+            obj.person_properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
         if obj.request_type == RequestType.PERSON_REMOVAL and (
             obj.events or obj.delete_all_events or obj.hogql_predicate
@@ -503,8 +567,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties:
-                messages.warning(request, "This is a property removal request but no properties are specified.")
+            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties and not obj.person_properties:
+                messages.warning(
+                    request, "This is a property removal request but no properties or person_properties are specified."
+                )
             if obj.request_type == RequestType.PERSON_REMOVAL:
                 if not (obj.person_uuids or obj.person_distinct_ids):
                     messages.warning(request, "This is a person removal request but no person targets are specified.")
@@ -524,6 +590,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             extra_context["revert_to_draft_url"] = reverse(
                 "admin:posthog_datadeletionrequest_revert_to_draft", args=[obj.pk]
             )
+            extra_context["can_retry"] = (
+                obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
         return super().change_view(request, object_id, form_url, extra_context)
 
     def get_urls(self):
@@ -540,6 +610,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 name="posthog_datadeletionrequest_fetch_stats",
             ),
             path(
+                "<path:object_id>/preview-stats/",
+                self.admin_site.admin_view(self.preview_stats_view),
+                name="posthog_datadeletionrequest_preview_stats",
+            ),
+            path(
                 "<path:object_id>/approve/",
                 self.admin_site.admin_view(self.approve_view),
                 name="posthog_datadeletionrequest_approve",
@@ -548,6 +623,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/revert-to-draft/",
                 self.admin_site.admin_view(self.revert_to_draft_view),
                 name="posthog_datadeletionrequest_revert_to_draft",
+            ),
+            path(
+                "<path:object_id>/retry/",
+                self.admin_site.admin_view(self.retry_view),
+                name="posthog_datadeletionrequest_retry",
             ),
         ]
         return custom_urls + urls
@@ -561,7 +641,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only draft requests can be submitted.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        missing_properties = obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties
+        missing_properties = (
+            obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties and not obj.person_properties
+        )
         missing_person_selectors = obj.request_type == RequestType.PERSON_REMOVAL and not (
             obj.person_uuids or obj.person_distinct_ids
         )
@@ -572,7 +654,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
         if request.method == "POST":
             if missing_properties:
-                messages.error(request, "Cannot submit: property removal request requires at least one property.")
+                messages.error(
+                    request,
+                    "Cannot submit: property removal request requires at least one property or person_property.",
+                )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             if missing_person_selectors:
                 messages.error(
@@ -601,6 +686,12 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.success(request, "Request submitted and is now pending.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        is_clickhouse_team = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+        preview_stats = request.session.pop("data_deletion_preview_stats", None)
+        if preview_stats and str(preview_stats.get("obj_pk")) != str(obj.pk):
+            # Belongs to a different request — drop it rather than mislead the operator.
+            preview_stats = None
+
         context = {
             **self.admin_site.each_context(request),
             "obj": obj,
@@ -610,6 +701,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
             "fetch_stats_url": reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk]),
+            "preview_stats_url": reverse("admin:posthog_datadeletionrequest_preview_stats", args=[obj.pk]),
+            "is_clickhouse_team": is_clickhouse_team,
+            "preview_stats": preview_stats,
             "opts": self.model._meta,
             "title": f"Submit deletion request {obj.pk}",
         }
@@ -633,7 +727,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
 
         try:
-            stats = fetch_deletion_stats(obj)
+            stats = fetch_deletion_stats(obj, user_id=request.user.id)
             obj.count = stats["count"]
             obj.part_count = stats["part_count"]
             obj.parts_size = stats["parts_size"]
@@ -657,6 +751,56 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.success(request, f"Stats fetched: {stats['count']:,} matching events found.")
         except Exception as e:
             messages.error(request, f"Failed to fetch stats: {e}")
+
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+    def preview_stats_view(self, request, object_id):
+        """ClickHouse-Team-only ephemeral stats run.
+
+        Runs the same ClickHouse queries as ``fetch_stats_view`` but does **not**
+        persist anything to the model — useful while iterating on a predicate.
+        Results are stashed in the session and rendered on the next submit page
+        render under a separate "Preview (not saved)" block.
+        """
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can preview stats.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        if obj.request_type == RequestType.PERSON_REMOVAL:
+            count = len(obj.person_uuids) + len(obj.person_distinct_ids)
+            request.session["data_deletion_preview_stats"] = {
+                "obj_pk": str(obj.pk),
+                "count": count,
+                "calculated_at": timezone.now().isoformat(),
+            }
+            messages.info(request, f"Preview selector count: {count} person target(s). Not saved.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        try:
+            stats = fetch_deletion_stats(obj, user_id=request.user.id)
+            request.session["data_deletion_preview_stats"] = {
+                "obj_pk": str(obj.pk),
+                "count": stats["count"],
+                "part_count": stats["part_count"],
+                "parts_size": stats["parts_size"],
+                "parts_row_count": stats["parts_row_count"],
+                "min_timestamp": stats["min_timestamp"].isoformat() if stats["min_timestamp"] else None,
+                "max_timestamp": stats["max_timestamp"].isoformat() if stats["max_timestamp"] else None,
+                "calculated_at": timezone.now().isoformat(),
+            }
+            messages.info(
+                request,
+                f"Preview stats: {stats['count']:,} matching events. Not saved to the request.",
+            )
+        except Exception as e:
+            messages.error(request, f"Failed to preview stats: {e}")
 
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
 
@@ -746,4 +890,37 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         obj.refresh_from_db()
         self.log_change(request, obj, "Reverted to draft: cleared approval.")
         messages.success(request, "Request moved back to draft.")
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def retry_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can retry deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        # Re-promote FAILED → APPROVED so the pickup sensor relaunches the job.
+        # approved_by / approved_at are preserved — the retry re-executes the same approval.
+        # attempt_count and last_executed_at are bumped by the load_* op when execution actually starts.
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status=RequestStatus.FAILED,
+        ).update(status=RequestStatus.APPROVED, updated_at=timezone.now())
+
+        if not updated:
+            messages.error(request, "Only failed requests can be retried.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        obj.refresh_from_db()
+        next_attempt = obj.attempt_count + 1
+        self.log_change(request, obj, f"Retry triggered (attempt #{next_attempt}): status FAILED → APPROVED.")
+        messages.success(
+            request,
+            "Request requeued. The pickup sensor will launch a new run on its next tick.",
+        )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

@@ -13,6 +13,8 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

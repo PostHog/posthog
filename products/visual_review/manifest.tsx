@@ -14,8 +14,16 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'VisualReview',
     scenes: {
-        VisualReviewRuns: {
+        VisualReviewIndex: {
+            // /visual_review entry point — picks a repo and forwards into its
+            // workspace. Empty / multi-repo cases handled inside the scene.
             name: 'Visual review',
+            projectBased: true,
+            import: () => import('./frontend/scenes/VisualReviewIndexScene'),
+            iconType: 'visual_review',
+        },
+        VisualReviewRuns: {
+            name: 'Runs',
             projectBased: true,
             import: () => import('./frontend/scenes/VisualReviewRunsScene'),
             iconType: 'visual_review',
@@ -38,11 +46,19 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/VisualReviewSnapshotHistoryScene'),
             iconType: 'visual_review',
         },
+        VisualReviewSnapshotOverview: {
+            name: 'Snapshots',
+            projectBased: true,
+            import: () => import('./frontend/scenes/VisualReviewSnapshotOverviewScene'),
+            iconType: 'visual_review',
+        },
     },
     routes: {
-        '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
+        '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
         '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
         '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+        '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
+        '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
         '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',
@@ -50,9 +66,13 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: {
+        // Entry URL — the index scene resolves a repo and forwards into the
+        // workspace. Sidebar/nav callers stay zero-arg as before.
         visualReviewRuns: (): string => '/visual_review',
         visualReviewSettings: (): string => '/visual_review/settings',
         visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+        visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
+        visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
         visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
             `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },
@@ -67,7 +87,7 @@ export const manifest: ProductManifest = {
             iconType: 'visual_review' as FileSystemIconType,
             flag: FEATURE_FLAGS.VISUAL_REVIEW,
             tags: ['alpha'],
-            sceneKey: 'VisualReviewRuns',
+            sceneKey: 'VisualReviewIndex',
         },
     ],
 }
