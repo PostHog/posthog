@@ -101,6 +101,10 @@ function parseEventRow(row: unknown[]): { traceId: string; event: LLMTraceEvent 
     }
 }
 
+// Below 5000 there are sessions being cut, although unlikely relevant for the sessions page,
+// this limit keeps them included to be safe.
+const SESSION_EVENTS_QUERY_LIMIT = 5000
+
 // Absorbs ingestion lag between an event firing and ClickHouse visibility (Mirrors `CAPTURE_RANGE_MINUTES = 10`)
 const INGESTION_LAG_BUFFER_MS = 10 * 60 * 1000
 
@@ -136,7 +140,7 @@ function buildEventsFallbackQuery(sessionId: string, traces: LLMTrace[]): HogQLQ
               AND timestamp >= toDateTime({minTs})
               AND timestamp <= toDateTime({maxTs})
             ORDER BY trace_id, timestamp
-            LIMIT 20000
+            LIMIT ${SESSION_EVENTS_QUERY_LIMIT}
         `,
         values: { sessionId, traceIds, minTs, maxTs },
     }
@@ -361,7 +365,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                       AND session_id = {sessionId}
                       AND trace_id != ''
                     ORDER BY trace_id, timestamp
-                    LIMIT 20000
+                    LIMIT ${SESSION_EVENTS_QUERY_LIMIT}
                 `,
                 values: { sessionId },
             }
