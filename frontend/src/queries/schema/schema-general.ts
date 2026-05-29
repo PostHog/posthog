@@ -6311,6 +6311,11 @@ export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
 }
 
+/** Subscriptions a free-tier team may create. */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'
@@ -6607,6 +6612,9 @@ export enum ProductIntentContext {
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
     LOGS_SET_FILTERS = 'logs_set_filters',
     LOGS_SETTINGS_OPENED = 'logs_settings_opened',
+
+    // Metrics
+    METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

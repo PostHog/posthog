@@ -3843,6 +3843,7 @@ class ProductIntentContext(StrEnum):
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
     LOGS_SETTINGS_OPENED = "logs_settings_opened"
+    METRICS_DOCS_VIEWED = "metrics_docs_viewed"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -4801,6 +4802,10 @@ class SubagentUpdateEvent(BaseModel):
 class SubscriptionDropoffMode(StrEnum):
     LAST_EVENT = "last_event"
     AFTER_DROPOFF_PERIOD = "after_dropoff_period"
+
+
+class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
+    root: Literal[5] = Field(5, description="Subscriptions a free-tier team may create.")
 
 
 class SuggestedQuestionsQueryResponse(BaseModel):

@@ -27,6 +27,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
@@ -126,6 +127,7 @@ class TestCreateObservationActivity:
         )
 
         assert result.was_created is True
+        assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.status == ObservationStatus.PENDING
         assert observation.workflow_id == "wf-xyz"
@@ -158,6 +160,7 @@ class TestCreateObservationActivity:
         scanner.scanner_config = {"prompt": "completely different prompt"}
         scanner.save()
 
+        assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["scanner_config"] == original_config
 
@@ -260,6 +263,32 @@ class TestCreateObservationActivity:
             )
         )
         assert result.was_created is True
+
+    def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
+        ) as mock_snapshot:
+            mock_snapshot.return_value = QuotaSnapshot(
+                monthly_quota=1,
+                usage_this_month=1,
+                period_start=dt.datetime.now(dt.UTC),
+                period_end=dt.datetime.now(dt.UTC),
+            )
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-quota",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-quota",
+                )
+            )
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
 
 
 @pytest.mark.django_db(transaction=True)

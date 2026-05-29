@@ -1678,7 +1678,10 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "Updating" in result.output
         assert captured["name"] == "devbox-test-user"
-        assert captured["parameters"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
+        assert captured["parameters"] == {
+            "dotfiles_uri": "https://github.com/user/dotfiles",
+            "workspace_region": coder.DEFAULT_REGION,
+        }
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -2168,6 +2171,7 @@ class TestStartExistingWorkspace:
                 "git_name": "PostHog Engineer",
                 "git_email": "test-user@example.com",
                 "dotfiles_uri": "https://github.com/user/dotfiles",
+                "workspace_region": coder.DEFAULT_REGION,
             },
         }
 
@@ -2191,6 +2195,43 @@ class TestStartExistingWorkspace:
         devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
 
         assert calls == ["start"]
+
+    def test_sync_pins_workspace_region_from_metadata_to_suppress_picker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When a `coder update` actually fires, pin the current region.
+
+        Coder re-prompts for any parameter whose template-declared option set
+        changed since workspace creation. Forwarding the workspace's current
+        region as `--parameter workspace_region=<value>` short-circuits that
+        picker -- the prompt is otherwise unanswerable from environments that
+        can't deliver stdin (e.g. an IDE's read-only output channel).
+        """
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(
+            devbox_cli,
+            "load_config",
+            lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"},
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: captured.update({"name": name, "params": params}),
+        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        workspace = {
+            "latest_build": {
+                "status": "stopped",
+                "resources": [{"metadata": [{"key": coder.REGION_METADATA_KEY, "value": "eu-central-1"}]}],
+            },
+        }
+        devbox_cli._start_existing_workspace("devbox-test-user", workspace, verbose=False)
+
+        assert captured["params"] == {
+            "dotfiles_uri": "https://github.com/user/dotfiles",
+            "workspace_region": "eu-central-1",
+        }
 
     def test_skips_sync_for_running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []

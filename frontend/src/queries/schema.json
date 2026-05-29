@@ -28397,6 +28397,7 @@
                 "logs_docs_viewed",
                 "logs_set_filters",
                 "logs_settings_opened",
+                "metrics_docs_viewed",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -38679,6 +38680,11 @@
         "SubscriptionDropoffMode": {
             "enum": ["last_event", "after_dropoff_period"],
             "type": "string"
+        },
+        "SubscriptionFreeTierLimit": {
+            "const": 5,
+            "description": "Subscriptions a free-tier team may create.",
+            "type": "number"
         },
         "SuggestedQuestionsQuery": {
             "additionalProperties": false,
