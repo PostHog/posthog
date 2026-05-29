@@ -28,7 +28,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
-    const { alertsSortedByState, alertsResponseLoading, pagination } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, pagination, alertsCount } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
 
@@ -125,7 +125,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsSortedByState.length === 0 && !alertsResponseLoading
+    const isEmpty = alertsCount === 0 && !alertsResponseLoading
     // TODO: add info here to sign up for alerts early access
     return (
         <>
