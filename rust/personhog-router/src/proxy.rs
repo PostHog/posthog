@@ -152,9 +152,11 @@ impl RawProxyInner {
         let start = Instant::now();
 
         let (mut response, backend, channel_call_ms) = match method_name {
-            "UpdatePersonProperties" => {
-                (self.handle_update_person_properties(req).await, "leader", None)
-            }
+            "UpdatePersonProperties" => (
+                self.handle_update_person_properties(req).await,
+                "leader",
+                None,
+            ),
             "GetPerson" => {
                 let is_strong = req
                     .headers()
