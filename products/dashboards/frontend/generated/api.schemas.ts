@@ -7404,6 +7404,25 @@ export interface ButtonTileApi {
     team: number
 }
 
+export interface NestedApi {
+    readonly id: string
+    /** @maxLength 64 */
+    widget_type: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    config?: unknown
+    last_modified_at?: string
+    /** @nullable */
+    created_by?: number | null
+    /** @nullable */
+    last_modified_by?: number | null
+    team: number
+}
+
 export interface DashboardTileApi {
     id?: number
     insight: InsightApi
@@ -7420,6 +7439,7 @@ export interface DashboardTileApi {
     show_description?: boolean | null
     /** @nullable */
     transparent_background?: boolean | null
+    readonly widget: NestedApi
 }
 
 /**

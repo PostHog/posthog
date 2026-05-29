@@ -11833,6 +11833,25 @@ export namespace Schemas {
       team: number;
     }
 
+    export interface Nested {
+      readonly id: string;
+      /** @maxLength 64 */
+      widget_type: string;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      config?: unknown;
+      last_modified_at?: string;
+      /** @nullable */
+      created_by?: number | null;
+      /** @nullable */
+      last_modified_by?: number | null;
+      team: number;
+    }
+
     export interface DashboardTile {
       id?: number;
       insight: Insight;
@@ -11849,6 +11868,7 @@ export namespace Schemas {
       show_description?: boolean | null;
       /** @nullable */
       transparent_background?: boolean | null;
+      readonly widget: Nested;
     }
 
     /**
