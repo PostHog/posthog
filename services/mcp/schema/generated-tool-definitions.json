@@ -1110,7 +1110,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -2076,6 +2076,21 @@
         "summary": "Check Postgres CDC prerequisites",
         "title": "Check Postgres CDC prerequisites",
         "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "external-data-sources-connections-list": {
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List direct-query connections",
+        "title": "List direct-query connections",
+        "required_scopes": ["external_data_source:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -5566,7 +5581,7 @@
         }
     },
     "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for embeddings) — and fill `scanner_config` to match: monitor/classifier/scorer/summarizer need a `prompt`; classifiers also need `tags`; scorers also need `scale`; indexers reject `prompt`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision scanner",
@@ -5615,7 +5630,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-scanners-list": {
-        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of five LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), `summarizer` (free-text summary), or `indexer` (structured extraction for downstream embedding). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
+        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List replay vision scanners",

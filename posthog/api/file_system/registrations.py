@@ -14,9 +14,10 @@ from posthog.api.file_system.deletion import (
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
-from posthog.models.hog_functions.utils import humanize_hog_function_type
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
+
+from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
 
 def _first_non_blank(*values: str | None) -> str | None:
@@ -417,7 +418,7 @@ def register_core_file_system_types() -> None:
         type_string = f"hog_function/{hog_type}"
         register_file_system_type(
             type_string,
-            "posthog",
+            "cdp",
             "HogFunction",
             undo_message="Send PATCH /api/projects/@current/hog_functions/{id} with deleted=false.",
         )

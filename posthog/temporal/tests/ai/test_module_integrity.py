@@ -26,6 +26,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "PostHogCodeSlackMentionWorkflow",
+            "PostHogCodeSlackMentionCommandWorkflow",
             "PostHogCodeSlackTerminateTaskWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
@@ -57,6 +58,8 @@ class TestAITemporalModuleIntegrity:
             "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
+            "handle_posthog_code_slack_mention_command_activity",
+            "resolve_posthog_code_slack_command_user_activity",
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
             "cascade_posthog_code_repository_activity",

@@ -194,6 +194,13 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-ci'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+
             - name: Run cargo build
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
@@ -366,6 +373,13 @@ jobs:
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-ci'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
 
             - name: Check format
               run: cargo fmt -- --check

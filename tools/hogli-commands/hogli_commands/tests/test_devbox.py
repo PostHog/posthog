@@ -2192,6 +2192,40 @@ class TestStartExistingWorkspace:
 
         assert calls == ["start"]
 
+    def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The pre-start sync must omit `workspace_region`.
+
+        It is immutable; Coder carries it forward on its own and rejects any
+        explicit value on `coder update` with "parameter is immutable and
+        cannot be updated", which would break every resume of a region-aware
+        box. Even for an eu-central-1 workspace, the region must not appear.
+        """
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(
+            devbox_cli,
+            "load_config",
+            lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"},
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: captured.update({"name": name, "params": params}),
+        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        workspace = {
+            "latest_build": {
+                "status": "stopped",
+                "resources": [{"metadata": [{"key": coder.REGION_METADATA_KEY, "value": "eu-central-1"}]}],
+            },
+        }
+        devbox_cli._start_existing_workspace("devbox-test-user", workspace, verbose=False)
+
+        assert captured["params"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
+        assert coder.WORKSPACE_REGION_PARAMETER not in captured["params"]
+
     def test_skips_sync_for_running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 

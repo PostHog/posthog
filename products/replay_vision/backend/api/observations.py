@@ -39,7 +39,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.",
+        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
     )
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",

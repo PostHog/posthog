@@ -2470,9 +2470,19 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
         return null
     }
 
-    // Root-relative path
+    // Root-relative path — resolve against the current origin and verify it doesn't escape.
+    // Browsers normalize backslashes in special-scheme URLs per WHATWG, so a raw startsWith('/')
+    // check would accept '/\\evil.com/path', which the browser then loads as '//evil.com/path'.
     if (decoded.startsWith('/')) {
-        return decoded
+        try {
+            const url = new URL(decoded, location.origin)
+            if (url.origin !== location.origin) {
+                return null
+            }
+            return url.pathname + url.search + url.hash
+        } catch {
+            return null
+        }
     }
 
     // Try to parse as a full URL
