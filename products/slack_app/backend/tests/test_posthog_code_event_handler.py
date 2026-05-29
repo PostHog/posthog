@@ -335,6 +335,33 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             other_integration.id,
         }
 
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=True)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_rules_add_without_repo_routes_to_mention_workflow_for_picker(
+        self, mock_sync_connect, mock_asyncio_run, _mock_flag
+    ):
+        # `rules add "description"` with no inline repo must reach the mention
+        # workflow so its interactive repo picker can drive the choice. Routing
+        # it to the command workflow would dead-end on a plain "specify the
+        # repo inline" reply and break the picker UX.
+        from posthog.temporal.ai.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        event = {**self.event, "text": '<@UBOT123> rules add "investigate flaky tests"'}
+
+        with patch("products.slack_app.backend.api.SlackIntegration") as mock_slack_cls:
+            mock_slack_cls.return_value.missing_scopes.return_value = set()
+            result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
+        assert kicked_off == PostHogCodeSlackMentionWorkflow.run
+
     @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
