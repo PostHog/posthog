@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 
+    # Optional secondary capture target. When set, every $ai_generation event
+    # is mirrored to this PostHog instance after the primary capture, so the
+    # EU deployment can land EU customer events on EU PostHog (team_id=1)
+    # for the regional billing usage_report to attribute them.
+    posthog_secondary_project_token: str | None = None
+    posthog_secondary_host: str | None = None
+
     metrics_enabled: bool = True
 
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
@@ -160,6 +167,10 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+    # Billing recomputes quota state on at most an hourly cadence, so we are
+    # comfortable letting a team go slightly over their limit in exchange for
+    # avoiding a Django roundtrip on every billable request.
+    quota_cache_ttl: int = 300  # 5 minutes
     billing_period_days: int = 30
 
     # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic

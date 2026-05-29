@@ -12,7 +12,17 @@ pub async fn parse_and_authenticate(
     context: &RequestContext,
     flag_service: &FlagService,
 ) -> Result<(Option<String>, Team, FlagRequest), FlagError> {
-    let request = decoding::decode_request(&context.headers, context.body.clone(), &context.meta)?;
+    let (request, decoded_body) =
+        decoding::decode_request(&context.headers, context.body.clone(), &context.meta)?;
+
+    // Hand the decoded body to the body-log side channel if one is installed.
+    // `set` is a no-op once filled, which can't happen here because each
+    // request has its own OnceLock — but this future-proofs against a
+    // hypothetical retry that calls `parse_and_authenticate` twice.
+    if let Some(slot) = context.decoded_body_for_logging.as_ref() {
+        slot.set(decoded_body).ok();
+    }
+
     let token = request.extract_token()?;
     let team = flag_service.verify_token_and_get_team(&token).await?;
 

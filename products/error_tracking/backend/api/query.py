@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal, cast
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
@@ -15,9 +16,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, resolve_fingerprints_for_issues
 
 from .query_serializers import (
     ErrorTrackingIssueDetailSerializer,
@@ -34,6 +37,8 @@ from .query_utils import (
     LIST_ISSUE_FIELDS,
     build_date_range,
     build_event_where,
+    build_fingerprint_event_where,
+    build_fingerprint_where,
     build_impact,
     build_issue_filters,
     build_issue_where,
@@ -50,6 +55,37 @@ from .query_utils import (
 )
 
 logger = structlog.get_logger(__name__)
+
+ERROR_TRACKING_FORCE_QUERY_V3_FLAG = "error-tracking-force-query-v3"
+
+
+def is_error_tracking_query_v3_enabled(user: User, team: Team) -> bool:
+    distinct_id = user.distinct_id or str(user.uuid)
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+    return bool(
+        posthoganalytics.feature_enabled(
+            ERROR_TRACKING_FORCE_QUERY_V3_FLAG,
+            distinct_id,
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def query_v3_volume_resolution(volume_resolution: int) -> int:
+    return max(volume_resolution, 1)
+
+
+def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]:
+    filter_group = build_property_group(
+        [{"type": "event", "key": "$exception_fingerprint", "operator": "exact", "value": fingerprints}]
+    )
+    if filter_group is None:
+        raise ValueError("build_property_group unexpectedly returned None for a non-empty filter list")
+    return filter_group
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
@@ -71,6 +107,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         offset = cast(int, params.get("offset", 0))
         assignee = params.get("assignee")
         person_id = params.get("personId")
+        use_query_v3 = is_error_tracking_query_v3_enabled(cast(User, request.user), self.team)
+        volume_resolution = cast(int, params.get("volumeResolution", 0))
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             dateRange=DateRange(**build_date_range(params.get("dateRange"))),
@@ -83,8 +121,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             orderDirection=cast(Literal["ASC", "DESC"], params.get("orderDirection", "DESC")),
             limit=limit,
             offset=offset,
-            volumeResolution=cast(int, params.get("volumeResolution", 0)),
+            volumeResolution=query_v3_volume_resolution(volume_resolution) if use_query_v3 else volume_resolution,
             personId=str(person_id) if person_id is not None else None,
+            useQueryV3=use_query_v3 or None,
             withAggregations=True,
             withFirstEvent=False,
             withLastEvent=False,
@@ -123,15 +162,22 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_model = ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).first()
         if issue_model is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        force_query_v3 = is_error_tracking_query_v3_enabled(cast(User, request.user), self.team)
+        fingerprints = (
+            resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id]) if force_query_v3 else []
+        )
+        use_query_v3 = force_query_v3 and bool(fingerprints)
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
             dateRange=DateRange(**date_range),
+            filterGroup=build_fingerprint_filter_group(fingerprints) if use_query_v3 else None,
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-            volumeResolution=volume_resolution,
+            volumeResolution=query_v3_volume_resolution(volume_resolution) if use_query_v3 else volume_resolution,
             limit=1,
             orderBy="last_seen",
             orderDirection="DESC",
+            useQueryV3=use_query_v3 or None,
             withAggregations=True,
             withFirstEvent=False,
             withLastEvent=False,
@@ -161,7 +207,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 kind="EventsQuery",
                 event="$exception",
                 select=CONTEXT_EVENT_SELECTS,
-                where=build_issue_where(issue_id),
+                where=build_fingerprint_where(fingerprints) if use_query_v3 else build_issue_where(issue_id),
                 filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
                 after=date_range.get("date_from"),
                 before=date_range.get("date_to"),
@@ -219,11 +265,20 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
+        force_query_v3 = is_error_tracking_query_v3_enabled(cast(User, request.user), self.team)
+        fingerprints = (
+            resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id]) if force_query_v3 else []
+        )
+        use_query_v3 = force_query_v3 and bool(fingerprints)
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",
             select=EVENT_SELECTS,
-            where=build_event_where(issue_id, cast(str | None, params.get("searchQuery"))),
+            where=(
+                build_fingerprint_event_where(fingerprints, cast(str | None, params.get("searchQuery")))
+                if use_query_v3
+                else build_event_where(issue_id, cast(str | None, params.get("searchQuery")))
+            ),
             properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             after=date_range.get("date_from"),

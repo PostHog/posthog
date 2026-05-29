@@ -223,6 +223,21 @@ export interface PaginatedReplayObservationListApi {
     results: ReplayObservationApi[]
 }
 
+export interface VisionQuotaApi {
+    /** Total observations the org may complete per calendar month. */
+    readonly monthly_quota: number
+    /** Observations created this month that are in flight or have succeeded, counted against the quota. */
+    readonly usage_this_month: number
+    /** `monthly_quota - usage_this_month`, floored at 0. */
+    readonly remaining: number
+    /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+    readonly exhausted: boolean
+    /** First moment of the current quota period (UTC). */
+    readonly period_start: string
+    /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+    readonly period_end: string
+}
+
 export interface ReplayScannerApi {
     readonly id: string
     /**

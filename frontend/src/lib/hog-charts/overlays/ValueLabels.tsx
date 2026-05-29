@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react'
 
-import { useChartLayout } from '../core/chart-context'
+import { useChartHover, useChartLayout } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
-import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import type { ChartDimensions, ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
@@ -26,6 +26,8 @@ const STACK_TOTAL_KEY = '__stack_total__'
 interface Candidate {
     key: string
     seriesIndex: number
+    /** Matched against `hoverIndex` so the hovered candidate can lift. */
+    dataIndex: number
     text: string
     x: number
     y: number
@@ -35,6 +37,8 @@ interface Candidate {
     /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
     centerAnchor: boolean
 }
+
+const HOVER_LIFT_PX = 6
 
 function defaultLocaleFormatter(v: number): string {
     return v.toLocaleString()
@@ -57,6 +61,7 @@ function pushCandidate(
     isHorizontal: boolean,
     key: string,
     seriesIndex: number,
+    dataIndex: number,
     color: string,
     text: string,
     categoricalCoord: number,
@@ -69,6 +74,7 @@ function pushCandidate(
     out.push({
         key,
         seriesIndex,
+        dataIndex,
         text,
         x: isHorizontal ? valueCoord : categoricalCoord,
         y: isHorizontal ? categoricalCoord : valueCoord,
@@ -140,6 +146,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             isHorizontal,
             `${STACK_TOTAL_KEY}-${dIdx}`,
             -1,
+            dIdx,
             topColor,
             valueFormatter(total, -1, dIdx),
             categoricalCoord,
@@ -208,6 +215,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 isHorizontal,
                 `${s.key}-${dIdx}`,
                 sIdx,
+                dIdx,
                 s.color,
                 valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
@@ -250,6 +258,39 @@ function labelRect(c: Candidate, isHorizontal: boolean): Rect {
 
 function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
     return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
+}
+
+function fitsWithinWrapper(c: Candidate, above: boolean, dimensions: ChartDimensions, isHorizontal: boolean): boolean {
+    if (isHorizontal) {
+        const left = above ? c.x : c.x - c.width
+        return left >= 0 && left + c.width <= dimensions.width
+    }
+    const top = above ? c.y - LABEL_HEIGHT : c.y
+    return top >= 0 && top + LABEL_HEIGHT <= dimensions.height
+}
+
+// If the default placement (above/right of the bar) would push the label past the chart
+// wrapper edge — which has `overflow: hidden` — flip it inside the bar instead. Avoids
+// reserving global plot-area headroom (which would shrink every chart vertically) for a
+// case that only hits when a bar reaches the axis top/right. Only flips when the flipped
+// position actually fits — if neither side fits, keep the original choice.
+function flipClippedCandidates(
+    candidates: Candidate[],
+    dimensions: ChartDimensions,
+    isHorizontal: boolean
+): Candidate[] {
+    for (const c of candidates) {
+        if (c.centerAnchor) {
+            continue
+        }
+        if (fitsWithinWrapper(c, c.above, dimensions, isHorizontal)) {
+            continue
+        }
+        if (fitsWithinWrapper(c, !c.above, dimensions, isHorizontal)) {
+            c.above = !c.above
+        }
+    }
+    return candidates
 }
 
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHorizontal: boolean): Candidate[] {
@@ -315,16 +356,30 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     borderStyle: 'solid',
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
+    transition: 'transform 150ms ease-out',
 }
 
-function transformFor(c: Candidate, isHorizontal: boolean): string {
+function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
+    // Lift direction depends on which side of the value-axis the label sits on.
+    let liftX = 0
+    let liftY = 0
+    if (hovered) {
+        if (c.centerAnchor) {
+            liftY = -HOVER_LIFT_PX
+        } else if (isHorizontal) {
+            liftX = c.above ? HOVER_LIFT_PX : -HOVER_LIFT_PX
+        } else {
+            liftY = c.above ? -HOVER_LIFT_PX : HOVER_LIFT_PX
+        }
+    }
+    const lift = liftX === 0 && liftY === 0 ? '' : ` translate(${liftX}px, ${liftY}px)`
     if (c.centerAnchor) {
-        return 'translate(-50%, -50%)'
+        return `translate(-50%, -50%)${lift}`
     }
     if (isHorizontal) {
-        return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
+        return (c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)') + lift
     }
-    return c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+    return (c.above ? 'translate(-50%, -100%)' : 'translateX(-50%)') + lift
 }
 
 export function ValueLabels({
@@ -332,7 +387,8 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
+    const { hoverIndex } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -341,21 +397,45 @@ export function ValueLabels({
     const visible = useMemo(
         () =>
             applyCollisionAvoidance(
-                buildCandidates({
-                    series,
-                    labels,
-                    scales,
-                    resolvePositionValue,
-                    valueFormatter: formatter,
-                    isHorizontal,
-                    mode,
-                    isPercent,
-                }),
+                flipClippedCandidates(
+                    buildCandidates({
+                        series,
+                        labels,
+                        scales,
+                        resolvePositionValue,
+                        valueFormatter: formatter,
+                        isHorizontal,
+                        mode,
+                        isPercent,
+                    }),
+                    dimensions,
+                    isHorizontal
+                ),
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
     )
+
+    // Skip the lift when a dataIndex has labels at multiple distinct x positions
+    // (grouped bars) — hoverIndex can't disambiguate which bar the cursor is on, so
+    // lifting all of them is worse than lifting none. Labels sharing the same x
+    // (stacked / multi-series at band center) are one visual column and lift together.
+    const liftableIndices = useMemo(() => {
+        const xsByIndex = new Map<number, Set<number>>()
+        for (const c of visible) {
+            const xs = xsByIndex.get(c.dataIndex) ?? new Set<number>()
+            xs.add(Math.round(c.x))
+            xsByIndex.set(c.dataIndex, xs)
+        }
+        const set = new Set<number>()
+        for (const [dIdx, xs] of xsByIndex) {
+            if (xs.size === 1) {
+                set.add(dIdx)
+            }
+        }
+        return set
+    }, [visible])
 
     if (visible.length === 0) {
         return null
@@ -365,22 +445,26 @@ export function ValueLabels({
 
     return (
         <>
-            {visible.map((c) => (
-                <div
-                    key={c.key}
-                    data-attr="hog-chart-value-label"
-                    style={{
-                        ...LABEL_STYLE_BASE,
-                        backgroundColor: c.color,
-                        borderColor,
-                        left: Math.round(c.x),
-                        top: Math.round(c.y),
-                        transform: transformFor(c, isHorizontal),
-                    }}
-                >
-                    {c.text}
-                </div>
-            ))}
+            {visible.map((c) => {
+                const isHovered = c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
+                return (
+                    <div
+                        key={c.key}
+                        data-attr="hog-chart-value-label"
+                        style={{
+                            ...LABEL_STYLE_BASE,
+                            backgroundColor: c.color,
+                            borderColor,
+                            left: Math.round(c.x),
+                            top: Math.round(c.y),
+                            transform: transformFor(c, isHorizontal, isHovered),
+                            willChange: isHovered ? 'transform' : undefined,
+                        }}
+                    >
+                        {c.text}
+                    </div>
+                )
+            })}
         </>
     )
 }

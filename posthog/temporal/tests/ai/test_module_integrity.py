@@ -1,5 +1,5 @@
 from posthog.temporal import ai
-from posthog.temporal.llm_analytics import (
+from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
@@ -54,6 +54,7 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
+            "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
             "collect_posthog_code_thread_messages_activity",
@@ -303,7 +304,7 @@ class TestSignalsProductModuleIntegrity:
             )
 
 
-class TestLLMAnalyticsModuleIntegrity:
+class TestAIObservabilityModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected LLMA-worker workflows are present."""
         expected_workflows = [
@@ -315,10 +316,10 @@ class TestLLMAnalyticsModuleIntegrity:
             "CheckCountTriggeredReportsWorkflow",
             "GenerateAndDeliverEvalReportWorkflow",
             "EmitEvalReportSignalWorkflow",
-            "LLMAEvaluationSamplerCoordinatorWorkflow",
-            "LLMAEvaluationSamplerWorkflow",
-            "LLMAEvaluationClusteringCoordinatorWorkflow",
-            "LLMAEvaluationClusteringWorkflow",
+            "AIObservabilityEvaluationSamplerCoordinatorWorkflow",
+            "AIObservabilityEvaluationSamplerWorkflow",
+            "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
+            "AIObservabilityEvaluationClusteringWorkflow",
             "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
@@ -333,7 +334,7 @@ class TestLLMAnalyticsModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected LLMA-worker activities are present."""
         expected_activities = [
-            "get_team_ids_for_llm_analytics",
+            "get_team_ids_for_ai_observability",
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",

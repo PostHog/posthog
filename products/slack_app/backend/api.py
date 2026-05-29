@@ -147,14 +147,18 @@ def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str
     return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
 
 
-def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
+def _format_slack_user_info_payload(
+    *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
+) -> dict[str, Any]:
     return {
         "user": {
+            "is_admin": is_admin,
+            "is_owner": is_owner,
             "profile": {
                 "email": email,
                 "display_name": display_name,
                 "real_name": real_name,
-            }
+            },
         }
     }
 
@@ -187,13 +191,16 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
         email=profile.email,
         display_name=profile.display_name,
         real_name=profile.real_name,
+        is_admin=profile.is_admin,
+        is_owner=profile.is_owner,
     )
 
 
 def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
     from products.slack_app.backend.models import SlackUserProfileCache
 
-    profile = user_info.get("user", {}).get("profile", {})
+    user = user_info.get("user", {})
+    profile = user.get("profile", {})
     try:
         SlackUserProfileCache.objects.update_or_create(
             integration_id=integration.id,
@@ -202,6 +209,8 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
                 "email": profile.get("email") or None,
                 "display_name": profile.get("display_name") or "",
                 "real_name": profile.get("real_name") or "",
+                "is_admin": bool(user.get("is_admin")),
+                "is_owner": bool(user.get("is_owner")),
             },
         )
     except DatabaseError:
@@ -297,6 +306,45 @@ def lookup_slack_user_id_by_email(
     )
     cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
     return slack_user_id
+
+
+QUOTA_EXHAUSTED_MESSAGE = (
+    "Your team has used its monthly PostHog AI credits. "
+    "Top up at https://us.posthog.com/organization/billing to continue."
+)
+
+
+def post_quota_exhausted_denial(
+    *,
+    integration: Integration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-credits denial message into a Slack thread.
+
+    Called by the workflow's quota gate after it determines the team is over
+    quota. Lives in this module so the Slack-posting helpers and the message
+    text stay co-located; the quota check itself lives in the temporal layer
+    (which is the only side allowed to import ``ee.billing``).
+    """
+    logger.info(
+        "posthog_code_slack_blocked_by_quota",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
 
 
 def _post_slack_user_feedback(
@@ -988,7 +1036,6 @@ def classify_task_needs_repo(
         "insight",
         "session replay",
         "recording",
-        "trace",
         "mcp",
         "webhook",
     )
@@ -1029,12 +1076,21 @@ def classify_task_needs_repo(
         "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
         "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
         "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
+        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
+        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
+        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
+        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
+        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
+        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
+        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
+        "needs_repo. When in doubt, lean needs_repo=true — the discovery agent can still report "
+        "there's no good match.\n\n"
         f"Conversation:\n{conversation}\n\n"
         f"Latest message: {event_text}\n\n"
         'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
     )
     try:
-        client = get_llm_client("slack-posthog-code")
+        client = get_llm_client("slack_app_routing")
         response = client.chat.completions.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": prompt}],

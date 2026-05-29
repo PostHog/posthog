@@ -210,10 +210,11 @@ function LineChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
-                return
+                return false
             }
+            let drewAny = false
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded || s.fill?.lowerData) {
                     continue
@@ -229,8 +230,10 @@ function LineChartInner<Meta = unknown>({
                 const y = resolveYScaleForSeries(scales, s)(data[hoverIndex])
                 if (x != null && isFinite(y)) {
                     drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
+                    drewAny = true
                 }
             }
+            return drewAny
         },
         [stackedData]
     )
