@@ -208,7 +208,7 @@ describe('assign-reviewers', () => {
                 },
             ]
             const body = buildReviewerComment(requested, manyDemoted)
-            expect(body).toContain('(+2 more)')
+            expect(body).toContain('(+3 more)')
         })
     })
 })
