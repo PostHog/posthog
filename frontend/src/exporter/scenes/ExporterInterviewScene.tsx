@@ -16,7 +16,6 @@ const BENIGN_END_OF_CALL_MESSAGES = [
     'Meeting has ended',
     'Meeting ended due to ejection',
     'Worker has ended call',
-    'Call ended',
 ]
 
 const isBenignEndOfCallError = (message: string): boolean =>
@@ -257,6 +256,7 @@ export default function ExporterInterviewScene({
     const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
     const callStartedAtRef = useRef<number | null>(null)
+    const hogfettiFiredRef = useRef<boolean>(false)
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 75, duration: 3000 })
 
     useEffect(() => {
@@ -264,16 +264,25 @@ export default function ExporterInterviewScene({
     }, [interview.topic])
 
     useEffect(() => {
-        if (state !== 'ended') {
+        if (state !== 'ended' || hogfettiFiredRef.current) {
             return
         }
         const startedAt = callStartedAtRef.current
         if (startedAt === null) {
             return
         }
-        if (Date.now() - startedAt >= HOGFETTI_MIN_CALL_DURATION_MS) {
-            triggerHogfetti()
+        if (Date.now() - startedAt < HOGFETTI_MIN_CALL_DURATION_MS) {
+            return
         }
+        // Mark as fired before the early returns below so a resize-driven
+        // re-run cannot retrigger the celebration. `useHogfetti`'s `trigger`
+        // identity changes whenever `dimensions` updates (window resize),
+        // and that dep change re-runs this effect while `state === 'ended'`.
+        hogfettiFiredRef.current = true
+        if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+            return
+        }
+        triggerHogfetti()
     }, [state, triggerHogfetti])
 
     useEffect(() => {
@@ -295,6 +304,7 @@ export default function ExporterInterviewScene({
         agentTalkingRef.current = false
         lastPhaseRef.current = 'thinking'
         callStartedAtRef.current = null
+        hogfettiFiredRef.current = false
         setConversationPhase('thinking')
         setState('loading')
         void (async () => {
