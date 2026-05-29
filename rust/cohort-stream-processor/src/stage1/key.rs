@@ -141,6 +141,62 @@ mod tests {
         );
     }
 
+    /// A fully-populated leaf with every hashed field set to a distinct, non-default value, so
+    /// the expected digest pins each field's *position* in the byte layout — reordering any two
+    /// `h.update(...)` calls, or changing the LE-int / empty-string / no-delimiter encoding,
+    /// flips this vector while leaving the relative (discrimination/determinism) tests green.
+    ///
+    /// This is the cross-runtime contract fixture: the Phase-7 Python port
+    /// (`leaf_state_key.py`) and the §4.10 normalizer must reproduce the exact 16 bytes below.
+    /// The hashed input, in order, no delimiters (see [`LeafStateKey::for_behavioral`]):
+    ///   `b"0123456789abcdef"` ++ `b"performed_event_multiple"` ++ `7i32.to_le_bytes()`
+    ///   ++ `b"day"` ++ `b"2026-01-01T00:00:00Z"` ++ `b"2026-02-01T00:00:00Z"`
+    ///   ++ `b"gte"` ++ `3i32.to_le_bytes()`, then `sha256(..)[..16]`.
+    fn golden_leaf() -> BehavioralLeafConfig {
+        BehavioralLeafConfig {
+            condition_hash: HASH,
+            value: BehavioralValue::PerformedEventMultiple,
+            event_key: "$pageview".to_string(),
+            time_value: Some(7),
+            time_interval: Some("day".to_string()),
+            operator: Some("gte".to_string()),
+            operator_value: Some(3),
+            explicit_datetime: Some("2026-01-01T00:00:00Z".to_string()),
+            explicit_datetime_to: Some("2026-02-01T00:00:00Z".to_string()),
+            leaf_state_key: LeafStateKey([0u8; 16]),
+            state_variant: None,
+        }
+        .with_state_key()
+    }
+
+    #[test]
+    fn for_behavioral_matches_known_vector() {
+        const EXPECTED: [u8; 16] = [
+            0xac, 0xe2, 0xf2, 0x56, 0xd8, 0x43, 0x41, 0xa9, 0x2d, 0x9f, 0xeb, 0xe4, 0x44, 0x9a,
+            0x41, 0xb7,
+        ];
+        assert_eq!(
+            LeafStateKey::for_behavioral(&golden_leaf()),
+            LeafStateKey(EXPECTED),
+            "the cross-runtime hash encoding changed; update the Python port + §4.10 normalizer \
+             to match, or revert the encoding change",
+        );
+    }
+
+    #[test]
+    fn event_key_is_excluded_from_the_key() {
+        // `event_key` is captured for Stage 1's matcher/state-variant picking (PR 1.6) but is
+        // *not* hashed: the event name is already encoded in `condition_hash` (it is part of the
+        // bytecode), so hashing it again would diverge from the §4.10 Python normalizer's field
+        // set. Two leaves differing only in `event_key` must share a key.
+        let mut other = golden_leaf();
+        other.event_key = "$autocapture".to_string();
+        assert_eq!(
+            LeafStateKey::for_behavioral(&golden_leaf()),
+            LeafStateKey::for_behavioral(&other),
+        );
+    }
+
     #[test]
     fn with_state_key_caches_the_derived_key() {
         let leaf = baseline();

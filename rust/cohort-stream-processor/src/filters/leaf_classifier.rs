@@ -113,13 +113,24 @@ fn classify_cohort_ref(node: &Value) -> LeafClass {
     match cohort_id_from_value(node.get("value")) {
         Some(id) => LeafClass::CohortRef(CohortRefLeafConfig {
             referenced_cohort_id: CohortId(id),
-            negation: node
-                .get("negation")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            negation: cohort_ref_negation(node),
         }),
         None => LeafClass::Drop(LeafDropReason::MalformedLeaf),
     }
+}
+
+/// Cohort-reference negation has two equivalent encodings, both of which invert the Stage 2
+/// membership bit: an explicit `negation: true`, or `operator: "not_in"` (the exclusion form
+/// the insight/query path emits). Mirrors `posthog/cdp/filters.py:103`
+/// (`is_negated = prop.get("negation") or prop.get("operator") == "not_in"`) and TDD §2.7 — the
+/// raw node is not retained on `CohortRefLeafConfig`, so both signals must be resolved here.
+fn cohort_ref_negation(node: &Value) -> bool {
+    let explicit = node
+        .get("negation")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let not_in = node.get("operator").and_then(Value::as_str) == Some("not_in");
+    explicit || not_in
 }
 
 fn classify_person(node: &Value, missing_reason: LeafDropReason) -> LeafClass {
@@ -293,6 +304,34 @@ mod tests {
         };
         assert_eq!(config.referenced_cohort_id, CohortId(99));
         assert!(config.negation);
+    }
+
+    #[test]
+    fn cohort_ref_negation_honors_not_in_operator() {
+        // `operator: "not_in"` is the exclusion encoding the insight/query path emits; it must
+        // invert the membership bit exactly like an explicit `negation: true`
+        // (mirrors `posthog/cdp/filters.py:103`). The raw node is dropped at parse time, so this
+        // is the only chance to resolve it.
+        let not_in = json!({ "type": "cohort", "value": 7, "operator": "not_in" });
+        let LeafClass::CohortRef(config) = classify_leaf(&not_in) else {
+            panic!("expected a cohort ref");
+        };
+        assert_eq!(config.referenced_cohort_id, CohortId(7));
+        assert!(config.negation, "`operator: not_in` must set negation");
+
+        // Either signal alone is sufficient; both together is still negated.
+        let both = json!({ "type": "cohort", "value": 7, "operator": "not_in", "negation": true });
+        let LeafClass::CohortRef(config) = classify_leaf(&both) else {
+            panic!("expected a cohort ref");
+        };
+        assert!(config.negation);
+
+        // A non-exclusion operator leaves the bit unset.
+        let in_op = json!({ "type": "cohort", "value": 7, "operator": "in" });
+        let LeafClass::CohortRef(config) = classify_leaf(&in_op) else {
+            panic!("expected a cohort ref");
+        };
+        assert!(!config.negation, "`operator: in` must not set negation");
     }
 
     #[test]
