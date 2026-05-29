@@ -11,7 +11,7 @@ export type WizardRating = 'good' | 'bad'
 
 // Delay before we ask "how did the wizard do?" — long enough that the user has
 // actually had a chance to copy the command and kick the wizard off.
-const FEEDBACK_REVEAL_DELAY_MS = 5000
+const FEEDBACK_REVEAL_DELAY_MS = 1000
 
 export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
     path([
