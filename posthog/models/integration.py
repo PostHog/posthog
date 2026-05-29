@@ -4,6 +4,7 @@ import time
 import base64
 import socket
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
@@ -1145,6 +1146,14 @@ class SlackIntegration:
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
+    def granted_scopes(self) -> frozenset[str]:
+        """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
+        raw = self.integration.config.get("scope") or ""
+        return frozenset(scope.strip() for scope in raw.split(",") if scope.strip())
+
+    def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
+        return frozenset(required) - self.granted_scopes()
+
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
@@ -1247,6 +1256,18 @@ class SlackIntegration:
             "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
             "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
         }
+
+
+def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
+    """Sign a body with the Slack HMAC-SHA256 scheme; returns (signature, timestamp).
+
+    Used by both prod (PostHog→PostHog cross-region calls that reuse the Slack signing scheme)
+    and tests. The matching verifier is `validate_slack_request` below.
+    """
+    ts = str(int(time.time()))
+    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
+    signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
+    return signature, ts
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:

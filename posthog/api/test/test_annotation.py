@@ -11,9 +11,10 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Annotation, Insight, Organization, Team, User
+from posthog.models import Annotation, Organization, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):

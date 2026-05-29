@@ -13,6 +13,10 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
+        # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
+        # regenerating a stub entry on every hogli run.
+        - phrocs
     env:
         files:
             - .env.development
@@ -134,6 +138,9 @@ devbox:
     devbox:setup:
         click: hogli_commands.devbox.cli:devbox_setup
         description: Install and configure local access to Coder devboxes
+    devbox:doctor:
+        click: hogli_commands.devbox.cli:devbox_doctor
+        description: Diagnose devbox prerequisites and setup (read-only)
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
@@ -152,6 +159,9 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
+    devbox:exec:
+        click: hogli_commands.devbox.cli:devbox_remote_exec
+        description: Run a command inside your devbox (non-interactive)
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
@@ -191,6 +201,12 @@ devbox:
     devbox:secret:rm:
         click: hogli_commands.devbox.cli:devbox_secret_rm
         description: Delete a Coder user secret
+    devbox:config:show:
+        click: hogli_commands.devbox.cli:devbox_config_show
+        description: Show saved devbox setup configuration
+    devbox:config:rm:
+        click: hogli_commands.devbox.cli:devbox_config_rm
+        description: Clear saved devbox configuration items
 devenv:
     dev:setup:
         click: hogli_commands.devenv.cli:dev_setup
@@ -774,6 +790,9 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:lint:owners:
+        click: hogli_commands.product.cli:cmd_lint_owners
+        description: Validate product.yaml owners against PostHog/posthog GitHub teams
     product:maturity:
         click: hogli_commands.product.cli:cmd_maturity
         description: Score product maturity across isolation dimensions
@@ -887,6 +906,9 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:insights:
+        click: hogli_commands.ci_insights:ci_insights
+        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
 utilities:
     nuke:
         steps:
