@@ -495,7 +495,9 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 
-    @parameterized.expand([("default_asc", None, "asc"), ("explicit_desc", "desc", "desc")])
+    @parameterized.expand(
+        [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
+    )
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
     def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, _mock_resource):
         manifest = _minimal_manifest()
