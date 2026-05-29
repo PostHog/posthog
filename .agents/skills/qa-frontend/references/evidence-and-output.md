@@ -161,8 +161,10 @@ PR mode only, same-repo PR only, at least one confident fix commit only:
 3. Re-fetch and verify the remote did not move.
 
 ```bash
-git fetch origin "$headRefName"
-git push --force-with-lease origin HEAD:"$headRefName"
+PR_HEAD_REF=$(gh pr view "$PR_REF" --json headRefName --jq '.headRefName')
+test -n "$PR_HEAD_REF"
+git fetch origin "$PR_HEAD_REF"
+git push --force-with-lease origin HEAD:"$PR_HEAD_REF"
 ```
 
 If the remote moved, do not push. Post or print a report explaining that local

@@ -153,7 +153,9 @@ Before pushing:
 Use only:
 
 ```bash
-git push --force-with-lease origin HEAD:<headRefName>
+PR_HEAD_REF=$(gh pr view "$PR_REF" --json headRefName --jq '.headRefName')
+test -n "$PR_HEAD_REF"
+git push --force-with-lease origin HEAD:"$PR_HEAD_REF"
 ```
 
 If the push fails, do not retry blindly. Report the lease or auth failure.
