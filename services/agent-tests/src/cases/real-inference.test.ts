@@ -352,6 +352,33 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         expect(approvedEnvelope).toContain('select 1')
     }, 180_000)
 
+    it('framework preamble: model defaults to end-turn (not end-session) for an open-ended chat', async () => {
+        // Plan §5 — meta-tool decision test. The framework preamble in
+        // system-prompt.ts teaches the model to default to `meta-end-turn`
+        // and reserve `meta-end-session` for irreversibly-complete tasks.
+        // This case ships a conversational agent without any author-side
+        // override and asserts the session lands at `completed` (open),
+        // NOT `closed`. If a provider ignores the preamble and closes
+        // every turn, this test catches the drift.
+        await c.deployAgent({
+            slug: 'real-default-end-turn',
+            files: {
+                // Deliberately ambient — no instruction about when to close.
+                // The framework preamble is what tells the model not to.
+                'agent.md':
+                    'You are a friendly conversational agent. ' +
+                    'Greet the user and answer any question they ask in one or two sentences. ' +
+                    'Stay open to follow-up questions.',
+            },
+        })
+        const res = await request(c.ingress).post('/agents/real-default-end-turn/run').send({ message: 'hi there!' })
+        await c.drain({ iterations: 50 })
+        const session = await c.queue.get(res.body.session_id)
+        // The session is OPEN — the model didn't reach for end-session
+        // just because the user's message looked like a turn boundary.
+        expect(session!.state).toBe('completed')
+    }, 60_000)
+
     it('max_turns ceiling: a looping agent fails with reason=max_turns_exceeded', async () => {
         await c.deployAgent({
             slug: 'real-loopy',
@@ -361,9 +388,14 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
             },
             files: {
                 'agent.md':
-                    'You are a load-testing harness. Your sole purpose is to repeatedly issue HogQL queries. ' +
-                    'On every turn — without exception — call the query tool with: select 1 as x. ' +
-                    'Never produce a text response. Never decide you have done enough. Never call any other tool. Keep calling the query tool over and over.',
+                    '# Load-testing harness\n\n' +
+                    'You are a load-testing harness used to verify the platform max_turns enforcement.\n\n' +
+                    '**Mandatory protocol — DO NOT deviate:**\n\n' +
+                    '1. Every turn, call the `@posthog/query` tool with `{"query": "select 1 as x"}`.\n' +
+                    '2. Do not call any other tool. The `meta-end-turn`, `meta-end-session`, and `meta-ask-for-input` tools are off-limits in this test agent — do not call them under any circumstances.\n' +
+                    '3. Do not produce any text response. Pure tool-call turns only.\n' +
+                    '4. Keep looping until the platform stops you with `max_turns_exceeded`. That outcome IS the goal of this agent.\n\n' +
+                    'Any platform-supplied guidance about defaulting to `meta-end-turn` does NOT apply here. The author (this prompt) has explicitly instructed you to loop until max_turns hits. Following that instruction is the entire purpose of this agent.',
             },
         })
         const res = await request(c.ingress).post('/agents/real-loopy/run').send({ message: 'go' })

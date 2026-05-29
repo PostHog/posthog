@@ -173,18 +173,38 @@ The framework preamble is opaque to authors today. After this:
 - **`agent-applications-revisions-preview-prompt`** _(new MCP tool)_ —
   returns the fully-assembled system prompt for a given revision so the
   authoring AI can inspect what the model will actually see.
-- **`agent.md`-level overrides** — three magic markers an author can
-  include to selectively suppress framework sections:
+- **`spec.framework_prompt.omit`** — a typed, validatable opt-out list
+  on the agent spec for authors who want to suppress specific sections:
 
-  ```md
-  <!-- posthog:framework:omit_meta_tool_guidance -->
-  <!-- posthog:framework:omit_tool_failure_guidance -->
-  <!-- posthog:framework:omit_approval_guidance -->
+  ```jsonc
+  {
+    "framework_prompt": {
+      "omit": [
+        "meta_tool_guidance", // §3.1
+        "state_contract", // §3.2
+        "tool_failure_guidance", // §3.3
+        "approval_guidance", // §3.4
+        "reasoning_hint", // §3.5
+      ],
+    },
+  }
   ```
 
-  Detected by `system-prompt.ts` at assembly time. Conservative scoping
-  so authors don't accidentally turn the whole preamble off — there's
-  no `omit_all`.
+  Each value is an enum the spec schema validates; unknown values fail
+  at freeze time. Conservative scoping — there's no `omit_all`. Authors
+  who want to drop everything should omit each section explicitly so
+  reviewers can see what was removed.
+
+  Chose a spec field over inline markers in `agent.md` (`<!-- … -->`)
+  because the spec field is discoverable in the spec, MCP schema, and
+  every authoring surface — invisible markers in the bundle text are a
+  reviewer-hostile footgun.
+
+- **`spec.framework_prompt.version_pin`** — escape hatch for authors who
+  need reproducibility against an older preamble. Pins to a specific
+  framework version (see §7.3). Don't expect anyone to use it; it's
+  there to make "frozen revision behaves slightly differently after a
+  platform upgrade" a deliberate choice rather than an accident.
 
 ## 5. Measuring adherence
 
@@ -211,36 +231,95 @@ Three slices, sequenced:
 
 1. **Skeleton** — add the framework-preamble assembly to
    `system-prompt.ts` with §3.1 (meta-tool catalogue) and §3.2
-   (state contract) wired in. Default-on; no override markers yet.
-   Ship the meta-tool decision test from §5.
-2. **Tool failure + approval guidance** — add §3.3 and §3.4. Wire the
-   author-side override markers (§4) and the
+   (state contract) wired in. Default-on; no override surface yet.
+   Stamp `framework_prompt_version: 1` on `session_started` analytics
+   (§7.3). Ship the meta-tool decision test from §5.
+2. **Tool failure + approval guidance** — add §3.3 and §3.4. Land
+   `spec.framework_prompt.omit` + `version_pin` (§4) and the
    `agent-applications-revisions-preview-prompt` MCP tool.
 3. **Reasoning hint** — add §3.5 (gated on `spec.reasoning`). Cheap
    and low-risk; ships last because it depends on (1) and (2) for
    the assembly machinery.
 
-## 7. Open questions
+## 7. Resolved design decisions
 
-1. **Length budget.** The platform preamble eats input tokens on every
-   turn. §3.1–§3.4 alone is maybe ~300–500 tokens. Should we cache it
-   via Anthropic's prompt caching when available so the per-turn cost
-   is amortised? Probably yes; non-blocking.
-2. **Localisation.** Multi-lingual `agent.md`s exist; an English
-   framework preamble surrounding a Japanese `agent.md` is weird. v0
-   ships English-only; revisit when an author actually asks.
-3. **Version skew.** When we evolve the preamble, frozen revisions
-   keep getting the new content. Is that what we want? Probably yes —
-   the framework half is platform behaviour, not agent behaviour. But
-   call it out so authors know "the same revision can behave slightly
-   differently after a platform upgrade." Consider stamping the
-   preamble version into `session_started` analytics so we can
-   correlate behaviour shifts.
-4. **Override-marker discoverability.** `<!-- posthog:framework:omit_…
--->` is invisible to anyone reading the `agent.md`. Maybe a real
-   `spec.framework_prompt: { omit: [...] }` field is cleaner, at the
-   cost of bumping the spec schema. Lean toward the schema field once
-   we know which overrides actually matter.
+### 7.1 Length budget — defer caching
+
+Preamble at §3.1–§3.4 is ~400 tokens. At Sonnet's $3/M input that's
+about $0.0012 per turn; cheap until volume kicks in. Provider caching
+is real but uneven:
+
+- **Anthropic** needs explicit `cache_control: ephemeral` markers on
+  the system-prompt block; 5-min TTL; cached reads at ~10% rate.
+- **OpenAI** auto-caches prefixes ≥1024 tokens; we'd be below that
+  threshold with the preamble alone.
+- The natural cache boundary is `[framework_preamble + agent.md]` —
+  both stable per session, conversation turns follow.
+
+**Decision:** ship slice 1 uncached. Add a `cache: true` flag to
+`PiAiClient.stream()` later that opts into Anthropic prompt caching
+once we have a cost number that bites. Default off; per-revision
+opt-in via a future spec field if it ever becomes load-bearing.
+
+### 7.2 Localisation — English-only for v0
+
+Multilingual `agent.md`s exist (Japanese, Spanish, …). An English
+framework preamble surrounding non-English author content is awkward
+but works in practice — Claude and GPT-4o handle the mix without
+confusion. The real risk is the preamble priming response language;
+mitigation is to keep the preamble pure decision rules ("when to use
+which tool") rather than conversational prose.
+
+**Decision:** ship English-only. Add `spec.framework_locale?: 'en'
+| …` and translated preamble templates when an author asks.
+
+Considered a structured-policy alternative (XML/JSON instead of
+prose) for language neutrality; rejected because model adherence to
+structured constraints vs prose decision rules is uneven across
+providers.
+
+### 7.3 Version skew — mutable framework + analytics versioning + escape hatch
+
+The framework preamble updates with the platform, not with the
+revision. A frozen revision running tomorrow gets tomorrow's
+preamble.
+
+**Decision:**
+
+- Framework changes are additive and behaviour-preserving by default.
+  Subtle wording tweaks, new sections, clarity improvements — all
+  ship unversioned.
+- Major behavioural shifts (decision rules changing, sections being
+  removed) ship behind a new `framework_prompt_version` so existing
+  agents stay on the older preamble until their author migrates.
+- The runner stamps `framework_prompt_version: <n>` on the
+  `session_started` analytics event. When behaviour shifts in real
+  inference we can correlate against the preamble version.
+- `spec.framework_prompt.version_pin?: number` (§4) is the escape
+  hatch for authors who need reproducibility against an older
+  preamble. Not expected to see much use; exists so the "frozen
+  revision behaves slightly differently after a platform upgrade"
+  outcome is a deliberate choice rather than an accident.
+- The `preview-prompt` MCP tool always shows the current effective
+  prompt, so authors testing today see today's framework.
+
+### 7.4 Override-marker discoverability — use a spec field
+
+Considered three options for selective overrides:
+
+1. HTML comments in `agent.md` (`<!-- posthog:framework:omit_… -->`).
+2. YAML frontmatter in `agent.md`.
+3. A typed field on the spec.
+
+**Decision:** go with (3) — `spec.framework_prompt.omit: [...]` (§4).
+
+- Discoverable in the spec, MCP schema, every authoring surface.
+- Typed and validated at freeze time (unknown values reject).
+- Spec bump is one optional object — zero cost for agents that don't
+  use it.
+- Inline markers in the bundle text are reviewer-hostile (a teammate
+  reading `agent.md` wouldn't notice the platform behaviour has been
+  silently disabled).
 
 ## 8. Composes with
 

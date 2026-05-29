@@ -46,6 +46,7 @@ import { PiClient } from '../models/pi-client'
 import { parseApprovalDecidedMarker } from './approval-marker'
 import { buildToolList } from './build-tool-list'
 import { dispatchApproved, dispatchOne } from './dispatch-one'
+import { FRAMEWORK_PROMPT_VERSION } from './framework-preamble'
 import { buildToolNameMap, providerSafeName } from './provider-safe-names'
 import { buildSystemPrompt } from './system-prompt'
 
@@ -178,7 +179,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         ])
     }
 
-    await emit('session_started', { team_id: session.team_id, agent: rev.application_id, rev: rev.id })
+    await emit('session_started', {
+        team_id: session.team_id,
+        agent: rev.application_id,
+        rev: rev.id,
+        // Stamp the active framework preamble version so real-inference
+        // behaviour shifts can be correlated against preamble revisions.
+        // See plan §7.3 (framework-system-prompt.md).
+        framework_prompt_version: FRAMEWORK_PROMPT_VERSION,
+    })
 
     while (turns < rev.spec.limits.max_turns) {
         // Shutdown check at the top of every turn — clean suspension point.

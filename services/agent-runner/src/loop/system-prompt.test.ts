@@ -67,4 +67,43 @@ describe('buildSystemPrompt', () => {
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
         expect(prompt).toMatch(/missing entrypoint/)
     })
+
+    it('injects the framework preamble before agent.md', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'I am the agent author content.')
+        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle)
+
+        // Preamble lands first so the author's instructions appear
+        // *after* it — natural-language precedence lets agent.md
+        // override the framework defaults.
+        const preambleIdx = prompt.indexOf('Platform guidance')
+        const authorIdx = prompt.indexOf('I am the agent author content.')
+        expect(preambleIdx).toBeGreaterThanOrEqual(0)
+        expect(authorIdx).toBeGreaterThan(preambleIdx)
+    })
+
+    it('framework preamble covers meta-tool decision rules + state contract', async () => {
+        const bundle = new MemoryBundleStore()
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle)
+
+        // §3.1 — meta-tool decision rules. Each of the three meta tools
+        // is named and pi-ai will see explicit framing about when to
+        // use which.
+        expect(prompt).toContain('@posthog/meta-end-turn')
+        expect(prompt).toContain('@posthog/meta-end-session')
+        expect(prompt).toContain('@posthog/meta-ask-for-input')
+        // Default-first framing — the model should default to end-turn,
+        // not end-session. The prose explicitly calls out end-turn as
+        // the default; assert both terms colocate.
+        const endTurnSection = prompt.split('@posthog/meta-end-turn')[1]?.split('@posthog/meta-ask-for-input')[0] ?? ''
+        expect(endTurnSection).toMatch(/default/i)
+
+        // §3.2 — conversation-state contract.
+        expect(prompt).toContain('Conversation state')
+        expect(prompt).toContain('completed')
+        expect(prompt).toContain('closed')
+    })
 })
