@@ -90,7 +90,7 @@ export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const featureFlagsCreateBodyFiltersOneGroupsItemEarlyExitDefault = false
+export const featureFlagsCreateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -330,12 +330,6 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
-                        early_exit: zod
-                            .boolean()
-                            .default(featureFlagsCreateBodyFiltersOneGroupsItemEarlyExitDefault)
-                            .describe(
-                                'Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.'
-                            ),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -379,6 +373,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
                 ),
+            early_exit: zod
+                .boolean()
+                .default(featureFlagsCreateBodyFiltersOneEarlyExitDefault)
+                .describe(
+                    'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
@@ -418,7 +418,7 @@ export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const featureFlagsPartialUpdateBodyFiltersOneGroupsItemEarlyExitDefault = false
+export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -658,12 +658,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Rollout percentage for this release condition group.'),
                         variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
-                        early_exit: zod
-                            .boolean()
-                            .default(featureFlagsPartialUpdateBodyFiltersOneGroupsItemEarlyExitDefault)
-                            .describe(
-                                'Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.'
-                            ),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -706,6 +700,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe(
                     'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
+            early_exit: zod
+                .boolean()
+                .default(featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault)
+                .describe(
+                    'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
                 ),
         })
         .optional()

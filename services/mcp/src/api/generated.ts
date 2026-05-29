@@ -17588,8 +17588,6 @@ export namespace Schemas {
          * @nullable
          */
       variant?: string | null;
-      /** Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions. */
-      early_exit?: boolean;
       /**
          * Group type index for this condition set. None means person-level aggregation.
          * @nullable
@@ -17637,6 +17635,8 @@ export namespace Schemas {
          * @nullable
          */
       feature_enrollment?: boolean | null;
+      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+      early_exit?: boolean;
     }
 
     export interface FeatureFlagCreateRequestSchema {

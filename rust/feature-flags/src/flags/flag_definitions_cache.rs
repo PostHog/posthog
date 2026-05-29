@@ -826,7 +826,6 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: None,
-                    early_exit: None,
                     extra: group_extra,
                 }],
                 multivariate: None,
@@ -834,6 +833,7 @@ mod tests {
                 payloads: None,
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: filters_extra,
             };
             flag

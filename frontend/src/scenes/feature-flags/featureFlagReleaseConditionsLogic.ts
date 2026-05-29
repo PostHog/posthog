@@ -101,16 +101,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null,
-            newDescription?: string | null,
-            newEarlyExit?: boolean
+            newDescription?: string | null
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
             newVariant,
             newDescription,
-            newEarlyExit,
         }),
+        setEarlyExit: (earlyExit: boolean) => ({ earlyExit }),
         setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
             index,
             groupTypeIndex,
@@ -226,15 +225,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         rollout_percentage: 0,
                         variant: null,
                         sort_key: sortKey ?? uuidv4(),
-                        early_exit: false,
                     },
                 ]
                 return { ...state, groups }
             },
-            updateConditionSet: (
-                state,
-                { index, newRolloutPercentage, newProperties, newVariant, newDescription, newEarlyExit }
-            ) => {
+            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant, newDescription }) => {
                 if (!state) {
                     return state
                 }
@@ -260,11 +255,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     groups[index] = { ...groups[index], description }
                 }
 
-                if (newEarlyExit !== undefined) {
-                    groups[index] = { ...groups[index], early_exit: newEarlyExit }
-                }
-
                 return { ...state, groups }
+            },
+            setEarlyExit: (state, { earlyExit }) => {
+                if (!state) {
+                    return state
+                }
+                return { ...state, early_exit: earlyExit }
             },
             switchToMixedTargeting: (state) => {
                 if (!state) {

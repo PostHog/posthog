@@ -383,6 +383,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -468,6 +469,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -722,6 +724,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -1160,6 +1163,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2056,6 +2060,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2288,6 +2293,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2399,6 +2405,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2495,6 +2502,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2591,6 +2599,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2708,6 +2717,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2804,6 +2814,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2900,6 +2911,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -2988,6 +3000,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3071,6 +3084,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3169,6 +3183,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3246,6 +3261,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -3351,6 +3367,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -3439,6 +3456,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -3472,6 +3490,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3595,6 +3614,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3662,6 +3682,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3760,6 +3781,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3794,6 +3816,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3828,6 +3851,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -3997,6 +4021,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -4116,6 +4141,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -4203,6 +4229,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -4305,6 +4332,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -4382,6 +4410,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             deleted: false,
@@ -4531,6 +4560,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -4594,6 +4624,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -4657,6 +4688,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -5155,6 +5187,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -5416,6 +5449,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -5707,6 +5741,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             deleted: false,
@@ -6676,6 +6711,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -6783,6 +6819,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -6943,6 +6980,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -6967,6 +7005,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -6991,6 +7030,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7106,6 +7146,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -7130,6 +7171,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
@@ -7335,6 +7377,7 @@ mod tests {
 
                 feature_enrollment: Some(true),
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7398,6 +7441,7 @@ mod tests {
 
                 feature_enrollment: Some(true),
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7468,6 +7512,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7500,6 +7545,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7803,6 +7849,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7888,7 +7935,6 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: Some(Some(1)),
                     extra: Default::default(),
                 }],
@@ -7898,6 +7944,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -7966,7 +8013,6 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: None, // Person-level condition
                     extra: Default::default(),
                 }],
@@ -7976,6 +8022,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8036,7 +8083,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                         extra: Default::default(),
                     },
@@ -8054,7 +8100,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -8065,6 +8110,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8165,7 +8211,6 @@ mod tests {
             }]),
             rollout_percentage: Some(100.0),
             variant: None,
-            early_exit: None,
             aggregation_group_type_index: Some(Some(1)),
             extra: Default::default(),
         };
@@ -8185,7 +8230,6 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: None,
                     extra: Default::default(),
                 },
@@ -8197,7 +8241,6 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(0.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: None,
                     extra: Default::default(),
                 },
@@ -8217,6 +8260,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8283,7 +8327,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                         extra: Default::default(),
                     },
@@ -8301,7 +8344,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -8312,6 +8354,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8386,7 +8429,6 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: None, // No per-condition aggregation
                     extra: Default::default(),
                 }],
@@ -8396,6 +8438,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8466,7 +8509,6 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     // Condition explicitly sets group type 1, overriding the flag-level None
                     aggregation_group_type_index: Some(Some(1)),
                     extra: Default::default(),
@@ -8477,6 +8519,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8546,7 +8589,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                         extra: Default::default(),
                     },
@@ -8555,7 +8597,6 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -8579,6 +8620,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8649,7 +8691,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                         extra: Default::default(),
                     },
@@ -8667,7 +8708,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -8678,6 +8718,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8733,7 +8774,6 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                         extra: Default::default(),
                     },
@@ -8742,7 +8782,6 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: None,
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -8753,6 +8792,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
                 extra: Default::default(),
             }
         );
@@ -8826,7 +8866,6 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: Some(Some(0)),
                     extra: Default::default(),
                 }],
@@ -8910,7 +8949,6 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
-                    early_exit: None,
                     aggregation_group_type_index: Some(Some(1)),
                     extra: Default::default(),
                 }],
@@ -9111,8 +9149,8 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // Create a flag with two conditions:
-        // 1. First condition: matches properties but has 0% rollout with early_exit enabled  
+        // Create a flag with flag-level early_exit and two conditions:
+        // 1. First condition: matches properties but has 0% rollout
         // 2. Second condition: would match all users with 100% rollout
         let flag = mock!(FeatureFlag,
             id: 1,
@@ -9134,7 +9172,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
-                        early_exit: Some(true),
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -9142,7 +9179,6 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: Some(false),
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -9152,6 +9188,7 @@ mod tests {
                 payloads: None,
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: Some(true),
                 extra: Default::default(),
             }
         );
@@ -9199,7 +9236,7 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // Same setup but with early_exit: false on first condition
+        // Same setup but with flag-level early_exit disabled
         let flag = mock!(FeatureFlag,
             id: 2,
             team_id: team.id,
@@ -9220,7 +9257,6 @@ mod tests {
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
-                        early_exit: Some(false),
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -9228,7 +9264,6 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
-                        early_exit: Some(false),
                         aggregation_group_type_index: None,
                         extra: Default::default(),
                     },
@@ -9238,6 +9273,7 @@ mod tests {
                 payloads: None,
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: Some(false),
                 extra: Default::default(),
             }
         );

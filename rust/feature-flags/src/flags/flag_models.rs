@@ -150,11 +150,6 @@ pub struct FlagPropertyGroup {
         skip_serializing_if = "Option::is_none"
     )]
     pub aggregation_group_type_index: Option<Option<i32>>,
-    /// Indicates whether evaluation should exit early when user matches conditions
-    /// but is not included in the rollout percentage. If true, the flag will return
-    /// false instead of continuing to evaluate other conditions.
-    #[serde(default)]
-    pub early_exit: Option<bool>,
     /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
     /// Without this, frontend leaks (`description`, `sort_key`), runtime annotations
     /// (`cohort_name`, `group_key_names`), and field typos would be silently dropped
@@ -214,6 +209,10 @@ pub struct FlagFilters {
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
     pub holdout: Option<Holdout>,
+    /// Flag-level toggle: when true, condition evaluation stops at the first
+    /// matching group rather than continuing to evaluate subsequent groups.
+    #[serde(default)]
+    pub early_exit: Option<bool>,
     /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
     /// Without this, legacy filter keys (`holdout_groups`), top-level stray keys,
     /// and field typos (`multivariant` for `multivariate`, `payload` for
@@ -476,7 +475,6 @@ mod mock_impls {
             FlagPropertyGroup {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
-                early_exit: Some(false),
                 ..Default::default()
             }
         }
@@ -537,7 +535,6 @@ mod mock_impls {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(properties),
                     rollout_percentage: Some(100.0),
-                    early_exit: Some(false),
                     ..Default::default()
                 }],
                 ..Default::default()

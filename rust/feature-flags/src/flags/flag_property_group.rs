@@ -86,7 +86,6 @@ mod tests {
             properties: None,
             rollout_percentage: None,
             variant: None,
-            early_exit: None,
             aggregation_group_type_index: condition_level,
             extra: Default::default(),
         };

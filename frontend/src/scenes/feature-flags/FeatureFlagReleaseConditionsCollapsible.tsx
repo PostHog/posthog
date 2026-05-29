@@ -326,8 +326,7 @@ interface ConditionProps {
         rollout?: number,
         properties?: AnyPropertyFilter[],
         variant?: string | null,
-        description?: string,
-        earlyExit?: boolean
+        description?: string
     ) => void
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
@@ -708,28 +707,6 @@ const ConditionContent = ({
                                                 {resolvedTargetName}…
                                             </div>
                                         )}
-
-                                        <div className="mt-3 flex items-center gap-2">
-                                            <LemonCheckbox
-                                                data-attr="early-exit"
-                                                checked={group.early_exit ?? false}
-                                                onChange={(checked) => {
-                                                    updateConditionSet(
-                                                        index,
-                                                        undefined,
-                                                        undefined,
-                                                        undefined,
-                                                        undefined,
-                                                        checked
-                                                    )
-                                                }}
-                                                label="Stop evaluation at first matching group"
-                                                labelInline={true}
-                                            />
-                                            <Tooltip title="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass, regardless of rollout exclusions on other condition groups.">
-                                                <IconInfo className="text-sm text-muted" />
-                                            </Tooltip>
-                                        </div>
                                     </div>
 
                                     {variants && variants.length > 0 && (
@@ -875,6 +852,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         switchToMixedTargeting,
         setIsAnyItemDragging,
         setDraggedGroup,
+        setEarlyExit,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
@@ -936,6 +914,14 @@ export function FeatureFlagReleaseConditionsCollapsible({
         return (
             <div className="flex flex-col gap-2">
                 <LemonLabel>Release conditions</LemonLabel>
+                {releaseFilters.early_exit && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted">
+                        <Tooltip title="Conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped.">
+                            <IconInfo className="text-sm" />
+                        </Tooltip>
+                        <span>Stops evaluation at first matching group</span>
+                    </div>
+                )}
                 {filterGroups.map((group: FeatureFlagGroupType, index: number) => {
                     // Use description if available, otherwise summarize the filters
                     const summary =
@@ -1102,9 +1088,19 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <LemonLabel>Release conditions</LemonLabel>
             </div>
             <p className="text-xs text-muted mb-2">
-                Target users for this flag. Conditions are evaluated top to bottom – the first match wins. A condition
-                matches when all property filters pass AND the target falls within the rollout percentage.
+                Target users for this flag. A condition matches when all property filters pass AND the target falls
+                within the rollout percentage.
             </p>
+
+            <div className="flex items-center gap-2 mb-2">
+                <LemonCheckbox
+                    data-attr="flag-early-exit"
+                    checked={releaseFilters.early_exit ?? false}
+                    onChange={(checked) => setEarlyExit(checked)}
+                    label="Stop evaluation at first matching group"
+                    info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
+                />
+            </div>
 
             {isDisabled && (
                 <LemonBanner type="info" className="mb-3">

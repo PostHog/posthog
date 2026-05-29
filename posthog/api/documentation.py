@@ -481,11 +481,6 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Variant key override for multivariate flags.",
     )
-    early_exit = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.",
-    )
     aggregation_group_type_index = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -540,6 +535,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
+    )
+    early_exit = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.",
     )
 
 

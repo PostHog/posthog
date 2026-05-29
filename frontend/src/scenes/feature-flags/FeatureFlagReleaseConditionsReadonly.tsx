@@ -125,6 +125,15 @@ export function FeatureFlagReleaseConditionsReadonly({
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
 
+            {filters.early_exit && (
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                    <Tooltip title="Conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped.">
+                        <IconInfo className="text-sm" />
+                    </Tooltip>
+                    <span>Stops evaluation at first matching group</span>
+                </div>
+            )}
+
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
             <div className={isDisabled ? 'opacity-60' : ''}>
@@ -200,15 +209,6 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
                         this set.
                     </span>
                 </LemonTag>
-
-                {group.early_exit && (
-                    <div className="mt-2 flex items-center gap-1.5 text-sm text-muted">
-                        <Tooltip title="Conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped.">
-                            <IconInfo className="text-sm" />
-                        </Tooltip>
-                        <span>Stops evaluation at first matching group</span>
-                    </div>
-                )}
             </div>
 
             {group.variant && (

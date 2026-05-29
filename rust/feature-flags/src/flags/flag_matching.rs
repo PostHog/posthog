@@ -1414,7 +1414,7 @@ impl FeatureFlagMatcher {
 
             // Check for early exit: OutOfRolloutBound can only occur after properties
             // have already been verified, so no need to re-check them
-            if condition.early_exit.unwrap_or(false)
+            if flag.filters.early_exit.unwrap_or(false)
                 && !is_match
                 && reason == FeatureFlagMatchReason::OutOfRolloutBound
             {

@@ -1072,6 +1072,10 @@ class FeatureFlagSerializer(
                     if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
                         existing_patterns.add(p["value"])
 
+        early_exit = filters.get("early_exit")
+        if early_exit is not None and not isinstance(early_exit, bool):
+            raise serializers.ValidationError(f"early_exit must be a boolean or null, got {type(early_exit).__name__}")
+
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
             if variant is not None and not isinstance(variant, str):
@@ -1084,12 +1088,6 @@ class FeatureFlagSerializer(
                 group.get("aggregation_group_type_index"),
                 f"groups[{group_index}].aggregation_group_type_index",
             )
-
-            early_exit = group.get("early_exit")
-            if early_exit is not None and not isinstance(early_exit, bool):
-                raise serializers.ValidationError(
-                    f"groups[{group_index}].early_exit must be a boolean or null, got {type(early_exit).__name__}"
-                )
 
             for prop_index, prop in enumerate(group.get("properties", [])):
                 _validate_integer(
