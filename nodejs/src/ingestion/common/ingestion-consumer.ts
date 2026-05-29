@@ -9,7 +9,7 @@ import { IngestionConsumerConfig } from '../config'
 import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
 import { createOkContext } from '../pipelines/helpers'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
-import { Scope } from './service-registry'
+import { Scope } from './scopes'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
 

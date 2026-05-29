@@ -27,7 +27,7 @@ import {
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
-import { newScope } from '../ingestion/common/service-registry'
+import { newScope } from '../ingestion/common/scopes'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,

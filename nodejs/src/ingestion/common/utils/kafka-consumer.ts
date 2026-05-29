@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
-import { Component } from '../service-registry'
+import { Component } from '../scopes'
 
 export { createKafkaConsumer } from '../../../kafka/consumer'
 export type { KafkaConsumerInterface } from '../../../kafka/consumer'

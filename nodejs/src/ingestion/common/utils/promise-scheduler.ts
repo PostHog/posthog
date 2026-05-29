@@ -1,5 +1,5 @@
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { Component } from '../service-registry'
+import { Component } from '../scopes'
 
 export { PromiseScheduler } from '../../../utils/promise-scheduler'
 

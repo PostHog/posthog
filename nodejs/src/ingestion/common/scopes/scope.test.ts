@@ -1,4 +1,4 @@
-import { Component, newScope } from './service-registry'
+import { Component, newScope } from '.'
 
 type TrackedComponent = Component<{ name: string }> & { startCalls: number; stopCalls: number }
 
