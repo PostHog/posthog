@@ -50,7 +50,7 @@ Pre-onboarding the user passes through `productSelection`, which fires
 | `onboarding product toggled`       | Each product selection toggle                                                  | `productKey`, `selected`    |
 | `onboarding_products_confirmed`    | After clicking continue on product selection                                   |                             |
 | `onboarding step completed`        | `OnboardingStep.tsx:62`, `NextButton.tsx:29`, `PlanCards.tsx:99`, others       | `step_key`, `product_key`   |
-| `onboarding step skipped`          | `OnboardingStep.tsx:56`, `NextButton.tsx:24` ("Skip installation" CTA)         | `step_key`, `product_key`   |
+| `onboarding step skipped`          | `OnboardingStep.tsx:56`, `NextButton.tsx:35-36` ("Skip installation" CTA; event fires at `:24`) | `step_key`, `product_key`   |
 | `onboarding adblock detection completed` | `useAdblockDetection.ts:57` on install scene                             | `status`                    |
 | `first team event ingested`        | Backend, on first event from a new team                                        | (system property)           |
 | `subscribed during onboarding`     | Listener on billing callback `success=true`                                    | `productKey`                |
