@@ -386,19 +386,25 @@ export class PostgresPersonRepository
         }
 
         const useReadReplica = options?.useReadReplica ?? true
-        const limitPerPerson = options?.limitPerPerson
+        // LATERAL JOIN applies the LIMIT per person_id, so a person with 100 distinct_ids
+        // and limitPerPerson=1 reads one row from the index instead of 100.
+        // When unlimited, we pass a very large LIMIT — postgres still uses the index seek per person.
+        const perPersonLimit = options?.limitPerPerson != null ? options.limitPerPerson : Number.MAX_SAFE_INTEGER
 
-        // posthog_persondistinctid has a btree index on (team_id, person_id) so this is a fast index seek.
-        // We sort by (person_id, id) so taking the head N gives a stable choice of distinct_ids per person.
-        const queryString = `SELECT person_id, distinct_id
-            FROM posthog_persondistinctid
-            WHERE team_id = $1 AND person_id = ANY($2::bigint[])
-            ORDER BY person_id ASC, id ASC`
+        const queryString = `SELECT p.id AS person_id, pdi.distinct_id
+            FROM unnest($2::bigint[]) AS p(id)
+            JOIN LATERAL (
+                SELECT distinct_id, id AS pdi_id
+                FROM posthog_persondistinctid
+                WHERE team_id = $1 AND person_id = p.id
+                ORDER BY id ASC
+                LIMIT $3::bigint
+            ) pdi ON true`
 
         const { rows } = await this.postgres.query<{ person_id: string; distinct_id: string }>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
-            [teamId, personIntIds],
+            [teamId, personIntIds, perPersonLimit],
             'fetchDistinctIdsForPersons'
         )
 
@@ -407,9 +413,7 @@ export class PostgresPersonRepository
             const key = String(row.person_id)
             const existing = result[key]
             if (existing) {
-                if (limitPerPerson == null || existing.length < limitPerPerson) {
-                    existing.push(row.distinct_id)
-                }
+                existing.push(row.distinct_id)
             } else {
                 result[key] = [row.distinct_id]
             }
