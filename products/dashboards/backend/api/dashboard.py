@@ -101,7 +101,6 @@ from products.dashboards.backend.widget_registry import (
     normalize_widget_type,
     validate_widget_config,
 )
-from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
