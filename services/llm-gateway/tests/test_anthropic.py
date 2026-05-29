@@ -234,6 +234,29 @@ class TestAnthropicMessagesEndpoint:
         assert data["role"] == "assistant"
         assert data["usage"]["input_tokens"] == 10
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_bare_claude_model_is_prefixed_for_litellm_routing(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-opus-4-8"
+
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",
         [
@@ -475,7 +498,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 200
         call_kwargs = mock_anthropic.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-6"
+        assert call_kwargs["model"] == "anthropic/claude-sonnet-4-6"
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
@@ -1173,7 +1196,7 @@ class TestAnthropicCircuitBreakerIntegration:
 
         assert response.status_code == 200
         forwarded_model = mock_anthropic.call_args.kwargs["model"]
-        assert forwarded_model == "claude-sonnet-4-6"
+        assert forwarded_model == "anthropic/claude-sonnet-4-6"
         breaker.record_outcome.assert_awaited_with(success=True)
         breaker.evaluate.assert_not_called()
 
@@ -1202,7 +1225,7 @@ class TestAnthropicCircuitBreakerIntegration:
 
         assert response.status_code == 200
         forwarded_model = mock_anthropic.call_args.kwargs["model"]
-        assert forwarded_model == "claude-sonnet-4-6"
+        assert forwarded_model == "anthropic/claude-sonnet-4-6"
         breaker.record_outcome.assert_awaited_with(success=True)
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
@@ -1283,9 +1306,9 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         install_breaker,
-        request_body: dict,
         mock_response_dict: dict,
     ) -> None:
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
         breaker = install_breaker(bypass=False)
         error = Exception("rate limited")
         error.status_code = 429  # type: ignore[attr-defined]
@@ -1312,6 +1335,8 @@ class TestAnthropicCircuitBreakerIntegration:
         assert response.status_code == 200
         breaker.record_outcome.assert_awaited_with(success=False)
         assert mock_anthropic.call_count == 2
+        assert mock_anthropic.call_args_list[0].kwargs["model"] == "anthropic/claude-opus-4-8"
+        assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
 
     def test_streaming_success_records_after_stream_completes(
         self,

@@ -9,9 +9,10 @@ from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overr
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.user_admin import UserAdmin
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+
+from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
 
 
 class TestOAuthSidebarRegrouping(BaseTest):

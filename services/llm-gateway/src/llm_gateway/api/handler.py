@@ -49,6 +49,22 @@ OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio
 CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_anthropic_messages")
 CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_chat_completions")
 
+_KNOWN_LITELLM_PROVIDER_PREFIXES = (
+    "anthropic/",
+    "bedrock/",
+    "fireworks_ai/",
+    "openai/",
+    "openrouter/",
+)
+
+
+def normalize_litellm_model_name(model: str, provider: str) -> str:
+    """Add an explicit LiteLLM provider prefix when a provider endpoint receives a bare model ID."""
+    if model.startswith(_KNOWN_LITELLM_PROVIDER_PREFIXES):
+        return model
+    return f"{provider}/{model}"
+
+
 # Block model prefixes that would route to a provider this gateway doesn't intend
 # to call through the generic path. Two reasons:
 # - Google providers require litellm[google] (not installed) and would crash deep

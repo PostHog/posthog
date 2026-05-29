@@ -131,11 +131,6 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
-    {
-        value: 'indexer',
-        label: 'Indexer',
-        description: 'Generates semantic embeddings of the session for free-text search.',
-    },
 ]
 
 export type EditorTab = 'observations' | 'configuration'
@@ -219,20 +214,7 @@ export interface IndexerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | IndexerScanner
 
-export interface VisionUsagePoint {
-    date: string
-    count: number
-}
-
-export interface VisionQuota {
-    used: number
-    limit: number
-    policy: 'block' | 'usage_based'
-    period_start: string
-    period_end: string
-    /** Daily observation counts across the current period. Optional until the backend exposes it. */
-    usage_history?: VisionUsagePoint[]
-}
+export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
 
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.

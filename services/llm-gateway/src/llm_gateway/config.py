@@ -144,6 +144,13 @@ class Settings(BaseSettings):
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 
+    # Optional secondary capture target. When set, every $ai_generation event
+    # is mirrored to this PostHog instance after the primary capture, so the
+    # EU deployment can land EU customer events on EU PostHog (team_id=1)
+    # for the regional billing usage_report to attribute them.
+    posthog_secondary_project_token: str | None = None
+    posthog_secondary_host: str | None = None
+
     metrics_enabled: bool = True
 
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB

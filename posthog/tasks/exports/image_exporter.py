@@ -26,7 +26,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
@@ -153,7 +153,7 @@ def _export_to_png(
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
 
-        access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
+        access_token = get_render_access_token(exported_asset, timedelta(minutes=15))
 
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector

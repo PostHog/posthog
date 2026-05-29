@@ -10,6 +10,7 @@ from llm_gateway.api.handler import (
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
     handle_llm_request,
+    normalize_litellm_model_name,
 )
 from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
@@ -22,13 +23,6 @@ from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, T
 from llm_gateway.products.config import validate_product
 
 openai_router = APIRouter()
-
-
-def _normalize_model_name(model: str) -> str:
-    """Ensure model name has openai/ prefix for litellm routing."""
-    if model.startswith("openai/"):
-        return model
-    return f"openai/{model}"
 
 
 def _is_cloudflare_model(model: str) -> bool:
@@ -80,7 +74,7 @@ async def _handle_responses(
     data = body.model_dump(exclude_none=True)
 
     original_model = body.model
-    normalized_model = _normalize_model_name(original_model)
+    normalized_model = normalize_litellm_model_name(original_model, OPENAI_RESPONSES_CONFIG.name)
     data["model"] = normalized_model
 
     return await handle_llm_request(
@@ -173,7 +167,7 @@ async def _handle_transcription(
             },
         )
 
-    normalized_model = _normalize_model_name(model)
+    normalized_model = normalize_litellm_model_name(model, OPENAI_TRANSCRIPTION_CONFIG.name)
     content = await file.read()
     file_tuple = (file.filename, content, file.content_type or "audio/mpeg")
 

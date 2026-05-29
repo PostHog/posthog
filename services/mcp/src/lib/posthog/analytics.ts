@@ -57,6 +57,9 @@ export type IdentityProvider = {
     getMcpClientName: () => Promise<string | undefined>
     getMcpClientVersion: () => Promise<string | undefined>
     getMcpProtocolVersion: () => Promise<string | undefined>
+    // Per-request `x-anthropic-client` value. Distinct from `mcpClientName`:
+    // tracks the live inner client on pooled MCP transports.
+    getMcpVendorClient: () => Promise<string | undefined>
     getRegion: () => Promise<string | undefined>
     getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
     getClientUserAgent: () => Promise<string | undefined>
@@ -146,6 +149,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         mcpClientName,
         mcpClientVersion,
         mcpProtocolVersion,
+        mcpVendorClient,
         mcpRegion,
         analyticsContext,
         oauthClientName,
@@ -161,6 +165,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         identity.getMcpClientName(),
         identity.getMcpClientVersion(),
         identity.getMcpProtocolVersion(),
+        identity.getMcpVendorClient(),
         identity.getRegion(),
         identity.getAnalyticsContext(),
         identity.getOAuthClientName(),
@@ -183,6 +188,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         $mcp_client_user_agent: clientUserAgent,
         $mcp_client_name: mcpClientName,
         $mcp_client_version: mcpClientVersion,
+        mcp_vendor_client: mcpVendorClient,
         $mcp_protocol_version: mcpProtocolVersion,
         $mcp_region: mcpRegion,
         $mcp_organization_id: analyticsContext?.organizationId,

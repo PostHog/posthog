@@ -16,6 +16,7 @@ from llm_gateway.api.handler import (
     CLOUDFLARE_ANTHROPIC_CONFIG,
     _sanitize_request_data,
     handle_llm_request,
+    normalize_litellm_model_name,
 )
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
@@ -244,9 +245,11 @@ async def _handle_anthropic_messages(
     if await _maybe_bypass_anthropic(breaker, body.model, product, use_bedrock_fallback=use_bedrock_fallback):
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
 
+    litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
+
     try:
         result = await handle_llm_request(
-            request_data=data,
+            request_data=litellm_data,
             user=user,
             model=body.model,
             is_streaming=body.stream or False,
