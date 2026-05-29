@@ -240,6 +240,21 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 },
             },
         ],
+        // Tracks which trace IDs were actually fetched. `fullTraces[id]` can
+        // hold an entry with `events: []` without having been loaded, so it
+        // can't double as the "loaded?" check.
+        loadedTraceIds: [
+            new Set<string>() as Set<string>,
+            {
+                loadAllSessionEventsSuccess: (state, { tracesWithEvents }) => {
+                    const next = new Set(state)
+                    for (const trace of tracesWithEvents) {
+                        next.add(trace.id)
+                    }
+                    return next
+                },
+            },
+        ],
         bulkLoading: [
             false,
             {
@@ -339,6 +354,11 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 actions.loadAllSessionEventsSuccess([])
                 return
             }
+            // Snapshot the trace set this invocation commits to loading. Pagination
+            // can extend `values.traces` while we're awaiting; those new traces
+            // are picked up by the tail check after success — not silently mixed
+            // into this invocation's result with empty events.
+            const initialTraces = values.traces
             // Primary path: ai_events. Sort key (team_id, trace_id, timestamp) + bloom_filter
             // on session_id; the bulk-stripped heavy AI props live in dedicated columns here
             // (events.properties no longer carries them on rolled-out teams).
@@ -384,7 +404,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 // Two cases:
                 // 1. Entirely older session
                 // 2. Long-lived session with some recent and some old traces
-                const missingTraces = values.traces.filter((trace) => !(trace.id in grouped))
+                const missingTraces = initialTraces.filter((trace) => !(trace.id in grouped))
                 if (missingTraces.length > 0) {
                     const fallbackQuery = buildEventsFallbackQuery(sessionId, missingTraces)
                     if (fallbackQuery) {
@@ -400,11 +420,17 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 }
                 // Fallback to `[]` covers the rare case where a trace's
                 // events were truncated by the LIMIT.
-                const tracesWithEvents = values.traces.map((trace) => ({
+                const tracesWithEvents = initialTraces.map((trace) => ({
                     ...trace,
                     events: grouped[trace.id] ?? [],
                 }))
                 actions.loadAllSessionEventsSuccess(tracesWithEvents)
+                // Pagination during the awaits above grew `values.traces` beyond
+                // our snapshot. The `traces` subscription won't refire (reference
+                // unchanged since pagination), so re-trigger here.
+                if (values.traces.some((t: LLMTrace) => !values.loadedTraceIds.has(t.id))) {
+                    actions.loadAllSessionEvents()
+                }
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Unknown error'
                 console.error('Error loading bulk session events:', error)
@@ -474,7 +500,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 actions.loadCachedSummaries(traces.map((t) => t.id))
             }
             // Fire bulk fetch on initial mount and on pagination
-            const hasUnloadedTrace = traces.some((t) => !values.fullTraces[t.id])
+            const hasUnloadedTrace = traces.some((t) => !values.loadedTraceIds.has(t.id))
             if (!values.bulkLoading && hasUnloadedTrace) {
                 actions.loadAllSessionEvents()
             }

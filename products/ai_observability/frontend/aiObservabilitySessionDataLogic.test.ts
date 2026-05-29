@@ -542,6 +542,53 @@ describe('aiObservabilitySessionDataLogic — bulk session-events loader', () =>
         expect(eventsCall).toBeUndefined()
     })
 
+    it('refires loadAllSessionEvents when pagination adds traces during an in-flight load', async () => {
+        // Pagination lands between the first invocation's two awaits; the new
+        // trace must end up loaded, not stuck with empty events.
+        const initial = [traceSummary('trace-1')]
+
+        let resolveAiEvents: (value: any) => void = () => {}
+        const aiEventsPending = new Promise((resolve) => {
+            resolveAiEvents = resolve
+        })
+        let resolveFallback: (value: any) => void = () => {}
+        const fallbackPending = new Promise((resolve) => {
+            resolveFallback = resolve
+        })
+
+        mockApi.query
+            .mockReturnValueOnce(aiEventsPending as any)
+            .mockReturnValueOnce(fallbackPending as any)
+            // Refire's ai_events covers both traces.
+            .mockResolvedValueOnce({
+                results: [
+                    ['trace-1', 'evt-1', '$ai_generation', '2026-05-01T00:00:00.000Z', '{}'],
+                    ['trace-2', 'evt-2', '$ai_generation', '2026-05-01T00:00:00.000Z', '{}'],
+                ],
+            } as any)
+
+        const props = buildProps({ cachedResults: buildCachedResults(initial) })
+        logic = aiObservabilitySessionDataLogic(props)
+        logic.mount()
+
+        // Empty ai_events → fallback runs, giving us a second await to interleave on.
+        resolveAiEvents({ results: [] })
+        await new Promise((r) => setTimeout(r, 0))
+
+        const node = dataNode(props)
+        node.actions.setResponse({
+            results: [traceSummary('trace-1'), traceSummary('trace-2')].reverse(),
+        } as any)
+
+        resolveFallback({
+            results: [['trace-1', 'evt-1', '$ai_generation', '2026-05-01T00:00:00.000Z', '{}']],
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fullTraces['trace-1'].events).toHaveLength(1)
+        expect(logic.values.fullTraces['trace-2'].events).toHaveLength(1)
+    })
+
     it('loadAllSessionEvents handles empty results without erroring', async () => {
         const traces = [traceSummary('trace-1'), traceSummary('trace-2')]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })
