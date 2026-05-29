@@ -435,6 +435,12 @@ ignore_errors = true
 module = "posthog.hogql.grammar.*"
 ignore_errors = true
 
+# Research/profiling code from the nextgensquash trial — pyinstrument/py-spy
+# wrappers do dynamic method swaps that don't fit the static stubs.
+[[tool.mypy.overrides]]
+module = "posthog.management.migration_profiling.*"
+ignore_errors = true
+
 [[tool.mypy.overrides]]
 module = "posthog.tasks.*"
 disallow_untyped_defs = true

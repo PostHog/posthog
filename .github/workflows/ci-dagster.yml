@@ -320,24 +320,14 @@ jobs:
                   key: ${{ needs.changes.outputs.schema_cache_key }}
 
             - name: Prime test_posthog and posthog from cached schema (PR)
-              # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
-              # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
-              # keepdb=True path layers any PR-added migrations on top.
-              # On cache miss, fall through to a full migrate so migrate_clickhouse works.
-              # TEMP: nextgensquash trial — `false &&` forces fall-through to a full
-              # migrate so squash effect on cold runs is measurable. Revert before merge.
-              if: ${{ false && github.event_name == 'pull_request' }}
+              # TEMP: nextgensquash trial — force a full Django migrate instead of
+              # restoring the master schema cache (our PR's schema diverges). The
+              # migrate also populates the prod-style `posthog` db so
+              # migrate_clickhouse can read posthog_instancesetting.
+              if: ${{ github.event_name == 'pull_request' }}
               run: |
-                  if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — falling through to full migrate"
-                      python manage.py migrate
-                      exit 0
-                  fi
-                  mkdir -p .postgres-backups
-                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
-                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
+                  echo "::notice::nextgensquash trial — running full Django migrate"
+                  python manage.py migrate
 
             - name: Run Django migrations (master)
               # Master pushes don't restore from cache (the artifact-producing run
