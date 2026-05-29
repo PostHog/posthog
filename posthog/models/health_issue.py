@@ -160,28 +160,28 @@ class HealthIssue(UUIDModel):
         # team_id sets.
         kind_lock_key = int.from_bytes(hashlib.sha256(kind.encode()).digest()[:4], "big", signed=True)
 
+        # Teams can be deleted between the workflow's team-ID snapshot and
+        # this upsert. A missing team would trigger a deferred FK violation
+        # at COMMIT and roll back every row in the batch, not just the
+        # orphan — so drop incoming rows for teams that no longer exist.
+        team_ids = _filter_existing_team_ids({tid for tid, _ in incoming}, kind=kind, log_event="bulk_upsert")
+        if not team_ids:
+            return []
+
+        # Drop incoming rows for teams that no longer exist
+        incoming = {key: value for key, value in incoming.items() if key[0] in team_ids}
+
         with transaction.atomic():
             with connection.cursor() as cursor:
-                for team_id in sorted({tid for tid, _ in incoming}):
+                for team_id in sorted(team_ids):
                     cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [kind_lock_key, team_id])
-
-            # Teams can be deleted between the workflow's team-ID snapshot and
-            # this upsert. A missing team would trigger a deferred FK violation
-            # at COMMIT and roll back every row in the batch, not just the
-            # orphan — so drop incoming rows for teams that no longer exist.
-            existing_team_ids = _filter_existing_team_ids(
-                {tid for tid, _ in incoming}, kind=kind, log_event="bulk_upsert"
-            )
-            if not existing_team_ids:
-                return []
-            incoming = {key: value for key, value in incoming.items() if key[0] in existing_team_ids}
 
             existing_issues = {
                 (issue.team_id, issue.unique_hash): issue
                 for issue in cls.objects.filter(
                     kind=kind,
                     status=cls.Status.ACTIVE,
-                    team_id__in={tid for tid, _ in incoming},
+                    team_id__in=team_ids,
                     unique_hash__in={h for _, h in incoming},
                 )
             }
