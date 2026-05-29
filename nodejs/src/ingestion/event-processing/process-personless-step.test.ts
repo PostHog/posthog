@@ -283,7 +283,7 @@ describe('createProcessPersonlessStep', () => {
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
+            expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id, 0)
         })
     })
 

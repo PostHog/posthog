@@ -303,6 +303,9 @@ export class IngestionConsumer {
     }
 
     public async stop(): Promise<void> {
+        if (this.isStopping) {
+            return
+        }
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
