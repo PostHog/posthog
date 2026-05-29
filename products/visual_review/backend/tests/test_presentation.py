@@ -194,6 +194,71 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # Per-snapshot approval is DB only — run not finalized
         self.assertFalse(response.json()["run"]["approved"])
 
+    def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
+        """Set up a run with a single CHANGED snapshot and return (run_id, snapshot_id)."""
+        logic.get_or_create_artifact(
+            repo_id=self.vr_project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
+        )
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
+            team_id=self.team.id,
+        )
+        snapshot = RunSnapshot.objects.get(run_id=create_result.run_id, identifier="Button")
+        # The diff pipeline normally classifies the snapshot — short-circuit it here
+        # so the test stays a permission-boundary test rather than an integration test.
+        snapshot.result = SnapshotResult.CHANGED
+        snapshot.save(update_fields=["result"])
+        return str(create_result.run_id), str(snapshot.id)
+
+    def test_mark_tolerated_via_session_auth(self):
+        run_id, snapshot_id = self._changed_snapshot_for_tolerate()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/tolerate/",
+            {"snapshot_id": snapshot_id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_mark_tolerated_via_personal_api_key_with_write_scope(self):
+        """Regression: tolerate must be reachable from personal API keys (MCP path)."""
+        run_id, snapshot_id = self._changed_snapshot_for_tolerate()
+        key = self.create_personal_api_key_with_scopes(["visual_review:write"])
+
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/tolerate/",
+            {"snapshot_id": snapshot_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_mark_tolerated_via_personal_api_key_with_read_scope_is_forbidden(self):
+        run_id, snapshot_id = self._changed_snapshot_for_tolerate()
+        key = self.create_personal_api_key_with_scopes(["visual_review:read"])
+
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/tolerate/",
+            {"snapshot_id": snapshot_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
     def _seed_history_row(
         self,
         sha: str,
