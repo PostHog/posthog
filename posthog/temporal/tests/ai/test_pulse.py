@@ -1,10 +1,13 @@
 import math
+import asyncio
+import inspect
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.ai.pulse import narrative
+from posthog.temporal.ai.pulse import detection, narrative, selection
 from posthog.temporal.ai.pulse.detection import (
     MIN_BASELINE_VALUE,
     _compute_impact,
@@ -12,8 +15,47 @@ from posthog.temporal.ai.pulse.detection import (
     _evaluate_candidate,
     _extract_weekly_series,
 )
-from posthog.temporal.ai.pulse.narrative import _pick_top_contributor
-from posthog.temporal.ai.pulse.types import CandidateMetric, Finding, MetricDescriptor
+from posthog.temporal.ai.pulse.narrative import (
+    NARRATIVE_MAX_TOKENS,
+    NARRATIVE_MODEL,
+    NARRATIVE_TIMEOUT_SECONDS,
+    _attribute_finding,
+    _enrich_one,
+    _fallback_narrative,
+    _generate_narrative,
+    _pick_top_contributor,
+    enrich_findings,
+)
+from posthog.temporal.ai.pulse.types import (
+    CandidateMetric,
+    EnrichedFinding,
+    EnrichFindingsInputs,
+    Finding,
+    MetricDescriptor,
+)
+
+
+def _finding(*, impact: float, robust_z: float, label: str) -> Finding:
+    return Finding(
+        descriptor=MetricDescriptor(source="top_event", source_id=1, label=label, query={"kind": "TrendsQuery"}),
+        current_value=50.0,
+        baseline_value=100.0,
+        change_pct=-0.5,
+        impact=impact,
+        robust_z=robust_z,
+    )
+
+
+def _make_enriched(f: Finding) -> EnrichedFinding:
+    return EnrichedFinding(
+        descriptor=f.descriptor,
+        current_value=f.current_value,
+        baseline_value=f.baseline_value,
+        change_pct=f.change_pct,
+        impact=f.impact,
+        robust_z=f.robust_z,
+        narrative="x",
+    )
 
 
 def _make_candidate() -> CandidateMetric:
@@ -161,3 +203,122 @@ class TestRankByImpact:
         # Confirms the sort key the module uses is impact, not robust_z.
         assert ranked[0].descriptor.label == "high_impact_low_z"
         assert narrative.enrich_findings.__module__ == "posthog.temporal.ai.pulse.narrative"
+
+
+class TestNarrativeModelConstant:
+    def test_model_constant_is_gpt5_mini(self):
+        assert NARRATIVE_MODEL == "gpt-5-mini"
+
+
+class TestGenerateNarrativeRoutesThroughMaxChatOpenAI:
+    @pytest.mark.asyncio
+    async def test_constructs_maxchatopenai_with_constants(self):
+        fake_user = MagicMock(name="service_user")
+        fake_team = MagicMock(name="team")
+        fake_chain = MagicMock()
+        fake_chain.ainvoke = AsyncMock(return_value="  $pageview is down 50% this week.  ")
+
+        with (
+            patch("posthog.temporal.ai.pulse.narrative.MaxChatOpenAI") as mock_llm_cls,
+            patch("posthog.temporal.ai.pulse.narrative.StrOutputParser"),
+        ):
+            mock_llm_cls.return_value.__or__ = MagicMock(return_value=fake_chain)
+            result = await _generate_narrative(
+                fake_team, fake_user, _finding(impact=10.0, robust_z=4.0, label="$pageview"), attribution=None
+            )
+
+        assert result == "$pageview is down 50% this week."
+        kwargs = mock_llm_cls.call_args.kwargs
+        assert kwargs["model"] == NARRATIVE_MODEL
+        assert kwargs["max_tokens"] == NARRATIVE_MAX_TOKENS
+        assert kwargs["request_timeout"] == NARRATIVE_TIMEOUT_SECONDS
+        assert kwargs["user"] is fake_user
+        assert kwargs["team"] is fake_team
+        assert kwargs["inject_context"] is False
+        assert kwargs["posthog_properties"]["ai_product"] == "pulse"
+
+
+class TestEnrichFindingsRanksByImpact:
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.pulse.narrative._enrich_one", new_callable=AsyncMock)
+    @patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async")
+    async def test_ranks_by_impact_not_robust_z(self, mock_db_wrap, mock_enrich_one):
+        async def _fake_resolve():
+            return (MagicMock(), MagicMock())
+
+        # database_sync_to_async is used as @decorator(fn) -> wrapped; the wrapped call returns the coroutine.
+        mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
+        mock_enrich_one.side_effect = lambda team, user, f, *a: _make_enriched(f)
+
+        low_impact = _finding(impact=1.0, robust_z=9.0, label="low")
+        high_impact = _finding(impact=100.0, robust_z=2.0, label="high")
+
+        out = await enrich_findings(team_id=1, user_id=None, findings=[low_impact, high_impact], max_findings=1)
+
+        assert len(out) == 1
+        assert out[0].descriptor.label == "high"  # ranked by impact, not robust_z
+
+
+class TestEnrichOneFallsBackOnLLMError:
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock)
+    @patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock)
+    async def test_uses_fallback_when_llm_raises(self, mock_generate, mock_attribute):
+        mock_attribute.return_value = None
+        mock_generate.side_effect = TimeoutError("openai timed out")
+        finding = _finding(impact=10.0, robust_z=4.0, label="$pageview")
+
+        result = await _enrich_one(
+            team=MagicMock(id=1),
+            user=MagicMock(),
+            finding=finding,
+            enrichment_semaphore=asyncio.Semaphore(1),
+            attribution_semaphore=asyncio.Semaphore(1),
+        )
+
+        assert result.narrative == _fallback_narrative(finding)
+        assert result.attribution_breakdown is None
+        assert result.impact == 10.0
+        assert result.robust_z == 4.0
+
+
+class TestPureStagesHaveNoLLM:
+    @parameterized.expand(
+        [
+            ("detection", detection),
+            ("selection", selection),
+        ]
+    )
+    def test_module_source_has_no_llm_client(self, _name, module):
+        src = inspect.getsource(module)
+        assert "ChatOpenAI" not in src
+        assert "MaxChatOpenAI" not in src
+        assert "langchain_openai" not in src
+
+    @parameterized.expand(
+        [
+            ("attribution", _attribute_finding),
+            ("top_contributor", _pick_top_contributor),
+        ]
+    )
+    def test_attribution_helpers_have_no_llm_client(self, _name, fn):
+        src = inspect.getsource(fn)
+        assert "ChatOpenAI" not in src
+        assert "MaxChatOpenAI" not in src
+
+
+class TestEnrichInputsCarryServiceUser:
+    @parameterized.expand(
+        [
+            ("with_creator", 42, 42),
+            ("no_creator", None, None),
+        ]
+    )
+    def test_user_id_propagated(self, _name, created_by_id, expected):
+        inputs = EnrichFindingsInputs(
+            team_id=7,
+            user_id=created_by_id,
+            findings=[_finding(impact=1.0, robust_z=2.0, label="$pageview")],
+            max_findings=5,
+        )
+        assert inputs.user_id == expected
