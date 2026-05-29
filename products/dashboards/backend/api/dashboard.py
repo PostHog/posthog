@@ -472,12 +472,14 @@ class MoveTileRequestSerializer(serializers.Serializer):
     tile = MoveTileTileSerializer(help_text="Tile to move, identified by its dashboard tile ID.")
 
 
-class AddDashboardWidgetRequestSerializer(serializers.Serializer):
+class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
     widget_type = serializers.CharField(
         max_length=64,
         help_text=WIDGET_TYPE_API_HELP,
     )
     config = serializers.JSONField(
+        required=False,
+        default=dict,
         help_text=(
             "Widget-specific configuration JSON. Shape depends on widget_type; "
             "see config_schema_hints in dashboard-widget-catalog-list "
@@ -496,6 +498,16 @@ class AddDashboardWidgetRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional markdown description shown when show_description is enabled.",
     )
+
+
+class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
+    config = serializers.JSONField(
+        help_text=(
+            "Widget-specific configuration JSON. Shape depends on widget_type; "
+            "see config_schema_hints in dashboard-widget-catalog-list "
+            f"(currently: {', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+        ),
+    )
     layouts = serializers.JSONField(
         required=False,
         help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
@@ -503,6 +515,18 @@ class AddDashboardWidgetRequestSerializer(serializers.Serializer):
     show_description = serializers.BooleanField(
         required=False,
         help_text="Whether to show the description on the dashboard tile.",
+    )
+
+
+class DashboardPatchWidgetSerializer(DashboardWidgetCoreRequestSerializer):
+    widget_type = serializers.CharField(
+        max_length=64,
+        required=False,
+        help_text=WIDGET_TYPE_API_HELP,
+    )
+    id = serializers.UUIDField(
+        required=False,
+        help_text="Existing widget row ID when updating a widget tile via dashboard PATCH.",
     )
 
 
@@ -1317,6 +1341,39 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return serializers.ValidationError({"widget": detail})
 
     @staticmethod
+    def _validated_patch_widget_payload(widget_json: dict[str, Any]) -> dict[str, Any]:
+        allowed_keys = ("id", "widget_type", "config", "name", "description")
+        payload = {key: widget_json[key] for key in allowed_keys if key in widget_json}
+        serializer = DashboardPatchWidgetSerializer(data=payload)
+        if not serializer.is_valid():
+            raise serializers.ValidationError({"widget": serializer.errors})
+        return cast(dict[str, Any], serializer.validated_data)
+
+    @staticmethod
+    def _apply_patch_widget_update(
+        *,
+        widget: DashboardWidget,
+        widget_data: dict[str, Any],
+        user: User,
+        user_access_control: UserAccessControl,
+    ) -> None:
+        DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
+        patch_widget_type = widget_data.get("widget_type")
+        if patch_widget_type is not None and normalize_widget_type(str(patch_widget_type)) != normalize_widget_type(
+            widget.widget_type
+        ):
+            raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
+
+        widget.config = validate_widget_config(widget.widget_type, widget_data.get("config", {}))
+        if "name" in widget_data:
+            widget.name = widget_data["name"] or None
+        if "description" in widget_data:
+            widget.description = widget_data["description"]
+        widget.last_modified_by = user
+        widget.last_modified_at = now()
+        widget.save()
+
+    @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
@@ -1453,58 +1510,33 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return "button", created, None
         elif tile_data.get("widget", None):
             widget_json: dict = tile_data.get("widget", {})
-            widget_type = widget_json.get("widget_type")
-            if not widget_type:
-                raise serializers.ValidationError({"widget": "widget_type is required."})
+            widget_data = DashboardSerializer._validated_patch_widget_payload(widget_json)
 
             if not dashboard_widgets_enabled(instance.team_id):
                 raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
 
-            config = widget_json.get("config", {})
-            if not isinstance(config, dict):
-                raise serializers.ValidationError({"widget": "config must be an object."})
-
             user_access_control = UserAccessControl(user=user, team=instance.team)
+            existing_widget_id = widget_data.get("id")
 
-            created_by = user
-            last_modified_by = user
-
-            widget_name = widget_json.get("name")
-            if widget_name is not None and not isinstance(widget_name, str):
-                raise serializers.ValidationError({"widget": "name must be a string."})
-            if widget_name is not None and len(widget_name) > 400:
-                raise serializers.ValidationError({"widget": "name must be at most 400 characters."})
-
-            widget_description = widget_json.get("description")
-            if widget_description is not None and not isinstance(widget_description, str):
-                raise serializers.ValidationError({"widget": "description must be a string."})
-
-            existing_widget_id = widget_json.get("id", None)
             if existing_widget_id:
                 try:
                     widget = DashboardWidget.objects.get(id=existing_widget_id, team_id=instance.team_id)
                     if not DashboardTile.objects.filter(dashboard=instance, widget_id=existing_widget_id).exists():
                         raise serializers.ValidationError({"widget": "Widget tile not found."})
-                    DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
-                    if normalize_widget_type(str(widget_type)) != normalize_widget_type(widget.widget_type):
-                        raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
-                    config = validate_widget_config(widget.widget_type, config)
-                    if widget_name is not None:
-                        widget.name = widget_name or None
-                    if widget_description is not None:
-                        widget.description = widget_description
-                    widget.config = config
-                    widget.last_modified_by = last_modified_by
-                    widget.last_modified_at = now()
-                    widget.save()
+                    DashboardSerializer._apply_patch_widget_update(
+                        widget=widget,
+                        widget_data=widget_data,
+                        user=user,
+                        user_access_control=user_access_control,
+                    )
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
             else:
                 try:
                     canonical_widget_type, config = prepare_widget_tile_create(
                         team_id=instance.team_id,
-                        widget_type=str(widget_type),
-                        config=config,
+                        widget_type=str(widget_data["widget_type"]),
+                        config=widget_data.get("config", {}),
                         user_access_control=user_access_control,
                     )
                 except serializers.ValidationError as exc:
@@ -1513,11 +1545,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 widget = DashboardWidget.objects.create(
                     team_id=instance.team_id,
                     widget_type=canonical_widget_type,
-                    name=widget_name or None,
-                    description=widget_description or "",
+                    name=widget_data.get("name") or None,
+                    description=widget_data.get("description", ""),
                     config=config,
-                    created_by=created_by,
-                    last_modified_by=last_modified_by,
+                    created_by=user,
+                    last_modified_by=user,
                 )
             _, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
             return "widget", created, widget.widget_type
