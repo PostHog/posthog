@@ -18,10 +18,8 @@ const REBUILD_ALL_FILES: &[&str] = &[
 
 const REBUILD_ALL_PREFIXES: &[&str] = &["rust/.cargo/", "rust/.sqlx/"];
 
-const EXTERNAL_CRATE_TRIGGERS: &[(&str, &[&str])] = &[(
-    "proto/",
-    &["personhog-proto", "kafka-assigner-proto"],
-)];
+const EXTERNAL_CRATE_TRIGGERS: &[(&str, &[&str])] =
+    &[("proto/", &["personhog-proto", "kafka-assigner-proto"])];
 
 const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
     "sqlx-migrate",
@@ -156,10 +154,7 @@ fn apply_field(config: &mut ImageConfig, line: &str) {
 
 // ── Graph construction ─────────────────────────────────────────────
 
-fn build_directory_to_crate_map(
-    metadata: &Metadata,
-    repo_root: &Path,
-) -> HashMap<String, String> {
+fn build_directory_to_crate_map(metadata: &Metadata, repo_root: &Path) -> HashMap<String, String> {
     let members: HashSet<_> = metadata.workspace_members.iter().collect();
     let repo_root_str = repo_root.to_string_lossy();
 
@@ -295,7 +290,10 @@ fn walk_reverse_deps(
 fn non_crate_images_affected(files: &[String]) -> Vec<String> {
     let mut result = Vec::new();
     for &(image, prefixes) in NON_CRATE_IMAGE_TRIGGERS {
-        if files.iter().any(|f| prefixes.iter().any(|p| f.starts_with(p))) {
+        if files
+            .iter()
+            .any(|f| prefixes.iter().any(|p| f.starts_with(p)))
+        {
             result.push(image.to_string());
         }
     }
@@ -436,11 +434,7 @@ fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
     for crate_name in &crate_names {
         let seeds = HashSet::from([crate_name.to_string()]);
         let affected = walk_reverse_deps(&seeds, &reverse);
-        let affected_images = map_crates_to_images(
-            &affected,
-            &bin_to_crate,
-            images,
-        );
+        let affected_images = map_crates_to_images(&affected, &bin_to_crate, images);
         let dep_count = affected.len() - 1;
         if dep_count > 2 {
             impacts.push((crate_name.as_str(), dep_count, affected_images));
@@ -488,9 +482,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let repo_root = find_repo_root()?;
-    let workspace_dir = cli
-        .workspace_dir
-        .unwrap_or_else(|| repo_root.join("rust"));
+    let workspace_dir = cli.workspace_dir.unwrap_or_else(|| repo_root.join("rust"));
     let images_file = cli
         .images_file
         .unwrap_or_else(|| repo_root.join(".github/rust-images.yml"));
@@ -543,28 +535,20 @@ mod tests {
 
     #[test]
     fn rebuild_all_on_cargo_lock() {
-        let (_, rebuild) = classify_changed_files(
-            &["rust/Cargo.lock".into()],
-            &dir_map(),
-        );
+        let (_, rebuild) = classify_changed_files(&["rust/Cargo.lock".into()], &dir_map());
         assert!(rebuild);
     }
 
     #[test]
     fn rebuild_all_on_cargo_config() {
-        let (_, rebuild) = classify_changed_files(
-            &["rust/.cargo/config.toml".into()],
-            &dir_map(),
-        );
+        let (_, rebuild) = classify_changed_files(&["rust/.cargo/config.toml".into()], &dir_map());
         assert!(rebuild);
     }
 
     #[test]
     fn maps_file_to_owning_crate() {
-        let (changed, rebuild) = classify_changed_files(
-            &["rust/capture/src/main.rs".into()],
-            &dir_map(),
-        );
+        let (changed, rebuild) =
+            classify_changed_files(&["rust/capture/src/main.rs".into()], &dir_map());
         assert!(!rebuild);
         assert_eq!(changed, HashSet::from(["capture".into()]));
     }
@@ -573,19 +557,14 @@ mod tests {
     fn longest_prefix_wins() {
         let mut map = dir_map();
         map.insert("rust/common".into(), "common-parent".into());
-        let (changed, _) = classify_changed_files(
-            &["rust/common/kafka/src/lib.rs".into()],
-            &map,
-        );
+        let (changed, _) = classify_changed_files(&["rust/common/kafka/src/lib.rs".into()], &map);
         assert_eq!(changed, HashSet::from(["common-kafka".into()]));
     }
 
     #[test]
     fn external_trigger_maps_proto_to_crates() {
-        let (changed, rebuild) = classify_changed_files(
-            &["proto/personhog.proto".into()],
-            &dir_map(),
-        );
+        let (changed, rebuild) =
+            classify_changed_files(&["proto/personhog.proto".into()], &dir_map());
         assert!(!rebuild);
         assert!(changed.contains("personhog-proto"));
         assert!(changed.contains("kafka-assigner-proto"));
@@ -594,16 +573,16 @@ mod tests {
     #[test]
     fn transitive_walk() {
         let reverse = HashMap::from([
-            ("common-kafka".into(), HashSet::from(["capture".into(), "cymbal".into()])),
+            (
+                "common-kafka".into(),
+                HashSet::from(["capture".into(), "cymbal".into()]),
+            ),
             ("capture".into(), HashSet::from(["capture-logs".into()])),
             ("cymbal".into(), HashSet::new()),
             ("capture-logs".into(), HashSet::new()),
         ]);
 
-        let affected = walk_reverse_deps(
-            &HashSet::from(["common-kafka".into()]),
-            &reverse,
-        );
+        let affected = walk_reverse_deps(&HashSet::from(["common-kafka".into()]), &reverse);
 
         assert_eq!(
             affected,
@@ -628,17 +607,13 @@ mod tests {
 
     #[test]
     fn non_crate_migration_trigger() {
-        let affected = non_crate_images_affected(
-            &["rust/persons_migrations/new.sql".into()],
-        );
+        let affected = non_crate_images_affected(&["rust/persons_migrations/new.sql".into()]);
         assert_eq!(affected, vec!["sqlx-migrate"]);
     }
 
     #[test]
     fn non_crate_no_false_positives() {
-        let affected = non_crate_images_affected(
-            &["rust/capture/src/main.rs".into()],
-        );
+        let affected = non_crate_images_affected(&["rust/capture/src/main.rs".into()]);
         assert!(affected.is_empty());
     }
 
@@ -651,9 +626,18 @@ mod tests {
             ("capture".into(), "capture".into()),
         ]);
         let images = vec![
-            ImageConfig { image: "feature-flags".into(), bin: None },
-            ImageConfig { image: "flags-cache-warmer".into(), bin: Some("warm-flags-cache".into()) },
-            ImageConfig { image: "capture".into(), bin: None },
+            ImageConfig {
+                image: "feature-flags".into(),
+                bin: None,
+            },
+            ImageConfig {
+                image: "flags-cache-warmer".into(),
+                bin: Some("warm-flags-cache".into()),
+            },
+            ImageConfig {
+                image: "capture".into(),
+                bin: None,
+            },
         ];
 
         let result = map_crates_to_images(&affected, &bin_to_crate, &images);
