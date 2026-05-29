@@ -125,10 +125,27 @@ export function toWire(entry: LogEntry): LogEntryWire {
         log_source: AGENT_SESSION_LOG_SOURCE,
         log_source_id: entry.application_id,
         instance_id: entry.session_id,
-        timestamp: entry.ts,
+        timestamp: toClickhouseDateTime64(entry.ts),
         level: LEVEL_MAP[entry.level],
         message,
     }
+}
+
+/**
+ * CH `DateTime64(6, 'UTC')` parser (used by the Kafka engine on read)
+ * rejects the `T...Z` ISO suffix. Convert to the form CH actually
+ * accepts: `YYYY-MM-DD HH:MM:SS.uuuuuu`. Inputs are ISO-8601 strings
+ * (millisecond precision); we right-pad to microsecond precision.
+ */
+export function toClickhouseDateTime64(iso: string): string {
+    // 2026-05-29T12:55:58.532Z → 2026-05-29 12:55:58.532000
+    const stripped = iso.replace('T', ' ').replace(/Z$/, '')
+    const dotIdx = stripped.indexOf('.')
+    if (dotIdx === -1) {
+        return `${stripped}.000000`
+    }
+    const fractional = stripped.slice(dotIdx + 1)
+    return `${stripped.slice(0, dotIdx)}.${fractional.padEnd(6, '0').slice(0, 6)}`
 }
 
 /* -------------------------------------------------------------------------- */
@@ -217,7 +234,12 @@ export class KafkaLogSink implements LogSink {
 
     private async doConnect(): Promise<void> {
         // Lazy import so dev / test code paths don't need a native librdkafka.
-        const rdkafka = await import('node-rdkafka')
+        // node-rdkafka ships as CommonJS so the namespace import lands the
+        // exports on `.default` under Node's ESM/CJS interop — fall back if
+        // future versions switch to a real ESM build.
+        const mod = await import('node-rdkafka')
+        const rdkafka: typeof import('node-rdkafka') =
+            (mod as unknown as { default?: typeof import('node-rdkafka') }).default ?? mod
         const merged: ProducerGlobalConfig = {
             ...DEFAULT_PRODUCER_CONFIG,
             'metadata.broker.list': this.opts.brokers,

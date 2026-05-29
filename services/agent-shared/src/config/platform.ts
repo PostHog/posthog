@@ -56,6 +56,12 @@ export const PlatformConfigSchema = z.object({
         .describe(
             'Comma-separated UTF-8 Fernet keys. Matches Django EncryptedTextField. When unset, secret resolvers are noops.'
         ),
+    kafkaHosts: z
+        .string()
+        .default('localhost:9092')
+        .describe(
+            'Comma-separated Kafka brokers. The runner ships structured per-turn events into the `log_entries` topic via KafkaLogSink. Default is the standard local PostHog kafka.'
+        ),
     logLevel: z
         .enum(['debug', 'info', 'warn', 'error', 'fatal'])
         .default('info')
@@ -74,6 +80,7 @@ export const PLATFORM_ENV_KEY_MAP: Record<string, keyof PlatformConfig> = {
     AGENT_BUNDLE_ROOT: 'bundleRoot',
     REDIS_URL: 'redisUrl',
     ENCRYPTION_SALT_KEYS: 'encryptionSaltKeys',
+    KAFKA_HOSTS: 'kafkaHosts',
     LOG_LEVEL: 'logLevel',
 }
 

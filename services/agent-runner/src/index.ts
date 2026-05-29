@@ -29,6 +29,7 @@ import {
     EncryptedFields,
     FsBundleStore,
     installProcessHandlers,
+    KafkaLogSink,
     NoopAnalyticsSink,
     NoopSessionEventBus,
     PgRevisionStore,
@@ -83,6 +84,22 @@ async function main(): Promise<void> {
         bus = redis
     }
 
+    // Structured per-turn log sink. Every session lifecycle event the
+    // runner emits is also shipped to the shared `log_entries` CH table
+    // via Kafka, so the console's session-detail page can render them.
+    // Connect at boot — failing here is louder than silently dropping
+    // logs into a NoopLogSink in prod. Local dev: PostHog's flox env
+    // brings up Kafka on `localhost:9092` by default.
+    const logSink = new KafkaLogSink({
+        brokers: config.kafkaHosts,
+        logger: {
+            info: (m, x) => log.info(x ?? {}, m),
+            warn: (m, x) => log.warn(x ?? {}, m),
+            error: (m, x) => log.error(x ?? {}, m),
+        },
+    })
+    await logSink.connect()
+
     // LLM analytics sink. Captures `$ai_generation` per pi-ai call and
     // `$ai_span` per tool dispatch via PostHog's standard ingestion path
     // (posthog-node /capture) — events land directly in `ai_events` with
@@ -108,6 +125,7 @@ async function main(): Promise<void> {
         pi: new PiAiClient(defaultApiKey),
         broker: new SecretBroker(),
         bus,
+        logs: logSink,
         resolveIntegrations: async () => ({}),
         resolveSecrets,
         resolveModel: config.useLlmGateway
@@ -148,6 +166,7 @@ async function main(): Promise<void> {
     if (analytics instanceof CaptureAnalyticsSink) {
         await analytics.shutdown()
     }
+    await logSink.disconnect()
     await Promise.all([posthogDb.end(), agentDb.end()])
     log.info({}, 'stopped cleanly')
 }
