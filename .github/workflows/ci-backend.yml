@@ -121,6 +121,13 @@ jobs:
                         - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
+                        # Each product's package.json declares the per-product
+                        # backend:test script that turbo-discover reads to
+                        # compose the Product matrix. Without this entry,
+                        # widening or fixing the script doesn't trigger the
+                        # tests it controls — silent regressions like
+                        # products/actions slip in.
+                        - 'products/*/package.json'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
