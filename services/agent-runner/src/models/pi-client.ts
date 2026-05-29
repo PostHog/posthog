@@ -32,7 +32,19 @@ export function resolveModel(specModel: string): Model<string> {
     }
     const provider = specModel.slice(0, slash)
     const modelId = specModel.slice(slash + 1)
-    return getModel(provider as KnownProvider, modelId as never) as Model<string>
+    const model = getModel(provider as KnownProvider, modelId as never) as Model<string> | undefined
+    if (!model) {
+        // pi-ai returns undefined for an unknown (provider, model id) pair. Without
+        // this guard the undefined `Model` flows into runSession and crashes
+        // `errorContext()` on `deps.model.id` only at the *first error path* —
+        // which silently fails every session and surfaces as
+        // `Cannot read properties of undefined (reading 'id')` in the logs.
+        throw new Error(
+            `unknown_model_id: spec.model="${specModel}" — pi-ai has no model "${modelId}" registered ` +
+                `for provider "${provider}". Check the pi-ai models registry or upgrade @earendil-works/pi-ai.`
+        )
+    }
+    return model
 }
 
 /** Cache of resolved Models keyed by spec.model string. */

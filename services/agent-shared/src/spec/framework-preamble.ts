@@ -22,7 +22,7 @@ import { AgentRevision, FrameworkPromptSection } from './spec'
 export const FRAMEWORK_PROMPT_VERSION = 1
 
 /**
- * Decision rules for the three always-on meta tools. Plan §3.1.
+ * Decision rules for the two always-on meta tools. Plan §3.1.
  *
  * The model gets these via pi-ai with one-line descriptions; the
  * preamble teaches WHEN to reach for each. Default-first framing
@@ -32,18 +32,16 @@ export const FRAMEWORK_PROMPT_VERSION = 1
 const META_TOOL_GUIDANCE = `
 ## Ending your turn
 
-You have three control-flow tools always available. Choose deliberately
-between them — they all "end the turn" but they mean different things
+You have two control-flow tools always available. Choose deliberately
+between them — they both "end the turn" but they mean different things
 to the user.
 
 - \`@posthog/meta-end-turn\` — "I'm done responding for now, but the
   conversation isn't over." Use this when you've answered the user's
   message and there might be a follow-up. **This is the default for
-  most turns.** Equivalent to just stopping naturally.
-- \`@posthog/meta-ask-for-input\` — same effect as \`end-turn\`, but
-  signals to the user-facing client that you're waiting on a specific
-  answer. Use when you need a particular piece of information to
-  continue (e.g. "what's your account id?").
+  most turns.** Equivalent to just stopping naturally. If you need the
+  user to answer a specific question, just write the question as your
+  reply and end the turn — there is no separate "ask for input" tool.
 - \`@posthog/meta-end-session\` — **hard close.** The user cannot
   continue this conversation unless the agent's author opted into
   restart. Only use this when the agent's task is genuinely complete

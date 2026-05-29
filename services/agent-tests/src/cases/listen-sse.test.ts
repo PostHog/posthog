@@ -97,11 +97,10 @@ describe('listen SSE: real e2e', () => {
         expect(toolResultEvt!.data.ok).toBe(true)
     })
 
-    it('publishes ask_for_input + completed on meta-ask-for-input', async () => {
-        // Under the new state machine ask_for_input is a UI focus hint
-        // (carries `prompt`) — the session still ends the turn at
-        // `completed` (open). Both events fire.
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+    it('publishes completed when the agent ends the turn with text', async () => {
+        // Asking the user a question is no longer a dedicated bus event
+        // — the agent just emits text and the turn ends.
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'ssee-3' })
         const events: SessionEvent[] = []
         const run = await request(c.ingress).post('/agents/ssee-3/run').send({ message: 'hi' })
@@ -112,10 +111,8 @@ describe('listen SSE: real e2e', () => {
         unsubscribe()
 
         const kinds = events.map((e) => e.kind)
-        expect(kinds).toContain('ask_for_input')
         expect(kinds).toContain('completed')
-        const ask = events.find((e) => e.kind === 'ask_for_input')
-        expect(ask?.data.prompt).toBe('continue?')
+        expect(kinds).not.toContain('ask_for_input')
     })
 
     it('GET /listen wires the SSE response headers and stays open', async () => {

@@ -131,13 +131,6 @@ describe('driver runSession', () => {
             expect(out.state === 'closed' && out.summary).toBe('all done')
         })
 
-        it('completes on meta-ask-for-input', async () => {
-            const out = await run(makeRev(), makeSession(), {
-                script: [toolUse([call('@posthog/meta-ask-for-input', { prompt: 'name?' })])],
-            })
-            expect(out.state).toBe('completed')
-        })
-
         it('fails with max_tokens on stopReason=length', async () => {
             const out = await run(makeRev(), makeSession(), { script: [lengthCapped()] })
             expect(out).toEqual({ state: 'failed', reason: 'max_tokens', turns: 1 })

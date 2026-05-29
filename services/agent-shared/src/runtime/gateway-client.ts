@@ -6,7 +6,7 @@
  *
  * Both endpoints take the same `phc_` bearer the data plane does (resolved
  * per-team via `TeamApiKeyResolver`). See
- * docs/agent-platform/plans/llm-gateway-integration.md §3 (W5 / W6).
+ * docs/agent-platform/plans/ai-gateway-integration.md §3 (W5 / W6).
  */
 
 import { createLogger } from './logger'

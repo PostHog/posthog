@@ -4179,6 +4179,84 @@ export namespace Schemas {
       results: AgentFleetLiveSessionSummary[];
     }
 
+    export interface AgentMemoryFile {
+      /** Full markdown body. */
+      content: string;
+    }
+
+    export interface AgentMemoryHeader {
+      /** Relative path within the agent's memory, e.g. 'incidents/db.md'. */
+      path: string;
+      /** One-line summary from the file's frontmatter. */
+      description: string;
+      /** Frontmatter tags (lowercase a-z 0-9 _ - only). */
+      tags: string[];
+      /**
+         * ISO-8601 timestamp stamped on create. Null for files written before this field was introduced.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 timestamp stamped on every write.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface AgentMemoryListResponse {
+      /** Number of entries returned. */
+      count: number;
+      /** Headers (frontmatter only) — no file bodies. Use the read endpoint for the body. */
+      entries: AgentMemoryHeader[];
+    }
+
+    export interface AgentMemorySearchResult {
+      path: string;
+      description: string;
+      tags: string[];
+      /** BM25 relevance score. */
+      score: number;
+      /**
+         * Body snippet around the earliest match. Null when only the header matched.
+         * @nullable
+         */
+      snippet: string | null;
+    }
+
+    export interface AgentMemorySearchResponse {
+      /** The original search cue, echoed back. */
+      cue: string;
+      count: number;
+      results: AgentMemorySearchResult[];
+    }
+
+    /**
+     * Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}.
+     */
+    export type AgentMemoryTreeResponseRoot = { [key: string]: unknown };
+
+    export interface AgentMemoryTreeResponse {
+      /** Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}. */
+      root: AgentMemoryTreeResponseRoot;
+    }
+
+    /**
+     * Body shape for AgentMemoryViewSet.write_file (create).
+     */
+    export interface AgentMemoryWriteRequest {
+      /** Where to store the file. Lowercase a-z 0-9 _ - / only, must end in .md. */
+      path: string;
+      /**
+         * One-line summary, max 280 chars. Surfaces in list/search results.
+         * @maxLength 280
+         */
+      description: string;
+      /** Full markdown body. */
+      content: string;
+      /** Optional flat tags for search ranking. Lowercase a-z 0-9 _ - only. */
+      tags?: string[];
+    }
+
     /**
      * * `product_analytics` - product_analytics
     * `sql` - sql
@@ -27345,6 +27423,16 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    /**
+     * Body shape for AgentMemoryViewSet.update_file. Omitted fields preserve the existing value.
+     */
+    export interface PatchedAgentMemoryUpdateRequest {
+      /** @maxLength 280 */
+      description?: string;
+      content?: string;
+      tags?: string[];
+    }
+
     export type PatchedAgentRevisionSpecTriggersItem = {
       type: 'slack';
       config: {
@@ -44104,6 +44192,8 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `AgentApplication` - AgentApplication
+    * `AgentRevision` - AgentRevision
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -44181,6 +44271,8 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      AgentApplication: 'AgentApplication',
+      AgentRevision: 'AgentRevision',
     } as const;
 
     /**
@@ -44244,6 +44336,8 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `AgentApplication` - AgentApplication
+    * `AgentRevision` - AgentRevision
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -44309,6 +44403,8 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      AgentApplication: 'AgentApplication',
+      AgentRevision: 'AgentRevision',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -44392,6 +44488,49 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type AgentMemoryListFilesParams = {
+    /**
+     * Optional path prefix to scope the list, e.g. 'incidents/'.
+     */
+    prefix?: string;
+    };
+
+    export type AgentMemoryGetFileParams = {
+    /**
+     * Memory path returned by the list endpoint, e.g. 'incidents/db.md'.
+     */
+    path: string;
+    };
+
+    export type AgentMemoryUpdateFileParams = {
+    /**
+     * Memory path to update.
+     */
+    path: string;
+    };
+
+    export type AgentMemoryDeleteFileParams = {
+    /**
+     * Memory path to delete.
+     */
+    path: string;
+    };
+
+    export type AgentMemorySearchParams = {
+    /**
+     * Max results (default 10, max 100).
+     */
+    limit?: number;
+    /**
+     * Optional path prefix to scope the search.
+     */
+    prefix?: string;
+    /**
+     * Search cue — plain natural language is fine.
+     */
+    q: string;
     };
 
     export type AgentApplicationsRevisionsListParams = {

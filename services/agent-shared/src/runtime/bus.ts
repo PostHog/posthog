@@ -19,20 +19,11 @@ export type SessionEventKind =
     | 'tool_call_args_delta'
     | 'tool_result'
     /**
-     * Default end-of-turn event. Fires for natural stop, meta-end-turn,
-     * and meta-ask-for-input. Session state is `completed` (open).
-     * Consumers that want to surface a focus affordance to the user can
-     * listen for `ask_for_input` instead, which fires *in addition* to
-     * `completed` when the model called meta-ask-for-input.
+     * Default end-of-turn event. Fires for natural stop and meta-end-turn.
+     * Session state is `completed` (open). Asking a question is just
+     * "respond with text, end the turn" — no separate event.
      */
     | 'completed'
-    /**
-     * UI focus hint. Carries `data.prompt` (the model's question to the
-     * user). Fires immediately before `completed` when the model called
-     * `@posthog/meta-ask-for-input`. Has NO state-machine impact — the
-     * session is `completed` (open) either way.
-     */
-    | 'ask_for_input'
     /**
      * Hard-close event. Fires for `meta-end-session`. Session state is
      * `closed`. SSE consumers should treat this as "stream done" — no

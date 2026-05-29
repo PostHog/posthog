@@ -18,6 +18,8 @@
     "dependencies": {
         "@posthog/quill": "workspace:*",
         "lucide-react": "^0.577.0",
+        "react-markdown": "^9.0.0",
+        "remark-gfm": "^4.0.0",
         "yaml": "^2.5.1"
     },
     "devDependencies": {

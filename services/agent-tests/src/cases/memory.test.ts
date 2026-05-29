@@ -211,3 +211,137 @@ describe('memory tools: cross-session round-trip', () => {
         expect(text).toContain('incidents/db.md')
     })
 })
+
+/**
+ * Two-callers, one bucket contract. The runner writes via `@posthog/memory-*`
+ * tools; the janitor HTTP surface (which Django proxies through) writes the
+ * SAME bucket via `S3MemoryStore.put()`. If the key layout drifts between
+ * them these tests fail — locking in the invariant that the UI sees what the
+ * agent writes and the agent sees what a human writes.
+ */
+describe('memory: janitor + runner share one bucket', () => {
+    let c: Cluster
+
+    beforeEach(async () => {
+        c = await buildCluster()
+    })
+
+    afterEach(async () => {
+        await c.teardown()
+    })
+
+    afterAll(async () => {
+        await closeSharedPool()
+    })
+
+    it('janitor-write → runner-read: a file POSTed to the janitor surfaces in @posthog/memory-read', async () => {
+        await c.deployAgent({
+            slug: 'shared-bucket-jw',
+            spec: { tools: [{ kind: 'native', id: '@posthog/memory-read' }] },
+        })
+        const app = await c.revisions.getApplicationBySlug(1, 'shared-bucket-jw')
+        const applicationId = app!.id
+
+        const writeRes = await request(c.janitor)
+            .post(`/memory/team/1/agent/${applicationId}/files`)
+            .send({
+                path: 'shared/hello.md',
+                description: 'Posted by the janitor — should be visible to the agent',
+                content: 'shared bucket: this file was written via the janitor, not the agent',
+                tags: ['shared'],
+            })
+        expect(writeRes.status).toBe(201)
+        expect(writeRes.body.path).toBe('shared/hello.md')
+
+        c.setScript([
+            fauxCallTool('@posthog/memory-read', { path: 'shared/hello.md' }),
+            fauxText('the human wrote: shared bucket: this file was written via the janitor, not the agent'),
+        ])
+        const run = await request(c.ingress).post('/agents/shared-bucket-jw/run').send({ message: 'read it' })
+        expect(run.status).toBe(200)
+        await c.drain()
+        const session = (await c.queue.get(run.body.session_id))!
+        expect(session.state).toBe('completed')
+        const lastAssistant = [...session.conversation].reverse().find((m) => m.role === 'assistant')
+        const text =
+            lastAssistant && typeof lastAssistant.content !== 'string'
+                ? lastAssistant.content
+                      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+                      .map((b) => b.text)
+                      .join('')
+                : ''
+        expect(text).toContain('shared bucket: this file was written via the janitor, not the agent')
+    })
+
+    it('runner-write → janitor-read: a file the agent writes via @posthog/memory-write is visible on GET /memory/.../files', async () => {
+        await c.deployAgent({
+            slug: 'shared-bucket-rw',
+            spec: { tools: [{ kind: 'native', id: '@posthog/memory-write' }] },
+        })
+        const app = await c.revisions.getApplicationBySlug(1, 'shared-bucket-rw')
+        const applicationId = app!.id
+
+        c.setScript([
+            fauxCallTool('@posthog/memory-write', {
+                path: 'agent-wrote/note.md',
+                description: 'Written by the agent, read by the janitor',
+                content: 'the agent wrote this body via @posthog/memory-write',
+                tags: ['agent'],
+            }),
+            fauxText('done writing'),
+        ])
+        const run = await request(c.ingress).post('/agents/shared-bucket-rw/run').send({ message: 'write it' })
+        expect(run.status).toBe(200)
+        await c.drain()
+        const session = (await c.queue.get(run.body.session_id))!
+        expect(session.state).toBe('completed')
+
+        const listRes = await request(c.janitor).get(`/memory/team/1/agent/${applicationId}/files`)
+        expect(listRes.status).toBe(200)
+        const entries = listRes.body.entries as { path: string; description: string }[]
+        const entry = entries.find((e) => e.path === 'agent-wrote/note.md')
+        expect(entry).toBeTruthy()
+        expect(entry?.description).toBe('Written by the agent, read by the janitor')
+
+        const readRes = await request(c.janitor).get(`/memory/team/1/agent/${applicationId}/files/agent-wrote/note.md`)
+        expect(readRes.status).toBe(200)
+        expect(readRes.body.content).toBe('the agent wrote this body via @posthog/memory-write')
+        expect(readRes.body.tags).toEqual(['agent'])
+    })
+
+    it('janitor PATCH → runner-list sees the updated description', async () => {
+        await c.deployAgent({
+            slug: 'shared-bucket-patch',
+            spec: { tools: [{ kind: 'native', id: '@posthog/memory-list' }] },
+        })
+        const app = await c.revisions.getApplicationBySlug(1, 'shared-bucket-patch')
+        const applicationId = app!.id
+
+        await request(c.janitor)
+            .post(`/memory/team/1/agent/${applicationId}/files`)
+            .send({ path: 'p.md', description: 'old description', content: 'body' })
+            .expect(201)
+
+        const patchRes = await request(c.janitor)
+            .patch(`/memory/team/1/agent/${applicationId}/files/p.md`)
+            .send({ description: 'new description after patch' })
+        expect(patchRes.status).toBe(200)
+        expect(patchRes.body.description).toBe('new description after patch')
+
+        c.setScript([fauxCallTool('@posthog/memory-list', {}), fauxText('found: new description after patch')])
+        const run = await request(c.ingress)
+            .post('/agents/shared-bucket-patch/run')
+            .send({ message: 'list everything' })
+        await c.drain()
+        const session = (await c.queue.get(run.body.session_id))!
+        const lastAssistant = [...session.conversation].reverse().find((m) => m.role === 'assistant')
+        const text =
+            lastAssistant && typeof lastAssistant.content !== 'string'
+                ? lastAssistant.content
+                      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+                      .map((b) => b.text)
+                      .join('')
+                : ''
+        expect(text).toContain('new description after patch')
+    })
+})

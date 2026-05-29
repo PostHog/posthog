@@ -11,7 +11,7 @@ import request from 'supertest'
 
 import { AuthProvider } from '@posthog/agent-ingress'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 const PAT_A = 'phx_user_a'
 const PAT_B = 'phx_user_b'
@@ -50,7 +50,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('pat agent: /send with the same PAT as /run → 200', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
+        c.setScript([fauxText('ok?')])
         await c.deployAgent({ slug: 'p1', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
             .post('/agents/p1/run')
@@ -73,7 +73,7 @@ describe('strict principal match on /send: real e2e', () => {
         // surface as Slack thread bypass — the rejected message is preserved
         // as a PendingElevationRequest for replay-on-grant, the session is
         // not advanced, and the response carries an elevation_request_id.
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
+        c.setScript([fauxText('ok?')])
         await c.deployAgent({ slug: 'p2', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
             .post('/agents/p2/run')
@@ -99,7 +99,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('pat agent: /send with no auth → 401 (auth fails before strict-match)', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
+        c.setScript([fauxText('ok?')])
         await c.deployAgent({ slug: 'p3', spec: { auth: { mode: 'pat' } } })
         const run = await request(c.ingress)
             .post('/agents/p3/run')
@@ -113,7 +113,7 @@ describe('strict principal match on /send: real e2e', () => {
     })
 
     it('public agent: /send without auth → 200 (both principals are anonymous)', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'ok?' })])
+        c.setScript([fauxText('ok?')])
         await c.deployAgent({ slug: 'pub', spec: { auth: { mode: 'public' } } })
         const run = await request(c.ingress).post('/agents/pub/run').send({ message: 'hi' })
         const sid = run.body.session_id

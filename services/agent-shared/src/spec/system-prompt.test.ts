@@ -89,16 +89,16 @@ describe('buildSystemPrompt', () => {
         const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
 
-        // §3.1 — meta-tool decision rules. Each of the three meta tools
-        // is named and pi-ai will see explicit framing about when to
-        // use which.
+        // §3.1 — meta-tool decision rules. Each of the two meta tools is
+        // named and pi-ai will see explicit framing about when to use
+        // which. Asking for input is just text + end-turn, not a tool.
         expect(prompt).toContain('@posthog/meta-end-turn')
         expect(prompt).toContain('@posthog/meta-end-session')
-        expect(prompt).toContain('@posthog/meta-ask-for-input')
+        expect(prompt).not.toContain('@posthog/meta-ask-for-input')
         // Default-first framing — the model should default to end-turn,
         // not end-session. The prose explicitly calls out end-turn as
         // the default; assert both terms colocate.
-        const endTurnSection = prompt.split('@posthog/meta-end-turn')[1]?.split('@posthog/meta-ask-for-input')[0] ?? ''
+        const endTurnSection = prompt.split('@posthog/meta-end-turn')[1]?.split('@posthog/meta-end-session')[0] ?? ''
         expect(endTurnSection).toMatch(/default/i)
 
         // §3.2 — conversation-state contract.

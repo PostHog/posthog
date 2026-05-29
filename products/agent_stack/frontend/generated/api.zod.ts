@@ -34,6 +34,39 @@ export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a memory file. Fails if the path already exists — use the update endpoint to overwrite.
+ */
+export const agentMemoryCreateFileBodyDescriptionMax = 280
+
+export const AgentMemoryCreateFileBody = /* @__PURE__ */ zod
+    .object({
+        path: zod.string().describe('Where to store the file. Lowercase a-z 0-9 _ - \/ only, must end in .md.'),
+        description: zod
+            .string()
+            .max(agentMemoryCreateFileBodyDescriptionMax)
+            .describe('One-line summary, max 280 chars. Surfaces in list\/search results.'),
+        content: zod.string().describe('Full markdown body.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Optional flat tags for search ranking. Lowercase a-z 0-9 _ - only.'),
+    })
+    .describe('Body shape for AgentMemoryViewSet.write_file (create).')
+
+/**
+ * Update a memory file. Any field omitted is preserved from the existing file.
+ */
+export const agentMemoryUpdateFileBodyDescriptionMax = 280
+
+export const AgentMemoryUpdateFileBody = /* @__PURE__ */ zod
+    .object({
+        description: zod.string().max(agentMemoryUpdateFileBodyDescriptionMax).optional(),
+        content: zod.string().optional(),
+        tags: zod.array(zod.string()).optional(),
+    })
+    .describe('Body shape for AgentMemoryViewSet.update_file. Omitted fields preserve the existing value.')
+
+/**
  * Revisions of an agent. Created in `draft`, promoted through
 `ready → live` once the bundle has been uploaded + frozen.
 

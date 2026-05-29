@@ -79,6 +79,8 @@ export interface AgentDetailProps {
     onTryAgent?: (opts?: { revisionId?: string }) => void
     onOpenSession?: (sessionId: string) => void
     onBackToList?: () => void
+    /** Open the agent's memory file explorer (`/agents/<slug>/memory`). */
+    onOpenMemory?: () => void
     /** Called after a successful freeze/promote/archive — parent refetches. */
     onRevisionsMutated?: () => void
 }
@@ -93,6 +95,7 @@ export function AgentDetail({
     onTryAgent,
     onOpenSession,
     onBackToList,
+    onOpenMemory,
     onRevisionsMutated,
 }: AgentDetailProps): React.ReactElement {
     const sortedRevisions = useMemo(
@@ -141,16 +144,26 @@ export function AgentDetail({
             ) : null}
 
             <Tabs value={tab} onValueChange={(v) => onChangeUrlState({ tab: v as TabKey })} className="mt-5">
-                <TabsList variant="line">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="configuration">Configuration</TabsTrigger>
-                    <TabsTrigger value="sessions">
-                        Sessions
-                        {sessions.length > 0 ? (
-                            <span className="ml-1.5 text-[0.6875rem] text-muted-foreground">{sessions.length}</span>
-                        ) : null}
-                    </TabsTrigger>
-                </TabsList>
+                <div className="flex items-end justify-between gap-2">
+                    <TabsList variant="line">
+                        <TabsTrigger value="overview">Overview</TabsTrigger>
+                        <TabsTrigger value="configuration">Configuration</TabsTrigger>
+                        <TabsTrigger value="sessions">
+                            Sessions
+                            {sessions.length > 0 ? (
+                                <span className="ml-1.5 text-[0.6875rem] text-muted-foreground">{sessions.length}</span>
+                            ) : null}
+                        </TabsTrigger>
+                    </TabsList>
+                    {onOpenMemory ? (
+                        <button
+                            onClick={onOpenMemory}
+                            className="mb-1 rounded border border-border bg-card px-3 py-1 text-sm hover:bg-muted"
+                        >
+                            Memory →
+                        </button>
+                    ) : null}
+                </div>
 
                 <TabsContent value="overview" className="mt-4">
                     <AgentOverview

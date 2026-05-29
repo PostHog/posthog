@@ -18,7 +18,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { AgentChat, useFakeRunner, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
@@ -51,6 +51,34 @@ import { useRealRunner } from './useRealRunner'
  *     ends without a terminal `completed`/`failed` event. status=-1
  *     so the banner copy explains it as a connection drop.
  */
+/**
+ * Persisted "render assistant text as markdown" preference. Lives in
+ * localStorage so it survives reloads and is shared between the
+ * playground and concierge docks (a single user preference for the
+ * whole console).
+ */
+const MARKDOWN_STORAGE_KEY = 'agent-console:render-markdown'
+
+function useRenderMarkdownPreference(): [boolean, (next: boolean) => void] {
+    const [value, setValue] = useState<boolean>(true)
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return
+        }
+        const raw = window.localStorage.getItem(MARKDOWN_STORAGE_KEY)
+        if (raw === 'false') {
+            setValue(false)
+        }
+    }, [])
+    const update = useCallback((next: boolean) => {
+        setValue(next)
+        if (typeof window !== 'undefined') {
+            window.localStorage.setItem(MARKDOWN_STORAGE_KEY, next ? 'true' : 'false')
+        }
+    }, [])
+    return [value, update]
+}
+
 function asTransportError(err: Error | null): TransportError | null {
     if (!err) {
         return null
@@ -185,8 +213,15 @@ function PlaygroundDock({
         [previewRevisionId, info?.teamId]
     )
 
-    const runner = useRealRunner({ agentSlug: agentRef.slug, agentRef, principal, preview })
+    const runner = useRealRunner({
+        agentSlug: agentRef.slug,
+        agentRef,
+        principal,
+        teamId: info?.teamId ?? undefined,
+        preview,
+    })
     const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
+    const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
 
     return (
         <AgentChat
@@ -204,6 +239,8 @@ function PlaygroundDock({
             transportError={transportError}
             onDismissTransportError={runner.clearError}
             reconnectAttempt={runner.reconnectAttempt}
+            renderMarkdown={renderMarkdown}
+            onRenderMarkdownChange={setRenderMarkdown}
         />
     )
 }
@@ -212,6 +249,7 @@ function ConciergeDock(): React.ReactElement {
     const { context } = useDockStore()
     const focus = useFocusStore()
     const handlers = useDockHandlers(context)
+    const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
 
     // v0: concierge agent isn't deployed yet — keep the fake runner
     // for now so the dock has something to show. Swap to useRealRunner
@@ -232,6 +270,8 @@ function ConciergeDock(): React.ReactElement {
             onFollowingChange={focus.setEnabled}
             onNewSession={() => runner.reset()}
             onSend={runner.send}
+            renderMarkdown={renderMarkdown}
+            onRenderMarkdownChange={setRenderMarkdown}
         />
     )
 }

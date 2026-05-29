@@ -116,8 +116,19 @@ class JanitorUpstreamError(APIException):
         upstream_code = e.status_code
         if 400 <= upstream_code < 500:
             self.status_code = upstream_code
-        detail = e.body if e.body is not None else {"detail": e.message}
-        super().__init__(detail=detail)
+        # Flatten the body to a string. exceptions_hog's `_get_detail` walks
+        # `dict` details via `exception_key` and falls through to `value[0]`
+        # otherwise — passing a dict here raises `KeyError: 0` at render time.
+        # Prefer common janitor error fields; otherwise JSON-dump so callers
+        # still see the upstream payload.
+        if isinstance(e.body, dict):
+            msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
+            detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
+        elif isinstance(e.body, str):
+            detail_str = e.body
+        else:
+            detail_str = e.message
+        super().__init__(detail=detail_str)
 
 
 # The `log_source` tag the agent runner stamps on every log_entries row.
@@ -1549,6 +1560,413 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+_MEMORY_HEADER_FIELDS = {
+    "path": drf_serializers.CharField(help_text="Relative path within the agent's memory, e.g. 'incidents/db.md'."),
+    "description": drf_serializers.CharField(help_text="One-line summary from the file's frontmatter."),
+    "tags": drf_serializers.ListField(
+        child=drf_serializers.CharField(),
+        help_text="Frontmatter tags (lowercase a-z 0-9 _ - only).",
+    ),
+    "created_at": drf_serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp stamped on create. Null for files written before this field was introduced.",
+    ),
+    "updated_at": drf_serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp stamped on every write.",
+    ),
+}
+
+_MEMORY_LIST_RESPONSE = inline_serializer(
+    name="AgentMemoryListResponse",
+    fields={
+        "count": drf_serializers.IntegerField(help_text="Number of entries returned."),
+        "entries": drf_serializers.ListField(
+            child=inline_serializer(name="AgentMemoryHeader", fields=_MEMORY_HEADER_FIELDS),
+            help_text="Headers (frontmatter only) — no file bodies. Use the read endpoint for the body.",
+        ),
+    },
+)
+
+_MEMORY_FILE_RESPONSE = inline_serializer(
+    name="AgentMemoryFile",
+    fields={
+        **_MEMORY_HEADER_FIELDS,
+        "content": drf_serializers.CharField(help_text="Full markdown body."),
+    },
+)
+
+_MEMORY_TREE_RESPONSE = inline_serializer(
+    name="AgentMemoryTreeResponse",
+    fields={
+        # Tree shape is recursive; declared loosely so OpenAPI doesn't need a
+        # self-reference. The frontend types use a hand-typed shape.
+        "root": drf_serializers.DictField(
+            help_text="Folder tree rooted at the agent's memory prefix. Each node is "
+            "{name, type: 'folder'|'file', path?, description?, tags?, children?}.",
+        ),
+    },
+)
+
+_MEMORY_SEARCH_RESULT = inline_serializer(
+    name="AgentMemorySearchResult",
+    fields={
+        "path": drf_serializers.CharField(),
+        "description": drf_serializers.CharField(),
+        "tags": drf_serializers.ListField(child=drf_serializers.CharField()),
+        "score": drf_serializers.FloatField(help_text="BM25 relevance score."),
+        "snippet": drf_serializers.CharField(
+            allow_null=True,
+            help_text="Body snippet around the earliest match. Null when only the header matched.",
+        ),
+    },
+)
+
+_MEMORY_SEARCH_RESPONSE = inline_serializer(
+    name="AgentMemorySearchResponse",
+    fields={
+        "cue": drf_serializers.CharField(help_text="The original search cue, echoed back."),
+        "count": drf_serializers.IntegerField(),
+        "results": drf_serializers.ListField(child=_MEMORY_SEARCH_RESULT),
+    },
+)
+
+
+class AgentMemoryWriteRequest(drf_serializers.Serializer):
+    """Body shape for AgentMemoryViewSet.write_file (create)."""
+
+    path = drf_serializers.CharField(
+        help_text="Where to store the file. Lowercase a-z 0-9 _ - / only, must end in .md."
+    )
+    description = drf_serializers.CharField(
+        max_length=280,
+        help_text="One-line summary, max 280 chars. Surfaces in list/search results.",
+    )
+    content = drf_serializers.CharField(help_text="Full markdown body.")
+    tags = drf_serializers.ListField(
+        child=drf_serializers.CharField(),
+        required=False,
+        help_text="Optional flat tags for search ranking. Lowercase a-z 0-9 _ - only.",
+    )
+
+
+class AgentMemoryUpdateRequest(drf_serializers.Serializer):
+    """Body shape for AgentMemoryViewSet.update_file. Omitted fields preserve the existing value."""
+
+    description = drf_serializers.CharField(max_length=280, required=False)
+    content = drf_serializers.CharField(required=False)
+    tags = drf_serializers.ListField(child=drf_serializers.CharField(), required=False)
+
+
+@extend_schema(tags=["agent_stack"])
+class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """S3-backed memory files for a single agent (application).
+
+    URLs (nested under an application):
+
+        GET    .../memory/files/                          list headers under the agent's prefix (?prefix=…)
+        GET    .../memory/tree/                           pre-aggregated folder tree
+        GET    .../memory/files/by_path/?path=…           read one file in full
+        POST   .../memory/files/                          create — body {path, description, content, tags?}
+        PATCH  .../memory/files/by_path/?path=…           update fields on an existing file
+        DELETE .../memory/files/by_path/?path=…           hard delete
+        GET    .../memory/search/?q=…                     BM25 search across files
+
+    Every endpoint proxies the janitor, which owns the S3MemoryStore. The
+    runner writes the same bucket directly via `@posthog/memory-*` tools —
+    one bucket, two callers, one source-of-truth code path.
+
+    Activity logging: create/update/delete log under scope='AgentApplication'
+    so memory edits surface in the agent's audit trail.
+    """
+
+    scope_object = "agent_application"  # share the parent's scope
+    scope_object_read_actions = ["list_files", "tree", "get_file", "search"]
+    scope_object_write_actions = ["create_file", "update_file", "delete_file"]
+    # The parent URL kwarg is `application_id`; we override resolution to
+    # accept slug-or-UUID via _resolve_application.
+    filter_rewrite_rules: dict[str, str] = {}
+
+    def _get_application(self) -> AgentApplication:
+        app = _resolve_application(
+            AgentApplication.objects.filter(team_id=self.team_id, archived=False),
+            self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id"),
+        )
+        if app is None:
+            raise NotFound("Application not found")
+        return app
+
+    def _log_memory_change(
+        self, application: AgentApplication, activity: str, path: str, extra: dict[str, Any]
+    ) -> None:
+        # Local import — activity_log isn't on the hot path and avoids a top-level
+        # circular import with posthog.models in some test paths.
+        from posthog.models.activity_logging.activity_log import Detail, log_activity  # noqa: PLC0415
+
+        log_activity(
+            organization_id=application.team.organization_id,
+            team_id=application.team_id,
+            user=self.request.user,
+            was_impersonated=getattr(self.request, "user_is_impersonated", False),
+            item_id=application.id,
+            scope="AgentApplication",
+            activity=activity,
+            detail=Detail(
+                name=application.slug,
+                short_id=None,
+                changes=None,
+                trigger=None,
+                type=None,
+                context={"memory_path": path, **extra},
+            ),
+        )
+
+    # ── list / tree ────────────────────────────────────────────────────────
+
+    @extend_schema(
+        operation_id="agent_memory_list_files",
+        parameters=[
+            OpenApiParameter(
+                "prefix",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Optional path prefix to scope the list, e.g. 'incidents/'.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_MEMORY_LIST_RESPONSE),
+        description="List memory file headers under the agent's prefix. Headers only — no bodies.",
+    )
+    @action(detail=False, methods=["get"], url_path="files")
+    def list_files(self, request: Request, **kwargs) -> Response:
+        application = self._get_application()
+        try:
+            payload = _janitor().list_memory_files(
+                int(self.team_id),
+                str(application.id),
+                prefix=request.query_params.get("prefix") or None,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_memory_tree",
+        request=None,
+        responses=OpenApiResponse(response=_MEMORY_TREE_RESPONSE),
+        description="Pre-aggregated folder tree of memory files. Saves the frontend re-derivation work.",
+    )
+    @action(detail=False, methods=["get"], url_path="tree")
+    def tree(self, request: Request, **kwargs) -> Response:
+        application = self._get_application()
+        try:
+            payload = _janitor().get_memory_tree(int(self.team_id), str(application.id))
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    # ── read / write / delete one file ─────────────────────────────────────
+
+    @extend_schema(
+        operation_id="agent_memory_get_file",
+        parameters=[
+            OpenApiParameter(
+                "path",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Memory path returned by the list endpoint, e.g. 'incidents/db.md'.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_MEMORY_FILE_RESPONSE),
+        description="Read one memory file in full (frontmatter + markdown body).",
+    )
+    @action(detail=False, methods=["get"], url_path="files/by_path")
+    def get_file(self, request: Request, **kwargs) -> Response:
+        path = request.query_params.get("path")
+        if not path:
+            raise ValidationError("missing required query param: path")
+        application = self._get_application()
+        try:
+            payload = _janitor().read_memory_file(int(self.team_id), str(application.id), path)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_memory_create_file",
+        request=AgentMemoryWriteRequest,
+        responses=OpenApiResponse(response=_MEMORY_FILE_RESPONSE),
+        description="Create a memory file. Fails if the path already exists — use the update endpoint to overwrite.",
+    )
+    # Chained off `list_files` via `@list_files.mapping.post` rather than its
+    # own `@action(url_path="files")` — DRF only registers one action per
+    # url_path, so two separate decorators leave the loser unrouted
+    # (the symptom is `405 Method Not Allowed: Allow: <whatever-loser>`).
+    @list_files.mapping.post
+    def create_file(self, request: Request, **kwargs) -> Response:
+        serializer = AgentMemoryWriteRequest(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        body = serializer.validated_data
+        application = self._get_application()
+        try:
+            payload = _janitor().write_memory_file(
+                int(self.team_id),
+                str(application.id),
+                path=body["path"],
+                description=body["description"],
+                content=body["content"],
+                tags=body.get("tags"),
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        self._log_memory_change(
+            application,
+            activity="memory_file_created",
+            path=body["path"],
+            extra={"description": body["description"], "tags": body.get("tags") or []},
+        )
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        operation_id="agent_memory_update_file",
+        parameters=[
+            OpenApiParameter(
+                "path",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Memory path to update.",
+            ),
+        ],
+        request=AgentMemoryUpdateRequest,
+        responses=OpenApiResponse(response=_MEMORY_FILE_RESPONSE),
+        description="Update a memory file. Any field omitted is preserved from the existing file.",
+    )
+    # Chained off `get_file` — see comment on `create_file` above.
+    @get_file.mapping.patch
+    def update_file(self, request: Request, **kwargs) -> Response:
+        path = request.query_params.get("path")
+        if not path:
+            raise ValidationError("missing required query param: path")
+        serializer = AgentMemoryUpdateRequest(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        body = serializer.validated_data
+        application = self._get_application()
+        try:
+            payload = _janitor().update_memory_file(
+                int(self.team_id),
+                str(application.id),
+                path,
+                description=body.get("description"),
+                content=body.get("content"),
+                tags=body.get("tags"),
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        self._log_memory_change(
+            application,
+            activity="memory_file_updated",
+            path=path,
+            extra=dict(body.items()),
+        )
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_memory_delete_file",
+        parameters=[
+            OpenApiParameter(
+                "path",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Memory path to delete.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentMemoryDeleteResponse",
+                fields={
+                    "path": drf_serializers.CharField(),
+                    "deleted": drf_serializers.BooleanField(),
+                },
+            ),
+        ),
+        description="Hard-delete a memory file. Activity log captures the action against the agent.",
+    )
+    # Chained off `get_file` — see comment on `create_file` above.
+    @get_file.mapping.delete
+    def delete_file(self, request: Request, **kwargs) -> Response:
+        path = request.query_params.get("path")
+        if not path:
+            raise ValidationError("missing required query param: path")
+        application = self._get_application()
+        try:
+            payload = _janitor().delete_memory_file(int(self.team_id), str(application.id), path)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        self._log_memory_change(application, activity="memory_file_deleted", path=path, extra={})
+        return Response(payload)
+
+    # ── search ─────────────────────────────────────────────────────────────
+
+    @extend_schema(
+        operation_id="agent_memory_search",
+        parameters=[
+            OpenApiParameter(
+                "q",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Search cue — plain natural language is fine.",
+            ),
+            OpenApiParameter(
+                "prefix",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Optional path prefix to scope the search.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Max results (default 10, max 100).",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(response=_MEMORY_SEARCH_RESPONSE),
+        description="BM25 search across the agent's memory files. Ranks by description+tags+path+body with field weighting.",
+    )
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request: Request, **kwargs) -> Response:
+        q = request.query_params.get("q")
+        if not q:
+            raise ValidationError("missing required query param: q")
+        prefix = request.query_params.get("prefix") or None
+        limit_param = request.query_params.get("limit")
+        try:
+            limit = int(limit_param) if limit_param is not None else None
+        except ValueError:
+            raise ValidationError("limit must be an integer")
+        application = self._get_application()
+        try:
+            payload = _janitor().search_memory(
+                int(self.team_id),
+                str(application.id),
+                q=q,
+                prefix=prefix,
+                limit=limit,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
 
 
 @extend_schema(tags=["agent_stack"])

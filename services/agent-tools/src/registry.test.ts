@@ -12,7 +12,7 @@ describe('native tool registry', () => {
                 '@posthog/slack-react',
                 '@posthog/web-fetch',
                 '@posthog/web-search',
-                '@posthog/meta-ask-for-input',
+                '@posthog/meta-end-turn',
                 '@posthog/meta-end-session',
                 '@posthog/meta-emit-event',
                 '@posthog/load-skill',

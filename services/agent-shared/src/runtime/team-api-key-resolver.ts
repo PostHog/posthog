@@ -1,10 +1,10 @@
 /**
  * Resolves the PostHog `phc_` project key for an agent's owning team. The
- * runner uses it as the bearer when calls go through PostHog's llm-gateway:
+ * runner uses it as the bearer when calls go through PostHog's ai-gateway:
  * the gateway authenticates `phc_` against a hypercache mirror of Django's
  * team metadata and bills the team's prepaid wallet.
  *
- * See [docs/agent-platform/plans/llm-gateway-integration.md] §3 (W1).
+ * See [docs/agent-platform/plans/ai-gateway-integration.md] §3 (W1).
  *
  * The resolver hides the read off the hot path with a per-process cache.
  * Tokens rarely rotate, and a tiny staleness window (default 5 minutes) is

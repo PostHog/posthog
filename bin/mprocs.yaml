@@ -238,21 +238,32 @@ procs:
             layer: Processing
             tech: Node
         env:
-            # Local LLM analytics — same target the llm-gateway uses. Project
+            # Local LLM analytics — same target the ai-gateway uses. Project
             # token writes to the dev team's project; without this the runner
             # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
             POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
             POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
-            # llm-gateway routing is opt-in locally — flip to 'true' to send
+            # ai-gateway routing is opt-in locally — flip to 'true' to send
             # every model call through the Go gateway at
-            # /Users/benwhite/Development/llm-gateway (bin/start gateway, port
+            # /Users/benwhite/Development/ai-gateway (bin/start gateway, port
             # 8080). When 'true', the runner resolves the owning team's `phc_`
             # per session so POSTHOG_LLM_GATEWAY_KEY isn't needed as a default
             # bearer. Default 'false' keeps the direct-provider path
             # (ANTHROPIC_API_KEY / OPENAI_API_KEY) working out of the box.
-            # See docs/agent-platform/plans/llm-gateway-integration.md.
+            # See docs/agent-platform/plans/ai-gateway-integration.md.
             AGENT_USE_LLM_GATEWAY: 'false'
             POSTHOG_LLM_GATEWAY_URL: 'http://localhost:8080/v1'
+            # S3-backed memory store. MinIO from the PostHog dev stack —
+            # bucket `posthog` is pre-created by docker-compose.base.yml. The
+            # runner writes via `@posthog/memory-*` tools; the janitor reads
+            # the same bucket via /memory/* HTTP endpoints. Both ENDPOINT
+            # and BUCKET must be set or the memory tools surface
+            # `memory_store_unavailable` to the agent.
+            AGENT_MEMORY_S3_ENDPOINT: 'http://localhost:19000'
+            AGENT_MEMORY_S3_BUCKET: 'posthog'
+            AGENT_MEMORY_S3_PREFIX: 'agent_memory'
+            AGENT_MEMORY_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
     agent-janitor:
         shell: |-
@@ -268,6 +279,27 @@ procs:
             # Lights up GET /applications/:id/wallet — proxies the agent
             # owner team's gateway balance for the agent console UI.
             POSTHOG_LLM_GATEWAY_URL: 'http://localhost:8080/v1'
+            # S3-backed memory store — same bucket the runner writes. Lights
+            # up the /memory/team/:team_id/agent/:application_id/* routes the
+            # Django AgentMemoryViewSet proxies through to.
+            AGENT_MEMORY_S3_ENDPOINT: 'http://localhost:19000'
+            AGENT_MEMORY_S3_BUCKET: 'posthog'
+            AGENT_MEMORY_S3_PREFIX: 'agent_memory'
+            AGENT_MEMORY_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
+    agent-console:
+        # Next.js standalone console at http://localhost:3040 — proxies the
+        # PostHog Django API on /api/projects/... for agent CRUD + memory.
+        # Optional: ask_skip lets the wizard skip it without prompting if
+        # you don't care about the console UI for this session.
+        shell: 'pnpm --filter @posthog/agent-console dev'
+        capability: agent_runtime
+        ready_pattern: 'Ready in'
+        ask_skip: true
+        groups:
+            layer: Application
+            tech: Frontend
 
     cymbal:
         shell: |-

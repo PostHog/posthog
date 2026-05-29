@@ -33,6 +33,16 @@ import type {
     AgentFleetLiveSessionsParams,
     AgentFleetLiveSessionsResponseApi,
     AgentFleetStatsParams,
+    AgentMemoryDeleteFileParams,
+    AgentMemoryFileApi,
+    AgentMemoryGetFileParams,
+    AgentMemoryListFilesParams,
+    AgentMemoryListResponseApi,
+    AgentMemorySearchParams,
+    AgentMemorySearchResponseApi,
+    AgentMemoryTreeResponseApi,
+    AgentMemoryUpdateFileParams,
+    AgentMemoryWriteRequestApi,
     AgentNativeToolsListResponseApi,
     AgentRevisionApi,
     AgentRevisionSystemPromptResponseApi,
@@ -43,6 +53,7 @@ import type {
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
     PatchedAgentApplicationApi,
+    PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
     SetEnvRequestApi,
     WriteBundleRequestApi,
@@ -129,6 +140,219 @@ export const agentApplicationsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(agentApplicationApi),
+    })
+}
+
+export const getAgentMemoryListFilesUrl = (
+    projectId: string,
+    applicationId: string,
+    params?: AgentMemoryListFilesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/`
+}
+
+/**
+ * List memory file headers under the agent's prefix. Headers only — no bodies.
+ */
+export const agentMemoryListFiles = async (
+    projectId: string,
+    applicationId: string,
+    params?: AgentMemoryListFilesParams,
+    options?: RequestInit
+): Promise<AgentMemoryListResponseApi> => {
+    return apiMutator<AgentMemoryListResponseApi>(getAgentMemoryListFilesUrl(projectId, applicationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentMemoryCreateFileUrl = (projectId: string, applicationId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/`
+}
+
+/**
+ * Create a memory file. Fails if the path already exists — use the update endpoint to overwrite.
+ */
+export const agentMemoryCreateFile = async (
+    projectId: string,
+    applicationId: string,
+    agentMemoryWriteRequestApi: AgentMemoryWriteRequestApi,
+    options?: RequestInit
+): Promise<AgentMemoryFileApi> => {
+    return apiMutator<AgentMemoryFileApi>(getAgentMemoryCreateFileUrl(projectId, applicationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentMemoryWriteRequestApi),
+    })
+}
+
+export const getAgentMemoryGetFileUrl = (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemoryGetFileParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/by_path/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/by_path/`
+}
+
+/**
+ * Read one memory file in full (frontmatter + markdown body).
+ */
+export const agentMemoryGetFile = async (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemoryGetFileParams,
+    options?: RequestInit
+): Promise<AgentMemoryFileApi> => {
+    return apiMutator<AgentMemoryFileApi>(getAgentMemoryGetFileUrl(projectId, applicationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentMemoryUpdateFileUrl = (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemoryUpdateFileParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/by_path/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/by_path/`
+}
+
+/**
+ * Update a memory file. Any field omitted is preserved from the existing file.
+ */
+export const agentMemoryUpdateFile = async (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemoryUpdateFileParams,
+    patchedAgentMemoryUpdateRequestApi?: PatchedAgentMemoryUpdateRequestApi,
+    options?: RequestInit
+): Promise<AgentMemoryFileApi> => {
+    return apiMutator<AgentMemoryFileApi>(getAgentMemoryUpdateFileUrl(projectId, applicationId, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAgentMemoryUpdateRequestApi),
+    })
+}
+
+export const getAgentMemoryDeleteFileUrl = (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemoryDeleteFileParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/by_path/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/memory/files/by_path/`
+}
+
+/**
+ * Hard-delete a memory file. Activity log captures the action against the agent.
+ */
+export const agentMemoryDeleteFile = async (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemoryDeleteFileParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentMemoryDeleteFileUrl(projectId, applicationId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAgentMemorySearchUrl = (projectId: string, applicationId: string, params: AgentMemorySearchParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/memory/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/memory/search/`
+}
+
+/**
+ * BM25 search across the agent's memory files. Ranks by description+tags+path+body with field weighting.
+ */
+export const agentMemorySearch = async (
+    projectId: string,
+    applicationId: string,
+    params: AgentMemorySearchParams,
+    options?: RequestInit
+): Promise<AgentMemorySearchResponseApi> => {
+    return apiMutator<AgentMemorySearchResponseApi>(getAgentMemorySearchUrl(projectId, applicationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentMemoryTreeUrl = (projectId: string, applicationId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/memory/tree/`
+}
+
+/**
+ * Pre-aggregated folder tree of memory files. Saves the frontend re-derivation work.
+ */
+export const agentMemoryTree = async (
+    projectId: string,
+    applicationId: string,
+    options?: RequestInit
+): Promise<AgentMemoryTreeResponseApi> => {
+    return apiMutator<AgentMemoryTreeResponseApi>(getAgentMemoryTreeUrl(projectId, applicationId), {
+        ...options,
+        method: 'GET',
     })
 }
 

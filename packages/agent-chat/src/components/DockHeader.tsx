@@ -9,7 +9,15 @@
  * user enters / exits playground or toggles focus mode.
  */
 
-import { EyeIcon, EyeOffIcon, RotateCcwIcon, XIcon } from 'lucide-react'
+import { EyeIcon, EyeOffIcon, RotateCcwIcon, SettingsIcon, XIcon } from 'lucide-react'
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuLabel,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 import type { ChatContext } from '../context'
 import { describeContext } from '../context'
 
@@ -32,6 +40,10 @@ interface DockHeaderProps {
      * client retrying, not a stall.
      */
     reconnectAttempt?: number
+    /** Current value of the "render assistant text as markdown" setting. */
+    renderMarkdown?: boolean
+    /** Called when the user toggles the markdown setting in the gear menu. */
+    onRenderMarkdownChange?: (next: boolean) => void
 }
 
 export function DockHeader({
@@ -42,6 +54,8 @@ export function DockHeader({
     onNewSession,
     busy,
     reconnectAttempt,
+    renderMarkdown,
+    onRenderMarkdownChange,
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
@@ -114,6 +128,13 @@ export function DockHeader({
                 <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
             ) : null}
 
+            {onRenderMarkdownChange ? (
+                <SettingsMenu
+                    renderMarkdown={renderMarkdown ?? true}
+                    onRenderMarkdownChange={onRenderMarkdownChange}
+                />
+            ) : null}
+
             {!isPlayground && onNewSession ? (
                 <button
                     type="button"
@@ -148,6 +169,42 @@ function shortRevisionId(id: string): string {
     // the trailing UUID segment. Short enough to read in the header pill,
     // unique enough to disambiguate sibling drafts at a glance.
     return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
+}
+
+function SettingsMenu({
+    renderMarkdown,
+    onRenderMarkdownChange,
+}: {
+    renderMarkdown: boolean
+    onRenderMarkdownChange: (next: boolean) => void
+}): React.ReactElement {
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <button
+                        type="button"
+                        aria-label="Chat display settings"
+                        title="Display settings"
+                        className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                        <SettingsIcon className="h-3 w-3" />
+                    </button>
+                }
+            />
+            <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuGroup>
+                    <DropdownMenuLabel>Display</DropdownMenuLabel>
+                    <DropdownMenuCheckboxItem
+                        checked={renderMarkdown}
+                        onCheckedChange={(next) => onRenderMarkdownChange(Boolean(next))}
+                    >
+                        Render markdown
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
 }
 
 function FocusToggle({

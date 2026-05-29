@@ -225,6 +225,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         queue,
         approvals,
         sweep: { queue, approvals, stuckRunningThresholdMs: 60_000 },
+        // Shared with the worker — same bucket, same prefix. Memory routes
+        // (/memory/team/:t/agent/:a/...) read + write through this store and
+        // the runner's `@posthog/memory-*` tools hit the same files.
+        memoryStore,
     })
 
     return {

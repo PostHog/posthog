@@ -18,6 +18,8 @@ export type { AgentChatProps, TransportError } from './AgentChat'
 export { JsonView } from './components/JsonView'
 export type { JsonViewProps } from './components/JsonView'
 
+export { Markdown } from './components/Markdown'
+
 export { describeContext, getStarterPrompts } from './context'
 export type { ChatContext, ConciergePageContext, StarterPrompt } from './context'
 

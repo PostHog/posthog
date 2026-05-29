@@ -19,6 +19,7 @@
         "start:dev": "tsx watch src/index.ts"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.723.0",
         "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",

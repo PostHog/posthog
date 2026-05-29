@@ -40,6 +40,12 @@ export interface UserTurn {
     id: string
     timestamp: string
     text: string
+    /**
+     * True while the message has been accepted client-side / queued on
+     * the server but the agent hasn't yet started the turn that
+     * consumes it. Cleared on the next `turn_started` event.
+     */
+    pending?: boolean
 }
 
 export interface AssistantTurn {

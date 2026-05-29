@@ -63,6 +63,7 @@ APIScopeObject = Literal[
     "legal_document",
     "link",
     "live_debugger",
+    "ai_gateway",
     "llm_analytics",
     "llm_gateway",
     "llm_prompt",

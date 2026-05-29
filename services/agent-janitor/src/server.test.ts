@@ -509,7 +509,10 @@ describe('janitor HTTP', () => {
         const res = await request(app).get('/native_tools')
         expect(res.status).toBe(200)
         const ids = (res.body.tools as Array<{ id: string }>).map((t) => t.id)
-        expect(ids).toEqual(expect.arrayContaining(['@posthog/query', '@posthog/meta-ask-for-input']))
+        // Spot-check a couple of stable tools from different families. Meta
+        // tools (`@posthog/meta-*`) are auto-included by the runner outside
+        // ALL_TOOLS and are deliberately NOT in this list.
+        expect(ids).toEqual(expect.arrayContaining(['@posthog/query', '@posthog/memory-list']))
     })
 
     /* ────────────────────────── revisions ────────────────────────── */

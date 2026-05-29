@@ -50,6 +50,7 @@ import products.legal_documents.backend.presentation.views as legal_documents
 from products.agent_stack.backend.api import (
     AgentApplicationViewSet,
     AgentFleetViewSet,
+    AgentMemoryViewSet,
     AgentNativeToolsViewSet,
     AgentRevisionViewSet,
 )
@@ -159,6 +160,7 @@ from ..session_recordings.session_recording_playlist_api import SessionRecording
 from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
+    ai_gateway,
     annotation,
     async_migration,
     authentication,
@@ -1441,6 +1443,13 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(
+    r"ai_gateway",
+    ai_gateway.AIGatewayViewSet,
+    "project_ai_gateway",
+    ["project_id"],
+)
+
 agent_applications_router = projects_router.register(
     r"agent_applications",
     AgentApplicationViewSet,
@@ -1451,6 +1460,12 @@ agent_applications_router.register(
     r"revisions",
     AgentRevisionViewSet,
     "project_agent_application_revisions",
+    ["project_id", "application_id"],
+)
+agent_applications_router.register(
+    r"memory",
+    AgentMemoryViewSet,
+    "project_agent_application_memory",
     ["project_id", "application_id"],
 )
 projects_router.register(

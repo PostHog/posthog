@@ -52,13 +52,24 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .positive()
         .default(30 * 1000)
         .describe('How often the in-process sweep timer fires.'),
-    llmGatewayUrl: z
+    memoryS3Endpoint: z
         .string()
         .url()
         .optional()
-        .describe(
-            "llm-gateway base URL (e.g. http://localhost:8080/v1). When set, GET /applications/:id/wallet proxies the agent owner team's balance from /v1/wallet/balance. Unset disables the route (503)."
-        ),
+        .describe('S3 / MinIO endpoint for memory file storage. Unset disables the /memory/* routes (503).'),
+    memoryS3Region: z.string().default('us-east-1').describe('Region for the memory bucket.'),
+    memoryS3Bucket: z.string().optional().describe('Bucket holding agent memory files.'),
+    memoryS3Prefix: z.string().default('agent_memory').describe('Per-deployment key prefix inside the bucket.'),
+    memoryS3AccessKeyId: z
+        .string()
+        .optional()
+        .describe('Optional explicit access key id; falls back to SDK default chain.'),
+    memoryS3SecretAccessKey: z.string().optional().describe('Optional explicit secret access key.'),
+    memoryS3ForcePathStyle: z
+        .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
+        .default('1')
+        .transform((v) => v === '1' || v === 'true')
+        .describe('forcePathStyle for the S3 client. Default true (MinIO needs it).'),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
@@ -71,7 +82,13 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     IDLE_COMPLETED_MS: 'idleCompletedMs',
     MAX_RETRIES: 'maxRetries',
     SWEEP_INTERVAL_MS: 'sweepIntervalMs',
-    POSTHOG_LLM_GATEWAY_URL: 'llmGatewayUrl',
+    AGENT_MEMORY_S3_ENDPOINT: 'memoryS3Endpoint',
+    AGENT_MEMORY_S3_REGION: 'memoryS3Region',
+    AGENT_MEMORY_S3_BUCKET: 'memoryS3Bucket',
+    AGENT_MEMORY_S3_PREFIX: 'memoryS3Prefix',
+    AGENT_MEMORY_S3_ACCESS_KEY_ID: 'memoryS3AccessKeyId',
+    AGENT_MEMORY_S3_SECRET_ACCESS_KEY: 'memoryS3SecretAccessKey',
+    AGENT_MEMORY_S3_FORCE_PATH_STYLE: 'memoryS3ForcePathStyle',
 })
 
 export function loadAgentJanitorConfig(env: NodeJS.ProcessEnv = process.env): AgentJanitorConfig {

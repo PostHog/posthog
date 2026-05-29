@@ -11,16 +11,32 @@ import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 import type { AssistantTurnPart, Turn } from '../types'
 import { JsonView } from './JsonView'
+import { Markdown } from './Markdown'
 
 interface TurnProps {
     turn: Turn
+    /** When true, assistant text parts render as markdown. */
+    renderMarkdown?: boolean
 }
 
-export function TurnRow({ turn }: TurnProps): React.ReactElement {
+export function TurnRow({ turn, renderMarkdown }: TurnProps): React.ReactElement {
     if (turn.kind === 'user') {
+        const pending = turn.pending === true
         return (
-            <div className="rounded-md bg-muted/40 px-3 py-2 text-sm leading-relaxed" data-slot="agent-chat-turn-user">
-                {turn.text}
+            <div
+                className={
+                    'rounded-md px-3 py-2 text-sm leading-relaxed ' +
+                    (pending ? 'border border-dashed border-border bg-muted/20 text-muted-foreground' : 'bg-muted/40')
+                }
+                data-slot="agent-chat-turn-user"
+                data-pending={pending ? 'true' : undefined}
+            >
+                <div>{turn.text}</div>
+                {pending ? (
+                    <div className="mt-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+                        Queued · sends after current turn
+                    </div>
+                ) : null}
             </div>
         )
     }
@@ -28,15 +44,28 @@ export function TurnRow({ turn }: TurnProps): React.ReactElement {
     return (
         <div className="space-y-2" data-slot="agent-chat-turn-assistant">
             {turn.parts.map((part, i) => (
-                <PartRenderer key={i} part={part} />
+                <PartRenderer key={i} part={part} renderMarkdown={renderMarkdown} />
             ))}
             {turn.streaming ? <StreamingDots /> : null}
         </div>
     )
 }
 
-function PartRenderer({ part }: { part: AssistantTurnPart }): React.ReactElement {
+function PartRenderer({
+    part,
+    renderMarkdown,
+}: {
+    part: AssistantTurnPart
+    renderMarkdown?: boolean
+}): React.ReactElement {
     if (part.kind === 'text') {
+        if (renderMarkdown) {
+            return (
+                <div className="px-1">
+                    <Markdown>{part.text}</Markdown>
+                </div>
+            )
+        }
         return <div className="px-1 text-sm leading-relaxed whitespace-pre-wrap">{part.text}</div>
     }
     if (part.kind === 'thinking') {

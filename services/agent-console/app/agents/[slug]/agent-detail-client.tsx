@@ -62,6 +62,7 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
             onChangeUrlState={onChangeUrlState}
             onBackToList={() => router.push('/')}
             onOpenSession={(sessionId) => router.push(`/agents/${slug}/sessions/${sessionId}`)}
+            onOpenMemory={() => router.push(`/agents/${slug}/memory`)}
         />
     )
 }
@@ -74,6 +75,7 @@ function AgentDetailInner({
     onChangeUrlState,
     onBackToList,
     onOpenSession,
+    onOpenMemory,
 }: {
     slug: string
     teamId: number
@@ -82,6 +84,7 @@ function AgentDetailInner({
     onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
     onBackToList: () => void
     onOpenSession: (sessionId: string) => void
+    onOpenMemory: () => void
 }): React.ReactElement {
     const agentRef = { id: agent.id, slug: agent.slug, name: agent.name }
     useSetDockPage({ kind: 'agent', agent: agentRef })
@@ -136,6 +139,7 @@ function AgentDetailInner({
             onTryAgent={(opts) => enterPlayground(agentRef, { previewRevisionId: opts?.revisionId })}
             onBackToList={onBackToList}
             onOpenSession={onOpenSession}
+            onOpenMemory={onOpenMemory}
             onRevisionsMutated={bumpReload}
         />
     )

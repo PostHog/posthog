@@ -12,7 +12,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 describe('chat trigger: real e2e', () => {
     let c: Cluster
@@ -43,14 +43,12 @@ describe('chat trigger: real e2e', () => {
         expect(text).toBe('hello world')
     })
 
-    it('greeting-bot multi-turn: ask_for_input ends turn, /send continues, second turn completes', async () => {
-        // Turn 1: ask_for_input ends the turn (state=completed, open) and
-        // emits a focus hint. Turn 2: a plain text reply after the user's
-        // follow-up. Under the new state machine no "parked" state exists.
-        c.setScript([
-            fauxCallTool('@posthog/meta-ask-for-input', { prompt: "What's your name?" }),
-            fauxText('hello, alice'),
-        ])
+    it('greeting-bot multi-turn: text question ends turn, /send continues, second turn completes', async () => {
+        // Turn 1: the agent asks a question via plain text and ends the
+        // turn (state=completed, open). Turn 2: a plain text reply after
+        // the user's follow-up. There is no dedicated "ask for input"
+        // tool — the model just writes the question and stops.
+        c.setScript([fauxText("what's your name?"), fauxText('hello, alice')])
         await c.deployAgent({ slug: 'greeter' })
         const res = await request(c.ingress).post('/agents/greeter/run').send({ message: 'hi' })
         const sid = res.body.session_id
@@ -71,12 +69,12 @@ describe('chat trigger: real e2e', () => {
     })
 
     it('basic-multi-turn: /send to a `completed` (open) session re-queues; runner drains on resume', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' }), fauxText('ok done')])
+        c.setScript([fauxText('continue?'), fauxText('ok done')])
         await c.deployAgent({ slug: 'multi' })
         const run = await request(c.ingress).post('/agents/multi/run').send({ message: 'first' })
         const sid = run.body.session_id
         await c.drain()
-        // ask_for_input now lands at `completed` (open). The runner went
+        // A text-only turn lands at `completed` (open). The runner went
         // idle; the follow-up /send wakes it.
         expect((await c.queue.get(sid))!.state).toBe('completed')
 

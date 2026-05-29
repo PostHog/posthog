@@ -54,11 +54,13 @@ import {
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
     lastAssistantTextPreview,
+    MemoryStore,
     RevisionStore,
     SessionQueue,
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
+import { mountMemoryRoutes } from './api/memory'
 import { buildApprovalDecidedMarker } from './approval-marker'
 import { asyncHandler, errorHandler } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
@@ -79,18 +81,12 @@ export interface JanitorServerOpts {
      */
     approvals?: ApprovalStore
     /**
-     * Resolves a team's owner-side llm-gateway wallet balance.
-     * When set, `GET /applications/:slug/wallet` returns the agent's
-     * owner team's prepaid balance + pending hold. Lookup runs through
-     * the same `phc_` the runner uses, so a fresh PostHog dev env with
-     * no provisioned wallet returns 0 (gateway treats missing rows as
-     * zero balance) rather than 5xx.
+     * S3-backed memory store. Required for the /memory/* endpoints. When
+     * omitted those routes return 503 — same convention as `approvals`.
+     * Wired from `AGENT_MEMORY_S3_*` in index.ts; tests substitute an
+     * `InMemoryMemoryStore` directly.
      */
-    walletProxy?: (teamId: number) => Promise<{
-        available_usd: string
-        pending_usd: string
-        currency: string
-    }>
+    memoryStore?: MemoryStore
     internalSecret?: string
 }
 
@@ -590,41 +586,6 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         res.json({ tools: listNativeTools() })
     })
 
-    /* ─────────────────────────── wallet (gateway) ────────────────────────── */
-
-    // Returns the agent's owner team's llm-gateway wallet balance + pending
-    // hold. Used by the agent console to surface "this agent has $X budget
-    // left this period" alongside cost rollups derived from
-    // `agent_session.usage_total`. Pass-through to the gateway's
-    // `GET /v1/wallet/balance`; auth happens at the gateway via the team's
-    // `phc_` resolved inside the walletProxy closure.
-    // See docs/agent-platform/plans/llm-gateway-integration.md §3 (W5).
-    app.get(
-        '/applications/:application_id/wallet',
-        asyncHandler(async (req: Request, res: Response): Promise<void> => {
-            if (!opts.walletProxy) {
-                res.status(503).json({ error: 'wallet_proxy_not_configured' })
-                return
-            }
-            if (!opts.revisions) {
-                res.status(503).json({ error: 'revision_store_not_configured' })
-                return
-            }
-            const app = await opts.revisions.getApplication(req.params.application_id)
-            if (!app) {
-                res.status(404).json({ error: 'application_not_found' })
-                return
-            }
-            try {
-                const balance = await opts.walletProxy(app.team_id)
-                res.json({ team_id: app.team_id, ...balance })
-            } catch (err) {
-                log.warn({ team_id: app.team_id, err: (err as Error).message }, 'wallet.proxy_failed')
-                res.status(502).json({ error: 'gateway_unavailable' })
-            }
-        })
-    )
-
     /* ───────────────────────────── revisions ───────────────────────────── */
 
     const needRevisionStore = (res: Response): boolean => {
@@ -860,6 +821,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             res.json({ ok: true, source_revision_id: sourceId, files })
         })
     )
+
+    /* ──────────────────────── extracted route groups ───────────────────── */
+    //
+    // First step of the api/-folder refactor — memory routes live in
+    // src/api/memory.ts. The remaining groups (sessions, approvals,
+    // revisions, applications, native-tools) still inline above; same
+    // pattern applies when they get extracted: one file per logical group,
+    // each exporting `mount*Routes(app, opts, log)` called here.
+    mountMemoryRoutes(app, { memoryStore: opts.memoryStore, log })
 
     // Last in the chain. Catches anything the route handlers threw (via
     // asyncHandler), translates ZodError → 400, everything else → 500.

@@ -152,7 +152,7 @@ async function main(): Promise<void> {
 
     // On the gateway path the bearer is the owning team's phc_ project key.
     // The resolver caches per team so the hot path is a hash lookup.
-    // See docs/agent-platform/plans/llm-gateway-integration.md §3 (W1).
+    // See docs/agent-platform/plans/ai-gateway-integration.md §3 (W1).
     const teamApiKeys = config.useLlmGateway ? new PgTeamApiKeyResolver(posthogDb) : null
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
     const gatewayClient = config.useLlmGateway ? new HttpGatewayClient({ baseUrl: config.llmGatewayUrl }) : null
@@ -232,6 +232,7 @@ async function main(): Promise<void> {
         analytics,
         maxConcurrency: config.maxConcurrency,
         memoryStore,
+        isAskerInApproverScope,
     })
 
     const shutdown = (sig: string): void => {

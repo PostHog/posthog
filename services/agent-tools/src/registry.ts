@@ -20,7 +20,7 @@ import {
     memoryUpdateV1,
     memoryWriteV1,
 } from './tools/memory'
-import { askForInputTool, endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
+import { endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
 import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
 import {
@@ -43,7 +43,6 @@ export const ALL_TOOLS: NativeTool[] = [
     slackReactV1,
     webFetchV1,
     webSearchV1,
-    askForInputTool,
     endTurnTool,
     endSessionTool,
     emitEventTool,

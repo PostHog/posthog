@@ -12,7 +12,7 @@
 
 'use client'
 
-import { BotIcon, ExternalLinkIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { BotIcon, ExternalLinkIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon, WalletIcon } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -70,6 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
 function Sidebar(): React.ReactElement {
     const pathname = usePathname() ?? '/'
     const isAgents = pathname === '/' || pathname.startsWith('/agents')
+    const isBilling = pathname.startsWith('/billing')
     const posthogBaseUrl = usePosthogBaseUrl()
 
     return (
@@ -101,6 +102,21 @@ function Sidebar(): React.ReactElement {
                     }
                 >
                     <BotIcon className="h-4 w-4" />
+                </Link>
+            </SidebarTooltip>
+
+            <SidebarTooltip label="Billing">
+                <Link
+                    href="/billing"
+                    aria-label="Billing"
+                    aria-current={isBilling ? 'page' : undefined}
+                    className={
+                        isBilling
+                            ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md bg-accent text-foreground'
+                            : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }
+                >
+                    <WalletIcon className="h-4 w-4" />
                 </Link>
             </SidebarTooltip>
 

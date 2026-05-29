@@ -3,7 +3,6 @@
  *
  * These don't talk to external systems. The runner intercepts their use:
  *   - end_turn       → finish the current turn; session stays `completed` (open)
- *   - ask_for_input  → focus hint event for the UI; session stays `completed`
  *   - end_session    → hard close; session goes to `closed` (terminal unless
  *                      the trigger config sets `allow_restart`)
  *   - emit_event     → emit a structured event into the team's event stream
@@ -15,8 +14,10 @@
  * "use end_turn when you're done responding; only use end_session if the
  * agent's task is irreversibly finished."
  *
- * See docs/agent-platform/plans/_TODO.md for the system-prompt content
- * that teaches the model when to use each.
+ * Asking the user a question is not a meta tool — the agent writes the
+ * question as plain text and ends the turn. The UI already renders the
+ * assistant text; a dedicated `ask_for_input` tool required client-side
+ * tool handling that most clients don't implement.
  */
 
 import { defineNativeTool, Type } from '@posthog/agent-shared'
@@ -24,7 +25,7 @@ import { defineNativeTool, Type } from '@posthog/agent-shared'
 export const endTurnTool = defineNativeTool({
     id: '@posthog/meta-end-turn',
     description:
-        'Finish the current turn. The user can still send follow-up messages — this is the default polite stop. Use this whenever you have nothing more to add for now, unless the agent task is truly complete (then use meta-end-session instead).',
+        'Finish the current turn. The user can still send follow-up messages — this is the default polite stop. Use this whenever you have nothing more to add for now, including when you need the user to answer a question (write the question as your reply, then end the turn). Use meta-end-session instead only when the agent task is truly complete.',
     args: Type.Object({}),
     returns: Type.Object({ ended_turn: Type.Literal(true) }),
     requires: { integrations: [], scopes: [] },
@@ -32,22 +33,6 @@ export const endTurnTool = defineNativeTool({
     async run(_args, _ctx) {
         // Runner intercepts this — never actually called.
         return { ended_turn: true as const }
-    },
-})
-
-export const askForInputTool = defineNativeTool({
-    id: '@posthog/meta-ask-for-input',
-    description:
-        'Tell the user-facing client that the next user message should answer a specific question. Emits a focus-hint event; functionally equivalent to ending the turn (the session stays open for any follow-up). The `prompt` is what the client surfaces.',
-    args: Type.Object({
-        prompt: Type.String({ description: 'The question to surface to the user.' }),
-    }),
-    returns: Type.Object({ asked: Type.Literal(true) }),
-    requires: { integrations: [], scopes: [] },
-    cost_hint: 'cheap',
-    async run(_args, _ctx) {
-        // Runner intercepts this — never actually called.
-        return { asked: true as const }
     },
 })
 

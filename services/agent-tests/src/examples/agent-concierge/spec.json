@@ -1,0 +1,135 @@
+{
+    "model": "anthropic/claude-sonnet-4-6",
+    "reasoning": "high",
+    "triggers": [
+        {
+            "type": "chat",
+            "config": {
+                "require_auth": true,
+                "allow_restart": true
+            }
+        },
+        {
+            "type": "mcp",
+            "config": {
+                "allow_restart": true
+            }
+        }
+    ],
+    "tools": [
+        { "kind": "native", "id": "@posthog/query" },
+        { "kind": "native", "id": "@posthog/web-fetch" },
+        { "kind": "native", "id": "@posthog/web-search" },
+        { "kind": "client", "from_native": "@posthog/ui/focus" },
+        { "kind": "client", "from_native": "@posthog/ui/toast" }
+    ],
+    "mcps": [
+        {
+            "id": "posthog",
+            "endpoint": "https://app.posthog.com/api/mcp",
+            "tools": [
+                "agent-applications-list",
+                "agent-applications-retrieve",
+                "agent-applications-create",
+                "agent-applications-partial-update",
+                "agent-applications-destroy",
+                "agent-applications-sessions-list",
+                "agent-applications-sessions-retrieve",
+                "agent-applications-session-logs",
+                "agent-applications-revisions-list",
+                "agent-applications-revisions-retrieve",
+                "agent-applications-revisions-create",
+                "agent-applications-revisions-new-draft-create",
+                "agent-applications-revisions-clone-from-create",
+                "agent-applications-revisions-bundle-retrieve",
+                "agent-applications-revisions-bundle-update",
+                "agent-applications-revisions-manifest-retrieve",
+                "agent-applications-revisions-file-retrieve",
+                "agent-applications-revisions-file-update",
+                "agent-applications-revisions-file-destroy",
+                "agent-applications-revisions-partial-update",
+                "agent-applications-revisions-validate-create",
+                "agent-applications-revisions-freeze-create",
+                "agent-applications-revisions-promote-create",
+                "agent-applications-revisions-archive-create",
+                "agent-applications-revisions-system-prompt",
+                "agent-applications-approvals-list",
+                "agent-applications-approvals-retrieve",
+                "agent-applications-approvals-decide",
+                "agent-applications-set-env-create",
+                "agent-native-tools-list"
+            ],
+            "secrets": []
+        }
+    ],
+    "skills": [
+        {
+            "id": "platform-mental-model",
+            "path": "skills/platform-mental-model.md",
+            "description": "What an agent is — spec, bundle, revision lifecycle, triggers, the runner. Load FIRST when explaining the platform to someone, or any time you catch yourself unsure about a structural term."
+        },
+        {
+            "id": "reading-an-agent",
+            "path": "skills/reading-an-agent.md",
+            "description": "How to inspect and summarize an existing agent — which MCP calls to make, in what order, and how to render a concise overview for the user. Load whenever the user asks 'what does X do?' or 'show me Y'."
+        },
+        {
+            "id": "debugging-sessions",
+            "path": "skills/debugging-sessions.md",
+            "description": "Triaging a failing or anomalous session — failure taxonomy, how to read the event log + LLM trace, common root causes. Load when the user reports a broken session, a failed approval, or unexpected agent behavior."
+        },
+        {
+            "id": "editing-agents-safely",
+            "path": "skills/editing-agents-safely.md",
+            "description": "The full edit-promote loop — branch a draft, surgical edits, validate, freeze, test, promote, rollback. Load whenever the user wants to change ANY part of an existing agent."
+        },
+        {
+            "id": "authoring-new-agents",
+            "path": "skills/authoring-new-agents.md",
+            "description": "Creating a new agent from scratch — discover building blocks, design spec, write agent.md and skills, configure tools. Load only when the user is creating a NEW agent; for editing, use editing-agents-safely instead."
+        },
+        {
+            "id": "secrets-and-integrations",
+            "path": "skills/secrets-and-integrations.md",
+            "description": "Wiring credentials without seeing them — the punch-out flow, integrations vs secrets, what to do when a tool needs auth. Load when the user mentions any API key, OAuth, integration, or auth-related error."
+        },
+        {
+            "id": "designing-mcp-surfaces",
+            "path": "skills/designing-mcp-surfaces.md",
+            "description": "How to design the MCP tool surface an agent EXPOSES (the spec.mcp.tools[] block) — when to add curated tools vs rely on `ask`, naming, schemas, prompt templates. Load when the user is making an agent available over MCP."
+        },
+        {
+            "id": "running-and-evaluating-tests",
+            "path": "skills/running-and-evaluating-tests.md",
+            "description": "Writing test specs, kicking off test runs, reading results, self-evaluation, judge skills. Load before any promote on a non-trivial change, and whenever the user asks to test an agent."
+        },
+        {
+            "id": "using-the-console-ui",
+            "path": "skills/using-the-console-ui.md",
+            "description": "How to drive the agent console as the user works with you — @posthog/ui/focus etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `agent-console`."
+        },
+        {
+            "id": "working-outside-the-console",
+            "path": "skills/working-outside-the-console.md",
+            "description": "Operating without a UI — MCP / IDE / Slack mode. How to compensate for missing client tools, how to be useful in a text-only chat. Load when the session client kind is NOT `agent-console`."
+        },
+        {
+            "id": "cost-and-quota-analysis",
+            "path": "skills/cost-and-quota-analysis.md",
+            "description": "Running cost / token / failure-rate queries against PostHog LLM analytics — which event names to query, which properties to aggregate, the standard rollups. Load when the user asks about cost, performance, usage, or limits."
+        },
+        {
+            "id": "safety-and-boundaries",
+            "path": "skills/safety-and-boundaries.md",
+            "description": "Hard rules — what the concierge MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
+        }
+    ],
+    "integrations": [],
+    "secrets": [],
+    "limits": {
+        "max_turns": 80,
+        "max_tool_calls": 300,
+        "max_wall_seconds": 1800
+    },
+    "auth": { "mode": "posthog_internal" }
+}

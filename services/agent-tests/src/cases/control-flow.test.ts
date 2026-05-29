@@ -1,15 +1,18 @@
 /**
  * Control-flow primitives after the session-restart redesign:
- *   - meta.ask_for_input    → completed (open); emits `ask_for_input` bus event
  *   - meta.end_turn         → completed (open)
  *   - meta.end_session      → closed (terminal unless `allow_restart`)
  *   - max_turns ceiling     → failed
  *   - upstream model error  → failed
+ *
+ * Asking the user a question is no longer a meta tool — the agent
+ * just emits text and ends the turn. That path is covered by the
+ * default natural-stop test below.
  */
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxErrorTurn } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxErrorTurn, fauxText } from '../harness'
 
 describe('control flow: real e2e', () => {
     let c: Cluster
@@ -26,16 +29,15 @@ describe('control flow: real e2e', () => {
         await closeSharedPool()
     })
 
-    it('ask_for_input lands at completed (open) and emits a focus-hint event', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+    it('a text turn that asks a question lands at completed (open)', async () => {
+        // No dedicated "ask for input" tool — the agent just responds
+        // with text and ends the turn naturally.
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'asker' })
         const res = await request(c.ingress).post('/agents/asker/run').send({ message: 'hi' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
         expect(session!.state).toBe('completed')
-        // The prompt is surfaced as a UI focus hint via the bus, not a parked state.
-        const event = c.logs.forSession(res.body.session_id).find((e) => e.event === 'ask_for_input')
-        expect(event).not.toBeUndefined()
     })
 
     it('end_session hard-closes the session', async () => {

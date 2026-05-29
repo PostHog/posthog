@@ -8,7 +8,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 describe('queued follow-ups: real e2e', () => {
     let c: Cluster
@@ -25,14 +25,13 @@ describe('queued follow-ups: real e2e', () => {
         await closeSharedPool()
     })
 
-    it('a single /send during a parked turn lands in pending_inputs', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'go?' }), fauxText('ok')])
+    it('a single /send after a text turn lands in pending_inputs', async () => {
+        c.setScript([fauxText('go?'), fauxText('ok')])
         await c.deployAgent({ slug: 'q1' })
         const run = await request(c.ingress).post('/agents/q1/run').send({ message: 'hi' })
         const sid = run.body.session_id
         await c.drain()
-        // Under the new state machine `ask_for_input` lands at `completed`
-        // (open) — the prompt becomes a UI focus hint, not a parked state.
+        // A text-only turn lands at `completed` (open).
         expect((await c.queue.get(sid))!.state).toBe('completed')
 
         await request(c.ingress).post('/agents/q1/send').send({ session_id: sid, message: 'first follow-up' })
@@ -41,14 +40,13 @@ describe('queued follow-ups: real e2e', () => {
         expect(session!.pending_inputs[0].content).toBe('first follow-up')
     })
 
-    it('three /sends during a parked turn buffer in arrival order; drain preserves order', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'go?' }), fauxText('done')])
+    it('three /sends after a completed turn buffer in arrival order; drain preserves order', async () => {
+        c.setScript([fauxText('go?'), fauxText('done')])
         await c.deployAgent({ slug: 'q3' })
         const run = await request(c.ingress).post('/agents/q3/run').send({ message: 'first' })
         const sid = run.body.session_id
         await c.drain()
-        // Under the new state machine `ask_for_input` lands at `completed`
-        // (open) — the prompt becomes a UI focus hint, not a parked state.
+        // A text-only turn lands at `completed` (open).
         expect((await c.queue.get(sid))!.state).toBe('completed')
 
         // Three /sends without draining between them.
@@ -77,9 +75,9 @@ describe('queued follow-ups: real e2e', () => {
     })
 
     it('a /send BEFORE the worker dequeues is durable (lands in conversation, not lost)', async () => {
-        // mock-ask scripts the second invocation as ask_for_input so the session
-        // parks. The fresh first-turn run never drains before /send fires.
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: '?' }), fauxText('done')])
+        // The fresh first-turn run never drains before /send fires; the
+        // scripted text response ends the first turn cleanly.
+        c.setScript([fauxText('?'), fauxText('done')])
         await c.deployAgent({ slug: 'q-early' })
         const run = await request(c.ingress).post('/agents/q-early/run').send({ message: 'first' })
         const sid = run.body.session_id

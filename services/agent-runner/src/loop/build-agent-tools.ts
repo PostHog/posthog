@@ -6,10 +6,10 @@
  * `parameters` and calls `execute` directly.
  *
  * Three tool sources, mirroring the old `buildToolList` + `dispatchTool`:
- *   1. Always-on meta control-flow (`meta-end-turn`, `meta-ask-for-input`,
- *      `meta-end-session`) — surfaced as `terminate` results carrying a
- *      `control` detail the driver reads to derive the run outcome. These are
- *      intercepted before `native.run` (they never execute), exactly as
+ *   1. Always-on meta control-flow (`meta-end-turn`, `meta-end-session`) —
+ *      surfaced as `terminate` results carrying a `control` detail the
+ *      driver reads to derive the run outcome. These are intercepted
+ *      before `native.run` (they never execute), exactly as
  *      `tool-dispatch.ts` did.
  *   2. Native tools (incl. `@posthog/load-skill` when the agent has skills) —
  *      `execute` builds the same `ToolContext` the old dispatcher did and calls
@@ -46,16 +46,12 @@ import { buildToolNameMap } from './provider-safe-names'
  * instead of executing. Kept in sync with the meta tools the registry defines.
  * `@posthog/meta-emit-event` is deliberately absent: it runs like any native.
  */
-export const ALWAYS_ON_NATIVE_TOOL_IDS = [
-    '@posthog/meta-end-turn',
-    '@posthog/meta-ask-for-input',
-    '@posthog/meta-end-session',
-]
+export const ALWAYS_ON_NATIVE_TOOL_IDS = ['@posthog/meta-end-turn', '@posthog/meta-end-session']
 
 const CONTROL_FLOW_IDS = new Set(ALWAYS_ON_NATIVE_TOOL_IDS)
 
 /** Control signal a meta tool surfaces to the driver via `AgentToolResult.details`. */
-export type MetaControl = { kind: 'end_turn'; prompt?: string } | { kind: 'close'; summary?: string }
+export type MetaControl = { kind: 'end_turn' } | { kind: 'close'; summary?: string }
 
 /** `details` shape every tool in this adapter returns. */
 export interface ToolResultDetails {
@@ -164,11 +160,9 @@ function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> 
                     terminate: true,
                 }
             }
-            const prompt =
-                id === '@posthog/meta-ask-for-input' ? ((args as { prompt?: string }).prompt ?? '') : undefined
             return {
                 content: [{ type: 'text', text: JSON.stringify({ ended_turn: true }) }],
-                details: { control: { kind: 'end_turn', prompt } },
+                details: { control: { kind: 'end_turn' } },
                 terminate: true,
             }
         },

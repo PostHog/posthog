@@ -18,7 +18,7 @@
  */
 
 import { ArrowUpIcon, XIcon } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ApprovalCard } from './components/ApprovalCard'
 import { DockHeader } from './components/DockHeader'
 import { TurnRow } from './components/Turn'
@@ -67,6 +67,14 @@ export interface AgentChatProps {
      * a stall. Reset to 0 once a fresh event arrives.
      */
     reconnectAttempt?: number
+    /**
+     * Render assistant text as markdown when true. Off → plain
+     * `whitespace-pre-wrap`. Persisted + toggled by the host (the
+     * settings dropdown in the dock header writes through).
+     */
+    renderMarkdown?: boolean
+    /** Notified when the user toggles the markdown setting in the dock header. */
+    onRenderMarkdownChange?: (next: boolean) => void
 }
 
 /**
@@ -99,14 +107,71 @@ export function AgentChat({
     transportError,
     onDismissTransportError,
     reconnectAttempt,
+    renderMarkdown = true,
+    onRenderMarkdownChange,
 }: AgentChatProps): React.ReactElement {
     const [draft, setDraft] = useState('')
     const inputId = useId()
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+    // Sticky-to-bottom: track whether the user is currently parked at
+    // the bottom. While they are, we keep autoscrolling as the stream
+    // grows; the moment they scroll up we stop following so they can
+    // read history without getting yanked back.
+    const stuckToBottomRef = useRef(true)
 
-    const sending = session.state === 'streaming' || session.state === 'awaiting_client_tool'
-    const inputDisabled = sending || session.state === 'awaiting_approval' || session.state === 'error'
+    // `streaming` is no longer disabling — the user can queue follow-ups
+    // mid-turn; `/send` appends to `pending_inputs` server-side and the
+    // runner drains them at the start of the next turn. The other live
+    // states still need a focused decision before more input lands.
+    const streaming = session.state === 'streaming'
+    const awaitingClientTool = session.state === 'awaiting_client_tool'
+    const sending = streaming || awaitingClientTool
+    const inputDisabled = awaitingClientTool || session.state === 'awaiting_approval' || session.state === 'error'
     const waiting = session.turns.length === 0
     const effectivePrompts = starterPrompts ?? getStarterPrompts(context)
+    const turnCount = session.turns.length
+
+    // Wire a scroll listener once — it updates the sticky-to-bottom
+    // flag based on the user's actual viewport position. 40px tolerance
+    // so scrollbar twitch / a stray wheel tick doesn't drop us off the
+    // tail.
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!el) {
+            return
+        }
+        const onScroll = (): void => {
+            const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+            stuckToBottomRef.current = distance < 40
+        }
+        el.addEventListener('scroll', onScroll, { passive: true })
+        return () => el.removeEventListener('scroll', onScroll)
+    }, [])
+
+    // A new turn (user message, assistant turn boundary) forces a
+    // re-stick — sending your own message always pulls you back to the
+    // bottom regardless of where you'd scrolled to.
+    useEffect(() => {
+        stuckToBottomRef.current = true
+        const el = scrollRef.current
+        if (el) {
+            el.scrollTop = el.scrollHeight
+        }
+    }, [turnCount])
+
+    // Follow streaming content: every render, if the user hasn't
+    // scrolled away, keep them pinned to the bottom. Cheap — runs on
+    // every assistant_text_delta but only mutates scrollTop if needed.
+    useEffect(() => {
+        if (!stuckToBottomRef.current) {
+            return
+        }
+        const el = scrollRef.current
+        if (!el) {
+            return
+        }
+        el.scrollTop = el.scrollHeight
+    })
 
     const send = (text: string): void => {
         const trimmed = text.trim()
@@ -132,9 +197,11 @@ export function AgentChat({
                 onNewSession={onNewSession}
                 busy={sending}
                 reconnectAttempt={reconnectAttempt}
+                renderMarkdown={renderMarkdown}
+                onRenderMarkdownChange={onRenderMarkdownChange}
             />
 
-            <div className="flex-1 overflow-y-auto">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto">
                 {transportError ? (
                     <div className="px-4 pt-4">
                         <TransportErrorBanner error={transportError} onDismiss={onDismissTransportError} />
@@ -145,7 +212,7 @@ export function AgentChat({
                 ) : (
                     <div className="space-y-3 px-4 py-4">
                         {session.turns.map((turn) => (
-                            <TurnRow key={turn.id} turn={turn} />
+                            <TurnRow key={turn.id} turn={turn} renderMarkdown={renderMarkdown} />
                         ))}
                         {session.pendingApprovals.map((a) => (
                             <ApprovalCard key={a.callId} approval={a} onApprove={onApprove} onDeny={onDeny} />
@@ -172,7 +239,7 @@ export function AgentChat({
 
 function placeholderFor(context: ChatContext, sending: boolean): string {
     if (sending) {
-        return 'Working…'
+        return context.mode === 'playground' ? `Queue a message for ${context.agent.name}` : 'Queue a message'
     }
     if (context.mode === 'playground') {
         return `Message ${context.agent.name}`
@@ -340,7 +407,7 @@ function Footer({
                 </button>
             </form>
             <div className="flex items-center justify-between px-3 pb-1.5 text-[0.6875rem] text-muted-foreground">
-                <span>{sending ? 'streaming…' : 'Enter to send · Shift+Enter for newline'}</span>
+                <span>{sending ? 'streaming · Enter to queue' : 'Enter to send · Shift+Enter for newline'}</span>
                 <span>${usage.costUsd.toFixed(3)}</span>
             </div>
         </div>

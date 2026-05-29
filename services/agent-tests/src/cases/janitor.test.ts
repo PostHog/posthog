@@ -6,7 +6,7 @@
 
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
 describe('janitor: real e2e', () => {
     let c: Cluster
@@ -40,7 +40,7 @@ describe('janitor: real e2e', () => {
     })
 
     it('POST /sessions/:id/cancel marks cancelled', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'j2', spec: {} })
         const create = await request(c.ingress).post('/agents/j2/run').send({ message: 'hi' })
         await c.drain()
@@ -51,7 +51,7 @@ describe('janitor: real e2e', () => {
     })
 
     it('POST /sessions/:id/cancel is idempotent on already-cancelled', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'j2b', spec: {} })
         const create = await request(c.ingress).post('/agents/j2b/run').send({ message: 'hi' })
         await c.drain()

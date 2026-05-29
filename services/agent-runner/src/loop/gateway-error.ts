@@ -14,7 +14,7 @@
  * over the prefix is the cheapest reliable signal we have without patching
  * pi-ai to surface the underlying `error.status`.
  *
- * See docs/agent-platform/plans/llm-gateway-integration.md §3 (W4).
+ * See docs/agent-platform/plans/ai-gateway-integration.md §3 (W4).
  */
 
 export interface GatewayErrorClassification {

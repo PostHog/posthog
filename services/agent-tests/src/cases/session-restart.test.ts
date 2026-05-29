@@ -9,15 +9,14 @@
  *   session is open for more `/send`s. This is the default end-of-turn state.
  * - `closed` is what `completed` used to be: sealed, /send returns 410
  *   unless the trigger's `allow_restart` flag re-opens it (state → queued).
- * - `waiting` is gone. `meta-ask-for-input` no longer parks the session; it
- *   emits an `ask_for_input` bus event for UI focus hints and lands in
- *   `completed` like any other turn end.
+ * - `waiting` is gone. There is no dedicated "ask for input" tool; the
+ *   agent writes the question in its reply and ends the turn, landing
+ *   at `completed` like any other turn end.
  *
  * Meta tools (always-on):
  *   - `meta-end-turn` — explicit "turn done, session open". Equivalent to
  *     natural stop. State → completed.
  *   - `meta-end-session` — explicit hard close. State → closed.
- *   - `meta-ask-for-input` — UI focus hint, then completed.
  *
  * These tests are written *before* the implementation lands — they fail
  * today against the old state machine and turn green once the redesign
@@ -191,34 +190,22 @@ describe('session restart + new state machine: real e2e', () => {
     })
 
     // ─────────────────────────────────────────────────────────────
-    // Case 6 — `meta-ask-for-input` no longer parks the session.
-    // It lands in `completed`, /send drains the user reply into the
-    // existing conversation, the model continues from there.
+    // Case 6 — An agent that asks the user a question does so with
+    // plain text and ends the turn. The session lands at `completed`
+    // (open), /send drains the reply into the conversation, the model
+    // continues from there.
     // ─────────────────────────────────────────────────────────────
-    it('case 6: meta-ask-for-input → completed (open); no `waiting` state', async () => {
-        c.setScript([
-            fauxCallTool('@posthog/meta-ask-for-input', { prompt: "What's your name?" }),
-            fauxText('hello, alice'),
-        ])
+    it('case 6: text-only follow-up → completed (open); no `waiting` state', async () => {
+        c.setScript([fauxText("what's your name?"), fauxText('hello, alice')])
         await c.deployAgent({ slug: 'asker' })
 
         const run = await request(c.ingress).post('/agents/asker/run').send({ message: 'hi' })
         const sid = run.body.session_id
         await c.drain()
 
-        // No more `waiting` — ask_for_input is just a turn end that emits a
-        // hint event for the UI.
+        // No more `waiting` — a text-only turn just lands at completed.
         let session = await c.queue.get(sid)
         expect(session!.state).toBe('completed')
-
-        // The hint event should have fired through the bus so a chat UI
-        // can focus its input box. (Implementation may publish through a
-        // dedicated kind — the test asserts on the bus's recorded events.)
-        // For v0 we just confirm SOMETHING semantically equivalent was
-        // emitted: an `ask_for_input` or comparable event in the bus log.
-        const events = c.logs.forSession(sid)
-        const askEvent = events.find((e) => e.event === 'ask_for_input')
-        expect(askEvent).not.toBeUndefined()
 
         // The user replies and the session continues — no special wake
         // path needed because it was never parked.

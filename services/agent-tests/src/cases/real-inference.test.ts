@@ -15,7 +15,7 @@
  *
  * Defaults target the cheapest model in each registry that can still reliably
  * follow simple instructions and emit tool calls. `gpt-4.1-nano` is cheaper
- * but spuriously invokes `ask_for_input` on trivial single-turn prompts;
+ * but spuriously invents meta tool calls on trivial single-turn prompts;
  * `claude-3-haiku-20240307` is cheaper but ancient. Pin
  * `REAL_INFERENCE_MODEL_ID` to a larger model when investigating a regression
  * that needs one.
@@ -237,16 +237,14 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         expect(toolResult.content[0].text).toContain('4')
     }, 120_000)
 
-    it('multi-turn: ask_for_input ends turn, /send continues with the answer', async () => {
-        // Under the new state machine `ask_for_input` is a UI focus hint
-        // — the session lands at `completed` (open). /send to a
+    it('multi-turn: text question ends turn, /send continues with the answer', async () => {
+        // A text-only turn lands at `completed` (open). /send to a
         // `completed` session re-queues and the runner continues.
         await c.deployAgent({
             slug: 'real-multi',
             files: {
                 'agent.md':
-                    'You have a tool that surfaces a "please answer this question" prompt to the user. ' +
-                    "On your first turn you MUST use that tool to ask 'What is your name?'. Do not write any text on the first turn — only call the tool. " +
+                    "On your first turn, reply with exactly: What is your name?. Don't call any tools. " +
                     'When the user responds with their name on the next turn, reply with exactly: Hi <NAME> (substituting the actual name).',
             },
         })

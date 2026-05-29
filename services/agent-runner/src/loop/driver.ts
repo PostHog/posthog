@@ -678,9 +678,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         await emit('failed', { reason: 'max_turns_exceeded', turns: turn })
         return { state: 'failed', reason: 'max_turns_exceeded', turns: turn }
     }
-    if (lastControl?.kind === 'end_turn' && lastControl.prompt) {
-        await emit('ask_for_input', { turns: turn, prompt: lastControl.prompt })
-    }
     await emit('completed', { turns: turn })
     return { state: 'completed', turns: turn }
 }

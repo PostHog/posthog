@@ -85,7 +85,7 @@ describe('session lifecycle edges: real e2e', () => {
         // resulting state is `cancelled` (distinct from `failed`) so
         // operators can tell user-initiated termination from runtime
         // errors.
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'cc1' })
         const create = await request(c.ingress).post('/agents/cc1/run').send({ message: 'hi' })
         await c.drain()
@@ -97,7 +97,7 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/send to a cancelled session → 410 Gone with state=cancelled', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'cc1b' })
         const create = await request(c.ingress).post('/agents/cc1b/run').send({ message: 'hi' })
         await c.drain()
@@ -110,7 +110,7 @@ describe('session lifecycle edges: real e2e', () => {
     })
 
     it('/cancel of an already-cancelled session is idempotent', async () => {
-        c.setScript([fauxCallTool('@posthog/meta-ask-for-input', { prompt: 'continue?' })])
+        c.setScript([fauxText('continue?')])
         await c.deployAgent({ slug: 'cc1c' })
         const create = await request(c.ingress).post('/agents/cc1c/run').send({ message: 'hi' })
         await c.drain()

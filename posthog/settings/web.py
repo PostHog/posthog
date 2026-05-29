@@ -825,3 +825,9 @@ SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 # Agent janitor service — Django proxies session list/detail/cancel requests to this URL.
 AGENT_JANITOR_BASE_URL = os.getenv("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
 AGENT_JANITOR_SHARED_KEY = os.getenv("AGENT_INTERNAL_API_SHARED_KEY", "dev-shared-key")
+
+# ai-gateway billing read plane — Django proxies wallet + ledger reads to this URL.
+# Empty secret disables the proxy endpoints (503), so devs not on the agent
+# platform aren't broken by the new routes.
+AI_GATEWAY_BILLING_URL = os.getenv("AI_GATEWAY_BILLING_URL", "http://localhost:8081")
+AI_GATEWAY_BILLING_INTERNAL_SECRET = os.getenv("AI_GATEWAY_BILLING_INTERNAL_SECRET", "")

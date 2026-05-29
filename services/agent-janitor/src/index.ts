@@ -18,15 +18,17 @@ import { mkdir } from 'node:fs/promises'
 import pg from 'pg'
 const { Pool } = pg
 
+import { S3Client } from '@aws-sdk/client-s3'
+
 import { migrate } from '@posthog/agent-migrations'
 import {
     createLogger,
     FsBundleStore,
-    HttpGatewayClient,
     installProcessHandlers,
+    MemoryStore,
     PgRevisionStore,
     PgSessionQueue,
-    PgTeamApiKeyResolver,
+    S3MemoryStore,
 } from '@posthog/agent-shared'
 
 import { loadAgentJanitorConfig } from './config'
@@ -67,21 +69,34 @@ async function main(): Promise<void> {
             return rev?.spec?.resume
         },
     }
-    // walletProxy resolves the agent's owner team to a phc_ and forwards
-    // to the llm-gateway's GET /v1/wallet/balance. The route on the
-    // janitor (/applications/:id/wallet) lights up only when the URL is
-    // configured; unset → 503 with `wallet_proxy_not_configured`.
-    let walletProxy:
-        | ((teamId: number) => Promise<{ available_usd: string; pending_usd: string; currency: string }>)
-        | undefined
-    if (config.llmGatewayUrl) {
-        const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
-        const gateway = new HttpGatewayClient({ baseUrl: config.llmGatewayUrl })
-        walletProxy = async (teamId) => {
-            const phc = await teamApiKeys.resolve(teamId)
-            const bal = await gateway.getWalletBalance({ phc })
-            return { available_usd: bal.available_usd, pending_usd: bal.pending_usd, currency: bal.currency }
-        }
+    // S3-backed memory store. Unset bucket/endpoint disables the
+    // /memory/* endpoints (503), keeping local dev that hasn't wired
+    // MinIO bootable.
+    let memoryStore: MemoryStore | undefined
+    if (config.memoryS3Bucket && config.memoryS3Endpoint) {
+        const s3 = new S3Client({
+            endpoint: config.memoryS3Endpoint,
+            region: config.memoryS3Region,
+            forcePathStyle: config.memoryS3ForcePathStyle,
+            credentials:
+                config.memoryS3AccessKeyId && config.memoryS3SecretAccessKey
+                    ? {
+                          accessKeyId: config.memoryS3AccessKeyId,
+                          secretAccessKey: config.memoryS3SecretAccessKey,
+                      }
+                    : undefined,
+        })
+        memoryStore = new S3MemoryStore({
+            client: s3,
+            bucket: config.memoryS3Bucket,
+            bucketPrefix: config.memoryS3Prefix,
+        })
+        log.info(
+            { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
+            'memory.s3.enabled'
+        )
+    } else {
+        log.warn({}, 'memory.s3.disabled — set AGENT_MEMORY_S3_BUCKET + AGENT_MEMORY_S3_ENDPOINT to enable')
     }
 
     const app = buildJanitorApp({
@@ -89,7 +104,7 @@ async function main(): Promise<void> {
         sweep,
         revisions,
         bundles,
-        walletProxy,
+        memoryStore,
         internalSecret: config.internalSecret,
     })
     app.listen(config.port, () => {

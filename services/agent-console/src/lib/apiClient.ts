@@ -619,3 +619,200 @@ export async function listLiveSessions(teamId: number): Promise<ChatSession[]> {
     const { results } = await getJson<{ results: ChatSession[] }>(posthogUrl(teamId, `/agent_fleet/live_sessions/`))
     return results
 }
+
+/* ── AI gateway (billing read plane) ─────────────────────────────── */
+
+/**
+ * Wire shape of GET /api/projects/<team>/ai_gateway/wallet/. Mirrors
+ * the ai-gateway billing service's /v1/wallet response. Hand-rolled
+ * here pending the next `hogli build:openapi` regen — swap the local
+ * types for the generated ones in one place when that's safe to run.
+ *
+ * Decimal fields are strings to preserve ledger precision; parse with
+ * Number() at the call site (UI rounding is fine for display).
+ */
+export interface AIGatewayAccount {
+    profile: 'A' | 'B' | 'C'
+    overage_allowance_usd: string
+    period: string
+    period_anchor: string
+    rate_card_id?: string | null
+}
+
+export interface AIGatewayKillSwitch {
+    tripped: boolean
+    threshold_usd?: string | null
+    tripped_at?: string | null
+}
+
+export interface AIGatewayWallet {
+    team_id: number
+    available_usd: string
+    pending_usd: string
+    balance_usd: string
+    spendable_usd: string
+    currency: string
+    account: AIGatewayAccount
+    rolling_hour_usd?: string | null
+    kill_switch: AIGatewayKillSwitch
+}
+
+export type AIGatewayTransactionType = 'debit' | 'topup' | 'refund' | 'adjustment'
+
+export interface AIGatewayLedgerEntry {
+    id: string
+    transaction_type: AIGatewayTransactionType
+    source: string
+    destination: string
+    amount_usd: string
+    list_cost_usd?: string | null
+    reference_id?: string | null
+    model?: string | null
+    provider?: string | null
+    input_tokens?: number | null
+    output_tokens?: number | null
+    distinct_id?: string | null
+    created_at: string
+}
+
+export interface AIGatewayLedgerListResponse {
+    results: AIGatewayLedgerEntry[]
+    next_cursor?: string | null
+}
+
+export interface AIGatewayLedgerListOpts {
+    limit?: number
+    cursor?: string
+    transactionType?: AIGatewayTransactionType
+    /** Filter to entries whose reference_id starts with this prefix. Use
+     * `agent:<session_id>:` to scope to one session. */
+    referenceIdPrefix?: string
+}
+
+export async function getWallet(teamId: number): Promise<AIGatewayWallet> {
+    return getJson<AIGatewayWallet>(posthogUrl(teamId, `/ai_gateway/wallet/`))
+}
+
+export async function listLedger(
+    teamId: number,
+    opts: AIGatewayLedgerListOpts = {}
+): Promise<AIGatewayLedgerListResponse> {
+    const params = new URLSearchParams()
+    if (opts.limit !== undefined) {
+        params.set('limit', String(opts.limit))
+    }
+    if (opts.cursor) {
+        params.set('cursor', opts.cursor)
+    }
+    if (opts.transactionType) {
+        params.set('transaction_type', opts.transactionType)
+    }
+    if (opts.referenceIdPrefix) {
+        params.set('reference_id_prefix', opts.referenceIdPrefix)
+    }
+    const qs = params.toString()
+    return getJson<AIGatewayLedgerListResponse>(posthogUrl(teamId, `/ai_gateway/ledger/${qs ? `?${qs}` : ''}`))
+}
+
+/* ── Memory ──────────────────────────────────────────────────────── */
+
+export interface MemoryHeader {
+    path: string
+    description: string
+    tags: string[]
+    created_at: string | null
+    updated_at: string | null
+}
+
+export interface MemoryFile extends MemoryHeader {
+    content: string
+}
+
+export interface MemoryTreeNode {
+    name: string
+    type: 'folder' | 'file'
+    path?: string
+    description?: string
+    tags?: string[]
+    children?: MemoryTreeNode[]
+}
+
+export interface MemorySearchResult {
+    path: string
+    description: string
+    tags: string[]
+    score: number
+    snippet?: string | null
+}
+
+function memoryUrl(teamId: number, slug: string, suffix: string): string {
+    return posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/memory${suffix}`)
+}
+
+export async function listMemoryFiles(
+    teamId: number,
+    slug: string,
+    opts: { prefix?: string } = {}
+): Promise<{ count: number; entries: MemoryHeader[] }> {
+    const qs = opts.prefix ? `?prefix=${encodeURIComponent(opts.prefix)}` : ''
+    return getJson(memoryUrl(teamId, slug, `/files/${qs}`))
+}
+
+export async function getMemoryTree(teamId: number, slug: string): Promise<{ root: MemoryTreeNode }> {
+    return getJson(memoryUrl(teamId, slug, `/tree/`))
+}
+
+export async function readMemoryFile(teamId: number, slug: string, path: string): Promise<MemoryFile> {
+    return getJson(memoryUrl(teamId, slug, `/files/by_path/?path=${encodeURIComponent(path)}`))
+}
+
+export async function searchMemoryApi(
+    teamId: number,
+    slug: string,
+    cue: string,
+    opts: { prefix?: string; limit?: number } = {}
+): Promise<{ cue: string; count: number; results: MemorySearchResult[] }> {
+    const qs = new URLSearchParams({ q: cue })
+    if (opts.prefix) {
+        qs.set('prefix', opts.prefix)
+    }
+    if (opts.limit !== undefined) {
+        qs.set('limit', String(opts.limit))
+    }
+    return getJson(memoryUrl(teamId, slug, `/search/?${qs}`))
+}
+
+export async function createMemoryFile(
+    teamId: number,
+    slug: string,
+    body: { path: string; description: string; content: string; tags?: string[] }
+): Promise<MemoryFile> {
+    return postJson<typeof body, MemoryFile>(memoryUrl(teamId, slug, `/files/`), body)
+}
+
+export async function updateMemoryFile(
+    teamId: number,
+    slug: string,
+    path: string,
+    body: { description?: string; content?: string; tags?: string[] }
+): Promise<MemoryFile> {
+    const res = await fetch(memoryUrl(teamId, slug, `/files/by_path/?path=${encodeURIComponent(path)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+        throw new ApiError(res.status, await safeError(res))
+    }
+    return (await res.json()) as MemoryFile
+}
+
+export async function deleteMemoryFile(teamId: number, slug: string, path: string): Promise<void> {
+    const res = await fetch(memoryUrl(teamId, slug, `/files/by_path/?path=${encodeURIComponent(path)}`), {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) {
+        throw new ApiError(res.status, await safeError(res))
+    }
+}

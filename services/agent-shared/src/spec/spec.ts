@@ -372,7 +372,7 @@ export interface AgentSession {
      *   running   — claimed; worker actively driving the turn.
      *   completed — agent finished its turn, session is OPEN. /send
      *               re-queues. Default end-of-turn state (natural stop,
-     *               meta-end-turn, meta-ask-for-input).
+     *               meta-end-turn).
      *   closed    — sealed by `meta-end-session`. Terminal. /send returns
      *               410 unless the trigger config sets `allow_restart`.
      *   cancelled — user invoked `/cancel`. Terminal. Same lifecycle

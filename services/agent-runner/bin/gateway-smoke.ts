@@ -31,7 +31,7 @@
  *   POSTHOG_LLM_GATEWAY_URL=http://localhost:8765/v1 pnpm tsx bin/gateway-smoke.ts probe
  *   ECHO_STATUS=402 pnpm tsx bin/gateway-smoke.ts echo
  *
- * See docs/agent-platform/plans/llm-gateway-integration.md.
+ * See docs/agent-platform/plans/ai-gateway-integration.md.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -40,13 +40,9 @@ import pg from 'pg'
 
 import { PgTeamApiKeyResolver, TeamApiKeyNotFoundError } from '@posthog/agent-shared'
 
-import { classifyGatewayError } from '../src/loop/gateway-error'
-
 const { Pool } = pg
 
-const STEP_OK = '✓'
 const STEP_FAIL = '✗'
-const STEP_WARN = '⚠'
 
 interface ProbeOpts {
     posthogDbUrl: string
@@ -104,11 +100,6 @@ async function probeMode(): Promise<number> {
         stream: true,
     }
 
-    for (const [k, v] of Object.entries(headers)) {
-        // Mask the bearer; everything else is non-secret.
-        const display = k === 'Authorization' ? `Bearer ${phc.slice(0, 8)}...` : v
-    }
-
     // Step 3: actually call the gateway.
 
     const ac = new AbortController()
@@ -138,19 +129,13 @@ async function probeMode(): Promise<number> {
 
     if (res.status === 200) {
         // Drain the SSE stream so the gateway settles cleanly.
-        const text = await res.text()
-        const chunks = text.split('\n\n').filter((c) => c.trim().length > 0).length
-
+        await res.text()
         await pool.end()
         return 0
     }
 
     // Non-2xx: try to read the envelope body for context.
     const bodyText = await res.text().catch(() => '')
-    // Synthesize the message the OpenAI SDK would produce, then run it through
-    // the classifier so we report the SAME bucket the runner would.
-    const synthErrorMessage = `${res.status} ${bodyText || res.statusText}`.trim()
-    const classified = classifyGatewayError(synthErrorMessage)
 
     switch (res.status) {
         case 401:
@@ -183,14 +168,6 @@ function echoMode(): void {
         let body = ''
         req.on('data', (c: Buffer) => (body += c.toString()))
         req.on('end', () => {
-            const ts = new Date().toISOString()
-
-            if (body) {
-                try {
-                    const parsed = JSON.parse(body)
-                } catch {}
-            }
-
             if (status === 200) {
                 // Mimic a minimal OpenAI streaming chat completion so pi-ai's
                 // openai-completions provider can consume it without erroring.
@@ -268,17 +245,6 @@ function envelopeMessageFor(status: number): string {
         default:
             return 'internal error'
     }
-}
-
-function maskBearer(v: string | undefined): string {
-    if (!v) {
-        return '<absent>'
-    }
-    if (v.startsWith('Bearer ')) {
-        const tok = v.slice(7)
-        return `Bearer ${tok.slice(0, 8)}...`
-    }
-    return v.slice(0, 16) + '...'
 }
 
 function requireEnv(name: string): string {

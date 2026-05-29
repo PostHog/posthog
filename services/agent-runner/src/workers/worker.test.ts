@@ -290,6 +290,7 @@ describe('Worker', () => {
             resolveSecrets: () => Promise<Record<string, string>>
             resolveIntegrations: () => Promise<Record<string, never>>
             sandboxes: InProcessSandboxPool
+            resolveModel: (specModel: string) => never
         }>
     }
     const PREFLIGHT_CASES: FailureCase[] = [
@@ -315,6 +316,24 @@ describe('Worker', () => {
             name: 'sandboxes.acquireForSession throws',
             withCustomTool: true,
             overrides: (failingPool) => ({ sandboxes: failingPool }),
+        },
+        {
+            // Regression: pi-ai's `getModel(provider, modelId)` returns
+            // undefined for an unknown id. Before the fix in pi-client.ts the
+            // undefined Model flowed into runSession and crashed
+            // `errorContext()` on `deps.model.id` with the cryptic
+            // "Cannot read properties of undefined (reading 'id')". Now
+            // `resolveModel` throws an explicit `unknown_model_id: …` error
+            // pre-flight and the session is marked failed.
+            name: 'resolveModel returns undefined (unknown model id)',
+            withCustomTool: false,
+            overrides: () => ({
+                resolveModel: () => {
+                    throw new Error(
+                        'unknown_model_id: spec.model="anthropic/claude-sonnet-4-7" — pi-ai has no model "claude-sonnet-4-7" registered for provider "anthropic". Check the pi-ai models registry or upgrade @earendil-works/pi-ai.'
+                    )
+                },
+            }),
         },
     ]
 
@@ -352,8 +371,8 @@ describe('Worker', () => {
                 pending_inputs: [],
                 principal: null,
                 retry_count: 0,
-            acl: [],
-            pending_elevation_requests: [],
+                acl: [],
+                pending_elevation_requests: [],
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 created_at: '2026-05-27',
                 updated_at: '2026-05-27',

@@ -41,8 +41,8 @@ function makeSession(): AgentSession {
         conversation: [],
         pending_inputs: [],
         retry_count: 0,
-            acl: [],
-            pending_elevation_requests: [],
+        acl: [],
+        pending_elevation_requests: [],
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
@@ -74,10 +74,9 @@ function byId(
 }
 
 describe('buildAgentTools', () => {
-    it('always includes the three meta control-flow tools; load-skill only with skills', async () => {
+    it('always includes the two meta control-flow tools; load-skill only with skills', async () => {
         const noSkills = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
         expect(noSkills.tools.map((t) => t.label).sort()).toEqual([
-            '@posthog/meta-ask-for-input',
             '@posthog/meta-end-session',
             '@posthog/meta-end-turn',
         ])
@@ -96,18 +95,14 @@ describe('buildAgentTools', () => {
         expect(byId(built, '@posthog/query').name).toBe('@posthog/query')
     })
 
-    it('meta-end-turn / ask-for-input terminate with an end_turn control detail', async () => {
+    it('meta-end-turn terminates with an end_turn control detail', async () => {
         const built = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
         const endTurn = await byId(built, '@posthog/meta-end-turn').execute('c1', {})
         expect(endTurn).toEqual({
             content: [{ type: 'text', text: JSON.stringify({ ended_turn: true }) }],
-            details: { control: { kind: 'end_turn', prompt: undefined } },
+            details: { control: { kind: 'end_turn' } },
             terminate: true,
         })
-
-        const ask = await byId(built, '@posthog/meta-ask-for-input').execute('c2', { prompt: 'more?' })
-        expect(ask.terminate).toBe(true)
-        expect(ask.details.control).toEqual({ kind: 'end_turn', prompt: 'more?' })
     })
 
     it('meta-end-session terminates with a close control detail carrying the summary', async () => {

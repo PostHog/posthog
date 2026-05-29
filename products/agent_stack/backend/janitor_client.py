@@ -219,6 +219,95 @@ class JanitorClient:
     def native_tools(self) -> dict:
         return self._call("GET", "/native_tools")
 
+    # ── memory ─────────────────────────────────────────────────────────────
+    # S3-backed memory files surface. Each agent has its own prefix; the
+    # runner writes via the @posthog/memory-* tools, humans write via these
+    # endpoints. Both share the same bucket — see
+    # services/agent-shared/src/memory/store.ts for the key layout.
+
+    def list_memory_files(self, team_id: int, application_id: str, *, prefix: str | None = None) -> dict:
+        params: dict[str, Any] = {}
+        if prefix:
+            params["prefix"] = prefix
+        return self._call(
+            "GET",
+            f"/memory/team/{team_id}/agent/{application_id}/files",
+            params=params,
+        )
+
+    def get_memory_tree(self, team_id: int, application_id: str) -> dict:
+        return self._call("GET", f"/memory/team/{team_id}/agent/{application_id}/tree")
+
+    def read_memory_file(self, team_id: int, application_id: str, path: str) -> dict:
+        # The janitor uses the URL tail (Express `:path(.*)`) for the file path,
+        # so `incidents/db.md` becomes `/files/incidents/db.md`. We don't
+        # url-encode the slashes — the slash IS the path separator, and the
+        # janitor's `validateMemoryPath` rejects anything dodgy.
+        return self._call(
+            "GET",
+            f"/memory/team/{team_id}/agent/{application_id}/files/{path.lstrip('/')}",
+        )
+
+    def write_memory_file(
+        self,
+        team_id: int,
+        application_id: str,
+        *,
+        path: str,
+        description: str,
+        content: str,
+        tags: list[str] | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {"path": path, "description": description, "content": content}
+        if tags is not None:
+            body["tags"] = tags
+        return self._call("POST", f"/memory/team/{team_id}/agent/{application_id}/files", json=body)
+
+    def update_memory_file(
+        self,
+        team_id: int,
+        application_id: str,
+        path: str,
+        *,
+        description: str | None = None,
+        content: str | None = None,
+        tags: list[str] | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {}
+        if description is not None:
+            body["description"] = description
+        if content is not None:
+            body["content"] = content
+        if tags is not None:
+            body["tags"] = tags
+        return self._call(
+            "PATCH",
+            f"/memory/team/{team_id}/agent/{application_id}/files/{path.lstrip('/')}",
+            json=body,
+        )
+
+    def delete_memory_file(self, team_id: int, application_id: str, path: str) -> dict:
+        return self._call(
+            "DELETE",
+            f"/memory/team/{team_id}/agent/{application_id}/files/{path.lstrip('/')}",
+        )
+
+    def search_memory(
+        self,
+        team_id: int,
+        application_id: str,
+        *,
+        q: str,
+        prefix: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {"q": q}
+        if prefix:
+            params["prefix"] = prefix
+        if limit is not None:
+            params["limit"] = limit
+        return self._call("GET", f"/memory/team/{team_id}/agent/{application_id}/search", params=params)
+
 
 def default_client() -> JanitorClient:
     """One module-level singleton. Tests inject by monkey-patching this."""

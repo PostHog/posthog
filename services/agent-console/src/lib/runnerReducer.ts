@@ -43,7 +43,13 @@ export function applyEvent(session: ChatSession, event: SessionEvent): ChatSessi
                 streaming: true,
                 parts: [],
             }
-            return { ...session, state: 'streaming', turns: [...session.turns, assistantTurn] }
+            // A new turn means the runner has just drained `pending_inputs`
+            // — any user turn we still had marked `pending` is now part of
+            // the conversation the agent is responding to.
+            const turns = session.turns.map<Turn>((t) =>
+                t.kind === 'user' && t.pending ? { ...t, pending: false } : t
+            )
+            return { ...session, state: 'streaming', turns: [...turns, assistantTurn] }
         }
 
         case 'assistant_text_delta':
