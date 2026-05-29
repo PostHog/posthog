@@ -53,7 +53,9 @@ jobs:
         name: Nudge org members using a non-PostHog git email
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.event.pull_request.draft == false
+        # Only on the initial `opened` action (not `ready_for_review`), so it
+        # fires exactly once. Drafts are fine — we still want to nudge early.
+        if: github.event.action == 'opened'
 
         steps:
             # GitHub App token is required because GITHUB_TOKEN can't read
@@ -152,7 +154,11 @@ jobs:
                           marker,
                           `Hey @${author}! 👋`,
                           '',
-                          `It looks like some commits here were authored with an email that isn't your \`@posthog.com\` address (${emailList}). As a PostHog team member, please point your local git author email at your \`@posthog.com\` address so your contributions are attributed correctly.`,
+                          `Some commits on this PR were authored with an email that isn't your \`@posthog.com\` address (${emailList}). Since you're on the PostHog team, it's worth pointing your local git author email at your \`@posthog.com\` address. Why it matters:`,
+                          '',
+                          '- **Your commits get linked to your GitHub account** instead of showing up as an unrecognized author — so they appear on your contribution graph and reviewers can see who actually wrote what.',
+                          '- **Consistent, recognizable authorship across the team** in git history, which keeps internal contributions clearly distinguishable from external community ones.',
+                          '- **One identity for tooling to key off of** — anything that maps git history back to people works reliably when everyone uses their work address.',
                           '',
                           'You can fix it for this repo with:',
                           '',
