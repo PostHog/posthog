@@ -380,6 +380,35 @@ describe('BarChart', () => {
                     expect(tooltip.seriesData[0].value).toBe(expectedValue)
                 }
             )
+
+            it.each<[string, number, string, number, number]>([
+                ['small slice', 10, 'small', 20, 2],
+                ['mid slice', 30, 'mid', 50, 1],
+                ['big slice', 75, 'big', 100, 0],
+            ])(
+                'onPointClick routes to the visible segment for cursor in the %s',
+                async (_name, valueAtCursor, key, expectedValue, expectedSeriesIndex) => {
+                    const onPointClick = jest.fn()
+                    const { chart } = renderHogChart(
+                        <BarChart
+                            series={SPARSE_SERIES}
+                            labels={SPARSE_LABELS}
+                            theme={THEME}
+                            config={HORIZONTAL_STACKED}
+                            onPointClick={onPointClick}
+                        />
+                    )
+                    fireEvent.mouseMove(chart.element, {
+                        clientX: xForValue(valueAtCursor),
+                        clientY: yMidBand,
+                    })
+                    fireEvent.click(chart.element)
+                    const click: PointClickData = onPointClick.mock.calls[0][0]
+                    expect(click.series.key).toBe(key)
+                    expect(click.value).toBe(expectedValue)
+                    expect(click.seriesIndex).toBe(expectedSeriesIndex)
+                }
+            )
         })
 
         it('grouped layout still narrows when the cursor is above every bar (value-axis miss)', async () => {

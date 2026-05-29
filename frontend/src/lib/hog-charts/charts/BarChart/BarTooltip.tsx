@@ -105,17 +105,20 @@ function narrowSeriesByCursor<Meta>(
             filtered = [filtered[idx], ...filtered.filter((_, i) => i !== idx)]
         }
     }
-    // `entry.value` was resolved at ctx.dataIndex, which for sparse-stacked overlap is a
-    // zero cell for the visible series. Re-read from its own dataIndex.
+    // For sparse-stacked overlap ctx.dataIndex is a zero cell for the visible series. Rewrite
+    // the entry's value (and ctx.dataIndex) to the segment's own index so row clicks route
+    // correctly downstream.
     if (visibleKey != null && visibleDataIndex != null && visibleDataIndex !== ctx.dataIndex) {
+        const di = visibleDataIndex
         filtered = filtered.map((entry) => {
             if (entry.series.key !== visibleKey) {
                 return entry
             }
-            const raw = entry.series.data[visibleDataIndex!]
+            const raw = entry.series.data[di]
             const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : entry.value
             return { ...entry, value }
         })
+        return { ...ctx, seriesData: filtered, dataIndex: di }
     }
     return { ...ctx, seriesData: filtered }
 }

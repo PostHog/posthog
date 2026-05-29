@@ -98,6 +98,9 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     }
 }
 
+/** Separator between display label and series id in synthetic band keys. */
+const BAND_KEY_SEP = '\u001f'
+
 // Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with
 // data=0 except at their own band — d3.stack reduces this to one visible segment per band.
 // Trade-off: only the last series gets rounded-corner caps.
@@ -116,7 +119,7 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     // different series get distinct bands (breakdowns of one series still share a band).
     const labels = visible.map((r, i) => {
         const seriesId = r.action?.order ?? r.order ?? 0
-        return `${displayLabels[i]}__${seriesId}`
+        return `${displayLabels[i]}${BAND_KEY_SEP}${seriesId}`
     })
     const n = visible.length
     const series = visible.map((r, index) => {
