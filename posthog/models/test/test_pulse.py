@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.pulse import (
     SENSITIVITY_PRESETS,
     DetectionMode,
@@ -50,12 +52,13 @@ class TestPulseEnums:
 class TestPulseDigestScoping(BaseTest):
     def _make_digest(self) -> PulseDigest:
         now = timezone.now()
-        return PulseDigest.objects.create(
-            team=self.team,
-            period_start=now - timedelta(days=7),
-            period_end=now,
-            status=PulseDigestStatus.PENDING,
-        )
+        with team_scope(self.team.id):
+            return PulseDigest.objects.create(
+                team=self.team,
+                period_start=now - timedelta(days=7),
+                period_end=now,
+                status=PulseDigestStatus.PENDING,
+            )
 
     def test_query_without_team_context_raises(self):
         self._make_digest()
@@ -84,25 +87,27 @@ class TestPulseDigestScoping(BaseTest):
 class TestPulseFindingShape(BaseTest):
     def _make_digest(self) -> PulseDigest:
         now = timezone.now()
-        return PulseDigest.objects.create(
-            team=self.team,
-            period_start=now - timedelta(days=7),
-            period_end=now,
-            status=PulseDigestStatus.PENDING,
-        )
+        with team_scope(self.team.id):
+            return PulseDigest.objects.create(
+                team=self.team,
+                period_start=now - timedelta(days=7),
+                period_end=now,
+                status=PulseDigestStatus.PENDING,
+            )
 
     def _make_finding(self, digest: PulseDigest) -> PulseFinding:
-        return PulseFinding.objects.create(
-            team=self.team,
-            digest=digest,
-            metric_descriptor={"label": "Pageviews"},
-            current_value=120.0,
-            baseline_value=80.0,
-            change_pct=0.5,
-            impact=4.47,
-            robust_z=3.2,
-            narrative="Pageviews rose notably.",
-        )
+        with team_scope(self.team.id):
+            return PulseFinding.objects.create(
+                team=self.team,
+                digest=digest,
+                metric_descriptor={"label": "Pageviews"},
+                current_value=120.0,
+                baseline_value=80.0,
+                change_pct=0.5,
+                impact=4.47,
+                robust_z=3.2,
+                narrative="Pageviews rose notably.",
+            )
 
     def test_finding_has_team_and_renamed_fields(self):
         field_names = {f.name for f in PulseFinding._meta.get_fields()}
@@ -133,7 +138,8 @@ class TestPulseFindingShape(BaseTest):
 
 class TestPulseSubscriptionConfig(BaseTest):
     def test_default_config_fields(self):
-        sub = PulseSubscription.objects.create(team=self.team)
+        with team_scope(self.team.id):
+            sub = PulseSubscription.objects.create(team=self.team)
         assert sub.enabled is False
         assert sub.frequency == PulseSubscriptionFrequency.WEEKLY
         assert sub.detection_mode == DetectionMode.CHANGE_V1
@@ -150,35 +156,37 @@ class TestPulseSubscriptionConfig(BaseTest):
         assert "email_recipients" not in field_names
 
     def test_subscription_scoped_query(self):
-        sub = PulseSubscription.objects.create(team=self.team)
+        with team_scope(self.team.id):
+            sub = PulseSubscription.objects.create(team=self.team)
         with pytest.raises(TeamScopeError, match="No team context set"):
             list(PulseSubscription.objects.all())
         assert list(PulseSubscription.objects.for_team(self.team.id)) == [sub]
 
 
 class TestResolveSensitivity(BaseTest):
-    @pytest.mark.parametrize(
-        "sensitivity,expected",
+    @parameterized.expand(
         [
             (Sensitivity.CONSERVATIVE, (0.40, 3.5)),
             (Sensitivity.BALANCED, (0.25, 3.5)),
             (Sensitivity.SENSITIVE, (0.15, 3.0)),
-        ],
+        ]
     )
     def test_preset_overrides_model_fields(self, sensitivity, expected):
-        sub = PulseSubscription.objects.create(
-            team=self.team,
-            sensitivity=sensitivity,
-            min_change_pct=0.99,  # ignored for presets
-            robust_z_threshold=99.0,
-        )
+        with team_scope(self.team.id):
+            sub = PulseSubscription.objects.create(
+                team=self.team,
+                sensitivity=sensitivity,
+                min_change_pct=0.99,  # ignored for presets
+                robust_z_threshold=99.0,
+            )
         assert sub.resolve_sensitivity() == expected
 
     def test_custom_uses_own_fields(self):
-        sub = PulseSubscription.objects.create(
-            team=self.team,
-            sensitivity=Sensitivity.CUSTOM,
-            min_change_pct=0.33,
-            robust_z_threshold=2.5,
-        )
+        with team_scope(self.team.id):
+            sub = PulseSubscription.objects.create(
+                team=self.team,
+                sensitivity=Sensitivity.CUSTOM,
+                min_change_pct=0.33,
+                robust_z_threshold=2.5,
+            )
         assert sub.resolve_sensitivity() == (0.33, 2.5)
