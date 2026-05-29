@@ -191,6 +191,6 @@ tools:
         enrich_url: hog-{id}
         title: Update workflow
         description: Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status.
-        ui_app: workflow
         exclude_params:
             - status
+        ui_app: workflow
