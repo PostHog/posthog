@@ -25,14 +25,14 @@ from posthog.hogql.database.database import Database
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.llm_analytics.backend.summarization.llm.call import summarize
-from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
-from products.llm_analytics.backend.summarization.utils import get_summary_cache_key
-from products.llm_analytics.backend.text_repr.formatters.trace_formatter import (
+from products.ai_observability.backend.summarization.llm.call import summarize
+from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
+from products.ai_observability.backend.summarization.utils import get_summary_cache_key
+from products.ai_observability.backend.text_repr.formatters.trace_formatter import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin

@@ -67,12 +67,20 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const showColumnsSection = source?.supports_column_selection === true
+    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
 
     useEffect(() => {
         if (!showMetrics && currentTab === 'metrics') {
             setCurrentTab('configuration')
         }
     }, [showMetrics, currentTab, setCurrentTab])
+
+    useEffect(() => {
+        if (!showColumnsSection && currentSection === 'columns') {
+            setCurrentSection('details')
+        }
+    }, [showColumnsSection, currentSection, setCurrentSection])
 
     if (sourceLoading && !source) {
         return (
@@ -93,6 +101,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             key: 'configuration',
             content: (
                 <ConfigurationSectionLayout
+                    sections={visibleSections}
                     section={currentSection}
                     onSectionChange={setCurrentSection}
                     body={
@@ -131,10 +140,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 }
 
 function ConfigurationSectionLayout({
+    sections,
     section,
     onSectionChange,
     body,
 }: {
+    sections: readonly SchemaConfigurationSection[]
     section: SchemaConfigurationSection
     onSectionChange: (section: SchemaConfigurationSection) => void
     body: JSX.Element
@@ -143,7 +154,7 @@ function ConfigurationSectionLayout({
         <div className="flex items-start gap-6">
             <nav className="sticky top-[var(--scene-title-section-height,50px)] flex flex-col w-56 flex-shrink-0">
                 <ul className="flex flex-col gap-y-px">
-                    {SCHEMA_CONFIGURATION_SECTIONS.map((key) => (
+                    {sections.map((key) => (
                         <li key={key}>
                             <LemonButton
                                 fullWidth

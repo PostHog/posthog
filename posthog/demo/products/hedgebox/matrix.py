@@ -50,16 +50,15 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
+from posthog.models import Cohort
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -75,6 +74,10 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroupProperty,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (

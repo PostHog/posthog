@@ -10,11 +10,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.action.action import Action
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 
+from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
@@ -351,6 +351,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -378,6 +379,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -426,6 +428,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore

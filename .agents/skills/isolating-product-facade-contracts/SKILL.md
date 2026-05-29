@@ -20,6 +20,7 @@ Read these before changing code:
 4. [posthog/models/team/README.md](posthog/models/team/README.md) (team extension model rule)
 5. [docs/published/handbook/engineering/type-system.md](docs/published/handbook/engineering/type-system.md) (serializer/OpenAPI type flow)
 6. [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) (schema quality and team isolation expectations)
+7. [.agents/security.md](.agents/security.md) (SQL/HogQL security guidelines)
 
 Use Visual review as the concrete reference implementation:
 
@@ -31,17 +32,31 @@ Use Visual review as the concrete reference implementation:
 - [products/visual_review/backend/tests/test_api.py](products/visual_review/backend/tests/test_api.py)
 - [products/visual_review/backend/tests/test_presentation.py](products/visual_review/backend/tests/test_presentation.py)
 
-For detailed sequencing, load [references/phased-migration-plan.md](references/phased-migration-plan.md).
+Before changing code, get the baseline:
+
+```bash
+hogli product:maturity <name>    # scores models, facade, presentation, boundaries, codegen
+hogli product:lint <name>        # structural lint + isolation chain (strict if facade/contracts.py exists)
+rg -n "from products\.<name>\.backend\.(models|logic|presentation|tasks|storage)" .
+```
+
+The `rg` output is your import map: every line is a caller that needs to migrate to the facade.
 
 ## Guardrails
 
 - Keep facades thin; put business rules in `logic.py`.
+- Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
 - Keep contracts pure (no Django/DRF imports).
 - Filter by `team_id` in querysets.
 - Do not add product-specific fields to `Team`; use a Team Extension model.
 - Add request/response schema annotations on viewset endpoints (`@validated_request` or `@extend_schema`).
 - Regenerate OpenAPI/types (`hogli build:openapi`) when serializer/view changes affect API schema.
+- Presentation may only reach internals via the facade — enforced by the
+  `presentation must use facade` import-linter contract in `pyproject.toml`
+  (`tool.importlinter`). Any new internal module (`cache.py`, `helpers.py`, …) is
+  auto-covered; there is no blocklist to maintain. New cross-cutting imports
+  must either go through the facade or be temporarily allowlisted there.
 
 ## Required migration workflow
 
@@ -60,20 +75,46 @@ For detailed sequencing, load [references/phased-migration-plan.md](references/p
 5. Move presentation to consume the facade.
    - Serializers convert JSON <-> contracts.
    - Views call facade methods only.
-6. Enforce boundaries and verify.
-   - Add a global `[[interfaces]]` block in `tach.toml` with `expose` patterns for the facade and presentation views.
-   - Add `backend:contract-check` to `package.json` so turbo-discover treats the product as isolated.
-   - Run `tach check --interfaces` to verify no external imports bypass the facade.
-   - Run `hogli product:lint <name>` to verify the product passes all checks.
+6. Enforce boundaries and verify. This is a four-step chain — each step depends
+   on the previous one, and `hogli product:lint` (via `IsolationChainCheck`)
+   fails if any step is skipped:
+   1. **Real facade** — `backend/facade/api.py` must have actual function defs,
+      not just re-exports from `logic`.
+   2. **Tach interfaces** — preferred path is to add the product name to the
+      regex in the existing shared `[[interfaces]]` block in `tach.toml` that
+      exposes `backend\.facade.*` and `backend\.presentation\.views.*`. Only
+      add a new dedicated block if the product needs a non-standard expose
+      pattern.
+   3. **`backend:contract-check` script** — add to `package.json` so
+      turbo-discover treats the product as isolated.
+   4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
+      inputs to `backend/facade/**` and `backend/presentation/**` so the
+      Django suite is only re-run on facade/presentation changes (see
+      `products/visual_review/turbo.json`).
+   - Verify with `tach check --dependencies --interfaces`, `lint-imports`
+     (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
+   - Use `hogli product:maturity <name>` for a detailed breakdown of remaining
+     isolation work scored across models, facade, presentation, boundaries, codegen.
    - Run focused tests for changed files, then product-level backend tests.
+
+### Legacy leaks during migration
+
+If `posthog/` or `ee/` still imports product internals (`backend.models`,
+`backend.oauth`, …) when you cut the first isolation PR, add a second
+`[[interfaces]]` block under the "Legacy leaks" section of `tach.toml`
+allow-listing exactly the modules core still touches. This keeps the build
+green while you migrate callers in subsequent PRs. Shrink and delete that
+block as imports move behind the facade — the final PR removes it entirely.
+`hogli product:lint` flags any product that still has legacy leak interfaces
+with a `⚠ has legacy interface leaks` warning.
 
 ## PR slicing strategy
 
 Default to several PRs instead of one big migration:
 
-- PR 1: Add contracts + facade methods without changing external callers.
+- PR 1: Add contracts + facade methods, with no caller behavior changes. For a small product this PR can also flip `api.py`/`webhooks.py` into `presentation/` and enable the 4-step chain (see `user_interviews` PR #59132 for that combined shape).
 - PR 2-N: Migrate caller clusters one-by-one to the facade.
-- Final PR: Remove deprecated internal import paths, tighten tach boundaries, and clean dead adapters.
+- Final PR: Remove deprecated internal import paths, drop "Legacy leaks" `[[interfaces]]` blocks and `ignore_imports` TODOs, and clean dead adapters.
 
 If a product has many endpoints, migrate in this order:
 
@@ -91,8 +132,11 @@ Treat migration as complete only when:
 - Facade returns/accepts contracts, not ORM.
 - Presentation layer no longer encodes business logic.
 - Tests cover facade and presentation boundaries.
-- A global `[[interfaces]]` block in `tach.toml` restricts imports to facade + presentation views.
-- `tach check --interfaces` passes with no violations for this product.
+- The product is listed in the shared `[[interfaces]]` block in `tach.toml`
+  exposing `backend.facade.*` and `backend.presentation.views.*` — no legacy
+  leak block remains.
+- `tach check --dependencies --interfaces` passes with no violations for this product.
 - `lint-imports` passes (import-linter verifies presentation doesn't bypass the facade internally).
-- `hogli product:lint <name>` shows no legacy leak warning.
-- `backend:contract-check` is present in `package.json` (enables isolated testing in CI).
+- `hogli product:lint <name>` shows no legacy leak warning and the isolation chain is intact.
+- `backend:contract-check` is present in `package.json` with `turbo.json` inputs
+  narrowed to `backend/facade/**` and `backend/presentation/**` (enables isolated testing in CI).

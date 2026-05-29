@@ -22,9 +22,11 @@ import type {
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
     SandboxListParams,
+    SlackThreadContextResponseApi,
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
+    TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -52,6 +54,7 @@ import type {
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
+    TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
 } from './api.schemas'
 
@@ -317,6 +320,43 @@ export const getTasksDestroyUrl = (projectId: string, id: string) => {
  */
 export const tasksDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/presence/`
+}
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const tasksPresenceCreate = async (
+    projectId: string,
+    id: string,
+    taskPresenceBeaconRequestApi: TaskPresenceBeaconRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPresenceBeaconRequestApi),
+    })
+}
+
+export const getTasksPresenceDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/presence/`
+}
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const tasksPresenceDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksPresenceDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
@@ -870,6 +910,40 @@ export const tasksRepositoryReadinessRetrieve = async (
     options?: RequestInit
 ): Promise<RepositoryReadinessResponseApi> => {
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSlackThreadContextRetrieveUrl = (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/slack_thread_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/slack_thread_context/`
+}
+
+/**
+ * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs.
+ * @summary Resolve a Slack thread to its task, runs, and Temporal workflows
+ */
+export const tasksSlackThreadContextRetrieve = async (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams,
+    options?: RequestInit
+): Promise<SlackThreadContextResponseApi> => {
+    return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

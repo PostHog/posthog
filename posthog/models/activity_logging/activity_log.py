@@ -76,6 +76,7 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "Evaluation",
     "LLMTrace",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
@@ -84,10 +85,19 @@ ActivityScope = Literal[
     "LogsExclusionRule",
     "ProductTour",
     "Ticket",
+    "InstanceSetting",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
 ]
+
+# Internal-only scope key. Used by `field_exclusions` and `changes_between` to address
+# through-tables and other internal models that are never exposed as a top-level
+# `scope` in stored activity logs. Keeping these out of `ActivityScope` prevents them
+# from leaking into the generated `ActivityLogListScope` API enum, where filtering by
+# them would always return zero results.
+InternalActivityScope = Literal["ExperimentToSavedMetric",]
+AuditableScope = Union[ActivityScope, InternalActivityScope]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -188,6 +198,8 @@ class ActivityLog(UUIDTModel):
     is_system = models.BooleanField(null=True)
     # Value of the x-posthog-client request header captured when the activity was logged
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
+    # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -218,7 +230,7 @@ common_field_exclusions = [
 ]
 
 
-field_with_masked_contents: dict[ActivityScope, list[str]] = {
+field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
     ],
@@ -249,7 +261,7 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
 }
 
-field_name_overrides: dict[ActivityScope, dict[str, str]] = {
+field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -343,9 +355,17 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Instance-setting changes are staff-only operations and must not leak into the
+        # org-scoped activity log endpoints, which are visible to organization admins.
+        "scope": "InstanceSetting",
+        "activities": ["updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
-field_exclusions: dict[ActivityScope, list[str]] = {
+field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
@@ -383,6 +403,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "ExperimentSavedMetric": [
         "experiments",
         "experimenttosavedmetric_set",
+    ],
+    "ExperimentToSavedMetric": [
+        "experiment",
+        "saved_metric",
     ],
     "ProjectSecretAPIKey": [
         "secure_value",
@@ -589,6 +613,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "latest_error",
         "last_synced_at",
     ],
+    "Evaluation": [
+        # Reverse relations — auto-managed by FK creates, not user intent.
+        "reports",
+    ],
 }
 
 
@@ -658,7 +686,7 @@ def safely_get_field_value(instance: models.Model | None, field: str):
 
 
 def changes_between(
-    model_type: ActivityScope,
+    model_type: AuditableScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
@@ -726,7 +754,7 @@ def changes_between(
 
 
 def dict_changes_between(
-    model_type: ActivityScope,
+    model_type: AuditableScope,
     previous: dict[Any, Any],
     new: dict[Any, Any],
     use_field_exclusions: bool = False,
@@ -807,11 +835,14 @@ def log_activity(
     detail: Detail,
     was_impersonated: bool,
     client: Optional[str] = None,
+    ip_address: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
+    if ip_address is None:
+        ip_address = activity_storage.get_ip_address()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -845,6 +876,7 @@ def log_activity(
                 activity=activity,
                 detail=detail,
                 client=client,
+                ip_address=ip_address,
             )
 
         def _do_log_activity():
@@ -860,6 +892,7 @@ def log_activity(
                 activity=log.activity,
                 detail=log.detail,
                 client=log.client,
+                ip_address=log.ip_address,
             )
 
         if instance_only:
@@ -900,6 +933,7 @@ class LogActivityEntry(TypedDict, total=False):
     detail: Required[Detail]
     was_impersonated: Required[bool]
     client: Optional[str]
+    ip_address: Optional[str]
     force_save: bool
 
 

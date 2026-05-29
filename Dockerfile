@@ -104,7 +104,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.10.2 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
@@ -314,7 +314,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 # Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache,sharing=locked \
     PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
     /python-runtime/bin/python -m playwright install --with-deps chromium && \
     mkdir -p /ms-playwright && \

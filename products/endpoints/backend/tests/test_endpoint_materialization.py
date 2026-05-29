@@ -21,9 +21,9 @@ from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.materialization import build_endpoint_hogql
 from products.endpoints.backend.services.endpoint_materialization_service import (
@@ -31,6 +31,7 @@ from products.endpoints.backend.services.endpoint_materialization_service import
     prepare_executable_query,
 )
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -1315,7 +1316,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, hogql_text)
 
     def test_materialization_failure_after_query_change_returns_success_with_error(self):
-        from products.data_warehouse.backend.models import DataWarehouseTable
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
         endpoint = create_endpoint_with_version(

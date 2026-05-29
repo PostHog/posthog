@@ -21,7 +21,7 @@ jobs:
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
             # Celery worker, migrations, demo data), so the filter mirrors the Dagster
@@ -76,6 +76,10 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
+                        # hogli db commands used to restore test database
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/hogli/**'
+                        - 'hogli.yaml'
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
@@ -88,7 +92,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -96,9 +100,9 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -107,10 +111,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -126,6 +127,10 @@ jobs:
 
             - name: Type check
               run: cd services/mcp && pnpm typecheck
+
+            - name: Type check (tsgo, shadow, non-blocking)
+              run: cd services/mcp && pnpm typecheck:tsgo
+              continue-on-error: true
 
             - name: Check MCP schema is up to date
               run: |
@@ -159,13 +164,10 @@ jobs:
         if: needs.changes.outputs.mcp == 'true'
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -260,9 +262,12 @@ jobs:
             INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1
+                  # Deep clone so we can compute the merge-base with the PR base ref
+                  # for the schema cache key (matches ci-backend.yml's turbo-discover).
+                  fetch-depth: 1000
+                  filter: blob:none
 
             - name: Clean up data directories with container permissions
               run: |
@@ -314,9 +319,9 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -327,10 +332,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -355,7 +357,7 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -368,8 +370,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Build Rust flags service
               working-directory: rust
@@ -398,6 +399,52 @@ jobs:
                   COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker wait temporal
 
+            - name: Fetch current PR base for merge-base
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                  # full ancestry needed to find the divergence point is available.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  else
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                  fi
+
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.schema-key.outputs.key }}
+
+            - name: Prime posthog from cached schema
+              # No-op on cache miss; manage.py migrate below falls back to a full migrate.
+              # MCP integration tests hit the live posthog DB, not test_posthog — that's
+              # the only deviation from ci-backend.yml's equivalent step.
+              if: ${{ github.event_name == 'pull_request' }}
+              env:
+                  TARGET_DB: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — manage.py migrate will run from scratch"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+
             - name: Run migrations
               run: |
                   # Create persons database and run sqlx migrations first
@@ -405,7 +452,9 @@ jobs:
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
-                  # Then run Django migrations
+                  # Then run Django migrations. When the schema cache primed the DB above,
+                  # this only applies migrations added by the PR (the django_migrations
+                  # table from the dump tells Django which ones are already applied).
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
@@ -533,7 +582,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}

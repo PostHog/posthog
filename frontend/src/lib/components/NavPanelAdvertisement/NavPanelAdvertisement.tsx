@@ -151,7 +151,7 @@ function NavPanelAdvertisementContent({
                     <Content
                         emoji="✨"
                         emojiLabel="sparkles"
-                        title={productInfo.path}
+                        title={productInfo.displayLabel ?? productInfo.path}
                         text={getReasonText(recommendedProduct) ?? ''}
                         onClose={() => {
                             posthog.capture('nav panel advertisement dismissed', {

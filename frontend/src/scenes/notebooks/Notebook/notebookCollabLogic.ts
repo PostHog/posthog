@@ -92,6 +92,8 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         rebaseFailed: (params: { localContent: JSONContent; localText: string }) => params,
         connectStream: true,
         disconnectStream: true,
+        streamOpened: true,
+        streamClosed: (error: string | null = null) => ({ error }),
     }),
 
     reducers({
@@ -104,6 +106,31 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         ],
         // Stable per-logic clientID; shared with the PM collab plugin for self-event filtering.
         clientID: [uuid() as string, {}],
+        streamConnected: [
+            false,
+            {
+                streamOpened: () => true,
+                streamClosed: () => false,
+                disconnectStream: () => false,
+            },
+        ],
+        isConnecting: [
+            false,
+            {
+                connectStream: () => true,
+                streamOpened: () => false,
+                streamClosed: () => false,
+                disconnectStream: () => false,
+            },
+        ],
+        streamError: [
+            null as string | null,
+            {
+                streamOpened: () => null,
+                streamClosed: (_, { error }) => error,
+                disconnectStream: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
@@ -168,6 +195,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 }
                 // SSE id is the Redis stream id `N-0` and N is the prosemirror version.
                 // We use it for both reconnection (Last-Event-ID) and idempotency.
+                cache.lastEventId = msg.id
                 const version = parseInt(msg.id.split('-', 1)[0], 10)
                 if (!Number.isFinite(version)) {
                     return
@@ -209,22 +237,48 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 if (controller.signal.aborted) {
                     return
                 }
-                posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                const message = error instanceof Error ? error.message : String(error)
+                actions.streamClosed(message)
+                posthog.captureException(error instanceof Error ? error : new Error(message), {
                     action: 'notebook collab stream',
                 })
             }
 
-            // fetchEventSource handles reconnection via Last-Event-ID; this awaits for the connection's lifetime.
+            // onOpen fires on every successful fetch — including fetch-event-source's own
+            // internal retries — so the UI flips back to "live" the moment a connection
+            // opens, whether it's the initial one or a recovery after a transient error.
+            const onOpen = (): void => {
+                if (controller.signal.aborted) {
+                    return
+                }
+                actions.streamOpened()
+            }
+
+            // onClose fires when the server cleanly ends the body — the backend does this
+            // every STREAM_LIFETIME_SECONDS (5 min) by design. Errors and abort don't trigger
+            // this hook, so it cleanly isolates the "rotation" case from the failure case.
+            const onClose = (): void => {
+                if (controller.signal.aborted) {
+                    return
+                }
+                actions.streamClosed()
+                actions.connectStream()
+            }
+
             try {
                 await api.notebooks.collabStream(props.shortId, {
                     onMessage,
                     onError,
+                    onOpen,
+                    onClose,
                     signal: controller.signal,
+                    lastEventId: cache.lastEventId,
                 })
             } catch (e) {
                 if (controller.signal.aborted) {
                     return
                 }
+                actions.streamClosed(e instanceof Error ? e.message : String(e))
                 posthog.captureException(e as Error, { action: 'notebook collab stream open' })
             }
         },
@@ -232,6 +286,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         disconnectStream: () => {
             cache.abortController?.abort()
             cache.abortController = null
+            cache.lastEventId = undefined
         },
     })),
 

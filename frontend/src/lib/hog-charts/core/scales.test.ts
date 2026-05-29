@@ -1,7 +1,9 @@
 import { dimensions, makeSeries } from '../testing'
 import {
     autoFormatYTick,
-    buildStackedResolveValue,
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
+    computeDivergingStackData,
     computePercentStackData,
     computeStackData,
     createScales,
@@ -426,6 +428,18 @@ describe('hog-charts scales', () => {
             expect(result.get('s2')!.top).toEqual([30, 30])
         })
 
+        it('computeDivergingStackData preserves negative values, stacking them below 0', () => {
+            const positive = makeSeries({ key: 'pos', data: [10, 20] })
+            const negative = makeSeries({ key: 'neg', data: [-5, -7] })
+            const result = computeDivergingStackData([positive, negative], ['a', 'b'])
+            // Positive stacks above zero, negative stacks below zero — diverging offset
+            // keeps both signs intact instead of clamping the negative to 0.
+            expect(result.get('pos')!.bottom).toEqual([0, 0])
+            expect(result.get('pos')!.top).toEqual([10, 20])
+            expect(result.get('neg')!.bottom).toEqual([-5, -7])
+            expect(result.get('neg')!.top).toEqual([0, 0])
+        })
+
         it('stacks per yAxisId so series on different axes do not contaminate each others totals', () => {
             const left = makeSeries({ key: 'l', data: [10, 20], yAxisId: DEFAULT_Y_AXIS_ID })
             const right = makeSeries({ key: 'r', data: [1000, 2000], yAxisId: 'y1' })
@@ -516,29 +530,29 @@ describe('hog-charts scales', () => {
         })
     })
 
-    describe('buildStackedResolveValue', () => {
+    describe('buildStackedPositionValue', () => {
         const series = makeSeries({ key: 'a', data: [10, 20, 30] })
 
         it('returns undefined when stackedData is undefined', () => {
-            expect(buildStackedResolveValue(undefined)).toBeUndefined()
+            expect(buildStackedPositionValue(undefined)).toBeUndefined()
         })
 
         it('returns the stacked top when present and finite', () => {
             const stacked = new Map<string, StackedBand>([['a', { top: [100, 200, 300], bottom: [0, 0, 0] }]])
-            const resolve = buildStackedResolveValue(stacked)!
+            const resolve = buildStackedPositionValue(stacked)!
             expect(resolve(series, 0)).toBe(100)
             expect(resolve(series, 2)).toBe(300)
         })
 
         it('falls back to the raw value when the series is not in the stack', () => {
             const stacked = new Map<string, StackedBand>()
-            const resolve = buildStackedResolveValue(stacked)!
+            const resolve = buildStackedPositionValue(stacked)!
             expect(resolve(series, 1)).toBe(20)
         })
 
         it('falls back to the raw value when the stacked top is non-finite', () => {
             const stacked = new Map<string, StackedBand>([['a', { top: [NaN, Infinity, 50], bottom: [0, 0, 0] }]])
-            const resolve = buildStackedResolveValue(stacked)!
+            const resolve = buildStackedPositionValue(stacked)!
             expect(resolve(series, 0)).toBe(10)
             expect(resolve(series, 1)).toBe(20)
             expect(resolve(series, 2)).toBe(50)
@@ -547,9 +561,67 @@ describe('hog-charts scales', () => {
         it('returns 0 when both stacked top and raw value are non-finite', () => {
             const nanSeries = makeSeries({ key: 'a', data: [NaN, Infinity, 0] })
             const stacked = new Map<string, StackedBand>([['a', { top: [NaN, NaN, 0], bottom: [0, 0, 0] }]])
-            const resolve = buildStackedResolveValue(stacked)!
+            const resolve = buildStackedPositionValue(stacked)!
             expect(resolve(nanSeries, 0)).toBe(0)
             expect(resolve(nanSeries, 1)).toBe(0)
+        })
+    })
+
+    describe('buildSegmentResolveValue', () => {
+        const series = makeSeries({ key: 'a', data: [10, 20, 30] })
+
+        it('returns undefined when stackedData is undefined', () => {
+            expect(buildSegmentResolveValue(undefined)).toBeUndefined()
+        })
+
+        it('returns the segment height (top − bottom), not the cumulative top', () => {
+            // `a` sits on top of 490 of other series, so its top is 980 but its own value is 490.
+            const stacked = new Map<string, StackedBand>([['a', { top: [490, 980, 1470], bottom: [0, 490, 980] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(490)
+            expect(resolve(series, 1)).toBe(490)
+            expect(resolve(series, 2)).toBe(490)
+        })
+
+        it('falls back to the raw value when the series is not in the stack', () => {
+            const resolve = buildSegmentResolveValue(new Map<string, StackedBand>())!
+            expect(resolve(series, 1)).toBe(20)
+        })
+
+        it('falls back to the raw value when either the segment top or bottom is non-finite', () => {
+            // The guard requires both top and bottom finite, so a NaN on either edge falls back to raw.
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, 20, 980], bottom: [0, NaN, 490] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(10) // top NaN → raw 10
+            expect(resolve(series, 1)).toBe(20) // bottom NaN → raw 20
+            expect(resolve(series, 2)).toBe(490) // both finite → 980 - 490
+        })
+
+        it('returns 0 when both the segment and the raw value are non-finite', () => {
+            const nanSeries = makeSeries({ key: 'a', data: [NaN, Infinity, 0] })
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, 10, 0], bottom: [NaN, NaN, 0] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(nanSeries, 0)).toBe(0) // segment NaN + raw NaN → 0
+            expect(resolve(nanSeries, 1)).toBe(0) // bottom NaN + raw Infinity → 0
+        })
+
+        it('resolves a negative-valued count-stacked series to 0 (buildStackData floors it)', () => {
+            // buildStackData clamps data to >= 0 before stacking, so a negative series has a
+            // zero-height segment — the resolver reports 0, not the raw negative value.
+            const negSeries = makeSeries({ key: 'a', data: [10, -50] })
+            const resolve = buildSegmentResolveValue(computeStackData([negSeries], ['x', 'y']))!
+            expect(resolve(negSeries, 0)).toBe(10)
+            expect(resolve(negSeries, 1)).toBe(0)
+        })
+
+        it('returns each series own fraction for a percent stack, not the cumulative fraction', () => {
+            // a=20, b=15 at index 1 → total 35. b sits on top of a, so b's cumulative top is 1.0,
+            // but its own fraction is 15/35 — that segment is what the tooltip must report.
+            const a = makeSeries({ key: 'a', data: [10, 20] })
+            const b = makeSeries({ key: 'b', data: [5, 15] })
+            const resolve = buildSegmentResolveValue(computePercentStackData([a, b], ['x', 'y']))!
+            expect(resolve(a, 1)).toBeCloseTo(20 / 35, 5)
+            expect(resolve(b, 1)).toBeCloseTo(15 / 35, 5)
         })
     })
 })

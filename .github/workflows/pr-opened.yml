@@ -33,7 +33,7 @@ jobs:
                   RAW_BODY: ${{ github.event.pull_request.body }}
 
             # `gh` CLI in the next step requires the repo to be checked out
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
               with:
                   # make the checkout extremely quickly
@@ -48,3 +48,137 @@ jobs:
               run: |
                   SHAME_BODY="Hey @${PR_ACTOR}! 👋\nThis pull request seems to contain no description. Please add useful context, rationale, and/or any other information that will help make sense of this change now and in the distant Mars-based future."
                   gh pr comment "$PR_NUMBER" --body "$SHAME_BODY"
+
+    check-author-email:
+        name: Nudge org members using a non-PostHog git email
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # Only on the initial `opened` action (not `ready_for_review`), so it
+        # fires exactly once. Drafts are fine — we still want to nudge early.
+        if: github.event.action == 'opened'
+
+        steps:
+            # GitHub App token is required because GITHUB_TOKEN can't read
+            # org-private memberships (a private member looks like a non-member).
+            # `owner`/`repositories` keep the token narrow while still scoping it at
+            # the org, so the org-level `Members: read` permission flows through —
+            # without `owner` the token is repo-scoped and that permission is dropped
+            # (see ci-backend.yml). On PRs from forks the secrets aren't available,
+            # so this step is allowed to fail — external contributors are never nudged.
+            - name: Get app token for org membership check
+              id: app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+
+            - name: Check whether PR author is a PostHog org member
+              id: membership
+              if: steps.app-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+              with:
+                  github-token: ${{ steps.app-token.outputs.token }}
+                  script: |
+                      const author = process.env.PR_AUTHOR;
+                      try {
+                          const { data: membership } = await github.rest.orgs.getMembershipForUser({
+                              org: 'PostHog',
+                              username: author,
+                          });
+                          core.setOutput('is-member', membership.state === 'active' ? 'true' : 'false');
+                      } catch (e) {
+                          if (e.status === 404) {
+                              core.setOutput('is-member', 'false'); // not in the org — nothing to do
+                          } else {
+                              // A flaky membership lookup should never fail the PR.
+                              core.warning(`Could not determine org membership for ${author}: ${e.message}`);
+                              core.setOutput('is-member', 'false');
+                          }
+                      }
+
+            - name: Nudge if commits use a non-PostHog email
+              if: steps.membership.outputs.is-member == 'true'
+              # A non-critical nudge must never turn the PR red on a transient API error.
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  script: |
+                      const author = process.env.PR_AUTHOR;
+                      const prNumber = parseInt(process.env.PR_NUMBER, 10);
+
+                      const commits = await github.paginate(github.rest.pulls.listCommits, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          pull_number: prNumber,
+                          per_page: 100,
+                      });
+
+                      // Only flag commits GitHub positively attributes to the PR
+                      // author. Everything else keeps its original author and is not
+                      // ours to nudge about: co-authors, external contributors,
+                      // someone else's rebased/pushed commits, web-flow merge commits.
+                      // If a commit's email isn't linked to any GitHub account we
+                      // can't attribute it, so we stay quiet rather than risk nagging
+                      // about someone else's commit.
+                      const offendingEmails = new Set();
+                      for (const c of commits) {
+                          if (c.author?.login !== author) {
+                              continue;
+                          }
+                          const email = (c.commit?.author?.email || '').toLowerCase();
+                          if (email && !email.endsWith('@posthog.com')) {
+                              offendingEmails.add(email);
+                          }
+                      }
+
+                      if (offendingEmails.size === 0) {
+                          console.log('All author commits use a @posthog.com email — nothing to nudge.');
+                          return;
+                      }
+
+                      // Post at most once per PR.
+                      const marker = '<!-- author-email-nudge -->';
+                      const existing = await github.paginate(github.rest.issues.listComments, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          per_page: 100,
+                      });
+                      if (existing.some((comment) => comment.body?.includes(marker))) {
+                          console.log('Nudge already posted — skipping.');
+                          return;
+                      }
+
+                      const emailList = [...offendingEmails].map((e) => `\`${e}\``).join(', ');
+                      const body = [
+                          marker,
+                          `Hey @${author}! 👋`,
+                          '',
+                          `It looks like your git author email on this PR isn't your \`@posthog.com\` address (${emailList}). Since you're on the PostHog team, it's worth pointing your local git author email at your \`@posthog.com\` address. Why it matters:`,
+                          '',
+                          '- **Consistent work identity in git history** — internal tooling that attributes commits to team members keys off your `@posthog.com` address.',
+                          '- **Keeps team contributions easy to tell apart from external community ones** when scanning history.',
+                          '',
+                          'You can fix it for this repo with:',
+                          '',
+                          '```bash',
+                          'git config user.email "you@posthog.com"',
+                          '```',
+                          '',
+                          'Or set it globally with `git config --global user.email "you@posthog.com"`. No need to redo this PR — just a nudge for next time. 🙂',
+                      ].join('\n');
+
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body,
+                      });

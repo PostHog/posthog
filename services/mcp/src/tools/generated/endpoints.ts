@@ -7,8 +7,8 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
-    EndpointsOpenapiJsonRetrieveParams,
-    EndpointsOpenapiJsonRetrieveQueryParams,
+    EndpointsOpenapiSpecRetrieveParams,
+    EndpointsOpenapiSpecRetrieveQueryParams,
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
@@ -48,6 +48,9 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         }
         if (params.is_materialized !== undefined) {
             body['is_materialized'] = params.is_materialized
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'POST',
@@ -107,8 +110,8 @@ const endpointMaterializationStatus = (): ToolBase<
     },
 })
 
-const EndpointOpenapiSpecSchema = EndpointsOpenapiJsonRetrieveParams.omit({ project_id: true }).extend(
-    EndpointsOpenapiJsonRetrieveQueryParams.shape
+const EndpointOpenapiSpecSchema = EndpointsOpenapiSpecRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsOpenapiSpecRetrieveQueryParams.shape
 )
 
 const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({
@@ -192,6 +195,9 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         }
         if (params.version !== undefined) {
             body['version'] = params.version
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',

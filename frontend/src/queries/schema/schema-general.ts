@@ -178,6 +178,7 @@ export enum NodeKind {
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
+    AccountsQuery = 'AccountsQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -243,6 +244,7 @@ export type AnyDataNode =
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
+    | AccountsQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -348,6 +350,7 @@ export type QuerySchema =
 
     // Customer analytics
     | UsageMetricsQuery
+    | AccountsQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -451,6 +454,15 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?:
+        | 'cpp_only'
+        | 'cpp_with_rust_shadow'
+        | 'cpp_with_rust_py_shadow'
+        | 'rust_with_cpp_shadow'
+        | 'rust_only'
+        | 'rust_py_only'
+        | 'rust_py_with_cpp_shadow'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -458,6 +470,19 @@ export interface DataWarehouseEventsModifier {
     timestamp_field: string
     distinct_id_field: string
     id_field: string
+}
+
+export interface DataWarehouseSyncWarning {
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Human-readable warning shown to the user */
+    message: string
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
@@ -474,6 +499,11 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
     explain?: string[]
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
+    /**
+     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
+     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     */
+    warnings?: DataWarehouseSyncWarning[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -498,7 +528,7 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
@@ -711,7 +741,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
@@ -731,7 +761,7 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
@@ -1025,6 +1055,7 @@ export interface DataTableNode
                     | ExperimentTrendsQuery
                     | TracesQuery
                     | EndpointsUsageTableQuery
+                    | AccountsQuery
                 )['response']
             >
         >,
@@ -1063,6 +1094,7 @@ export interface DataTableNode
         | TracesQuery
         | TraceQuery
         | EndpointsUsageTableQuery
+        | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1406,6 +1438,10 @@ export type TrendsFilter = {
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1440,8 +1476,14 @@ export type TrendsFilter = {
 }
 
 export type CalendarHeatmapFilter = {
-    // Reserved for future filter properties
-    dummy?: string
+    /**
+     * When true and the series math is `dau`/`unique_users`, each user contributes to the
+     * (day-of-week, hour) bucket of their session's first event only — matching the web overview
+     * session-start attribution. When false (default), the user contributes to every bucket
+     * they have any event in. No effect on `total` math (event counts are unchanged either way).
+     * @default false
+     */
+    bucketBySessionStart?: boolean
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1513,6 +1555,11 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
+    /**
+     * Properties specific to the calendar heatmap display variant. Only consulted when
+     * `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise.
+     */
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
@@ -1691,6 +1738,9 @@ export type RetentionFilter = {
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
+    /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
+     * @default 0 */
+    cohortLabelStartIndex?: integer
 }
 
 export interface RetentionValue {
@@ -1897,6 +1947,8 @@ export interface EndpointRequest {
     bucket_overrides?: Record<string, string>
     /** Set to true to soft-delete this endpoint */
     deleted?: boolean
+    /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
+    tags?: string[]
 }
 
 /**
@@ -2030,6 +2082,13 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /**
+     * Warnings about data warehouse sources referenced by the query whose latest sync failed,
+     * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
+     * Accumulated across every HogQL execution that contributes to this response — so insights backed
+     * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
+     */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 interface CachedQueryResponseMixin {
@@ -2202,6 +2261,35 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     offset?: integer
 }
 
+export type CachedAccountsQueryResponse = CachedQueryResponse<AccountsQueryResponse>
+
+export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    kind: NodeKind.AccountsQuery
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit: integer
+    offset: integer
+}
+
+export type AccountsRoleAssignmentFilter = integer | 'unassigned'
+
+export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
+    kind: NodeKind.AccountsQuery
+    select?: HogQLExpression[]
+    search?: string
+    tagNames?: string[]
+    csm?: AccountsRoleAssignmentFilter
+    accountExecutive?: AccountsRoleAssignmentFilter
+    accountOwner?: AccountsRoleAssignmentFilter
+    allRolesUnassigned?: boolean
+    orderBy?: string[]
+    limit?: integer
+    offset?: integer
+}
+
 export interface TimelineEntry {
     /** Session ID. None means out-of-session events */
     sessionId?: string
@@ -2287,6 +2375,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
@@ -2313,6 +2403,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -2353,6 +2444,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeHost?: boolean
     limit?: integer
     offset?: integer
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown[]
@@ -2364,6 +2457,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2387,6 +2481,8 @@ export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebE
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
     limit?: integer
+    /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2398,6 +2494,10 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -2435,6 +2535,8 @@ export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVi
     // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
     // Values in between the two values are the threshold for needs_improvements
     thresholds: [number, number]
+    /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
@@ -2444,6 +2546,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
+    usedLazyPrecompute?: boolean
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -3411,6 +3514,8 @@ export interface ExperimentTrendsQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
@@ -3426,6 +3531,8 @@ export interface ExperimentFunnelsQueryResponse {
     expected_loss: number
     credible_intervals: Record<string, [number, number]>
     stats_version?: integer
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -3479,6 +3586,17 @@ export interface ExperimentApiEventSource {
     event?: string
     /** Action ID. Required for ActionsNode. */
     id?: integer
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with
+     *  math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order.
+     *  Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathType
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently
+     *  falls back to a plain count/sum. */
+    math_hogql?: string
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilter[]
 }
@@ -3504,6 +3622,26 @@ export interface ExperimentApiMetric {
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSource
+    /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01
+     *  for the 1st percentile). Per-user values below this percentile are clamped to it before
+     *  aggregation.
+     *  @minimum 0
+     *  @maximum 1 */
+    lower_bound_percentile?: number
+    /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99
+     *  for the 99th percentile). Per-user values above this percentile are clamped to it before
+     *  aggregation.
+     *  @minimum 0
+     *  @maximum 1 */
+    upper_bound_percentile?: number
+    /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+    ignore_zeros?: boolean
+    /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
+     *  denominator and each with its own percentile thresholds. */
+    numerator_outlier_handling?: ExperimentMetricOutlierHandling
+    /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
+     *  binomial-style denominator, which is never clamped. */
+    denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSource
     /** For retention metrics: completion event. */
@@ -3570,7 +3708,13 @@ export interface ExperimentMetricBaseProperties extends Node {
 }
 
 export type ExperimentMetricOutlierHandling = {
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).
+     *  @minimum 0
+     *  @maximum 1 */
     lower_bound_percentile?: number
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).
+     *  @minimum 0
+     *  @maximum 1 */
     upper_bound_percentile?: number
     ignore_zeros?: boolean
 }
@@ -3583,9 +3727,23 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
-export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+// Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
+// type — callers continue to use `ExperimentMetricSource`.
+/**
+ * @discriminator kind
+ */
+export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSource = ExperimentMetricSourceUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -3609,6 +3767,11 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RATIO
     numerator: ExperimentMetricSource
     denominator: ExperimentMetricSource
+    // Winsorization is applied to the numerator and denominator independently,
+    // each with its own percentile bounds and computed thresholds. There is no
+    // per-user ratio to cap, so capping operates on the two component aggregates.
+    numerator_outlier_handling?: ExperimentMetricOutlierHandling
+    denominator_outlier_handling?: ExperimentMetricOutlierHandling
 }
 
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
@@ -3715,6 +3878,9 @@ export interface ExperimentQueryResponse {
 
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
+
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3729,6 +3895,8 @@ export interface LegacyExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export interface ExperimentActorsQuery extends InsightActorsQueryBase {
@@ -3820,6 +3988,8 @@ export interface NewExperimentQueryResponse {
     breakdown_results?: ExperimentBreakdownResult[]
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -3850,6 +4020,8 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -4033,6 +4205,8 @@ export interface InsightActorsQueryOptionsResponse {
         label: string
         value: string
     }[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 export const insightActorsQueryOptionsResponseKeys: string[] = [
     'day',
@@ -4157,6 +4331,8 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     url_pattern: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
+    /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
+    search_aliases?: string[]
 }
 
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
@@ -4550,6 +4726,8 @@ export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQuer
 
 export interface SuggestedQuestionsQueryResponse {
     questions: string[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
@@ -4809,6 +4987,8 @@ export interface TraceNeighborsQueryResponse {
     olderTimestamp?: string
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarning[]
 }
 
 export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
@@ -5726,6 +5906,14 @@ export interface SourceConfig {
      * @default false
      */
     featured?: boolean
+
+    /**
+     * Whether the source-creation wizard should expose the per-column projection picker.
+     * Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker
+     * for drivers that ignore `enabled_columns` at sync time.
+     * @default false
+     */
+    supportsColumnSelection?: boolean
 }
 
 export const externalDataSources = [
@@ -6167,6 +6355,11 @@ export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
 }
 
+/** Subscriptions a free-tier team may create. */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'
@@ -6323,6 +6516,7 @@ export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
     AI_ENGINEERING = 'AI engineering',
     BEHAVIOR = 'Behavior',
+    APP_MONITORING = 'App monitoring',
     FEATURES = 'Features',
     TOOLS = 'Tools',
     SCHEMA = 'Schema',
@@ -6366,6 +6560,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',
     COHORTS = 'cohorts',
@@ -6387,7 +6582,6 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
-    LLM_ANALYTICS = 'llm_analytics',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',
@@ -6462,6 +6656,9 @@ export enum ProductIntentContext {
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
     LOGS_SET_FILTERS = 'logs_set_filters',
     LOGS_SETTINGS_OPENED = 'logs_settings_opened',
+
+    // Metrics
+    METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

@@ -13,7 +13,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.insight_snapshot import (
@@ -34,6 +33,7 @@ from posthog.temporal.subscriptions.types import (
 )
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
@@ -394,6 +394,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     total_asset_count=inputs.total_insight_count,
                     send_async=False,
                     change_summary=inputs.change_summary,
+                    summary_skipped_over_budget=inputs.summary_skipped_over_budget,
                 )
                 success_count += 1
                 recipient_results.append(RecipientResult(recipient=email, status="success"))
@@ -465,6 +466,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 total_asset_count=inputs.total_insight_count,
                 is_new_subscription=inputs.is_new_subscription_target,
                 change_summary=inputs.change_summary,
+                summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             )
 
             if delivery_result.is_complete_success:

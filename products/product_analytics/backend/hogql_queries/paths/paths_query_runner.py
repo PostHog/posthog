@@ -29,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
@@ -36,6 +37,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
@@ -54,8 +56,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ) -> None:
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
         if not self.query.pathsFilter:
             self.query.pathsFilter = PathsFilter()
@@ -114,10 +117,20 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
 
+    @staticmethod
+    def _strip_trailing_slash(url: Optional[str]) -> Optional[str]:
+        # Mirrors the `(.)/$` regex applied to event URLs in `construct_event_hogql`,
+        # so that startPoint/endPoint values match the normalized values stored in
+        # `compact_path` / `start_filtered_path`. The bare "/" URL is preserved.
+        if url and len(url) > 1 and url.endswith("/"):
+            return url[:-1]
+        return url
+
     def construct_event_hogql(self) -> ast.Expr:
         event_hogql: ast.Expr = parse_expr("event")
 
         if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
+            tag_contains_user_hogql()
             event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
@@ -208,6 +221,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         # HogQL aggregation (currently only properties.$session_id is exposed in the UI,
         # but funnelAggregateByHogQL supports arbitrary expressions).
         if funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
+            tag_contains_user_hogql()
             return parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
         # Default: person aggregation
@@ -523,6 +537,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
+            start_point = self._strip_trailing_slash(self.query.pathsFilter.startPoint)
+            end_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint)
             clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
@@ -530,7 +546,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["compact_path"]),
-                            ast.Constant(value=self.query.pathsFilter.startPoint),
+                            ast.Constant(value=start_point),
                         ],
                     ),
                 ),
@@ -545,7 +561,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["start_filtered_path"]),
-                            ast.Constant(value=self.query.pathsFilter.endPoint),
+                            ast.Constant(value=end_point),
                         ],
                     ),
                 ),
@@ -577,10 +593,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         )
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
-        target_point = (
-            target_point[:-1] if target_point and len(target_point) > 1 and target_point.endswith("/") else target_point
-        )
+        target_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
 
         path_tuples_expr = ast.Call(
             name="arrayZip",
@@ -879,6 +892,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             query_type="PathsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

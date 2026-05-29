@@ -112,6 +112,7 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
+    isThumbQuestion,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
@@ -3045,12 +3046,21 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
 
                         if (question.type === SurveyQuestionType.Rating) {
+                            // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
+                            // so requiring them here would silently block save with no visible error.
+                            const requiresBoundLabels = !isThumbQuestion(question)
                             return {
                                 ...questionErrors,
                                 display: !question.display && 'Please choose a display type.',
                                 scale: !question.scale && 'Please choose a scale.',
-                                lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
-                                upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                                lowerBoundLabel:
+                                    requiresBoundLabels &&
+                                    !question.lowerBoundLabel &&
+                                    'Please enter a lower bound label.',
+                                upperBoundLabel:
+                                    requiresBoundLabels &&
+                                    !question.upperBoundLabel &&
+                                    'Please enter an upper bound label.',
                             }
                         } else if (
                             question.type === SurveyQuestionType.SingleChoice ||

@@ -82,6 +82,7 @@ from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisat
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
     ROLE_CHOICES,
@@ -114,6 +115,24 @@ REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
 NUM_2FA_BACKUP_CODES = 10
+
+MAX_PIPELINE_NOTIFICATIONS = 1000
+_PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+
+def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
+    for pipeline_id in incoming:
+        if not isinstance(pipeline_id, str) or not _PIPELINE_ID_PATTERN.match(pipeline_id):
+            raise serializers.ValidationError(
+                f"Invalid pipeline id: {pipeline_id!r}",
+                code="invalid_input",
+            )
+    if len(merged) > MAX_PIPELINE_NOTIFICATIONS:
+        raise serializers.ValidationError(
+            f"pipeline_notifications_disabled cannot have more than {MAX_PIPELINE_NOTIFICATIONS} entries",
+            code="invalid_input",
+        )
+
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -216,6 +235,14 @@ class UserSerializer(serializers.ModelSerializer):
             "Drives the in-app notifications settings UI. Read-only."
         ),
     )
+    requires_credential_review = serializers.SerializerMethodField(
+        help_text=(
+            "True if the user has at least one Personal API Key and has not yet acknowledged "
+            "their existing credentials. Used to gate a one-shot review screen on first "
+            "post-provisioning login. Becomes False once the user POSTs to "
+            "`/api/users/@me/credentials_review_complete/`. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -268,6 +295,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_organization_first_user",
             "active_realtime_notification_types",
             "pending_invites",
+            "requires_credential_review",
         ]
 
         read_only_fields = [
@@ -296,6 +324,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_organization_first_user",
             "active_realtime_notification_types",
             "pending_invites",
+            "requires_credential_review",
         ]
 
         extra_kwargs = {
@@ -352,9 +381,17 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
 
+    @tracer.start_as_current_span("user_serializer.requires_credential_review")
+    def get_requires_credential_review(self, instance: User) -> bool:
+        if instance.credentials_reviewed_at is not None:
+            return False
+        return PersonalAPIKey.objects.filter(user=instance).exists()
+
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
-        return default_device(instance) is not None
+        has_totp_device = default_device(instance) is not None
+        has_passkey_2fa = bool(instance.passkeys_enabled_for_2fa) and has_passkeys(instance)
+        return has_totp_device or has_passkey_2fa
 
     @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
@@ -475,6 +512,7 @@ class UserSerializer(serializers.ModelSerializer):
             "error_tracking_weekly_digest_project_enabled",
             "web_analytics_weekly_digest_project_enabled",
             "organization_member_join_email_disabled",
+            "pipeline_notifications_disabled",
         )
 
         for key, value in notification_settings.items():
@@ -498,7 +536,10 @@ class UserSerializer(serializers.ModelSerializer):
                             f"Notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
-                current_settings[key] = {**current_settings.get(key, {}), **value}
+                merged = {**current_settings.get(key, {}), **value}
+                if key == "pipeline_notifications_disabled":
+                    _validate_pipeline_notifications(value, merged)
+                current_settings[key] = merged
             elif key == "realtime_notifications_disabled":
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
@@ -523,10 +564,10 @@ class UserSerializer(serializers.ModelSerializer):
                                 code="invalid_input",
                             )
                 existing = current_settings.get("realtime_notifications_disabled", {}) or {}
-                merged: dict[str, dict[str, bool]] = {**existing}
+                realtime_merged: dict[str, dict[str, bool]] = {**existing}
                 for type_key, team_map in value.items():
-                    merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
-                current_settings["realtime_notifications_disabled"] = merged
+                    realtime_merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
+                current_settings["realtime_notifications_disabled"] = realtime_merged
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -1202,6 +1243,32 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @extend_schema(
+        request=None,
+        responses={204: None},
+        description=(
+            "Mark the user as having reviewed their existing credentials. Idempotent. "
+            "Flips `requires_credential_review` to False so the post-login interstitial "
+            "isn't shown again. Does not modify any credentials; the user revokes "
+            "individual Personal API Keys via the existing PAT endpoints from the same screen."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="credentials_review_complete",
+        authentication_classes=[SessionAuthentication],
+    )
+    def credentials_review_complete(self, request, **kwargs):
+        # Session-only auth: this endpoint dismisses the partner-issued-PAK review
+        # screen, so accepting PersonalAPIKeyAuthentication here would let the
+        # attacker who minted the PAK silently dismiss their own surfacing.
+        user = self.get_object()
+        if user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = django_timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
+        return Response(status=204)
+
 
 ###
 # Toolbar
@@ -1337,7 +1404,16 @@ def toolbar_oauth_callback(request):
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
     toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
     if original_fragment:
-        fragment = f"{original_fragment}&{toolbar_param}"
+        # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
+        # as the path, so `&` would make the auth params part of the route and
+        # 404. `?` is the standard hash-query separator that React Router,
+        # Vue Router, etc. split on. If the fragment already has a `?` (e.g.
+        # `#/login?foo=bar`), keep using `&` to extend the existing hash query.
+        if original_fragment.startswith("/") and "?" not in original_fragment:
+            separator = "?"
+        else:
+            separator = "&"
+        fragment = f"{original_fragment}{separator}{toolbar_param}"
     else:
         fragment = toolbar_param
     return redirect(f"{base_url}#{fragment}")
@@ -1435,11 +1511,14 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
-        # Use Rust flags service
+        # Use Rust flags service. Pass the internal token so this Django -> Rust
+        # call bypasses the team's billing limiter and isn't counted as customer
+        # SDK traffic — the toolbar launch is internal PostHog UI, not an SDK call.
         result = get_flags_from_service(
             token=team.api_token,
             distinct_id=distinct_id,
             groups={},
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
         flags = {
             flag_key: (
