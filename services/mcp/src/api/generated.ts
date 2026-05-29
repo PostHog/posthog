@@ -18283,6 +18283,14 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
     }
 
+    export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
+
+
+    export const HideViewedRecordings = {
+      CurrentUser: 'current-user',
+      AnyUser: 'any-user',
+    } as const;
+
     export type HogFlowVariablesItem = {[key: string]: string};
 
     /**
@@ -19680,6 +19688,8 @@ export namespace Schemas {
       events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+      hide_viewed_recordings?: HideViewedRecordings | null;
       kind?: 'RecordingsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
