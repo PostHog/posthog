@@ -186,7 +186,7 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
-            expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id', 0)
+            expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
         })
 
         it('should throw error when creation conflict occurs but person cannot be fetched', async () => {
