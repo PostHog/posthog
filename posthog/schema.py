@@ -4804,6 +4804,10 @@ class SubscriptionDropoffMode(StrEnum):
     AFTER_DROPOFF_PERIOD = "after_dropoff_period"
 
 
+class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
+    root: Literal[5] = Field(5, description="Subscriptions a free-tier team may create.")
+
+
 class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
