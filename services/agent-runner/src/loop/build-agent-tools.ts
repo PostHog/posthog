@@ -122,9 +122,9 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             continue
         }
         if (t.kind === 'native') {
-            // Unknown native id (stale spec): skip, exactly as buildToolList did.
+            // Unknown native id (stale spec): skip. It stays in `seen`, so a
+            // duplicate stale entry short-circuits on the next pass.
             if (!hasNativeTool(t.id)) {
-                seen.delete(t.id)
                 continue
             }
             tools.push(makeNativeTool(t.id, deps))

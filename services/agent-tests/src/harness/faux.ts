@@ -6,9 +6,9 @@
  * `complete()`/`stream()` call resolves through. Scripts are arrays of
  * `AssistantMessage` (or factories) returned one-per-call.
  *
- * The harness wires the runner with PiAiClient + a faux Model — the runner
- * exercises its real code path (resolveModel → complete → AssistantMessage
- * handling), no in-process mocks.
+ * The harness wires the runner with a faux Model via resolveModel — the
+ * driver streams through pi-ai's `streamSimple`, which resolves the faux
+ * provider, so the real code path runs with no in-process mocks.
  */
 
 import type { AssistantMessage, Model, ToolCall } from '@earendil-works/pi-ai'

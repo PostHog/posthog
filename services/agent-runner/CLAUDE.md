@@ -1,8 +1,8 @@
 # agent-runner — Worker loop for the v2 agent platform
 
 The session executor. Claims from the queue, loads revision + bundle,
-calls pi-ai, dispatches tools, persists conversation, publishes
-lifecycle events.
+drives pi-agent-core's agent loop, dispatches tools, persists
+conversation, publishes lifecycle events.
 
 You will almost always need the broader platform in your head — read
 [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
@@ -10,19 +10,22 @@ first.
 
 ## What lives here
 
-- [src/loop/](src/loop/) — the per-turn execution: `run-turn.ts`,
-  `dispatch-one.ts`, `tool-dispatch.ts`, `system-prompt.ts`,
-  `build-tool-list.ts`.
+- [src/loop/](src/loop/) — the session execution: `driver.ts` (drives
+  pi-agent-core's `runAgentLoop`, translates its event stream into the
+  bus/log/analytics sinks + persistence + outcome), `build-agent-tools.ts`
+  (native / custom / meta tools as `AgentTool[]`), `approval.ts` (gated
+  queue + resume), `provider-safe-names.ts`.
 - [src/workers/](src/workers/) — the outer `Worker` (claim → runOne →
   loop), concurrency, shutdown.
 - [src/resolvers/](src/resolvers/) — secrets, integrations, model
   selection. Each is a function the caller can override; the harness
   and prod wire different concrete impls.
-- [src/models/](src/models/) — `PiAiClient` + the LLM-gateway model
-  factory.
+- [src/models/](src/models/) — model resolution (`resolveModel`) + the
+  LLM-gateway model factory. The driver streams through pi-ai's
+  `streamSimple` directly; there is no client wrapper.
 - [src/index.ts](src/index.ts) — prod bin entry. Reads env, wires
   real PG pools + KafkaLogSink + RedisSessionEventBus, starts the loop.
-- [src/lib.ts](src/lib.ts) — library entry (`Worker`, `PiAiClient`,
+- [src/lib.ts](src/lib.ts) — library entry (`Worker`, `runSession`,
   `posthogLlmGatewayModel`). The harness imports from here.
 
 ## Rules of engagement
@@ -37,10 +40,9 @@ first.
    the loop — that breaks the harness's ability to substitute a faux
    sandbox / in-memory bus / in-process sink.
 
-3. **Concurrency lives in `Worker`, not in the turn.** `run-turn.ts`
-   handles one turn for one session at a time. If you find yourself
-   adding `Promise.all` over sessions inside the turn, that's a
-   layering mistake.
+3. **Concurrency lives in `Worker`, not in the loop.** `driver.ts`
+   runs one session at a time. If you find yourself adding `Promise.all`
+   over sessions inside the driver, that's a layering mistake.
 
 4. **Every loop branch publishes a lifecycle event.** `session_started`,
    `turn_started`, `tool_called`, `completed`, `waiting`, `failed`, etc.
@@ -54,9 +56,9 @@ harness drives a real `Worker` against the faux pi-ai provider — that's
 the only place the integration actually runs end-to-end. See
 [agent-tests/CLAUDE.md](../../services/agent-tests/CLAUDE.md).
 
-Per-turn unit tests (`run-turn.test.ts`, `tool-dispatch.test.ts`,
-`system-prompt.test.ts`) are fine for pure shape — they don't replace
-the e2e case.
+Unit tests (`driver.test.ts`, `build-agent-tools.test.ts`) are fine for
+pure shape (outcome derivation, tool-adapter behavior) — they don't
+replace the e2e case.
 
 ## Pointers
 

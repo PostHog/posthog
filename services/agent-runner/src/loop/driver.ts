@@ -28,9 +28,10 @@
  * discarded and re-run on resume — the same turn-boundary checkpointing the
  * old loop had.
  *
- * Approval-gated tools are NOT handled here yet — that lands in the same change
- * that cuts the worker over to this driver, so gating is never bypassed in a
- * live path. See docs/agent-platform/plans/approval-gated-tools.md.
+ * Approval-gated tools queue via their wrapped `AgentTool.execute` (see the
+ * gate override below) and resume when a decided marker lands in
+ * `pending_inputs` — handled in `getSteeringMessages`. See
+ * docs/agent-platform/plans/approval-gated-tools.md.
  */
 
 import type { AgentContext, AgentEvent, AgentEventSink, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
@@ -96,7 +97,9 @@ export interface RunSessionDeps {
     analytics?: AnalyticsSink
     /** Suppress pi-ai's client-side cost numbers (gateway tracks cost server-side). */
     useGatewayCost?: boolean
-    /** Reserved for the approval cutover (Stage 3); unused today. */
+    /** Approval-gated tool store. When set, gated tools queue instead of
+     * executing and resume via the decided-marker path in getSteeringMessages.
+     * When absent, gated tools run normally (pre-approval default). */
     approvals?: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
 }
@@ -387,72 +390,111 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // pi-ai ignores `reasoning` for non-reasoning models, so forward unconditionally.
                 reasoning: rev.spec.reasoning,
                 convertToLlm: (messages) => messages as unknown as Message[],
+                // The loop contract requires this hook to never throw. We also
+                // must NOT clear pending_inputs up front: an approval marker
+                // whose dispatch fails transiently has to survive for the next
+                // resume, or the user's approval is silently lost and the row
+                // stays stuck in `approving`. So we consume entries only as we
+                // successfully process them; anything that throws is kept.
                 getSteeringMessages: async (): Promise<AgentMessage[]> => {
                     if (session.pending_inputs.length === 0) {
                         return []
                     }
                     const pending = session.pending_inputs
-                    session.pending_inputs = []
                     const out: ConversationMessage[] = []
+                    const kept: ConversationMessage[] = []
                     for (const msg of pending) {
                         const requestId = deps.approvals ? approvalMarkerRequestId(msg) : null
-                        if (requestId && deps.approvals) {
+                        if (!requestId || !deps.approvals) {
+                            // Plain steering input (e.g. /send) — consume it.
+                            out.push(msg)
+                            continue
+                        }
+                        try {
                             const row = await deps.approvals.get(requestId)
-                            if (!row || row.state !== 'approving') {
-                                // Stale / orphan marker — the decide path sets `approving`
-                                // for rows we own; anything else was already finalised.
+                            // Drop markers that aren't a live, in-flight approval
+                            // for THIS session. The session_id check is a security
+                            // boundary: /send appends caller-controlled strings to
+                            // pending_inputs and the request id is exposed via SSE,
+                            // so without it one session could inject another's
+                            // approval id and hijack its dispatch.
+                            if (!row || row.session_id !== session.id || row.state !== 'approving') {
                                 runLog.warn(
-                                    { requestId, rowState: row?.state ?? 'missing' },
-                                    'approval.marker.dropped_stale'
+                                    {
+                                        requestId,
+                                        rowState: row?.state ?? 'missing',
+                                        sameSession: row?.session_id === session.id,
+                                    },
+                                    'approval.marker.dropped'
                                 )
                                 continue
                             }
                             const t0 = Date.now()
+                            // dispatchApprovedResult marks the row dispatched as its
+                            // commit point. If it throws after the tool ran but
+                            // before that mark lands, keeping the marker can
+                            // re-execute on resume — a known transient-failure
+                            // window; full idempotency would need a transactional
+                            // dispatch (tracked follow-up).
                             const d = await dispatchApprovedResult({
                                 approvals: deps.approvals,
                                 realExecute: realExecute.get(row.tool_name),
                                 row,
                             })
-                            const span = turn + 1
-                            await emit('tool_call', {
-                                name: d.toolName,
-                                args: d.args,
-                                id: d.toolCallId,
-                                approved: true,
-                            })
-                            await emit('tool_result', {
-                                name: d.toolName,
-                                id: d.toolCallId,
-                                ok: !d.isError,
-                                error: d.error,
-                                approval: { request_id: d.requestId, state: 'approved' },
-                            })
-                            await analytics.write([
-                                {
-                                    kind: 'span',
-                                    ts: new Date().toISOString(),
-                                    team_id: session.team_id,
-                                    application_id: session.application_id,
-                                    revision_id: rev.id,
-                                    session_id: session.id,
-                                    turn: span,
-                                    span_id: toolSpanId(session.id, span, d.toolCallId),
-                                    parent_span_id: generationSpanId(session.id, span),
-                                    distinct_id: distinctId,
-                                    tool_name: d.toolName,
-                                    tool_call_id: d.toolCallId,
-                                    input: d.args,
-                                    output: d.isError ? null : (d.output ?? null),
-                                    latency_ms: Date.now() - t0,
-                                    is_error: d.isError,
-                                    error: d.error,
-                                },
-                            ])
+                            // Secure the wake before observability so a failing
+                            // emit/analytics can't strand an already-dispatched call.
                             out.push(d.wake)
-                            continue
+                            try {
+                                const span = turn + 1
+                                await emit('tool_call', {
+                                    name: d.toolName,
+                                    args: d.args,
+                                    id: d.toolCallId,
+                                    approved: true,
+                                })
+                                await emit('tool_result', {
+                                    name: d.toolName,
+                                    id: d.toolCallId,
+                                    ok: !d.isError,
+                                    error: d.error,
+                                    approval: { request_id: d.requestId, state: 'approved' },
+                                })
+                                await analytics.write([
+                                    {
+                                        kind: 'span',
+                                        ts: new Date().toISOString(),
+                                        team_id: session.team_id,
+                                        application_id: session.application_id,
+                                        revision_id: rev.id,
+                                        session_id: session.id,
+                                        turn: span,
+                                        span_id: toolSpanId(session.id, span, d.toolCallId),
+                                        parent_span_id: generationSpanId(session.id, span),
+                                        distinct_id: distinctId,
+                                        tool_name: d.toolName,
+                                        tool_call_id: d.toolCallId,
+                                        input: d.args,
+                                        output: d.isError ? null : (d.output ?? null),
+                                        latency_ms: Date.now() - t0,
+                                        is_error: d.isError,
+                                        error: d.error,
+                                    },
+                                ])
+                            } catch (obsErr) {
+                                runLog.warn(
+                                    { requestId, err: (obsErr as Error).message },
+                                    'approval.observability_failed'
+                                )
+                            }
+                        } catch (err) {
+                            // Transient failure (e.g. a DB blip) — keep the marker
+                            // so a later resume retries rather than losing the
+                            // user's approval.
+                            runLog.warn({ requestId, err: (err as Error).message }, 'approval.marker.retry')
+                            kept.push(msg)
                         }
-                        out.push(msg)
                     }
+                    session.pending_inputs = kept
                     return out as unknown as AgentMessage[]
                 },
                 shouldStopAfterTurn: async (): Promise<boolean> => {

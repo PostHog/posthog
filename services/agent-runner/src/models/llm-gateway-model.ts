@@ -7,7 +7,7 @@
  *
  * Usage:
  *   const model = posthogLlmGatewayModel({ modelId: 'gpt-4.1-mini', baseUrl: cfg.llmGatewayUrl })
- *   const client = new PiAiClient(cfg.posthogLlmGatewayKey)
+ *   // pass `model` to the Worker via resolveModel + the gateway PAT via resolveApiKey
  *
  * The `baseUrl` default matches the in-cluster service name; dev / prod
  * override it through the runner's `AgentRunnerConfig`.
