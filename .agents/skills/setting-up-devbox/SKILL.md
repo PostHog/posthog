@@ -1,6 +1,6 @@
 ---
 name: setting-up-devbox
-description: Guide a PostHog engineer or agent through spinning up, connecting to, running commands on, and mirroring local code to a remote devbox (a Coder workspace running the full PostHog stack). Use when asked to set up a devbox, start or connect to a devbox, configure remote dev, get gh CLI / Claude Code authed on a devbox, run a command on a devbox, mirror or sync a local checkout to a devbox so you can edit locally while the stack runs remotely (devbox:sync), or diagnose why a devbox command fails. Covers the tailnet prerequisite, hogli devbox commands, Coder user secrets for auth, one-way local->remote file sync via mutagen, and verifying with devbox:exec. How each dev personalizes their box is left to them.
+description: Guide a PostHog engineer through spinning up, connecting to, running commands on, and mirroring local code to a remote devbox (a Coder workspace running the full PostHog stack). Use when asked to set up a devbox, start or connect to a devbox, configure remote dev, get gh CLI / Claude Code authed on a devbox, run a command on a devbox, sync a local checkout so you can edit locally while the stack runs remotely (devbox:sync), or diagnose why a devbox command fails. Covers the tailnet prerequisite, hogli devbox commands, Coder user secrets for auth, one-way local->remote sync via mutagen, and verifying with devbox:exec. How each dev personalizes their box is left to them.
 ---
 
 # Setting up a PostHog devbox
@@ -71,7 +71,7 @@ Wrap commands in `bash -lc '...'`: a non-login shell doesn't reliably source `~/
 
 ## Editing locally, running on the box — `hogli devbox:sync`
 
-When you want your fast local checkout to stay the place you edit, but the heavy stack (`hogli up`) to run on the box, `hogli devbox:sync` mirrors your local repo onto the box over [mutagen](https://mutagen.io). It is **one-way**: local is the source of truth, changes flow local→remote only, nothing comes back. This is the pattern to reach for in an agentic loop — edit with your normal local file tools, let the mirror carry each change to the box, and drive the remote stack with `devbox:exec` — instead of committing and pushing every iteration or editing over Remote-SSH.
+When you want your fast local checkout to stay the place you edit but the heavy stack (`hogli up`) to run on the box, `hogli devbox:sync` mirrors your repo onto the box over [mutagen](https://mutagen.io), one-way: local is the source of truth, nothing comes back. Reach for this in an agentic loop — edit with your normal local tools, let the mirror carry each change, and drive the remote stack with `devbox:exec` — instead of committing and pushing every iteration or editing over Remote-SSH.
 
 ```bash
 hogli devbox:start                                   # the box must be running first
