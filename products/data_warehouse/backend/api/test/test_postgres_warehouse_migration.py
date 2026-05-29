@@ -15,8 +15,9 @@ from rest_framework import status
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):

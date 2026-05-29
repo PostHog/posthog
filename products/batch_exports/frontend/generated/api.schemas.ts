@@ -1296,6 +1296,279 @@ export interface PatchedBatchExportRequestApi {
 }
 
 /**
+ * Typed output for view set `list`.
+ */
+export interface ListOutputApi {
+    /** ID of the file download batch export run. */
+    id: string
+    /** Current status of the file download batch export run.
+
+  * `Cancelled` - Cancelled
+  * `Completed` - Completed
+  * `ContinuedAsNew` - Continued As New
+  * `Failed` - Failed
+  * `FailedRetryable` - Failed Retryable
+  * `FailedBilling` - Failed Billing
+  * `Terminated` - Terminated
+  * `TimedOut` - Timedout
+  * `Running` - Running
+  * `Starting` - Starting */
+    status: BatchExportRunStatusEnumApi
+}
+
+export interface PaginatedListOutputListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ListOutputApi[]
+}
+
+/**
+ * Typed configuration for a FileDownload batch-export destination.
+ */
+export interface FileDownloadDestinationFileConfigApi {
+    /** File format
+
+  * `Parquet` - Parquet
+  * `JSONLines` - JSONLines */
+    format?: FileFormatEnumApi
+    /** Compress the file with a supported compression format
+
+  * `zstd` - zstd
+  * `gzip` - gzip
+  * `brotli` - brotli
+  * `lz4` - lz4
+  * `snappy` - snappy */
+    compression?: CompressionEnumApi | null
+    /**
+     * Split download into multiple files of at most this size in MB
+     * @minimum 0
+     * @nullable
+     */
+    max_size_mb?: number | null
+}
+
+export type FileDownloadEventsRequestApiModel =
+    (typeof FileDownloadEventsRequestApiModel)[keyof typeof FileDownloadEventsRequestApiModel]
+
+export const FileDownloadEventsRequestApiModel = {
+    Events: 'events',
+} as const
+
+/**
+ * Typed configuration for the events model.
+ */
+export interface FileDownloadEventsRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadEventsRequestApiModel
+    include?: string[]
+    exclude?: string[]
+    data_interval_start: string
+    data_interval_end: string
+}
+
+export type FileDownloadPersonsRequestApiModel =
+    (typeof FileDownloadPersonsRequestApiModel)[keyof typeof FileDownloadPersonsRequestApiModel]
+
+export const FileDownloadPersonsRequestApiModel = {
+    Persons: 'persons',
+} as const
+
+/**
+ * Typed configuration for the persons model.
+ */
+export interface FileDownloadPersonsRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadPersonsRequestApiModel
+    data_interval_start: string
+    data_interval_end: string
+}
+
+export type FileDownloadSessionsRequestApiModel =
+    (typeof FileDownloadSessionsRequestApiModel)[keyof typeof FileDownloadSessionsRequestApiModel]
+
+export const FileDownloadSessionsRequestApiModel = {
+    Sessions: 'sessions',
+} as const
+
+/**
+ * Typed configuration for the sessions model.
+ */
+export interface FileDownloadSessionsRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadSessionsRequestApiModel
+    data_interval_start: string
+    data_interval_end: string
+}
+
+export type CreateFileDownloadRequestApi =
+    | FileDownloadEventsRequestApi
+    | FileDownloadPersonsRequestApi
+    | FileDownloadSessionsRequestApi
+
+/**
+ * Typed output for view set `create`.
+ */
+export interface CreateOutputApi {
+    id: string
+}
+
+export type RetrieveBasicOutputApiStatus =
+    (typeof RetrieveBasicOutputApiStatus)[keyof typeof RetrieveBasicOutputApiStatus]
+
+export const RetrieveBasicOutputApiStatus = {
+    Starting: 'Starting',
+    Running: 'Running',
+    Cancelled: 'Cancelled',
+} as const
+
+/**
+ * Typed output for view set `retrieve` with any of the statuses without extra output.
+ */
+export interface RetrieveBasicOutputApi {
+    status: RetrieveBasicOutputApiStatus
+}
+
+export type RetrieveCompletedOutputApiStatus =
+    (typeof RetrieveCompletedOutputApiStatus)[keyof typeof RetrieveCompletedOutputApiStatus]
+
+export const RetrieveCompletedOutputApiStatus = {
+    Completed: 'Completed',
+} as const
+
+/**
+ * Typed output for view set `retrieve` with completed status.
+ */
+export interface RetrieveCompletedOutputApi {
+    status: RetrieveCompletedOutputApiStatus
+    files: string[]
+}
+
+export type RetrieveFailedOutputApiStatus =
+    (typeof RetrieveFailedOutputApiStatus)[keyof typeof RetrieveFailedOutputApiStatus]
+
+export const RetrieveFailedOutputApiStatus = {
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    TimedOut: 'TimedOut',
+    Terminated: 'Terminated',
+} as const
+
+/**
+ * Typed output for view set `retrieve` with any of the failed statuses.
+ */
+export interface RetrieveFailedOutputApi {
+    status: RetrieveFailedOutputApiStatus
+    error: string
+}
+
+export type RetrieveFileDownloadResponseApi =
+    | RetrieveBasicOutputApi
+    | RetrieveCompletedOutputApi
+    | RetrieveFailedOutputApi
+
+/**
+ * * `events` - events
+ * `persons` - persons
+ * `sessions` - sessions
+ */
+export type FileDownloadBatchExportOnDemandModelEnumApi =
+    (typeof FileDownloadBatchExportOnDemandModelEnumApi)[keyof typeof FileDownloadBatchExportOnDemandModelEnumApi]
+
+export const FileDownloadBatchExportOnDemandModelEnumApi = {
+    Events: 'events',
+    Persons: 'persons',
+    Sessions: 'sessions',
+} as const
+
+/**
+ * Request shape for a FileDownload batch export on demand.
+ */
+export interface FileDownloadBatchExportOnDemandApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadBatchExportOnDemandModelEnumApi
+    include?: string[]
+    exclude?: string[]
+    data_interval_start: string
+    data_interval_end: string
+}
+
+/**
+ * * `events` - events
+ */
+export type FileDownloadEventsRequestModelEnumApi =
+    (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]
+
+export const FileDownloadEventsRequestModelEnumApi = {
+    Events: 'events',
+} as const
+
+/**
+ * * `persons` - persons
+ */
+export type FileDownloadPersonsRequestModelEnumApi =
+    (typeof FileDownloadPersonsRequestModelEnumApi)[keyof typeof FileDownloadPersonsRequestModelEnumApi]
+
+export const FileDownloadPersonsRequestModelEnumApi = {
+    Persons: 'persons',
+} as const
+
+/**
+ * * `sessions` - sessions
+ */
+export type FileDownloadSessionsRequestModelEnumApi =
+    (typeof FileDownloadSessionsRequestModelEnumApi)[keyof typeof FileDownloadSessionsRequestModelEnumApi]
+
+export const FileDownloadSessionsRequestModelEnumApi = {
+    Sessions: 'sessions',
+} as const
+
+/**
+ * * `Starting` - Starting
+ * `Running` - Running
+ * `Cancelled` - Cancelled
+ */
+export type RetrieveBasicOutputStatusEnumApi =
+    (typeof RetrieveBasicOutputStatusEnumApi)[keyof typeof RetrieveBasicOutputStatusEnumApi]
+
+export const RetrieveBasicOutputStatusEnumApi = {
+    Starting: 'Starting',
+    Running: 'Running',
+    Cancelled: 'Cancelled',
+} as const
+
+/**
+ * * `Completed` - Completed
+ */
+export type RetrieveCompletedOutputStatusEnumApi =
+    (typeof RetrieveCompletedOutputStatusEnumApi)[keyof typeof RetrieveCompletedOutputStatusEnumApi]
+
+export const RetrieveCompletedOutputStatusEnumApi = {
+    Completed: 'Completed',
+} as const
+
+/**
+ * * `Failed` - Failed
+ * `FailedRetryable` - FailedRetryable
+ * `FailedBilling` - FailedBilling
+ * `Terminated` - Terminated
+ * `TimedOut` - TimedOut
+ */
+export type RetrieveFailedOutputStatusEnumApi =
+    (typeof RetrieveFailedOutputStatusEnumApi)[keyof typeof RetrieveFailedOutputStatusEnumApi]
+
+export const RetrieveFailedOutputStatusEnumApi = {
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+} as const
+
+/**
  * * `Databricks` - Databricks
  */
 export type DatabricksDestinationRequestTypeEnumApi =
@@ -1391,6 +1664,49 @@ export type BatchExportsRunsLogsRetrieveParams = {
 }
 
 export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type FileDownloadBatchExportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type FileDownloadBatchExportsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
      */

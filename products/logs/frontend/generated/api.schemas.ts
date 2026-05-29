@@ -488,8 +488,8 @@ export interface LogsAlertConfigurationApi {
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: LogsAlertFiltersApi
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-     * @minimum 1
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -595,8 +595,8 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: LogsAlertFiltersApi
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-     * @minimum 1
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -760,7 +760,7 @@ export interface LogsAlertSimulateRequestApi {
     filters: LogsAlertFiltersApi
     /**
      * Threshold count to evaluate against.
-     * @minimum 1
+     * @minimum 0
      */
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -1160,14 +1160,14 @@ export interface LogsSamplingRuleApi {
      * @nullable
      */
     priority?: number | null
-    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
   * `severity_sampling` - Severity-based reduction
   * `path_drop` - Path exclusion
   * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
-     * If set, the rule applies only to this service name; null means all services.
+     * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
      * @nullable
      */
@@ -1180,7 +1180,7 @@ export interface LogsSamplingRuleApi {
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
     scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
-    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
@@ -1217,14 +1217,14 @@ export interface PatchedLogsSamplingRuleApi {
      * @nullable
      */
     priority?: number | null
-    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
   * `severity_sampling` - Severity-based reduction
   * `path_drop` - Path exclusion
   * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
-     * If set, the rule applies only to this service name; null means all services.
+     * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
      * @nullable
      */
@@ -1237,7 +1237,7 @@ export interface PatchedLogsSamplingRuleApi {
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
     scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
-    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
@@ -1372,6 +1372,8 @@ export interface _LogsSparklineBucketApi {
     /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
     service?: string
     count: number
+    /** Sum of uncompressed bytes for the bucket. */
+    bytes_uncompressed?: number
 }
 
 export interface _LogsSparklineResponseApi {
@@ -1391,57 +1393,6 @@ export interface _LogsValuesResponseApi {
     results: _LogAttributeValueApi[]
     /** Always false — reserved for future cached-value refresh signalling. */
     refreshing: boolean
-}
-
-/**
- * * `SYSTEM` - SYSTEM
- * `PLUGIN` - PLUGIN
- * `CONSOLE` - CONSOLE
- */
-export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
-
-export const PluginLogEntrySourceEnumApi = {
-    System: 'SYSTEM',
-    Plugin: 'PLUGIN',
-    Console: 'CONSOLE',
-} as const
-
-/**
- * * `DEBUG` - DEBUG
- * `LOG` - LOG
- * `INFO` - INFO
- * `WARN` - WARN
- * `ERROR` - ERROR
- */
-export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
-
-export const PluginLogEntryTypeEnumApi = {
-    Debug: 'DEBUG',
-    Log: 'LOG',
-    Info: 'INFO',
-    Warn: 'WARN',
-    Error: 'ERROR',
-} as const
-
-export interface PluginLogEntryApi {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySourceEnumApi
-    type: PluginLogEntryTypeEnumApi
-    message: string
-    instance_id: string
-}
-
-export interface PaginatedPluginLogEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PluginLogEntryApi[]
 }
 
 export type LogsViewsListParams = {
@@ -1594,14 +1545,3 @@ export const LogsValuesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
 } as const
-
-export type PluginConfigsLogsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

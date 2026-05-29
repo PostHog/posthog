@@ -11,9 +11,11 @@ import temporalio.activity
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.experiments.models import (
@@ -37,6 +39,8 @@ from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
 
+EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
+
 
 @database_sync_to_async
 def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
@@ -59,7 +63,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
         time_filter,
         deleted=False,
         status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
     ).exclude(
         Q(metrics__isnull=True) | Q(metrics=[]),
         Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
@@ -190,8 +194,12 @@ def _calculate_experiment_regular_metric_sync(
             team=experiment.team,
             workload=Workload.OFFLINE,
         )
-        result = query_runner._calculate()
-        result_dict = result.model_dump()
+        # .run() writes to the response cache. The "warming/*" trigger tells
+        # run() this is a scheduled job, not a user query, so it skips logging
+        # the events as "used by this team."
+        tag_queries(trigger="warming/experiment_timeseries")
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result_dict = result.model_dump(mode="json")
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
@@ -310,7 +318,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
         time_filter,
         deleted=False,
         status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
     for experiment in experiments:
@@ -384,9 +392,11 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     saved_metric = None
+    saved_metric_metadata: dict = {}
     for exp_to_sm in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         if exp_to_sm.saved_metric.query.get("uuid") == metric_uuid:
             saved_metric = exp_to_sm.saved_metric
+            saved_metric_metadata = exp_to_sm.metadata or {}
             break
 
     if not saved_metric:
@@ -398,7 +408,19 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Saved metric {metric_uuid} not found for experiment {experiment_id}",
         )
 
-    query = saved_metric.query
+    # The frontend receives saved metrics with two extra fields injected before
+    # they get posted back to /query: a breakdownFilter wrapper (from the link
+    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # a fingerprint (added by the experiment API serializer). The activity must
+    # apply both or the response cache key diverges from /query's.
+    query = {
+        **saved_metric.query,
+        "breakdownFilter": {
+            **(saved_metric.query.get("breakdownFilter") or {}),
+            "breakdowns": saved_metric_metadata.get("breakdowns") or [],
+        },
+        "fingerprint": fingerprint,
+    }
     metric_type = query.get("metric_type")
     metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     if metric_type == "mean":
@@ -439,8 +461,12 @@ def _calculate_experiment_saved_metric_sync(
             team=experiment.team,
             workload=Workload.OFFLINE,
         )
-        result = query_runner._calculate()
-        result_dict = result.model_dump()
+        # .run() writes to the response cache. The "warming/*" trigger tells
+        # run() this is a scheduled job, not a user query, so it skips logging
+        # the events as "used by this team."
+        tag_queries(trigger="warming/experiment_timeseries")
+        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result_dict = result.model_dump(mode="json")
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 

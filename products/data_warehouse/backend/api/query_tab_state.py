@@ -8,7 +8,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
-from products.data_warehouse.backend.models import QueryTabState
+from products.data_tools.backend.models.query_tab_state import QueryTabState
 
 
 class QueryTabStateSerializer(serializers.ModelSerializer):

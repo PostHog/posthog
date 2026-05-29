@@ -72,14 +72,14 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'issues',
             label: 'Issues',
             content: (
-                <>
+                <ErrorTrackingSetupPrompt>
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                     <div className="border rounded bg-surface-primary p-2">
                         <IssuesFilters />
                     </div>
                     <IssuesList />
-                </>
+                </ErrorTrackingSetupPrompt>
             ),
         },
         {
@@ -117,17 +117,10 @@ export function ErrorTrackingScene(): JSX.Element {
         <StyleVariables>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
                 <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
-                    <ErrorTrackingSetupPrompt>
-                        <SceneContent>
-                            <Header />
-                            <LemonTabs
-                                activeKey={activeTab}
-                                onChange={(key) => setActiveTab(key)}
-                                tabs={tabs}
-                                sceneInset
-                            />
-                        </SceneContent>
-                    </ErrorTrackingSetupPrompt>
+                    <SceneContent>
+                        <Header />
+                        <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />
+                    </SceneContent>
                 </BindLogic>
             </BindLogic>
         </StyleVariables>

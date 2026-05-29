@@ -1,5 +1,5 @@
 from posthog.temporal import ai
-from posthog.temporal.llm_analytics import (
+from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
@@ -26,6 +26,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "PostHogCodeSlackMentionWorkflow",
+            "PostHogCodeSlackMentionCommandWorkflow",
             "PostHogCodeSlackTerminateTaskWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
@@ -54,14 +55,20 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
+            "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
+            "handle_posthog_code_slack_mention_command_activity",
+            "resolve_posthog_code_slack_command_user_activity",
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
+            "cascade_posthog_code_repository_activity",
+            "discover_posthog_code_repository_via_agent_activity",
             "select_posthog_code_repository_activity",
             "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
+            "block_posthog_code_task_if_no_personal_github_activity",
             "create_posthog_code_task_for_repo_activity",
             "forward_posthog_code_followup_activity",
             "post_posthog_code_picker_timeout_activity",
@@ -252,6 +259,7 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "dispatch_inbox_slack_notifications_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
@@ -299,7 +307,7 @@ class TestSignalsProductModuleIntegrity:
             )
 
 
-class TestLLMAnalyticsModuleIntegrity:
+class TestAIObservabilityModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected LLMA-worker workflows are present."""
         expected_workflows = [
@@ -311,10 +319,10 @@ class TestLLMAnalyticsModuleIntegrity:
             "CheckCountTriggeredReportsWorkflow",
             "GenerateAndDeliverEvalReportWorkflow",
             "EmitEvalReportSignalWorkflow",
-            "LLMAEvaluationSamplerCoordinatorWorkflow",
-            "LLMAEvaluationSamplerWorkflow",
-            "LLMAEvaluationClusteringCoordinatorWorkflow",
-            "LLMAEvaluationClusteringWorkflow",
+            "AIObservabilityEvaluationSamplerCoordinatorWorkflow",
+            "AIObservabilityEvaluationSamplerWorkflow",
+            "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
+            "AIObservabilityEvaluationClusteringWorkflow",
             "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
@@ -329,7 +337,7 @@ class TestLLMAnalyticsModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected LLMA-worker activities are present."""
         expected_activities = [
-            "get_team_ids_for_llm_analytics",
+            "get_team_ids_for_ai_observability",
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",

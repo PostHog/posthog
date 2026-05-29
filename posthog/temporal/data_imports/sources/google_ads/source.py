@@ -51,11 +51,10 @@ class GoogleAdsSource(
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
-            # Google returns `invalid_grant` from the OAuth token endpoint when the user's
-            # refresh token has been revoked, expired, or otherwise invalidated (common
-            # variants: "Token has been expired or revoked.", "Bad Request"). Only the user
-            # can fix this by reconnecting their Google Ads account.
-            "invalid_grant": "Your Google Ads authorization has expired or been revoked. Please reconnect your Google Ads account.",
+            # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
+            # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
+            # Retrying cannot recover — the user must reconnect their Google Ads account.
+            "invalid_grant": "Your Google Ads connection has expired or been revoked. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options

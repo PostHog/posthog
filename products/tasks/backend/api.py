@@ -1,12 +1,14 @@
 import os
+import re
 import json
 import uuid
 import asyncio
 import logging
 import builtins
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -34,10 +36,13 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
+from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
+
+from products.slack_app.backend.models import SlackThreadTaskMapping
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -48,7 +53,16 @@ from .automation_service import (
     sync_automation_schedule,
     update_automation_run_result,
 )
-from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskAutomation, TaskRun
+from .models import (
+    TASK_PRESENCE_TTL_SECONDS,
+    CodeInvite,
+    CodeInviteRedemption,
+    SandboxEnvironment,
+    Task,
+    TaskAutomation,
+    TaskPresence,
+    TaskRun,
+)
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -57,8 +71,11 @@ from .serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
+    SlackThreadContextQuerySerializer,
+    SlackThreadContextResponseSerializer,
     TaskAutomationSerializer,
     TaskListQuerySerializer,
+    TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -197,6 +214,12 @@ def _resolve_cloud_pr_authorship_mode(
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+def _is_internal_debug_team(team_id: int | None) -> bool:
+    if settings.DEBUG and not settings.TEST:
+        return team_id == 1
+    return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
+
+
 def task_visibility_q(user_id: int | None) -> Q:
     """Filter for tasks visible to the given user.
 
@@ -227,6 +250,71 @@ class TasksAccessPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         return has_tasks_access(request.user)
+
+
+def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
+    """Parse a Slack permalink into `(channel, thread_ts)`"""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    match = re.search(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d+)", parsed.path)
+    if not match:
+        return None
+    channel = match.group("channel")
+    # Reply permalinks put the parent thread_ts in the query string; that wins over the in-path ts.
+    thread_ts_from_query = parse_qs(parsed.query).get("thread_ts", [None])[0]
+    if thread_ts_from_query:
+        return channel, thread_ts_from_query
+    raw_ts = match.group("ts")
+    if len(raw_ts) < 7:
+        return None
+    return channel, f"{raw_ts[:-6]}.{raw_ts[-6:]}"
+
+
+def _temporal_workflow_url(workflow_id: str | None) -> str | None:
+    if not workflow_id:
+        return None
+    base = getattr(settings, "TEMPORAL_UI_HOST", None)
+    namespace = getattr(settings, "TEMPORAL_NAMESPACE", None)
+    if not base or not namespace:
+        return None
+    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
+
+
+def _slack_repo_research_payload(
+    request, team_id: int, state: dict[str, Any], repo_research_runs_by_id: dict[str, TaskRun]
+) -> dict[str, Any] | None:
+    """Build the repo-research block for a run, or None when the mention wasn't ambiguous."""
+    research_task_id = state.get("repo_research_task_id")
+    research_run_id = state.get("repo_research_run_id")
+    if not research_task_id or not research_run_id:
+        return None
+    research_run = repo_research_runs_by_id.get(research_run_id)
+    sandbox_url = None
+    log_url = None
+    run_status = None
+    if research_run is not None:
+        sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
+        run_status = research_run.status
+        try:
+            log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
+        except Exception:
+            logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
+            log_url = None
+    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    return {
+        "task_id": research_task_id,
+        "run_id": research_run_id,
+        "status": run_status,
+        "task_processing_workflow_id": workflow_id,
+        "task_processing_workflow_url": _temporal_workflow_url(workflow_id),
+        "sandbox_url": sandbox_url,
+        "task_view_url": request.build_absolute_uri(
+            f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"
+        ),
+        "log_url": log_url,
+    }
 
 
 @extend_schema(tags=["tasks"])
@@ -374,12 +462,148 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(result)
 
-    def safely_get_queryset(self, queryset):
-        qs = (
-            queryset.filter(team=self.team, deleted=False)
-            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
-            .order_by("-created_at")
+    @validated_request(
+        query_serializer=SlackThreadContextQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SlackThreadContextResponseSerializer,
+                description="Task, runs, and Temporal workflow handles for the Slack thread.",
+            ),
+            400: OpenApiResponse(description="Malformed Slack URL or unparseable thread identifiers."),
+            403: OpenApiResponse(description="Endpoint is gated to PostHog-internal debugging."),
+            404: OpenApiResponse(description="No SlackThreadTaskMapping exists for the parsed (channel, thread_ts)."),
+        },
+        summary="Resolve a Slack thread to its task, runs, and Temporal workflows",
+        description=(
+            "PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, "
+            "the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="slack_thread_context",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def slack_thread_context(self, request, **kwargs):
+        if not _is_internal_debug_team(self.team_id):
+            return Response(
+                {"detail": "slack-thread-context is restricted to PostHog-internal debugging."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # 1. Get Slack URL from the request URL
+        url = request.validated_query_data["url"]
+        parsed = _parse_slack_thread_url(url)
+        if parsed is None:
+            return Response(
+                {"detail": "Could not parse channel/thread_ts from the provided Slack URL.", "url": url},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        channel, thread_ts = parsed
+        # 2. Find related tasks
+        mapping = (
+            SlackThreadTaskMapping.objects.select_related("task", "task__created_by")
+            .filter(channel=channel, thread_ts=thread_ts)
+            .first()
         )
+        if mapping is None:
+            return Response(
+                {
+                    "detail": "no_mapping",
+                    "thread": {
+                        "url": url,
+                        "channel": channel,
+                        "thread_ts": thread_ts,
+                        "slack_workspace_id": None,
+                        "mentioning_slack_user_id": None,
+                    },
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        task = mapping.task
+        # 3. Find runs for the task
+        runs = list(TaskRun.objects.filter(task=task).order_by("created_at", "id"))
+        # Include repo discovery runs, if present
+        repo_research_run_ids = [
+            rid
+            for run in runs
+            if (rid := (run.state if isinstance(run.state, dict) else {}).get("repo_research_run_id"))
+        ]
+        repo_research_runs_by_id: dict[str, TaskRun] = (
+            {str(r.id): r for r in TaskRun.objects.filter(team=task.team, id__in=repo_research_run_ids)}
+            if repo_research_run_ids
+            else {}
+        )
+        # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>
+        task_url = request.build_absolute_uri(f"/project/{task.team_id}/tasks/{task.id}?ph_debug=true")
+        run_payloads: list[dict[str, Any]] = []
+        # 4. Find workflows for the runs
+        for run in runs:
+            state = run.state if isinstance(run.state, dict) else {}
+            output = run.output if isinstance(run.output, dict) else {}
+            task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
+            mention_workflow_id = state.get("slack_mention_workflow_id")
+            try:
+                presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
+            except Exception:
+                logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
+                presigned_log_url = None
+            run_payloads.append(
+                {
+                    "id": str(run.id),
+                    "status": run.status,
+                    "created_at": run.created_at,
+                    "completed_at": run.completed_at,
+                    "sandbox_url": state.get("sandbox_url"),
+                    "pr_url": output.get("pr_url"),
+                    "error_message": run.error_message,
+                    "task_processing_workflow_id": task_processing_workflow_id,
+                    "task_processing_workflow_url": _temporal_workflow_url(task_processing_workflow_id),
+                    "mention_workflow_id": mention_workflow_id,
+                    "mention_workflow_url": _temporal_workflow_url(mention_workflow_id),
+                    "task_view_url": request.build_absolute_uri(
+                        f"/project/{task.team_id}/tasks/{task.id}?runId={run.id}&ph_debug=true"
+                    ),
+                    "log_url": presigned_log_url,
+                    "repo_research": _slack_repo_research_payload(
+                        request, task.team_id, state, repo_research_runs_by_id
+                    ),
+                }
+            )
+        payload = {
+            "thread": {
+                "url": url,
+                "channel": channel,
+                "thread_ts": thread_ts,
+                "slack_workspace_id": mapping.slack_workspace_id,
+                "mentioning_slack_user_id": mapping.mentioning_slack_user_id,
+            },
+            "task": {
+                "id": str(task.id),
+                "team_id": task.team_id,
+                "title": task.title,
+                "repository": task.repository,
+                "origin_product": task.origin_product,
+                "created_at": task.created_at,
+                "url": task_url,
+            },
+            "runs": run_payloads,
+        }
+        serializer = SlackThreadContextResponseSerializer(payload)
+        return Response(serializer.data)
+
+    def safely_get_queryset(self, queryset):
+        qs = queryset.filter(team=self.team, deleted=False)
+        # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>
+        if not (
+            _is_internal_debug_team(self.team_id)
+            and self.action == "retrieve"
+            and self.request.query_params.get("ph_debug") == "true"
+        ):
+            qs = qs.filter(task_visibility_q(getattr(self.request.user, "id", None)))
+        qs = qs.order_by("-created_at")
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -839,6 +1063,67 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
+    @validated_request(
+        request_serializer=TaskPresenceBeaconRequestSerializer,
+        responses={
+            204: OpenApiResponse(description="Presence recorded for this device."),
+            404: OpenApiResponse(description="`device_id` does not match a push token registered by the caller."),
+        },
+        summary="Beacon presence for a device watching this task",
+        description=(
+            "Idempotent upsert: marks the calling user + `device_id` as actively watching this task "
+            "for the next ~60 seconds. While at least one device for the user has a non-expired "
+            "presence row for this task, the push fanout will skip ALL of that user's other "
+            "registered devices for task notifications — the contract is 'if any device is "
+            "demonstrably watching, suppress the others'. Clients call this every ~30s while the "
+            "task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="presence",
+        required_scopes=["task:write"],
+    )
+    def presence(self, request, **kwargs):
+        if request.method == "DELETE":
+            return self._presence_leave(request)
+        return self._presence_beacon(request)
+
+    def _presence_beacon(self, request) -> Response:
+        task = cast(Task, self.get_object())
+        device_id = request.validated_data["device_id"]
+        push_token = UserPushToken.objects.filter(user=request.user, id=device_id).first()
+        if push_token is None:
+            raise NotFound("device_id does not match a push token registered by the caller")
+
+        # Lookup mirrors the unique constraint exactly so a stray row with a
+        # mismatched team/user (e.g. from a bug elsewhere) gets corrected on
+        # upsert instead of crashing into the constraint a second time.
+        # nosemgrep: idor-lookup-without-team — team scope is enforced by
+        # TaskScopedManager (DRF view sets the ContextVar) and via `task` FK
+        # whose row is fetched through self.get_object() above.
+        now = timezone.now()
+        TaskPresence.objects.update_or_create(
+            task=task,
+            push_token=push_token,
+            defaults={
+                "team": task.team,
+                "user": request.user,
+                "expires_at": now + timedelta(seconds=TASK_PRESENCE_TTL_SECONDS),
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _presence_leave(self, request) -> Response:
+        task = cast(Task, self.get_object())
+        device_id = request.validated_data["device_id"]
+        # No 404 on missing rows — the beacon-leave path runs from blur/background
+        # handlers that should be safe to call unconditionally without the client
+        # having to track whether a beacon was ever sent.
+        TaskPresence.objects.filter(task=task, push_token_id=device_id, user=request.user).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 @extend_schema(tags=["task-automations"])
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -1289,12 +1574,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not task_id:
             raise NotFound("Task ID is required")
 
-        task_visible = (
-            Task.objects.filter(id=task_id, team=self.team)
-            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
-            .exists()
+        task_filter = Task.objects.filter(id=task_id, team=self.team)
+        # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>.
+        # Allowlist read-only actions only — connection_token is a GET but mints a write-capable token.
+        is_internal_debug_read = (
+            _is_internal_debug_team(self.team_id)
+            and self.action in ("list", "retrieve", "logs", "session_logs", "stream")
+            and self.request.query_params.get("ph_debug") == "true"
         )
-        if not task_visible:
+        if not is_internal_debug_read:
+            task_filter = task_filter.filter(task_visibility_q(getattr(self.request.user, "id", None)))
+        if not task_filter.exists():
             raise NotFound("Task not found")
 
         return queryset.filter(team=self.team, task_id=task_id)
@@ -1461,7 +1751,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with timer("s3_append"):
             task_run.append_log(entries)
 
-        task_run.heartbeat_workflow()
+        task_run.heartbeat_workflow(agent_active=True)
 
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()
