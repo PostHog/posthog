@@ -1,5 +1,4 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { debounce } from 'lib/utils'
@@ -17,6 +16,7 @@ import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForE
 import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
+import { safeCollectAllElementsDeep } from './safeCollectAllElementsDeep'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -262,7 +262,7 @@ export const elementsLogic = kea<elementsLogicType>([
             (s) => [s.displayActionElements, s.actionForm],
             (displayActionElements: boolean, actionForm: ActionForm): ElementWithMetadata[] => {
                 if (displayActionElements && actionForm?.steps) {
-                    const allElements = collectAllElementsDeep('*', document)
+                    const allElements = safeCollectAllElementsDeep(document)
                     const steps: ElementWithMetadata[] = []
                     actionForm.steps.forEach((step, index) => {
                         const element = getElementForStep(step, allElements)
@@ -313,7 +313,7 @@ export const elementsLogic = kea<elementsLogicType>([
         _actionsForElementMap: [
             () => [actionsLogic.selectors.sortedActions],
             (sortedActions: ActionType[]): ActionElementMap => {
-                const allElements = collectAllElementsDeep('*', document)
+                const allElements = safeCollectAllElementsDeep(document)
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
                 sortedActions.forEach((action, index) => {
                     action.steps

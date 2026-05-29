@@ -4,7 +4,7 @@ import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
-import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { elementToSelector } from 'lib/actionUtils'
 import type { PaginatedResponse } from 'lib/api'
@@ -12,6 +12,7 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
+import { safeCollectAllElementsDeep } from '~/toolbar/elements/safeCollectAllElementsDeep'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -64,7 +65,7 @@ function getCachedPageElements(
         return { pageElements: cache.pageElements, domIndex: cache.domIndex }
     }
 
-    cache.pageElements = collectAllElementsDeep('*', document)
+    cache.pageElements = safeCollectAllElementsDeep(document)
     cache.domIndex = buildDOMIndex(cache.pageElements)
     cache.lastHref = href
     cache.selectorToElements = {}
