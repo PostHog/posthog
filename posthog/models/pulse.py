@@ -1,7 +1,8 @@
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import CreatedMetaFields, UUIDTModel
+from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDModel, UUIDTModel
 
 
 class PulseDigestStatus(models.TextChoices):
@@ -45,7 +46,7 @@ SENSITIVITY_PRESETS: dict[str, tuple[float, float]] = {
 }
 
 
-class PulseDigest(CreatedMetaFields, UUIDTModel):
+class PulseDigest(RootTeamMixin, CreatedMetaFields, UUIDModel):
     """One run of the Pulse scan workflow for a team. Holds 0..N findings."""
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="pulse_digests")
@@ -56,9 +57,10 @@ class PulseDigest(CreatedMetaFields, UUIDTModel):
         choices=PulseDigestStatus.choices,
         default=PulseDigestStatus.PENDING,
     )
-    delivered_to = models.JSONField(default=dict, blank=True)
     workflow_run_id = models.CharField(max_length=255, blank=True, default="")
     error = models.JSONField(null=True, blank=True)
+
+    objects = TeamScopedManager()  # type: ignore[misc]
 
     class Meta:
         indexes = [
