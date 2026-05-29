@@ -10,9 +10,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
