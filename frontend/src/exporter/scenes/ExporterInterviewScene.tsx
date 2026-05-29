@@ -22,6 +22,12 @@ const BENIGN_END_OF_CALL_MESSAGES = [
 const isBenignEndOfCallError = (message: string): boolean =>
     BENIGN_END_OF_CALL_MESSAGES.some((pattern) => message.includes(pattern))
 
+// Floor for the celebratory end-of-call effect. A 20-second bail-out doesn't
+// deserve confetti — it reads as desperate rather than thankful. Two minutes
+// is the rough point where the interviewee has given enough of a substantive
+// answer that we genuinely want to thank them for the time.
+const HOGFETTI_MIN_CALL_DURATION_MS = 2 * 60 * 1000
+
 type CallState = 'already-replied' | 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
 type ConversationPhase = 'agent-talking' | 'listening' | 'thinking'
@@ -250,6 +256,7 @@ export default function ExporterInterviewScene({
     const agentTalkingRef = useRef<boolean>(false)
     const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
+    const callStartedAtRef = useRef<number | null>(null)
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 75, duration: 3000 })
 
     useEffect(() => {
@@ -257,7 +264,14 @@ export default function ExporterInterviewScene({
     }, [interview.topic])
 
     useEffect(() => {
-        if (state === 'ended') {
+        if (state !== 'ended') {
+            return
+        }
+        const startedAt = callStartedAtRef.current
+        if (startedAt === null) {
+            return
+        }
+        if (Date.now() - startedAt >= HOGFETTI_MIN_CALL_DURATION_MS) {
             triggerHogfetti()
         }
     }, [state, triggerHogfetti])
@@ -280,6 +294,7 @@ export default function ExporterInterviewScene({
         vapiRef.current = null
         agentTalkingRef.current = false
         lastPhaseRef.current = 'thinking'
+        callStartedAtRef.current = null
         setConversationPhase('thinking')
         setState('loading')
         void (async () => {
@@ -360,6 +375,7 @@ export default function ExporterInterviewScene({
                 // Mark that the call actually connected — gates the benign-error suppression
                 // so pre-connection "Meeting has ended" failures still surface to the user.
                 callConnectedRef.current = true
+                callStartedAtRef.current = Date.now()
                 setState((current) => (current === 'connecting' ? 'in-call' : current))
             } catch (e) {
                 if (!isMountedRef.current) {
