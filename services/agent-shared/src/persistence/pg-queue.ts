@@ -217,6 +217,19 @@ export class PgSessionQueue implements SessionQueue {
         return Number(r.rows[0]?.count ?? 0)
     }
 
+    async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE state = 'completed'
+               AND updated_at < NOW() - ($1 || ' milliseconds')::interval
+             ORDER BY updated_at ASC
+             LIMIT $2`,
+            [String(floorMaxAgeMs), limit]
+        )
+        return r.rows.map(rowToSession)
+    }
+
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {
         // Two-step: re-queue stuck sessions that still have retries left,
         // then poison-pill those that don't. Single transaction so a session

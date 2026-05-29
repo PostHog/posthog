@@ -1,17 +1,31 @@
 # Design — long-running sessions, explicit resume, and context compaction
 
-**Status:** refreshed against the post-session-restart state machine. **Owner:** dylan (workstream W1, after B.1).
+**Status:** v0 scoped down to a per-agent TTL on `completed` (no new state,
+no compaction). The wider design (parked-cold `suspended` state, compaction
+strategies, runner rehydrate) is described in §3–§5 but **deferred until
+real usage shows we hit the cost or context wall**. **Owner:** dylan
+(workstream W1, after B.1).
 
-This is the foundational Phase A plan from `_TODO.md`. It nails the session
-state machine so the rest of the queue (rate limiting, approval-gated tool
-use, per-session access elevation) has a stable shape to build on.
+This is the foundational Phase A plan from `_TODO.md`. It originally aimed
+to lock down the session state machine for the rest of the queue (rate
+limiting, approval-gated tool use, per-session access elevation) to build
+on. The v0 slice we're actually shipping is much smaller — the per-agent
+TTL is the only piece those downstream plans strictly need.
 
 > **Note on history.** An earlier draft of this plan was written against the
 > pre-cutover state machine that included a `waiting` state. That state was
 > removed when [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md)
-> shipped — `completed` is now the open-but-idle state. This plan has been
-> rewritten against the post-cutover shape: the new parked-and-cold state is
-> called `suspended` and sits alongside (not in place of) `completed`.
+> shipped — `completed` is now the open-but-idle state.
+>
+> A subsequent draft introduced a `suspended` parked-cold state alongside
+> `completed` and a full compaction pipeline. After review we determined
+> that compaction is a perf/cost optimisation rather than a correctness
+> requirement (Claude Opus has a 1M-token context window; a multi-week
+> Slack thread fits comfortably; PG row weight on JSONB only becomes
+> painful at million-row scale across teams). The v0 we're shipping is
+> just a per-agent TTL knob on the existing `completed → closed` sweep
+> policy. §3–§5 are preserved as the v1+ design for if/when usage data
+> shows the wall is real.
 
 ## 1. Problem
 
@@ -54,18 +68,27 @@ A resumable session is one that:
 
 1. Has an **explicit, author-declared resumability config** (spec field).
 2. Survives beyond the global 24h `idleCompletedThresholdMs` — up to the
-   per-agent TTL declared in spec.
+   per-agent TTL declared in spec. **(v0)**
 3. Maintains a **compacted conversation** so resumes don't drag every
-   historical message into context.
+   historical message into context. **(deferred; see §3–§5)**
 4. Has a **deterministic reopen contract** — a trigger (Slack reply,
    webhook with `x-external-key`, chat `/send`, cron tick) can target it
-   without ambiguity.
+   without ambiguity. The existing externalKey + B.1 ACL check already
+   provide this for `completed` rows; nothing to ship for v0.
 5. Can be deliberately ended by the model (`@posthog/meta-end-session`),
    by the janitor (per-agent TTL hit), or by the user (`/cancel`).
 
 Non-resumable agents keep today's exact behaviour: end of turn lands at
 `completed`, sweep closes them at 24h. The new lifecycle is opt-in and
 backwards compatible.
+
+The v0 slice (per-agent TTL) is sufficient to unblock the user-visible
+features that motivated this plan — multi-week Slack threads, weekly
+cron agents, multi-day incident response. Compaction (§3–§5) is the
+escape hatch we'd reach for when an actual agent exceeds the model's
+context window or when per-turn cost balloons; both are observable
+through LLM analytics first, so we ship without them and add when
+needed.
 
 ## 3. State machine additions
 
@@ -367,41 +390,35 @@ What gets exposed:
 
 This is additive — disabled by default per agent. Rollout phases:
 
-**v0** (foundation, code-side):
+**v0** (per-agent TTL only):
 
-- Add `resume.*` spec fields. Default `enabled: false`. Validation
-  enforces sane ranges and rejects `compact_after_ms > max_resume_age_ms`.
-- Schema migration: add `compacted_prefix JSONB`, `compaction_meta JSONB`
-  to `agent_session`. Both nullable. Add `suspended` to the state CHECK
-  constraint if there is one (today the column is plain TEXT — no change
-  needed).
-- New session state `suspended`. State machine updated in `spec.ts`
-  (`AgentSession.state` literal type).
-- Janitor sweep extended with two new policies:
-  - `compactAged`: `completed` rows past `spec.resume.compact_after_ms`
-    on resume-enabled agents → compact + transition to `suspended`.
-  - `maxResumeAgeClose`: `suspended` rows past `spec.resume.max_resume_age_ms`
-    → `closed`.
-  - Existing `idleCompletedClose` policy only applies when
-    `spec.resume.enabled = false`.
-- Runner rehydrate step: at claim, if `compacted_prefix` is non-null,
-  prepend the synthetic summary into the model context.
-- Existing agents see no behaviour change.
+- Add a small `resume.*` spec slice: `resume.enabled: boolean` (default
+  `false`) and `resume.max_completed_age_ms: number` (default matches
+  the global `idleCompletedThresholdMs`).
+- Modify the existing `idleCompletedClose` sweep policy to read the
+  per-agent TTL from `spec.resume` when `enabled: true`; otherwise use
+  the global default (today's exact behaviour).
+- No new state, no new columns, no migration, no compaction, no runner
+  rehydrate. Existing agents see zero behaviour change.
+- Regenerate openapi types after the spec bump.
 
-**v1** (first real users):
+This unblocks long-running Slack assistants, weekly cron agents, and
+multi-day incident threads with the smallest possible footprint.
 
-- Pick one internal agent (the @agent-builder Slack bot once it lands,
-  or a canonical "research assistant" template) and flip
-  `resume.enabled: true` with `compaction.strategy: summarize`.
-- Watch CH for compaction call cost; surface in LLM analytics.
-- Adjust defaults if needed.
+**v1+** (compaction, only if needed):
 
-**v2** (broad availability):
+The full `suspended` state + compaction pipeline described in §3–§5
+lands if/when:
 
-- Expose `resume.*` in the authoring AI's spec-shape descriptions.
-- Document the trade-offs in the authoring skill (this design's §5,
-  abbreviated).
-- Add the suspended-sessions filter on the authoring API.
+- An actual agent exceeds the model's context window (observable
+  through LLM analytics — `$ai_generation` errors with
+  `context_length_exceeded`), or
+- Per-turn cost for a long-running agent grows enough that the team
+  asks for compaction (observable through cost dashboards).
+
+Until then, no `suspended` state, no `compacted_prefix`, no compactor.
+The §3–§5 design is the blueprint to pick up off the shelf when the
+need is concrete.
 
 ## 10. What this enables for the other plans
 

@@ -71,30 +71,30 @@ Owner tags appear inline on each plan below as **Dylan** / **Danilo** /
 The keystone. Every plan above this depends on the state machine and
 spec shape it introduces.
 
-- [`long-running-sessions.md`](long-running-sessions.md) — extends
-  the session state machine with a new `suspended` (parked-cold)
-  state alongside `completed` (parked-hot), adds per-agent
-  resumability config + context-compaction strategies (window /
-  summarize / none), locks down the trigger-side contract for
-  reopening old sessions. **Plan refreshed against the new state
-  machine (no more `waiting`); code-side v0 pending.**
+- [`long-running-sessions.md`](long-running-sessions.md) — adds an
+  opt-in per-agent TTL on `completed` so a Slack assistant / weekly
+  cron agent / multi-day incident thread can outlive the global 24h
+  idle-close. **v0 is just the TTL knob**; the full `suspended` state +
+  compaction pipeline is preserved in §3–§5 as future work for when
+  usage data shows we actually hit the cost or context wall. Plan
+  refreshed twice — once against the new state machine, once again
+  after recognising compaction is a perf optimisation rather than a
+  correctness requirement.
 - [`typed-config-loader.md`](typed-config-loader.md) — one zod schema
   per service, lint-blocked `process.env.*` outside `config.ts`,
   generated runbook from the schemas. **v0 (janitor pilot) ✅ shipped;
   v1 (sweep to ingress + runner via `PlatformConfigSchema`) ✅
   shipped; v2 (generated runbook) + v3 (Django side) pending.**
 
-**What this layer must ship before anything above:**
+**What this layer must ship before anything above (v0 slice):**
 
-- `suspended` state + `completed → suspended → queued` transitions
-  (parked-hot → parked-cold → wake; rehydrate at runner claim).
-- `spec.resume.*` validated at freeze time, backwards-compatible
-  defaults (`resume.enabled = false` preserves today's behaviour).
-- Janitor sweep extension: `compactAged` (compaction step on
-  resume-enabled `completed` rows) + `maxResumeAgeClose` (cold rows
-  past their per-agent TTL → `closed`).
-- Runner rehydrate step: if `compacted_prefix` is non-null, prepend
-  the synthetic summary into the model context.
+- `spec.resume.{enabled, max_completed_age_ms}` validated at freeze
+  time, backwards-compatible defaults (`resume.enabled = false`
+  preserves today's behaviour).
+- Janitor sweep `idleCompletedClose` reads per-agent TTL when
+  resume-enabled; falls back to global default otherwise.
+- No new state, no new columns, no compaction, no runner rehydrate
+  for v0. Those land later if real usage demands it.
 
 ## B. Trust & control — **Dylan**
 

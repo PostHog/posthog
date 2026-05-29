@@ -67,6 +67,14 @@ export interface SessionQueue {
      * Returns `{ requeued, poisoned }` so the janitor can report both.
      */
     reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }>
+    /**
+     * Idle `completed` sessions whose `updated_at` is older than the floor
+     * threshold. The sweep consumes this list and applies per-agent TTL
+     * before deciding to close — `floorMaxAgeMs` is the platform-wide
+     * default, sessions with an opt-in `spec.resume.max_completed_age_ms`
+     * may still be retained.
+     */
+    listIdleCompleted(floorMaxAgeMs: number, limit?: number): Promise<AgentSession[]>
 }
 
 /** In-memory test impl. Not thread-safe across processes. */
@@ -176,6 +184,25 @@ export class MemorySessionQueue implements SessionQueue {
             }
             return true
         })
+    }
+
+    async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {
+        const cutoff = Date.now() - floorMaxAgeMs
+        const matches: AgentSession[] = []
+        for (const s of this.sessions.values()) {
+            if (s.state !== 'completed') {
+                continue
+            }
+            const updated = Date.parse(s.updated_at)
+            if (!Number.isFinite(updated) || updated >= cutoff) {
+                continue
+            }
+            matches.push(s)
+            if (matches.length >= limit) {
+                break
+            }
+        }
+        return matches
     }
 
     async reapStuckRunning(thresholdMs: number, maxRetries: number): Promise<{ requeued: number; poisoned: number }> {

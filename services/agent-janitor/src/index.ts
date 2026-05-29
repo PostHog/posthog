@@ -53,7 +53,17 @@ async function main(): Promise<void> {
         queue,
         stuckRunningThresholdMs: config.stuckRunningMs,
         stuckWaitingThresholdMs: config.stuckWaitingMs,
+        idleCompletedThresholdMs: config.idleCompletedMs,
         maxRetries: config.maxRetries,
+        // Pull idle completed candidates past the floor TTL; the sweep then
+        // checks per-agent `spec.resume.max_completed_age_ms` before closing.
+        listIdleCompletedCandidates: () => queue.listIdleCompleted(config.idleCompletedMs),
+        // Per-agent TTL lookup — `spec.resume.max_completed_age_ms` defers
+        // close for agents that opt in via spec.
+        getResumeConfig: async (s: { revision_id: string }) => {
+            const rev = await revisions.getRevision(s.revision_id)
+            return rev?.spec?.resume
+        },
     }
     const app = buildJanitorApp({
         queue,

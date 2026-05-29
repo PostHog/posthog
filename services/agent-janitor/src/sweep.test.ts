@@ -61,6 +61,68 @@ describe('sweepOnce', () => {
         expect((await queue.get('w'))!.state).toBe('closed')
     })
 
+    it('respects per-agent TTL: a resume-enabled session past the floor is NOT closed', async () => {
+        // The agent's spec.resume.max_completed_age_ms (7d) extends the
+        // platform floor (24h). A session idle for 36h is past the floor
+        // but well within the agent TTL — it should stay open until next sweep.
+        const queue = new MemorySessionQueue()
+        const longLived = session('lr', 'completed', new Date(Date.now() - 36 * 60 * 60_000).toISOString())
+        await queue.enqueue(longLived)
+        const result = await sweepOnce({
+            queue,
+            idleCompletedThresholdMs: 24 * 60 * 60_000,
+            listIdleCompletedCandidates: async () => [longLived],
+            getResumeConfig: async () => ({ enabled: true, max_completed_age_ms: 7 * 24 * 60 * 60_000 }),
+        })
+        expect(result.closed).toBe(0)
+        expect((await queue.get('lr'))!.state).toBe('completed')
+    })
+
+    it('per-agent TTL: resume-enabled session past its own TTL IS closed', async () => {
+        const queue = new MemorySessionQueue()
+        const expired = session('lr2', 'completed', new Date(Date.now() - 14 * 24 * 60 * 60_000).toISOString())
+        await queue.enqueue(expired)
+        const result = await sweepOnce({
+            queue,
+            idleCompletedThresholdMs: 24 * 60 * 60_000,
+            listIdleCompletedCandidates: async () => [expired],
+            getResumeConfig: async () => ({ enabled: true, max_completed_age_ms: 7 * 24 * 60 * 60_000 }),
+        })
+        expect(result.closed).toBe(1)
+        expect((await queue.get('lr2'))!.state).toBe('closed')
+    })
+
+    it('resume-disabled or missing config falls back to the platform floor', async () => {
+        const queue = new MemorySessionQueue()
+        const idle = session('lr3', 'completed', new Date(Date.now() - 36 * 60 * 60_000).toISOString())
+        await queue.enqueue(idle)
+        const result = await sweepOnce({
+            queue,
+            idleCompletedThresholdMs: 24 * 60 * 60_000,
+            listIdleCompletedCandidates: async () => [idle],
+            getResumeConfig: async () => undefined,
+        })
+        expect(result.closed).toBe(1)
+        expect((await queue.get('lr3'))!.state).toBe('closed')
+    })
+
+    it('falls back to the floor when getResumeConfig throws', async () => {
+        // Don't let a transient lookup failure pin sessions open indefinitely —
+        // err on the side of closing.
+        const queue = new MemorySessionQueue()
+        const idle = session('lr4', 'completed', new Date(Date.now() - 36 * 60 * 60_000).toISOString())
+        await queue.enqueue(idle)
+        const result = await sweepOnce({
+            queue,
+            idleCompletedThresholdMs: 24 * 60 * 60_000,
+            listIdleCompletedCandidates: async () => [idle],
+            getResumeConfig: async () => {
+                throw new Error('revision store unreachable')
+            },
+        })
+        expect(result.closed).toBe(1)
+    })
+
     it('ignores fresh `completed` sessions still within the idle TTL', async () => {
         const queue = new MemorySessionQueue()
         const fresh = session('c', 'completed', new Date().toISOString())

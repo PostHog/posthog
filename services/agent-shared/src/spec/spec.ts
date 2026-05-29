@@ -201,6 +201,33 @@ export const FrameworkPromptConfigSchema = z.object({
     version_pin: z.number().int().positive().optional(),
 })
 
+/**
+ * Per-agent resumability config — the v0 slice of
+ * `docs/agent-platform/plans/long-running-sessions.md`. v0 covers only the
+ * per-agent TTL on `completed` sessions; compaction + `suspended` state
+ * are deferred per the plan refresh.
+ *
+ * `enabled: false` (the default) preserves today's behaviour: the janitor
+ * closes idle `completed` sessions at the platform-wide
+ * `idleCompletedThresholdMs` (24h). With `enabled: true` the platform
+ * defers closing until the per-agent `max_completed_age_ms` is hit,
+ * letting a Slack assistant watch a thread for a whole sprint or a
+ * weekly cron agent stay reachable across multiple fires.
+ */
+export const ResumeConfigSchema = z.object({
+    enabled: z.boolean().default(false),
+    /**
+     * Override the platform-wide `completed → closed` sweep TTL. Default
+     * 7 days; agents can dial up to whatever the platform admin allows.
+     * Has no effect when `enabled: false`.
+     */
+    max_completed_age_ms: z
+        .number()
+        .int()
+        .positive()
+        .default(7 * 24 * 60 * 60 * 1000),
+})
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -214,6 +241,7 @@ export const AgentSpecSchema = z.object({
     auth: AuthConfigSchema.default({ mode: 'public' }),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
+    resume: ResumeConfigSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
@@ -225,6 +253,7 @@ export type SkillRef = z.infer<typeof SkillRefSchema>
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
 export type FrameworkPromptSection = z.infer<typeof FrameworkPromptSectionSchema>
 export type FrameworkPromptConfig = z.infer<typeof FrameworkPromptConfigSchema>
+export type ResumeConfig = z.infer<typeof ResumeConfigSchema>
 
 export type RevisionState = 'draft' | 'ready' | 'live' | 'archived'
 

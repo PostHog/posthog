@@ -36,6 +36,15 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .positive()
         .default(24 * 60 * ONE_MINUTE_MS)
         .describe('Sweep fails `waiting` sessions older than this many ms.'),
+    idleCompletedMs: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(24 * 60 * ONE_MINUTE_MS)
+        .describe(
+            'Platform-wide floor for the `completed → closed` sweep. ' +
+                'Agents that opt into `spec.resume.enabled` may extend this via `max_completed_age_ms`.'
+        ),
     maxRetries: z.coerce.number().int().nonnegative().default(3).describe('Poison-pill threshold for re-queues.'),
     sweepIntervalMs: z.coerce
         .number()
@@ -52,6 +61,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     INTERNAL_SECRET: 'internalSecret',
     STUCK_RUNNING_MS: 'stuckRunningMs',
     STUCK_WAITING_MS: 'stuckWaitingMs',
+    IDLE_COMPLETED_MS: 'idleCompletedMs',
     MAX_RETRIES: 'maxRetries',
     SWEEP_INTERVAL_MS: 'sweepIntervalMs',
 })
