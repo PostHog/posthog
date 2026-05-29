@@ -35,6 +35,7 @@ import {
     Memory,
     NoopAnalyticsSink,
     NoopSessionEventBus,
+    PgIntegrationStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -83,6 +84,21 @@ async function main(): Promise<void> {
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const resolveSecrets = encryption.isConfigured
         ? makeEncryptedEnvResolver({ revisions, encryption })
+        : async () => ({})
+
+    // Integration credentials live in PostHog's existing `posthog_integration`
+    // table (the same one Settings → Integrations writes to and HogFunctions
+    // read from). When encryption isn't configured the store can't decrypt
+    // sensitive_config — the resolver falls back to an empty map so dev
+    // without integrations keeps working. See
+    // services/agent-shared/src/persistence/integration-store.ts.
+    const integrations = encryption.isConfigured ? new PgIntegrationStore(posthogDb, encryption) : null
+    const resolveIntegrations = integrations
+        ? async (session: { team_id: number; revision_id: string }) => {
+              const rev = await revisions.getRevision(session.revision_id)
+              const kinds = rev?.spec?.integrations ?? []
+              return integrations.resolveForSpec(session.team_id, kinds)
+          }
         : async () => ({})
 
     // Cross-process event bus. With REDIS_URL set, ingress /listen on host A
@@ -137,7 +153,7 @@ async function main(): Promise<void> {
         broker: new SecretBroker(),
         bus,
         logs: logSink,
-        resolveIntegrations: async () => ({}),
+        resolveIntegrations,
         resolveSecrets,
         resolveModel: config.useLlmGateway
             ? // Route every model through PostHog's llm-gateway, keeping spec.model

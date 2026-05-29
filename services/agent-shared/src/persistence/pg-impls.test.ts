@@ -13,9 +13,11 @@ import { Pool } from 'pg'
 
 import { reset } from '@posthog/agent-migrations'
 
+import { EncryptedFields } from '../runtime/encryption'
 import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'
 import { AgentSpecSchema, AssistantMessageRecord, EMPTY_USAGE_TOTAL } from '../spec/spec'
 import { hashCanonicalArgs } from './approval-store'
+import { PgIntegrationStore } from './integration-store'
 import { PgApprovalStore } from './pg-approval-store'
 import { PgSessionQueue } from './pg-queue'
 import { PgRevisionStore } from './pg-revision-store'
@@ -497,5 +499,67 @@ maybeDescribe('Postgres impls (real PG)', () => {
         // Listing by session returns all rows, newest first.
         const all = await store.listBySession(sessionId)
         expect(all.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('PgIntegrationStore reads + decrypts posthog_integration rows', async () => {
+        if (!reachable) {
+            return
+        }
+        // The test DB is the runtime queue DB which @posthog/agent-migrations
+        // owns. posthog_integration lives in the main posthog DB in prod;
+        // we recreate a minimal slice here so the store has something to
+        // read from. Mirrors the existing harness pattern for agent_revision.
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS posthog_integration (
+                id BIGSERIAL PRIMARY KEY,
+                team_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                integration_id TEXT NOT NULL,
+                sensitive_config TEXT,
+                config JSONB DEFAULT '{}'::jsonb
+            )
+        `)
+        await pool.query('TRUNCATE posthog_integration')
+
+        const encryption = new EncryptedFields('test-salt-key-only-for-test')
+        const slackBlob = encryption.encrypt(
+            JSON.stringify({ access_token: 'xoxb-acme', refresh_token: 'r1', scopes: ['chat:write'] })
+        )
+        const githubBlob = encryption.encrypt(JSON.stringify({ access_token: 'gh_acme' }))
+        await pool.query(
+            `INSERT INTO posthog_integration (team_id, kind, integration_id, sensitive_config)
+             VALUES (7, 'slack', 'T01ACME', $1),
+                    (7, 'github', 'acme-org', $2)`,
+            [slackBlob, githubBlob]
+        )
+
+        const store = new PgIntegrationStore(pool, encryption)
+
+        // Direct lookup by natural key returns decrypted credentials.
+        const slack = await store.get(7, 'slack', 'T01ACME')
+        expect(slack?.access_token).toBe('xoxb-acme')
+        expect(slack?.refresh_token).toBe('r1')
+        expect(slack?.metadata).toEqual({ scopes: ['chat:write'] })
+
+        // Missing rows return null.
+        expect(await store.get(7, 'slack', 'NOT_THERE')).toBeNull()
+        expect(await store.get(99, 'slack', 'T01ACME')).toBeNull()
+
+        // resolveForSpec returns a `<kind>:<integration_id>`-keyed map.
+        const map = await store.resolveForSpec(7, ['slack', 'github', 'linear'])
+        expect(Object.keys(map).sort()).toEqual(['github:acme-org', 'slack:T01ACME'])
+        expect(map['github:acme-org'].access_token).toBe('gh_acme')
+
+        // Rows with undecodable sensitive_config (corrupted ciphertext, key
+        // rotated past it) are silently omitted, mirroring Django's
+        // ignore_decrypt_errors behaviour. The store doesn't crash the
+        // resolver path.
+        await pool.query(
+            `INSERT INTO posthog_integration (team_id, kind, integration_id, sensitive_config)
+             VALUES (7, 'slack', 'T02BAD', $1)`,
+            ['gAAAAA-not-a-real-token']
+        )
+        const slacks = await store.list(7, 'slack')
+        expect(slacks.map((r) => r.integration_id).sort()).toEqual(['T01ACME'])
     })
 })
