@@ -116,6 +116,7 @@ describe('assign-reviewers', () => {
             const { requested, demoted } = classifyOwners([fp('@PostHog/team-big', 120), fp('@PostHog/team-small', 2)])
             expect(requested.map((f) => f.owner)).toEqual(['@PostHog/team-big'])
             expect(demoted.map((f) => f.owner)).toEqual(['@PostHog/team-small'])
+            expect(demoted[0].reason).toBe('minor')
         })
 
         test('promotes the largest owner when all are below the bar', () => {
@@ -125,6 +126,8 @@ describe('assign-reviewers', () => {
                 fp('@PostHog/team-c', 2),
             ])
             expect(requested.map((f) => f.owner)).toEqual(['@PostHog/team-b'])
+            // The promoted owner is a clean request, not a demotion.
+            expect(requested[0].reason).toBeUndefined()
             expect(demoted.map((f) => f.owner)).toEqual(['@PostHog/team-c', '@PostHog/team-a'])
         })
 
@@ -136,11 +139,12 @@ describe('assign-reviewers', () => {
 
             expect(requested.filter((f) => f.type === 'team')).toHaveLength(CONFIG.maxTeamsRequested)
             expect(demoted).toHaveLength(3)
-            // Largest footprints are kept; the three smallest are demoted.
+            // Largest footprints are kept; the three smallest are demoted as capped.
             expect(requested.some((f) => f.owner === `@PostHog/team-${footprints.length - 1}`)).toBe(true)
             expect(demoted.map((f) => f.owner)).toEqual(
                 expect.arrayContaining(['@PostHog/team-0', '@PostHog/team-1', '@PostHog/team-2'])
             )
+            expect(demoted.every((f) => f.reason === 'capped')).toBe(true)
         })
 
         test('never caps explicit users', () => {

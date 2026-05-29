@@ -303,13 +303,18 @@ function classifyOwners(footprints, config = CONFIG) {
     const requested = []
     const demoted = []
     for (const footprint of footprints) {
-        ;(isSubstantive(footprint, config) ? requested : demoted).push(footprint)
+        if (isSubstantive(footprint, config)) {
+            requested.push(footprint)
+        } else {
+            demoted.push({ ...footprint, reason: 'minor' })
+        }
     }
 
     // Guarantee at least one reviewer: promote the largest demoted owner.
     if (requested.length === 0) {
         demoted.sort(byFootprintDesc)
-        requested.push(demoted.shift())
+        const { reason, ...promoted } = demoted.shift()
+        requested.push(promoted)
     }
 
     // Cap teams: keep the largest, demote the rest. Users are explicit, rare,
@@ -320,7 +325,7 @@ function classifyOwners(footprints, config = CONFIG) {
         const overflowOwners = new Set(overflow.map((f) => f.owner))
         for (let i = requested.length - 1; i >= 0; i--) {
             if (overflowOwners.has(requested[i].owner)) {
-                demoted.push(requested.splice(i, 1)[0])
+                demoted.push({ ...requested.splice(i, 1)[0], reason: 'capped' })
             }
         }
     }
@@ -340,48 +345,66 @@ function formatPatterns(patterns, max = 3) {
 
 function footprintRow(footprint) {
     // Owners are rendered as inline code so the comment is informational and
-    // doesn't fire a second round of @-mention notifications on top of the
-    // formal review request.
+    // doesn't fire a round of @-mention notifications.
     return `| \`${footprint.owner}\` | ${footprint.fileCount} | ${footprint.lines} | ${formatPatterns(
         footprint.patterns
     )} |`
 }
 
-// Produce the explanation comment body, or null if there's nothing worth
-// explaining (fewer than two matched owners).
+function demotedRow(footprint) {
+    const why = footprint.reason === 'capped' ? 'reviewer cap' : 'minor changes'
+    return `| \`${footprint.owner}\` | ${footprint.fileCount} | ${footprint.lines} | ${why} | ${formatPatterns(
+        footprint.patterns
+    )} |`
+}
+
+function formatOwnerList(footprints, max = 5) {
+    const names = footprints.map((f) => `\`${f.owner}\``)
+    if (names.length <= max) {
+        return names.join(', ')
+    }
+    return `${names.slice(0, max).join(', ')}, and ${names.length - max} more`
+}
+
+// Produce the explanation comment body, or null if no owner was dropped. We
+// only post when we actually skipped someone GitHub's "Reviewers" sidebar would
+// otherwise have hidden — so the comment carries signal, not noise.
 function buildReviewerComment(requested, demoted, config = CONFIG) {
-    if (requested.length + demoted.length < 2) {
+    if (demoted.length === 0) {
         return null
     }
+
+    const allMinor = demoted.every((f) => f.reason === 'minor')
+    const leadReason = allMinor
+        ? 'their changes in this PR are minor'
+        : 'their changes are minor (or the reviewer list was getting long)'
 
     const lines = [
         config.commentMarker,
         '### 👥 Auto-assigned reviewers',
         '',
-        'This PR touches code owned by multiple teams. Reviewers were auto-assigned from ' +
-            '[`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) ' +
-            "and each product's `product.yaml`. These are **soft owners** — review is requested but does not block merge. " +
+        `We didn't request review from ${formatOwnerList(demoted)} because ${leadReason}. ` +
+            "Flagging it here so it isn't a silent drop — these are soft owners " +
+            '([`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) / ' +
+            "each product's `product.yaml`), so review never blocks merge and you can self-assign if you'd like a look. " +
             '(Generated files and lockfiles are ignored when deciding ownership.)',
         '',
-        '**Requested for review:**',
+        '**Not requested for review:**',
         '',
-        '| Owner | Files | Lines | Matched rule |',
-        '| --- | --: | --: | --- |',
-        ...requested.map(footprintRow),
+        '| Owner | Files | Lines | Why skipped | Matched rule |',
+        '| --- | --: | --: | --- | --- |',
+        ...demoted.map(demotedRow),
     ]
 
-    if (demoted.length > 0) {
+    if (requested.length > 0) {
         lines.push(
             '',
             '<details>',
-            `<summary>Owners with only minor changes — not formally requested (${demoted.length})</summary>`,
-            '',
-            'These owners have small changes in this PR, so we skipped the review request to cut noise. ' +
-                'Feel free to self-assign if you want to take a look.',
+            `<summary>Requested for review (${requested.length})</summary>`,
             '',
             '| Owner | Files | Lines | Matched rule |',
             '| --- | --: | --: | --- |',
-            ...demoted.map(footprintRow),
+            ...requested.map(footprintRow),
             '',
             '</details>'
         )
