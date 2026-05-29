@@ -172,45 +172,45 @@ describe('assign-reviewers', () => {
                 fileCount: 1,
                 lines: 2,
                 patterns: ['posthog/hogql/**'],
+                reason: 'minor',
             },
         ]
 
-        test('returns null with fewer than two owners', () => {
+        test('returns null when no owner was dropped', () => {
             expect(buildReviewerComment(requested, [])).toBeNull()
-            expect(buildReviewerComment([], [])).toBeNull()
+            expect(buildReviewerComment([...requested, requested[0]], [])).toBeNull()
         })
 
-        test('includes the marker, both sections, and code-wrapped owners', () => {
+        test('leads with who was skipped and includes the why-skipped table', () => {
             const body = buildReviewerComment(requested, demoted)
             expect(body).toContain(CONFIG.commentMarker)
+            expect(body).toContain("We didn't request review from `@PostHog/team-data-tools`")
+            expect(body).toContain('because their changes in this PR are minor')
+            expect(body).toContain('Not requested for review')
+            expect(body).toContain('minor changes')
+            // The requested owners live in a collapsed section.
             expect(body).toContain('Requested for review')
-            expect(body).toContain('not formally requested')
-            // Owners are inline code so the comment does not re-notify.
             expect(body).toContain('`@PostHog/team-surveys`')
-            expect(body).toContain('`@PostHog/team-data-tools`')
         })
 
-        test('omits the minor-changes section when nothing is demoted', () => {
-            const body = buildReviewerComment([...requested, demoted[0]], [])
-            expect(body).not.toContain('not formally requested')
+        test('explains the reviewer cap when an owner was capped out', () => {
+            const cappedDemoted = [{ ...demoted[0], reason: 'capped' }]
+            const body = buildReviewerComment(requested, cappedDemoted)
+            expect(body).toContain('reviewer cap')
+            expect(body).toContain('the reviewer list was getting long')
         })
 
         test('truncates long pattern lists', () => {
-            const many = [
+            const manyDemoted = [
                 {
                     owner: '@PostHog/team-x',
-                    fileCount: 6,
-                    lines: 60,
-                    patterns: ['a/**', 'b/**', 'c/**', 'd/**', 'e/**'],
-                },
-                {
-                    owner: '@PostHog/team-y',
                     fileCount: 1,
                     lines: 1,
-                    patterns: ['z/**'],
+                    patterns: ['a/**', 'b/**', 'c/**', 'd/**', 'e/**'],
+                    reason: 'minor',
                 },
             ]
-            const body = buildReviewerComment(many, [])
+            const body = buildReviewerComment(requested, manyDemoted)
             expect(body).toContain('(+2 more)')
         })
     })
