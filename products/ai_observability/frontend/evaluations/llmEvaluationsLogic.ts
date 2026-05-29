@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
+import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
@@ -278,7 +278,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         unhealthyProviderKeysUsedByEvaluations: [
             (s) => [s.evaluations, s.providerKeys],
             (evaluations: EvaluationConfig[], providerKeys: LLMProviderKey[]): LLMProviderKey[] => {
-                const providerKeysById = new Map(providerKeys.map((key) => [key.id, key]))
                 const seenKeyIds = new Set<string>()
                 const unhealthyProviderKeys: LLMProviderKey[] = []
 
@@ -288,8 +287,8 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                         continue
                     }
 
-                    const providerKey = providerKeysById.get(providerKeyId)
-                    if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    const providerKey = getUnhealthyProviderKey(providerKeys, providerKeyId)
+                    if (!providerKey) {
                         continue
                     }
 

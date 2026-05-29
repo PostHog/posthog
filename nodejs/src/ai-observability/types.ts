@@ -17,6 +17,7 @@ export interface Evaluation {
     output_type: string
     output_config: Record<string, any>
     conditions: EvaluationConditionSet[]
+    provider_key_id?: string | null
     created_at: string
     updated_at: string
 }
@@ -43,6 +44,7 @@ export interface Tagger {
     name: string
     description?: string
     enabled: boolean
+    tagger_type: string
     tagger_config: {
         prompt: string
         tags: { name: string; description?: string }[]
@@ -50,6 +52,7 @@ export interface Tagger {
         max_tags: number | null
     }
     conditions: EvaluationConditionSet[]
+    provider_key_id?: string | null
     created_at: string
     updated_at: string
 }

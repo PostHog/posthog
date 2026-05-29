@@ -589,7 +589,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
                 return key
             # Active key exists but is invalid - fail, don't fall back to trial
             raise ApplicationError(
-                f"Your API key is {key.state}. Please fix or replace it.",
+                f"Provider key is in the '{key.state}' state. Please fix or replace it.",
                 {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                 non_retryable=True,
             )
@@ -611,7 +611,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
             if key.state != LLMProviderKey.State.OK:
                 raise ApplicationError(
-                    f"Your API key is {key.state}. Please fix or replace it.",
+                    f"Provider key is in the '{key.state}' state. Please fix or replace it.",
                     {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                     non_retryable=True,
                 )

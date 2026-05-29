@@ -470,6 +470,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
+        actions.loadProviderKeys()
         if (props.id !== 'new') {
             actions.loadTagger()
             actions.loadTagRuns()
