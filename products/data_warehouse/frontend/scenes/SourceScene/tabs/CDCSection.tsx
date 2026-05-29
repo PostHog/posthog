@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import {
@@ -30,13 +30,6 @@ import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } fro
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
-
-type CdcStatus = {
-    enabled: boolean
-    slot_exists?: boolean
-    publication_exists?: boolean
-    lag_bytes?: number | null
-}
 
 const DEFAULT_WARN_THRESHOLD_MB = 1024
 const DEFAULT_CRIT_THRESHOLD_MB = 10240
@@ -176,34 +169,18 @@ export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Elem
 }
 
 function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Element {
-    const { loadSource } = useActions(sourceSettingsLogic)
+    const { loadSource, loadCdcStatus } = useActions(sourceSettingsLogic)
+    const {
+        cdcStatus: status,
+        cdcStatusLoading: statusLoading,
+        cdcStatusError: statusError,
+    } = useValues(sourceSettingsLogic)
     const cdc = getCdcConfig(source)
 
     const [autoDrop, setAutoDrop] = useState(cdc.auto_drop_slot)
     const [warnMb, setWarnMb] = useState(cdc.lag_warning_threshold_mb)
     const [critMb, setCritMb] = useState(cdc.lag_critical_threshold_mb)
     const [busy, setBusy] = useState(false)
-    const [status, setStatus] = useState<CdcStatus | null>(null)
-    const [statusLoading, setStatusLoading] = useState(true)
-    const [statusError, setStatusError] = useState<string | null>(null)
-
-    const loadStatus = async (): Promise<void> => {
-        setStatusLoading(true)
-        setStatusError(null)
-        try {
-            setStatus(await api.externalDataSources.cdc_status(source.id))
-        } catch (e: any) {
-            setStatusError(e?.message ?? 'Could not read CDC status from your database.')
-        } finally {
-            setStatusLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        void loadStatus()
-        // Re-fetch only when the source identity changes, not on every poll-driven re-render.
-        // oxlint-disable-next-line exhaustive-deps
-    }, [source.id])
 
     const dirty =
         autoDrop !== cdc.auto_drop_slot ||
@@ -309,12 +286,7 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             <div>
                 <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-semibold mb-0">Replication status</h4>
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        onClick={() => void loadStatus()}
-                        loading={statusLoading}
-                    >
+                    <LemonButton size="xsmall" type="secondary" onClick={loadCdcStatus} loading={statusLoading}>
                         Refresh
                     </LemonButton>
                 </div>
