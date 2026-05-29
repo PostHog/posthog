@@ -84,7 +84,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
 
     # Normal image block for successful assets
-    image_url = asset.get_public_content_url()
+    image_url = asset.get_subscription_delivery_content_url()
     alt_text = None
     if asset.insight:
         alt_text = asset.insight.name or asset.insight.derived_name
