@@ -162,7 +162,7 @@ jobs:
         name: Frontend bundle size
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
-        runs-on: posthog-hetzner
+        runs-on: posthog-hetzner-4
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
