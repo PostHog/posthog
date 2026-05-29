@@ -414,23 +414,10 @@ function BarChartInner<Meta = unknown>({
                     const visibleExtent = isHorizontal ? visible.bar.width : visible.bar.height
                     const { nextSmallerExtent } = visible
                     const baselinePx = isHorizontal ? visible.bar.x : visible.bar.y + visible.bar.height
+                    const clippedExtent = Math.max(0, visibleExtent - nextSmallerExtent)
                     const clipped: BarRect = isHorizontal
-                        ? {
-                              x: baselinePx + nextSmallerExtent,
-                              y: visible.bar.y,
-                              width: Math.max(0, visibleExtent - nextSmallerExtent),
-                              height: visible.bar.height,
-                              corners: visible.bar.corners,
-                              dataIndex: visible.bar.dataIndex,
-                          }
-                        : {
-                              x: visible.bar.x,
-                              y: baselinePx - visibleExtent,
-                              width: visible.bar.width,
-                              height: Math.max(0, visibleExtent - nextSmallerExtent),
-                              corners: visible.bar.corners,
-                              dataIndex: visible.bar.dataIndex,
-                          }
+                        ? { ...visible.bar, x: baselinePx + nextSmallerExtent, width: clippedExtent }
+                        : { ...visible.bar, y: baselinePx - visibleExtent, height: clippedExtent }
                     items.push({ series: visible.series, bar: clipped, isTrackHighlight: false })
                     composition += 'b'
                 }
