@@ -1659,7 +1659,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
 
     def test_can_call_a_test_invocation(self):
-        with patch("posthog.api.hog_function.create_hog_invocation_test") as mock_create_hog_invocation_test:
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_create_hog_invocation_test:
             res = MagicMock(status_code=200, json=lambda: {"status": "success"})
             mock_create_hog_invocation_test.return_value = res
 
@@ -2442,7 +2442,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
         assert response.json()["count"] == 150, "Total count should still be 150"
 
-    @patch("posthog.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
     def test_enable_backfills_blocked_without_feature_flag(self, mock_feature_enabled):
         """Test that enable_backfills is blocked when the feature flag is disabled."""
         # Create a hog function

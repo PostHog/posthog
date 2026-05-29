@@ -371,6 +371,7 @@ mod tests {
                         group_type_index: Some(0),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -382,6 +383,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -454,6 +456,7 @@ mod tests {
                         group_type_index: Some(1),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -465,6 +468,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -666,6 +670,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
@@ -680,6 +685,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
@@ -716,6 +722,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -1112,6 +1119,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
@@ -1126,6 +1134,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
@@ -1151,6 +1160,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -1378,6 +1388,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             }]),
             rollout_percentage: Some(100.0),
             ..Default::default()
@@ -1437,6 +1448,7 @@ mod tests {
                     group_type_index: None,
                     negation: None,
                     compiled_regex: None,
+                    extra: Default::default(),
                 },
                 PropertyFilter {
                     key: dependent_flag_id.to_string(),
@@ -1446,6 +1458,7 @@ mod tests {
                     group_type_index: None,
                     negation: None,
                     compiled_regex: None,
+                    extra: Default::default(),
                 },
                 PropertyFilter {
                     key: "age".to_string(),
@@ -1455,6 +1468,7 @@ mod tests {
                     group_type_index: None,
                     negation: None,
                     compiled_regex: None,
+                    extra: Default::default(),
                 },
             ]),
             rollout_percentage: Some(100.0),
@@ -2014,6 +2028,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2028,6 +2043,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -2040,6 +2056,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2258,6 +2275,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2270,6 +2288,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2367,6 +2386,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2379,6 +2399,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2461,6 +2482,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2473,6 +2495,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2555,6 +2578,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2567,6 +2591,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2670,6 +2695,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2682,6 +2708,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2764,6 +2791,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2776,6 +2804,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2858,6 +2887,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2870,6 +2900,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -2944,6 +2975,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2956,6 +2988,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -3025,6 +3058,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3037,6 +3071,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -3121,6 +3156,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3133,6 +3169,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -3196,6 +3233,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3208,6 +3246,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -3299,6 +3338,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3311,6 +3351,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -3385,6 +3426,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3397,6 +3439,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -3416,6 +3459,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3428,6 +3472,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -3519,6 +3564,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("control".to_string()), // Override to always show "control" variant
@@ -3549,6 +3595,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -3589,6 +3636,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("nonexistent_variant".to_string()), // Override with invalid variant
@@ -3614,6 +3662,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -3696,6 +3745,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3710,6 +3760,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -3728,6 +3779,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3742,6 +3794,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -3760,6 +3813,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3774,6 +3828,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -3926,6 +3981,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -3941,6 +3997,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -4044,6 +4101,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4058,6 +4116,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -4115,6 +4174,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4143,6 +4203,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -4215,6 +4276,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4243,6 +4305,7 @@ mod tests {
                 payloads: None,
 
                 feature_enrollment: None,
+                extra: Default::default(),
             }
         );
 
@@ -4319,6 +4382,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             deleted: false,
             active: true,
@@ -4454,6 +4518,7 @@ mod tests {
                         group_type_index: None,
                         negation: Some(false),
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4466,6 +4531,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -4515,6 +4581,7 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -4527,6 +4594,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -4589,6 +4657,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -5035,6 +5104,7 @@ mod tests {
                                 group_type_index: None,
                                 negation: None,
                                 compiled_regex: None,
+                                extra: Default::default(),
                             },
                             PropertyFilter {
                                 key: "focus".to_string(),
@@ -5044,6 +5114,7 @@ mod tests {
                                 group_type_index: None,
                                 negation: None,
                                 compiled_regex: None,
+                                extra: Default::default(),
                             },
                             PropertyFilter {
                                 key: "os".to_string(),
@@ -5053,6 +5124,7 @@ mod tests {
                                 group_type_index: None,
                                 negation: None,
                                 compiled_regex: None,
+                                extra: Default::default(),
                             },
                         ]),
                         rollout_percentage: Some(100.0),
@@ -5069,6 +5141,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5082,6 +5155,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -5291,6 +5365,7 @@ mod tests {
                                 group_type_index: Some(1), // organization type
                                 negation: None,
                                 compiled_regex: None,
+                                extra: Default::default(),
                             },
                             PropertyFilter {
                                 key: "region".to_string(),
@@ -5300,6 +5375,7 @@ mod tests {
                                 group_type_index: Some(1),
                                 negation: None,
                                 compiled_regex: None,
+                                extra: Default::default(),
                             },
                             PropertyFilter {
                                 key: "feature_access".to_string(),
@@ -5309,6 +5385,7 @@ mod tests {
                                 group_type_index: Some(1),
                                 negation: None,
                                 compiled_regex: None,
+                                extra: Default::default(),
                             },
                         ]),
                         rollout_percentage: Some(100.0),
@@ -5325,6 +5402,7 @@ mod tests {
                             group_type_index: Some(1),
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -5338,6 +5416,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -5596,6 +5675,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         ..Default::default()
@@ -5627,6 +5707,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             deleted: false,
             active: true,
@@ -6595,6 +6676,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -6701,6 +6783,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -6860,6 +6943,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -6883,6 +6967,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -6906,6 +6991,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7020,6 +7106,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -7043,6 +7130,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             },
             ensure_experience_continuity: Some(true)
         );
@@ -7247,6 +7335,7 @@ mod tests {
 
                 feature_enrollment: Some(true),
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7309,6 +7398,7 @@ mod tests {
 
                 feature_enrollment: Some(true),
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7365,6 +7455,7 @@ mod tests {
                         group_type_index: Some(0),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -7377,6 +7468,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7395,6 +7487,7 @@ mod tests {
                         group_type_index: Some(1),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -7407,6 +7500,7 @@ mod tests {
                 feature_enrollment: None,
 
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7697,6 +7791,7 @@ mod tests {
                         group_type_index: Some(1),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -7708,6 +7803,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7788,10 +7884,12 @@ mod tests {
                         group_type_index: Some(1),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: Some(Some(1)),
+                    extra: Default::default(),
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7799,6 +7897,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7862,10 +7961,12 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: None, // Person-level condition
+                    extra: Default::default(),
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7873,6 +7974,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -7928,10 +8030,12 @@ mod tests {
                             group_type_index: Some(1),
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: Some(Some(1)),
+                        extra: Default::default(),
                     },
                     // Condition 1: person-aggregated
                     FlagPropertyGroup {
@@ -7943,10 +8047,12 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: None,
+                        extra: Default::default(),
                     },
                 ],
                 multivariate: None,
@@ -7955,6 +8061,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8050,10 +8157,12 @@ mod tests {
                 group_type_index: Some(1),
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             }]),
             rollout_percentage: Some(100.0),
             variant: None,
             aggregation_group_type_index: Some(Some(1)),
+            extra: Default::default(),
         };
 
         let groups = match person_variant {
@@ -8067,10 +8176,12 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: None,
+                    extra: Default::default(),
                 },
                 group_condition,
             ],
@@ -8081,6 +8192,7 @@ mod tests {
                     rollout_percentage: Some(0.0),
                     variant: None,
                     aggregation_group_type_index: None,
+                    extra: Default::default(),
                 },
                 group_condition,
             ],
@@ -8098,6 +8210,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8159,10 +8272,12 @@ mod tests {
                             group_type_index: Some(1),
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: Some(Some(1)),
+                        extra: Default::default(),
                     },
                     // Condition 1: person-aggregated
                     FlagPropertyGroup {
@@ -8174,10 +8289,12 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: None,
+                        extra: Default::default(),
                     },
                 ],
                 multivariate: None,
@@ -8186,6 +8303,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8255,10 +8373,12 @@ mod tests {
                         group_type_index: Some(1),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: None, // No per-condition aggregation
+                    extra: Default::default(),
                 }],
                 multivariate: None,
                 aggregation_group_type_index: Some(1), // Flag-level aggregation
@@ -8266,6 +8386,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8331,11 +8452,13 @@ mod tests {
                         group_type_index: Some(1),
                         negation: None,
                         compiled_regex: None,
+                        extra: Default::default(),
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
                     // Condition explicitly sets group type 1, overriding the flag-level None
                     aggregation_group_type_index: Some(Some(1)),
+                    extra: Default::default(),
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None, // Flag-level says person
@@ -8343,6 +8466,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8407,10 +8531,12 @@ mod tests {
                             group_type_index: Some(1),
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: Some(Some(1)),
+                        extra: Default::default(),
                     },
                     // Condition 1: person-aggregated — will match
                     FlagPropertyGroup {
@@ -8418,6 +8544,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: None,
+                        extra: Default::default(),
                     },
                 ],
                 multivariate: Some(MultivariateFlagOptions {
@@ -8439,6 +8566,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8504,10 +8632,12 @@ mod tests {
                             group_type_index: Some(1),
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: Some(Some(1)),
+                        extra: Default::default(),
                     },
                     // Condition 1: person-aggregated — wrong email
                     FlagPropertyGroup {
@@ -8519,10 +8649,12 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: None,
+                        extra: Default::default(),
                     },
                 ],
                 multivariate: None,
@@ -8531,6 +8663,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8586,6 +8719,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: Some(Some(1)),
+                        extra: Default::default(),
                     },
                     // Condition 1: person-aggregated, 100% rollout, no properties
                     FlagPropertyGroup {
@@ -8593,6 +8727,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                         aggregation_group_type_index: None,
+                        extra: Default::default(),
                     },
                 ],
                 multivariate: None,
@@ -8601,6 +8736,7 @@ mod tests {
 
                 feature_enrollment: None,
                 holdout: None,
+                extra: Default::default(),
             }
         );
 
@@ -8674,6 +8810,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: Some(Some(0)),
+                    extra: Default::default(),
                 }],
                 ..Default::default()
             }
@@ -8756,6 +8893,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                     aggregation_group_type_index: Some(Some(1)),
+                    extra: Default::default(),
                 }],
                 ..Default::default()
             }
@@ -8858,6 +8996,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             }
         }
 
@@ -8870,6 +9009,7 @@ mod tests {
                 group_type_index: gti,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             }
         }
 

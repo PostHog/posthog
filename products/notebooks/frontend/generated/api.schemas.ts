@@ -95,6 +95,15 @@ export interface PaginatedNotebookMinimalListApi {
     results: NotebookMinimalApi[]
 }
 
+/**
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+ * @nullable
+ */
+export type NotebookApiParentResource = {
+    readonly type: 'account'
+    readonly id: string
+} | null
+
 export interface NotebookApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -130,6 +139,11 @@ export interface NotebookApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    readonly parent_resource: NotebookApiParentResource
     _create_in_folder?: string
 }
 
@@ -154,6 +168,15 @@ export interface SharingConfigurationApi {
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
 }
+
+/**
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+ * @nullable
+ */
+export type PatchedNotebookApiParentResource = {
+    readonly type: 'account'
+    readonly id: string
+} | null
 
 export interface PatchedNotebookApi {
     /** UUID of the notebook. */
@@ -190,6 +213,11 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    readonly parent_resource?: PatchedNotebookApiParentResource
     _create_in_folder?: string
 }
 

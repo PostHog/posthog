@@ -271,6 +271,12 @@ export const BillingProductAddonActions = ({
     } else if (billing?.trial && billing?.trial?.target === addon.type) {
         // Current trial on this addon
         content = renderTrialActions()
+    } else if (addon.type === 'enterprise') {
+        content = (
+            <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
+                Contact us
+            </LemonButton>
+        )
     } else if (addon.contact_support) {
         content = (
             <LemonButton type="secondary" to="https://posthog.com/talk-to-a-human">

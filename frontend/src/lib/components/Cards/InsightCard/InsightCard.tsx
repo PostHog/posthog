@@ -58,7 +58,7 @@ export interface InsightCardProps extends Resizeable {
     loading?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
-    /** Might contain more information on the error that occured on the server. */
+    /** Might contain more information on the error that occurred on the server. */
     apiError?: Error
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean

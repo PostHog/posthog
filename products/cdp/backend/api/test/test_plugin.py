@@ -31,7 +31,7 @@ def mocked_plugin_reload(*args, **kwargs):
 
 
 @mock.patch("products.cdp.backend.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
-@mock.patch("posthog.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
+@mock.patch("products.cdp.backend.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
@@ -741,7 +741,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json(), {"plugin.json": '{"name":"my plugin"}'})
         self.assertEqual(mock_reload.call_count, 3)
 
-    @patch("posthog.api.plugin.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.api.plugin.transpile", side_effect=mock_transpile)
     def test_transpile_plugin_frontend_source(self, mock_transpile_fn, mock_get, mock_reload):
         # Setup
         assert mock_reload.call_count == 0

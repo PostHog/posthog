@@ -389,7 +389,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
-        return default_device(instance) is not None
+        has_totp_device = default_device(instance) is not None
+        has_passkey_2fa = bool(instance.passkeys_enabled_for_2fa) and has_passkeys(instance)
+        return has_totp_device or has_passkey_2fa
 
     @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:

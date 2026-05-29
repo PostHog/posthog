@@ -6,8 +6,6 @@ from typing import Any, Optional, cast
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-import STPyV8
-
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.validation import compile_hog
@@ -245,6 +243,8 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
             processEvent(globals, posthog);;
             """
+
+        import STPyV8
 
         with STPyV8.JSContext() as ctxt:
             ctxt.eval(js)

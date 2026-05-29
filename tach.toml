@@ -44,7 +44,7 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",
@@ -84,11 +84,12 @@ depends_on = [
     "products.legal_documents",
     "products.links",
     "products.live_debugger",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
     "products.marketing_analytics",
     "products.mcp_store",
     "products.messaging",
+    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
@@ -173,7 +174,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.alerts",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_analytics",
     "products.product_analytics",
 ]
@@ -324,13 +325,22 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.llm_analytics"
+path = "products.ai_observability"
 depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
     "products.workflows",
 ]
+layer = "modules"
+
+[[modules]]
+# Vestigial app — only retains the migration history under the llm_analytics
+# Django app label. All models and code live under products.ai_observability now.
+# Historical migration files reference posthog.models.utils etc.; allowed because
+# they're frozen history, not new code.
+path = "products.llm_analytics"
+depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]
@@ -371,9 +381,17 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = [
-]
+depends_on = ["posthog"]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.api.*",
+]
+from = [
+    "products.metrics",
+]
 
 [[modules]]
 path = "products.notebooks"
@@ -415,7 +433,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
 ]
 layer = "modules"
@@ -517,6 +535,7 @@ layer = "modules"
 [[modules]]
 path = "products.marketing_analytics"
 depends_on = [
+    "ee",
     "posthog",
     "products.access_control",
     "products.actions",
@@ -533,7 +552,7 @@ depends_on = [
     "products.error_tracking",
     "products.event_definitions",
     "products.feature_flags",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.posthog_ai",
     "products.signals",

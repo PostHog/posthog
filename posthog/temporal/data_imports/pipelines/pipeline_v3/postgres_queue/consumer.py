@@ -43,6 +43,7 @@ POLL_INTERVAL_SECONDS = 2.0
 
 
 RECOVERY_INTERVAL_SECONDS = 30.0
+RETRY_BACKOFF_BASE_SECONDS = 15
 
 
 @dataclass
@@ -57,6 +58,12 @@ class ConsumerConfig:
     health_port: int = 8080
     health_timeout_seconds: float = 60.0
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
+    retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
+    recovery_grace_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.recovery_grace_seconds is None:
+            self.recovery_grace_seconds = int(self.recovery_interval_seconds)
 
 
 class BatchConsumer:
@@ -114,6 +121,7 @@ class BatchConsumer:
                 batches = await BatchQueue.get_unprocessed_and_lock(
                     self._conn,
                     limit=self._config.poll_limit,
+                    retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
                 )
                 POLL_DURATION_SECONDS.observe(time.monotonic() - poll_start)
                 POLL_BATCHES_FETCHED.observe(len(batches))
@@ -167,13 +175,24 @@ class BatchConsumer:
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
-                await self._process_single(batch)
+                succeeded = await self._process_single(batch)
+                if not succeeded:
+                    # Stop processing sibling batches in this group
+                    logger.info(
+                        "group_halted_by_non_success",
+                        team_id=team_id,
+                        schema_id=schema_id,
+                        run_uuid=batch.run_uuid,
+                        batch_index=batch.batch_index,
+                        remaining=len(batches) - batches.index(batch) - 1,
+                    )
+                    break
         finally:
             self._semaphore.release()
             assert self._conn is not None
             await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
-    async def _process_single(self, batch: PendingBatch) -> None:
+    async def _process_single(self, batch: PendingBatch) -> bool:
         """Increment attempt, check max retries, then process the batch.
 
         Binds per-batch contextvars so every downstream log line (including loader calls)
@@ -224,12 +243,12 @@ class BatchConsumer:
             attempt=attempt,
         )
         try:
-            await self._process_single_inner(batch, attempt, team_id, schema_id)
+            return await self._process_single_inner(batch, attempt, team_id, schema_id)
         finally:
             # Unbind only the keys we set so any ambient context (parent logger, test setup) survives.
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
-    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
+    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> bool:
         assert self._conn is not None
 
         # Check before we even try — if already at max, fail the whole run.
@@ -242,7 +261,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
-            return
+            return False
 
         logger.info(
             "batch_picked_up",
@@ -284,6 +303,7 @@ class BatchConsumer:
                 is_final_batch=batch.is_final_batch,
                 duration_seconds=round(duration, 3),
             )
+            return True
         except Exception as e:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(e).__name__).inc()
@@ -312,6 +332,7 @@ class BatchConsumer:
                     attempt=attempt,
                     error_response={"error": str(e)[:1000]},
                 )
+            return False
 
     async def _fail_run(
         self,
@@ -356,7 +377,9 @@ class BatchConsumer:
         conn = self._recovery_conn or self._conn
         assert conn is not None
 
-        stale = await BatchQueue.get_stale_executing(conn)
+        grace_seconds = self._config.recovery_grace_seconds
+        assert grace_seconds is not None
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
             RECOVERY_SWEEPS_TOTAL.labels(outcome="clean").inc()
             return
