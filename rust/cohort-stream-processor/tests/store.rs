@@ -88,7 +88,10 @@ fn point_writes_and_reads_per_cf() {
     );
 
     // Absent keys: `None` for opaque CFs, empty set for the person index.
-    assert!(store.get_stage1(&stage1_key(0, 100, 1, 999)).unwrap().is_none());
+    assert!(store
+        .get_stage1(&stage1_key(0, 100, 1, 999))
+        .unwrap()
+        .is_none());
     assert!(store
         .get_person_index(&person_index_key(0, 100, 999))
         .unwrap()
@@ -141,7 +144,10 @@ fn secondary_index_merge_append_and_remove() {
         .write_batch(|b| b.merge_person_index(&pix, IndexOp::Remove(lsk(20))))
         .unwrap();
     store.flush().unwrap();
-    assert_eq!(store.get_person_index(&pix).unwrap(), vec![lsk(10), lsk(30)]);
+    assert_eq!(
+        store.get_person_index(&pix).unwrap(),
+        vec![lsk(10), lsk(30)]
+    );
 
     // Remove the rest → empty set must read back as empty (the merge-`None` correctness case).
     store
@@ -176,8 +182,14 @@ fn delete_partition_isolates_other_partitions() {
     store.delete_partition(0).unwrap();
 
     // Partition 0 is gone across every CF...
-    assert!(store.get_stage1(&stage1_key(0, 100, 1, 7)).unwrap().is_none());
-    assert!(store.get_stage2(&stage2_key(0, 100, 55, 7)).unwrap().is_none());
+    assert!(store
+        .get_stage1(&stage1_key(0, 100, 1, 7))
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get_stage2(&stage2_key(0, 100, 55, 7))
+        .unwrap()
+        .is_none());
     assert!(store
         .get_person_index(&person_index_key(0, 100, 7))
         .unwrap()
@@ -185,15 +197,23 @@ fn delete_partition_isolates_other_partitions() {
 
     // ...and partition 1 survives across every CF.
     assert_eq!(
-        store.get_stage1(&stage1_key(1, 100, 1, 7)).unwrap().as_deref(),
+        store
+            .get_stage1(&stage1_key(1, 100, 1, 7))
+            .unwrap()
+            .as_deref(),
         Some(&b"s1"[..])
     );
     assert_eq!(
-        store.get_stage2(&stage2_key(1, 100, 55, 7)).unwrap().as_deref(),
+        store
+            .get_stage2(&stage2_key(1, 100, 55, 7))
+            .unwrap()
+            .as_deref(),
         Some(&b"s2"[..])
     );
     assert_eq!(
-        store.get_person_index(&person_index_key(1, 100, 7)).unwrap(),
+        store
+            .get_person_index(&person_index_key(1, 100, 7))
+            .unwrap(),
         vec![lsk(1)]
     );
 }
