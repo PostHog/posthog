@@ -97,13 +97,9 @@ type StreamItem =
     | { kind: 'bubble'; message: CompatMessage; text: string; nonText: boolean }
     | { kind: 'scaffold-group'; messages: CompatMessage[]; tagNames: string[]; role: string }
 
-interface SessionEntry {
-    kind: 'bubble' | 'scaffold'
-    message: CompatMessage
-    text: string
-    nonText: boolean
-    scaffoldTag: string | undefined
-}
+type SessionEntry =
+    | { kind: 'bubble'; message: CompatMessage; text: string; nonText: boolean }
+    | { kind: 'scaffold'; message: CompatMessage; scaffoldTag: string }
 
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
     const result: SessionEntry[] = []
@@ -113,7 +109,7 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         }
         const scaffoldTag = getScaffoldTagName(message)
         if (scaffoldTag !== undefined) {
-            result.push({ kind: 'scaffold', message, text: '', nonText: false, scaffoldTag })
+            result.push({ kind: 'scaffold', message, scaffoldTag })
             continue
         }
         const text = extractText(message)
@@ -121,14 +117,14 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         if (text.length === 0 && !nonText) {
             continue
         }
-        result.push({ kind: 'bubble', message, text, nonText, scaffoldTag: undefined })
+        result.push({ kind: 'bubble', message, text, nonText })
     }
     return result
 }
 
 function groupScaffolds(classified: SessionEntry[]): StreamItem[] {
     const result: StreamItem[] = []
-    let pendingScaffolds: SessionEntry[] = []
+    let pendingScaffolds: Extract<SessionEntry, { kind: 'scaffold' }>[] = []
     const makeGroup = (): void => {
         if (pendingScaffolds.length === 0) {
             return
@@ -136,7 +132,7 @@ function groupScaffolds(classified: SessionEntry[]): StreamItem[] {
         result.push({
             kind: 'scaffold-group',
             messages: pendingScaffolds.map((b) => b.message),
-            tagNames: pendingScaffolds.map((b) => b.scaffoldTag!),
+            tagNames: pendingScaffolds.map((b) => b.scaffoldTag),
             // All pending scaffolds share the same role (the predicate only
             // accepts `role: 'user'`), so picking the first is sufficient and
             // future-proof if we relax the predicate later.
