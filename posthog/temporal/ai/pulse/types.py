@@ -74,6 +74,7 @@ class DetectChangesInputs(BaseModel):
 
 class EnrichFindingsInputs(BaseModel):
     team_id: int
+    user_id: int | None = None
     findings: list[Finding]
     max_findings: int = 5
 

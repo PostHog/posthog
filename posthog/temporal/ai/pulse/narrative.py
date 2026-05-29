@@ -5,10 +5,14 @@ import asyncio
 from typing import Any
 
 import structlog
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.output_parsers import StrOutputParser
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding, run_trends_query_sync
+
+from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +27,35 @@ ATTRIBUTION_PROPERTY_CANDIDATES = [
 
 ENRICHMENT_CONCURRENCY = 5
 ATTRIBUTION_CONCURRENCY = 5
+
+# Narrative-only LLM: deterministic backbone does detection, the model just writes prose.
+NARRATIVE_MODEL = "gpt-5-mini"
+NARRATIVE_MAX_TOKENS = 200
+NARRATIVE_TIMEOUT_SECONDS = 45.0
+
+
+def _resolve_service_user(team: Team, user_id: int | None) -> User:
+    """Resolve the user MaxChatOpenAI bills/attributes the narrative to.
+
+    Pulse runs without a request, so we pick the subscription creator (passed as
+    user_id) and fall back to an org admin. MaxChatOpenAI requires a User even with
+    inject_context=False (it reads team.id, not the user, for $ai_generation).
+    """
+    if user_id is not None:
+        user = User.objects.filter(id=user_id).first()
+        if user is not None:
+            return user
+    admin = (
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, level=OrganizationMembership.Level.ADMIN
+        )
+        .select_related("user")
+        .first()
+    )
+    if admin is None:
+        raise ValueError(f"No service user available for Pulse narrative on team {team.id}")
+    return admin.user
+
 
 NARRATIVE_SYSTEM_PROMPT = """You are PostHog Pulse, summarizing one metric change for a product team in 1-2 short sentences.
 
@@ -108,14 +141,7 @@ async def _attribute_finding(
     return best
 
 
-async def _generate_narrative(team_id: int, finding: Finding, attribution: dict[str, Any] | None) -> str:
-    # Lazy-import langchain so non-Pulse Temporal workers don't pay the startup cost.
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_core.output_parsers import StrOutputParser
-    from langchain_openai import ChatOpenAI
-    from posthoganalytics import default_client
-    from posthoganalytics.ai.langchain import CallbackHandler
-
+async def _generate_narrative(team: Team, user: User, finding: Finding, attribution: dict[str, Any] | None) -> str:
     facts = {
         "metric": finding.descriptor.label,
         "current_value": round(finding.current_value, 2),
@@ -125,16 +151,26 @@ async def _generate_narrative(team_id: int, finding: Finding, attribution: dict[
         "attribution": attribution,
     }
 
-    callback_handler = CallbackHandler(
-        default_client,
-        properties={"domain": "pulse", "team_id": team_id},
+    llm = MaxChatOpenAI(
+        model=NARRATIVE_MODEL,
+        user=user,
+        team=team,
+        temperature=0.2,
+        max_tokens=NARRATIVE_MAX_TOKENS,
+        request_timeout=NARRATIVE_TIMEOUT_SECONDS,
+        streaming=False,
+        disable_streaming=True,
+        max_retries=3,
+        billable=False,
+        inject_context=False,
+        posthog_properties={"ai_product": "pulse", "domain": "pulse"},
     )
-    chain = ChatOpenAI(model="gpt-4.1-mini", temperature=0.2, streaming=False, max_retries=3) | StrOutputParser()
+    chain = llm | StrOutputParser()
     messages = [
         SystemMessage(content=NARRATIVE_SYSTEM_PROMPT),
         HumanMessage(content=f"Finding facts:\n{json.dumps(facts, default=str)}"),
     ]
-    result = await chain.ainvoke(messages, config={"callbacks": [callback_handler]})
+    result = await chain.ainvoke(messages)
     return result.strip()
 
 
@@ -148,6 +184,7 @@ def _fallback_narrative(finding: Finding) -> str:
 
 async def _enrich_one(
     team: Team,
+    user: User,
     finding: Finding,
     enrichment_semaphore: asyncio.Semaphore,
     attribution_semaphore: asyncio.Semaphore,
@@ -155,7 +192,7 @@ async def _enrich_one(
     async with enrichment_semaphore:
         try:
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
-            narrative = await _generate_narrative(team.id, finding, attribution)
+            narrative = await _generate_narrative(team, user, finding, attribution)
             return EnrichedFinding(
                 descriptor=finding.descriptor,
                 current_value=finding.current_value,
@@ -185,16 +222,20 @@ async def _enrich_one(
             )
 
 
-async def enrich_findings(team_id: int, findings: list[Finding], max_findings: int) -> list[EnrichedFinding]:
+async def enrich_findings(
+    team_id: int, user_id: int | None, findings: list[Finding], max_findings: int
+) -> list[EnrichedFinding]:
     ranked = sorted(findings, key=lambda f: f.impact, reverse=True)[:max_findings]
 
     @database_sync_to_async
-    def _get_team() -> Team:
-        return Team.objects.get(id=team_id)
+    def _resolve() -> tuple[Team, User]:
+        team = Team.objects.get(id=team_id)
+        user = _resolve_service_user(team, user_id)
+        return team, user
 
-    team = await _get_team()
+    team, user = await _resolve()
     enrichment_semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
     attribution_semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
     return list(
-        await asyncio.gather(*[_enrich_one(team, f, enrichment_semaphore, attribution_semaphore) for f in ranked])
+        await asyncio.gather(*[_enrich_one(team, user, f, enrichment_semaphore, attribution_semaphore) for f in ranked])
     )
