@@ -10,13 +10,15 @@
 """
 Prepare test durations for pytest-split sharding.
 
-Merges timing artifacts from CI shards and corrects migration-inflated
-first-test durations using JUnit results to identify carriers.
+Merges timing artifacts from CI shards and removes migration-tax
+contamination using JUnit call times as a setup-free contamination signal.
 
-Each shard's first test absorbs Django migration overhead (~6.5 min),
-making that test look artificially slow. This script detects those
-carriers, subtracts the migration tax, and outputs clean durations
-for balanced pytest-split distribution.
+Under --reuse-db the per-shard Django DB build (~7 min on master) is
+absorbed into whichever test first touches the DB, inflating its recorded
+duration and skewing pytest-split. This script merges the per-shard
+artifacts, floors any test recorded far above its JUnit call time (or
+sitting at a flat-default placeholder) back to that call time, and outputs
+clean durations for balanced distribution.
 """
 
 import re
@@ -39,6 +41,16 @@ MIN_DURATION = 0.01
 # Tests with recorded duration above this threshold in a single shard
 # are candidates for migration carriers (real tests rarely exceed this)
 CARRIER_THRESHOLD_SECONDS = 200.0
+# A test recorded this far above its JUnit call time absorbed per-shard DB
+# setup. Under --reuse-db the migration walk lands on whichever test first
+# touches the DB (not reliably the first test in the file), so detect it by
+# the call-time gap rather than by position. Migration/DB setup is hundreds
+# of seconds; legit per-test setup is tens at most, so this separates them.
+MIGRATION_TAX_THRESHOLD_SECONDS = 120.0
+# pytest-split writes these flat values for tests it has no timing for. They
+# are placeholders, not measurements — when JUnit has a real call time for
+# the test, prefer that. See reference: .test_durations ships 60.0 / 18.0.
+DEFAULT_PLACEHOLDER_SECONDS = (60.0, 18.0)
 
 
 @dataclass
@@ -72,14 +84,21 @@ _JUNIT_ARTIFACT_KEY = {"Core": "core", "CorePOE": "core-poe", "Temporal": "tempo
 
 @dataclass
 class JUnitShard:
-    """JUnit results from a single CI shard."""
+    """JUnit call-time data from a single CI shard.
+
+    XMLs are produced with `-o junit_duration_report=call`, so each
+    testcase's `time` is call time only — no fixture setup/teardown. The gap
+    between a test's recorded total and its call time is a reliable signal of
+    setup contamination (the migration walk shows up as a huge phantom gap),
+    used to detect and undo it in the merged .test_durations.
+    """
 
     name: str
-    first_test_id: str
+    call_times: dict[str, float]
 
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
-        """Load JUnit XMLs and extract the first test (carrier) from each shard.
+        """Load JUnit XMLs and extract per-test call times from each shard.
 
         JUnit artifact dirs are named like "junit-results-backend-core-1".
         Segment match is anchored at the artifact prefix so "Core" doesn't
@@ -103,27 +122,31 @@ class JUnitShard:
             if not xml_files:
                 continue
 
-            first_test_id = cls._find_first_test(xml_files[0])
-            if first_test_id:
-                shards.append(cls(name=shard_dir.name, first_test_id=first_test_id))
+            shards.append(cls(name=shard_dir.name, call_times=cls._parse_call_times(xml_files[0])))
 
         return shards
 
     @staticmethod
-    def _find_first_test(xml_path: Path) -> str | None:
-        """Extract the first parseable testcase id from a JUnit XML file."""
+    def _parse_call_times(xml_path: Path) -> dict[str, float]:
+        """Extract {pytest_id: call_time} for every parseable testcase."""
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
             logger.warning("  Could not parse JUnit XML %s: %s", xml_path, e)
-            return None
+            return {}
+        call_times: dict[str, float] = {}
         for tc in tree.getroot().iter("testcase"):
-            classname = tc.get("classname", "")
-            name = tc.get("name", "")
-            pytest_id = _junit_to_pytest_id(classname, name)
-            if pytest_id:
-                return pytest_id
-        return None
+            pytest_id = _junit_to_pytest_id(tc.get("classname", ""), tc.get("name", ""))
+            time = tc.get("time")
+            if not pytest_id or time is None:
+                continue
+            try:
+                value = float(time)
+            except ValueError:
+                continue
+            # Keep the largest if a test id appears more than once (parametrize).
+            call_times[pytest_id] = max(call_times.get(pytest_id, 0.0), value)
+        return call_times
 
 
 @dataclass
@@ -191,20 +214,25 @@ class TimingMerger:
 
 
 class MigrationTaxCorrector:
-    """Detects and corrects migration-inflated first-test durations.
+    """Removes migration-tax contamination from merged durations.
 
-    The first test in each CI shard absorbs Django migration overhead
-    (creating template DB, running migrations, etc.). This inflates that
-    test's recorded duration by ~6.5 min, which skews pytest-split's
-    shard balancing.
+    Under --reuse-db the per-shard Django DB build (~7 min on master) lands
+    on whichever test first touches the DB, inflating that test's recorded
+    setup+call duration and skewing pytest-split's shard balancing. The
+    outlier-merge then prefers that inflated value over the test's real one.
 
-    Two detection modes:
-    - JUnit-based (preferred): uses JUnit XML to identify the first test
-      per shard — precise, no false positives.
-    - Statistical fallback: when JUnit is unavailable, identifies tests
-      whose duration is a clear outlier (>CARRIER_THRESHOLD_SECONDS above
-      the next-highest test in the merged data). Expects exactly one
-      carrier per shard, using the shard count as a guide.
+    Two modes:
+    - JUnit-based (preferred): JUnit call time is the call phase only, so a
+      test recorded far above it absorbed setup tax. Floor such tests (and
+      pytest-split flat-default placeholders) to the call time. This under-
+      counts a carrier's own real setup, but that's small and unrecoverable
+      post-merge, so it's a safe conservative floor. Location-independent —
+      catches the tax wherever it lands, not just on the first test. Risk: a
+      test with genuinely heavy (>threshold) setup would be wrongly floored;
+      none observed, and every floor is logged.
+    - Statistical fallback: when JUnit is unavailable (Products), identify
+      the N highest-duration outliers (one carrier per shard) and subtract
+      the average tax. Coarser, but no per-test call time exists there.
     """
 
     def __init__(
@@ -219,65 +247,82 @@ class MigrationTaxCorrector:
 
     def correct(self) -> MigrationTaxResult:
         if self.junit_shards:
-            carriers = self._find_carriers_from_junit()
-        elif self.expected_shard_count > 0:
-            carriers = self._find_carriers_statistically()
-        else:
-            logger.info("  No JUnit data or shard count — skipping carrier correction")
-            return MigrationTaxResult(
-                corrected_durations=dict(self.durations),
-                migration_tax_seconds=0,
-                carriers_found=0,
-            )
+            return self._correct_from_junit()
+        if self.expected_shard_count > 0:
+            return self._correct_statistically()
+        logger.info("  No JUnit data or shard count — skipping carrier correction")
+        return MigrationTaxResult(dict(self.durations), migration_tax_seconds=0, carriers_found=0)
 
+    def _correct_from_junit(self) -> MigrationTaxResult:
+        """Floor contaminated / placeholder durations to their JUnit call time."""
+        junit_call: dict[str, float] = {}
+        for shard in self.junit_shards:
+            for test_id, call in shard.call_times.items():
+                junit_call[test_id] = max(junit_call.get(test_id, 0.0), call)
+
+        corrected = dict(self.durations)
+        removed: list[float] = []
+        for test_id, recorded in self.durations.items():
+            is_placeholder = any(abs(recorded - d) < 1e-3 for d in DEFAULT_PLACEHOLDER_SECONDS)
+            could_be_contaminated = recorded > MIGRATION_TAX_THRESHOLD_SECONDS
+            # Cheap short-circuit: only the high or placeholder values can be
+            # bad, so skip the suffix lookup for the ~58k healthy small ones.
+            if not (is_placeholder or could_be_contaminated):
+                continue
+
+            call = self._lookup_call_time(test_id, junit_call)
+            if call is None or call >= recorded:
+                continue
+
+            contaminated = could_be_contaminated and recorded - call > MIGRATION_TAX_THRESHOLD_SECONDS
+            if not (contaminated or is_placeholder):
+                continue
+
+            corrected[test_id] = max(MIN_DURATION, call)
+            removed.append(recorded - call)
+            reason = "migration tax" if contaminated else "flat-default"
+            logger.info("  De-taxed %s: %.0fs -> %.1fs (%s, junit call)", test_id[:60], recorded, call, reason)
+
+        avg_removed = sum(removed) / len(removed) if removed else 0.0
+        if removed:
+            logger.info(
+                "  De-taxed %d tests via JUnit, avg removed %.0fs (%.1fm)", len(removed), avg_removed, avg_removed / 60
+            )
+        else:
+            logger.info("  No JUnit-detected contamination")
+        return MigrationTaxResult(corrected, migration_tax_seconds=avg_removed, carriers_found=len(removed))
+
+    @staticmethod
+    def _lookup_call_time(test_id: str, junit_call: dict[str, float]) -> float | None:
+        """Find a durations key's call time in the JUnit map.
+
+        Exact match first; otherwise a suffix anchored on the file basename
+        (`file.py::[Class::]test`) at a path boundary, accepted only when
+        unique — JUnit ids and pytest node ids can differ only in directory
+        prefix. Anchoring on the basename keeps a bare function name from
+        colliding across files. Only ever called for the handful of high /
+        placeholder durations, so the linear scan is cheap.
+        """
+        if test_id in junit_call:
+            return junit_call[test_id]
+        parts = test_id.split("::")
+        if len(parts) < 2:
+            return None
+        tail = "::".join([parts[0].rsplit("/", 1)[-1], *parts[1:]])
+        matches = [v for k, v in junit_call.items() if k == tail or k.endswith("/" + tail)]
+        return matches[0] if len(matches) == 1 else None
+
+    def _correct_statistically(self) -> MigrationTaxResult:
+        carriers = self._find_carriers_statistically()
         if not carriers:
             logger.info("  No migration carriers found")
-            return MigrationTaxResult(
-                corrected_durations=dict(self.durations),
-                migration_tax_seconds=0,
-                carriers_found=0,
-            )
-
+            return MigrationTaxResult(dict(self.durations), migration_tax_seconds=0, carriers_found=0)
         migration_tax = self._estimate_tax(carriers)
-        corrected = self._apply_correction(carriers, migration_tax)
-
         return MigrationTaxResult(
-            corrected_durations=corrected,
+            corrected_durations=self._apply_correction(carriers, migration_tax),
             migration_tax_seconds=migration_tax,
             carriers_found=len(carriers),
         )
-
-    def _find_carriers_from_junit(self) -> dict[str, float]:
-        """Identify carriers from JUnit first-test-per-shard data.
-
-        JUnit XMLs are produced with `-o junit_duration_report=call`, so the
-        `time` attribute reflects only call time, not Django setup/migration.
-        Use JUnit only to identify the first test per shard, then check the
-        merged .test_durations value for that test to decide if it's actually
-        a carrier (carriers absorb setup time into their recorded duration).
-        """
-        carriers = {}
-        for junit_shard in self.junit_shards:
-            test_id = junit_shard.first_test_id
-
-            matched_key = self._match_duration_key(test_id)
-            if not matched_key:
-                logger.warning("  Could not match first test %s to durations", test_id[:60])
-                continue
-
-            recorded_duration = self.durations.get(matched_key, 0.0)
-            if recorded_duration < CARRIER_THRESHOLD_SECONDS:
-                continue
-
-            carriers[matched_key] = recorded_duration
-            logger.debug(
-                "  Carrier (JUnit): %s recorded=%.0fs from %s",
-                matched_key[:60],
-                recorded_duration,
-                junit_shard.name,
-            )
-
-        return carriers
 
     def _find_carriers_statistically(self) -> dict[str, float]:
         """Identify carriers by finding the N highest-duration outliers.
@@ -311,32 +356,6 @@ class MigrationTaxCorrector:
             )
 
         return carriers
-
-    def _match_duration_key(self, junit_test_id: str) -> str | None:
-        """Find the matching key in durations for a JUnit test ID.
-
-        Prefers exact match. Falls back to suffix match on the `::class::test`
-        tail — anchored, so a JUnit id of `test_create` cannot pick up
-        `test_create_user`. JUnit IDs and pytest node IDs sometimes differ
-        only in file-path prefix (e.g. relative vs absolute), so suffix is
-        the right comparison.
-        """
-        if junit_test_id in self.durations:
-            return junit_test_id
-
-        parts = junit_test_id.split("::")
-        if len(parts) < 2:
-            return None
-
-        suffix = "::" + "::".join(parts[-2:]) if len(parts) >= 3 else "::" + parts[-1]
-        matches = [k for k in self.durations if k.endswith(suffix)]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            logger.warning(
-                "  Ambiguous suffix match for %s — %d candidates, skipping", junit_test_id[:60], len(matches)
-            )
-        return None
 
     @staticmethod
     def _estimate_tax(carriers: dict[str, float]) -> float:
