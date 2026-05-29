@@ -50,6 +50,8 @@ const addTwoVariants = async (page: Page): Promise<void> => {
 }
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
+    // Filtering by the exact key forces it onto the single visible page and keeps the lookup fast
+    await page.locator('[data-attr="feature-flag-search"]').fill(name)
     const row = page.locator(`[data-row-key="${name}"]`)
     await expect(row).toBeVisible()
     await row.locator('[data-attr="more-button"]').click()
