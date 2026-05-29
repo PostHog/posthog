@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import {
     parseURLFilters,
     parseURLVariables,
+    runWithLimit,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
@@ -88,5 +89,48 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
+    })
+})
+
+describe('runWithLimit', () => {
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it('preserves task order in returned array when later tasks resolve first', async () => {
+        jest.useFakeTimers()
+        const p = runWithLimit(
+            [
+                () => new Promise<string>((resolve) => setTimeout(() => resolve('slow-first'), 30)),
+                () => new Promise<string>((resolve) => setTimeout(() => resolve('fast-second'), 5)),
+                () => new Promise<string>((resolve) => setTimeout(() => resolve('mid-third'), 10)),
+            ],
+            3
+        )
+        await jest.advanceTimersByTimeAsync(5)
+        await jest.advanceTimersByTimeAsync(5)
+        await jest.advanceTimersByTimeAsync(20)
+        await expect(p).resolves.toEqual(['slow-first', 'fast-second', 'mid-third'])
+    })
+
+    it('respects concurrency limit', async () => {
+        let concurrent = 0
+        let maxConcurrent = 0
+        const out = await runWithLimit(
+            [0, 1, 2, 3].map(
+                (i) => () =>
+                    new Promise<number>((resolve) => {
+                        concurrent += 1
+                        maxConcurrent = Math.max(maxConcurrent, concurrent)
+                        setTimeout(() => {
+                            concurrent -= 1
+                            resolve(i)
+                        }, 5)
+                    })
+            ),
+            2
+        )
+        expect(maxConcurrent).toBeLessThanOrEqual(2)
+        expect(out).toEqual([0, 1, 2, 3])
     })
 })

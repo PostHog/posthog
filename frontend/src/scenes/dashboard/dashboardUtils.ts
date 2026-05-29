@@ -151,14 +151,14 @@ const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(
  * @returns A promise that resolves to an array of results from the tasks.
  */
 export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
-    const results: T[] = []
+    const results: T[] = new Array(tasks.length)
     const activePromises: Set<Promise<void>> = new Set()
-    const remainingTasks = [...tasks]
+    const remaining = tasks.map((task, index) => ({ task, index }))
 
-    const startTask = async (task: () => Promise<T>): Promise<void> => {
+    const startTask = async (task: () => Promise<T>, index: number): Promise<void> => {
         const promise = task()
             .then((result) => {
-                results.push(result)
+                results[index] = result
             })
             .catch((error) => {
                 console.error('Error executing task:', error)
@@ -170,9 +170,10 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
         await promise
     }
 
-    while (remainingTasks.length > 0 || activePromises.size > 0) {
-        if (activePromises.size < limit && remainingTasks.length > 0) {
-            void startTask(remainingTasks.shift()!)
+    while (remaining.length > 0 || activePromises.size > 0) {
+        if (activePromises.size < limit && remaining.length > 0) {
+            const { task, index } = remaining.shift()!
+            void startTask(task, index)
         } else {
             await Promise.race(activePromises)
         }
