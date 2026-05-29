@@ -26,6 +26,12 @@ interface DockHeaderProps {
     onNewSession?: () => void
     /** True while a script is mid-playback — disables the reset button. */
     busy?: boolean
+    /**
+     * Non-zero when the SSE stream is reconnecting after a transient
+     * drop. Renders a quiet pill so the user knows the pause is the
+     * client retrying, not a stall.
+     */
+    reconnectAttempt?: number
 }
 
 export function DockHeader({
@@ -35,6 +41,7 @@ export function DockHeader({
     onExitPlayground,
     onNewSession,
     busy,
+    reconnectAttempt,
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
@@ -84,6 +91,20 @@ export function DockHeader({
                 >
                     Draft
                     <code className="font-mono normal-case opacity-70">{shortRevisionId(previewRevisionId)}</code>
+                </span>
+            ) : null}
+
+            {/* Reconnect pill: visible while `listen()` is retrying with
+             *  backoff after a transient drop. Cleared as soon as the
+             *  next SSE event arrives (handled in the runner). */}
+            {reconnectAttempt && reconnectAttempt > 0 ? (
+                <span
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground"
+                    role="status"
+                    title={`Reconnecting to the event stream (attempt ${reconnectAttempt}).`}
+                >
+                    <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/70" aria-hidden />
+                    Reconnecting…
                 </span>
             ) : null}
 

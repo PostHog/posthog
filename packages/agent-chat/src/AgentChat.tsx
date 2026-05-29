@@ -17,7 +17,7 @@
  * with an internal controller against the real ingress.
  */
 
-import { ArrowUpIcon } from 'lucide-react'
+import { ArrowUpIcon, XIcon } from 'lucide-react'
 import { useId, useState } from 'react'
 import { ApprovalCard } from './components/ApprovalCard'
 import { DockHeader } from './components/DockHeader'
@@ -50,6 +50,38 @@ export interface AgentChatProps {
     onExitPlayground?: () => void
     /** Concierge-mode reset — clear the chat back to waiting state. */
     onNewSession?: () => void
+    /**
+     * Transport-level error from the underlying runner (e.g. a failed
+     * `/run` request, ingress 5xx, lost SSE connection). Distinct from
+     * `session.state === 'error'` which is a server-side terminal
+     * outcome. The banner surfaces a friendly explanation + retry/dismiss
+     * controls. Null/undefined → no banner.
+     */
+    transportError?: TransportError | null
+    /** Called when the user dismisses the transport error banner. */
+    onDismissTransportError?: () => void
+    /**
+     * Non-zero when the SSE listen stream is reconnecting after a
+     * transient drop. The dock surfaces a quiet "Reconnecting…" pill
+     * so the user knows the gap before the next event is recovery, not
+     * a stall. Reset to 0 once a fresh event arrives.
+     */
+    reconnectAttempt?: number
+}
+
+/**
+ * Shape callers produce from whatever transport layer they're using
+ * (the console's `useRealRunner` builds this from `IngressError` /
+ * EventSource error events). Keeping the agent-chat side decoupled
+ * from any specific HTTP client.
+ */
+export interface TransportError {
+    /** HTTP status when known; -1 for transport-level failures (DNS, network, EventSource drop). */
+    status: number
+    /** Stable code from the wire, e.g. `upstream_unreachable` / `no_chat_trigger` / `preview_token_required`. */
+    code?: string
+    /** Human-readable detail, falls back to a generic message based on status + code. */
+    detail?: string
 }
 
 export function AgentChat({
@@ -64,6 +96,9 @@ export function AgentChat({
     onReconnect,
     onExitPlayground,
     onNewSession,
+    transportError,
+    onDismissTransportError,
+    reconnectAttempt,
 }: AgentChatProps): React.ReactElement {
     const [draft, setDraft] = useState('')
     const inputId = useId()
@@ -96,9 +131,15 @@ export function AgentChat({
                 onExitPlayground={onExitPlayground}
                 onNewSession={onNewSession}
                 busy={sending}
+                reconnectAttempt={reconnectAttempt}
             />
 
             <div className="flex-1 overflow-y-auto">
+                {transportError ? (
+                    <div className="px-4 pt-4">
+                        <TransportErrorBanner error={transportError} onDismiss={onDismissTransportError} />
+                    </div>
+                ) : null}
                 {waiting ? (
                     <WaitingState context={context} starterPrompts={effectivePrompts} onStart={send} />
                 ) : (
@@ -156,8 +197,89 @@ function DisconnectedBanner({ onReconnect }: { onReconnect?: () => void }): Reac
 
 function ErrorBanner({ message }: { message: string }): React.ReactElement {
     return (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive-foreground">
             {message}
+        </div>
+    )
+}
+
+/**
+ * Maps a known wire-level error to friendly title + body. Falls back
+ * to the raw `detail` (or a generic line) so callers don't need to
+ * pre-stringify anything.
+ */
+function describeTransportError(err: TransportError): { title: string; body: string } {
+    const code = err.code ?? ''
+    const detail = err.detail?.trim() || ''
+    if (code === 'upstream_unreachable' || err.status === 502 || err.status === -1) {
+        return {
+            title: 'Agent platform unreachable',
+            body: detail || 'Could not reach the agent runtime. Check that the ingress service is running, then try again.',
+        }
+    }
+    if (code === 'no_chat_trigger') {
+        return {
+            title: 'No chat trigger on this revision',
+            body: detail || 'This agent revision was not built to accept chat. Update its spec to add a `chat` trigger.',
+        }
+    }
+    if (code === 'preview_token_required' || code === 'preview_token_expired') {
+        return {
+            title: 'Preview token expired',
+            body: detail || 'The short-lived preview token has expired. Send your message again to mint a fresh one.',
+        }
+    }
+    if (err.status === 401) {
+        return {
+            title: 'Sign-in expired',
+            body: detail || 'Your session has timed out. Refresh the page to sign in again.',
+        }
+    }
+    if (err.status === 404) {
+        return {
+            title: 'Agent not found',
+            body: detail || 'The runtime returned 404 for this agent. It may have been archived or removed.',
+        }
+    }
+    if (err.status === 410) {
+        return {
+            title: 'Session ended',
+            body: detail || 'This session has been closed and can no longer receive messages.',
+        }
+    }
+    return {
+        title: err.status > 0 ? `Request failed (${err.status})` : 'Connection lost',
+        body: detail || code || 'Try again in a moment.',
+    }
+}
+
+function TransportErrorBanner({
+    error,
+    onDismiss,
+}: {
+    error: TransportError
+    onDismiss?: () => void
+}): React.ReactElement {
+    const { title, body } = describeTransportError(error)
+    return (
+        <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-destructive-foreground/30 bg-destructive/40 px-3 py-2 text-xs"
+        >
+            <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="font-medium text-foreground">{title}</p>
+                <p className="text-muted-foreground">{body}</p>
+            </div>
+            {onDismiss ? (
+                <button
+                    type="button"
+                    onClick={onDismiss}
+                    aria-label="Dismiss"
+                    className="ml-2 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/30 hover:text-foreground"
+                >
+                    <XIcon className="h-3 w-3" />
+                </button>
+            ) : null}
         </div>
     )
 }

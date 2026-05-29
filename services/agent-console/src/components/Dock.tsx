@@ -20,7 +20,7 @@
 import { useRouter } from 'next/navigation'
 import { useMemo } from 'react'
 
-import { AgentChat, useFakeRunner, type ClientToolHandler } from '@posthog/agent-chat'
+import { AgentChat, useFakeRunner, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
     AgentApplicationRef,
     ChatContext,
@@ -32,12 +32,37 @@ import type {
 } from '@posthog/agent-chat'
 import { conciergeScripts, fallbackScript, waitingSession } from '@posthog/agent-chat/fixtures'
 
+import { IngressError } from '@/lib/agentIngressClient'
 import { bumpReload } from '@/lib/reloadSignal'
 
 import { useDockStore } from './dock-context'
 import { useFocusStore } from './focus-context'
 import { useSession } from './session-context'
 import { useRealRunner } from './useRealRunner'
+
+/**
+ * Translate the runner's `Error` into the wire-aware shape AgentChat
+ * uses to render its `TransportErrorBanner`. We keep this in the dock
+ * (not inside `useRealRunner`) because the agent-chat package is the
+ * boundary: agent-chat should never import the IngressError class.
+ *
+ * Special-cases:
+ *   - `stream:dropped` — synthetic message we set when the SSE stream
+ *     ends without a terminal `completed`/`failed` event. status=-1
+ *     so the banner copy explains it as a connection drop.
+ */
+function asTransportError(err: Error | null): TransportError | null {
+    if (!err) {
+        return null
+    }
+    if (err.message === 'stream:dropped') {
+        return { status: -1, code: 'stream_dropped', detail: 'The event stream closed before the turn finished.' }
+    }
+    if (err instanceof IngressError) {
+        return { status: err.status, code: err.body?.error, detail: err.body?.detail }
+    }
+    return { status: -1, detail: err.message }
+}
 
 /**
  * Maps a focus call to the URL the console should land on. Returns
@@ -161,6 +186,7 @@ function PlaygroundDock({
     )
 
     const runner = useRealRunner({ agentSlug: agentRef.slug, agentRef, principal, preview })
+    const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
 
     return (
         <AgentChat
@@ -175,6 +201,9 @@ function PlaygroundDock({
             }}
             onNewSession={() => void runner.reset()}
             onSend={(text) => void runner.send(text)}
+            transportError={transportError}
+            onDismissTransportError={runner.clearError}
+            reconnectAttempt={runner.reconnectAttempt}
         />
     )
 }

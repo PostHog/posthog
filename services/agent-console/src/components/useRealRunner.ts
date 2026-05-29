@@ -58,6 +58,15 @@ export interface RealRunnerControls {
     playing: boolean
     /** Surfaces transport errors (network, 4xx, 5xx) to the UI. */
     error: Error | null
+    /** Clear the latest transport error — used by dismiss buttons in the UI. */
+    clearError: () => void
+    /**
+     * Attempt number while the SSE stream is reconnecting after a
+     * transient drop. 0 = not reconnecting. Resets to 0 on next
+     * successful open or on terminal failure (the latter surfaces via
+     * `error` instead).
+     */
+    reconnectAttempt: number
 }
 
 function emptySession(agentRef: AgentApplicationRef, principal: SessionPrincipal): ChatSession {
@@ -79,6 +88,7 @@ export function useRealRunner({ agentSlug, agentRef, principal, preview }: UseRe
     const [session, setSession] = useState<ChatSession>(() => emptySession(agentRef, principal))
     const [playing, setPlaying] = useState(false)
     const [error, setError] = useState<Error | null>(null)
+    const [reconnectAttempt, setReconnectAttempt] = useState(0)
     const sessionIdRef = useRef<string | null>(null)
     const closeListenRef = useRef<(() => void) | null>(null)
     // Cached preview JWT + when it goes stale. Tokens TTL ~60s; we
@@ -116,6 +126,9 @@ export function useRealRunner({ agentSlug, agentRef, principal, preview }: UseRe
     }, [preview, agentSlug])
 
     const onEvent = useCallback((event: SessionEvent) => {
+        // Any event means the stream is healthy — clear the
+        // "Reconnecting…" indicator if it was up.
+        setReconnectAttempt(0)
         setSession((prev) => applyEvent(prev, event))
         if (event.kind === 'completed' || event.kind === 'failed') {
             setPlaying(false)
@@ -131,11 +144,22 @@ export function useRealRunner({ agentSlug, agentRef, principal, preview }: UseRe
                 sessionId,
                 {
                     onEvent,
+                    onReconnecting: (attempt) => setReconnectAttempt(attempt),
                     onError: () => {
-                        // SSE error usually means the server closed the stream;
-                        // we let `completed` / `failed` events drive state. Surface
-                        // only when there's been no completion event yet.
+                        // listen() already retries with backoff — this fires
+                        // only when retries are exhausted (or the very first
+                        // open failed terminally). EventSource doesn't expose
+                        // status, just readyState; if we never reached a
+                        // terminal `completed`/`failed` event the stream
+                        // dropped mid-turn, surface as `stream:dropped`.
                         setPlaying(false)
+                        setReconnectAttempt(0)
+                        setSession((prev) => {
+                            if (prev.state === 'streaming') {
+                                setError(new Error('stream:dropped'))
+                            }
+                            return prev
+                        })
                     },
                 },
                 { preview: previewOpts }
@@ -188,6 +212,7 @@ export function useRealRunner({ agentSlug, agentRef, principal, preview }: UseRe
         setSession(emptySession(agentRef, principal))
         setPlaying(false)
         setError(null)
+        setReconnectAttempt(0)
         if (id) {
             try {
                 const previewOpts = await ensurePreview()
@@ -198,5 +223,7 @@ export function useRealRunner({ agentSlug, agentRef, principal, preview }: UseRe
         }
     }, [agentSlug, agentRef, principal, ensurePreview])
 
-    return { session, send, reset, playing, error }
+    const clearError = useCallback(() => setError(null), [])
+
+    return { session, send, reset, playing, error, clearError, reconnectAttempt }
 }

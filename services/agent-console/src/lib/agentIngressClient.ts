@@ -61,11 +61,30 @@ function previewHeaders(preview?: PreviewOpts): Record<string, string> {
     return preview ? { 'x-agent-preview-token': preview.token } : {}
 }
 
+/**
+ * Shape of the JSON body the Next.js catch-all proxy + ingress
+ * trigger handlers + Django all return on errors. Fields are optional
+ * because not every layer fills every key — `error` is a stable string
+ * code that callers can branch on (e.g. `upstream_unreachable`,
+ * `no_chat_trigger`, `preview_token_required`), `detail` is the
+ * human-readable explanation.
+ */
+export interface IngressErrorBody {
+    error?: string
+    detail?: string
+    /** Underlying upstream URL the proxy was trying to reach. */
+    upstream?: string
+    [k: string]: unknown
+}
+
 export class IngressError extends Error {
     readonly status: number
-    constructor(status: number, message: string) {
+    /** Parsed JSON body when the response was JSON; `null` otherwise. */
+    readonly body: IngressErrorBody | null
+    constructor(status: number, message: string, body: IngressErrorBody | null = null) {
         super(message)
         this.status = status
+        this.body = body
         this.name = 'IngressError'
     }
 }
@@ -82,7 +101,19 @@ async function postJson<TBody, TResult>(
     })
     if (!res.ok) {
         const text = await res.text().catch(() => '')
-        throw new IngressError(res.status, `${res.status} ${res.statusText}: ${text}`)
+        // Try to parse the body as JSON so callers can branch on
+        // `body.error`. Many endpoints return plain text or HTML on
+        // server errors; preserve the raw text in `message` for those.
+        let parsedBody: IngressErrorBody | null = null
+        try {
+            const maybe = JSON.parse(text)
+            if (maybe && typeof maybe === 'object') {
+                parsedBody = maybe as IngressErrorBody
+            }
+        } catch {
+            // Not JSON — leave parsedBody null.
+        }
+        throw new IngressError(res.status, `${res.status} ${res.statusText}: ${text}`, parsedBody)
     }
     return (await res.json()) as TResult
 }
@@ -143,32 +174,105 @@ export interface SessionEvent {
     ts: string
 }
 
+export interface ListenHandlers {
+    onEvent: (event: SessionEvent) => void
+    /** Fires only when retries are exhausted or the stream closed terminally. */
+    onError?: (err: unknown) => void
+    /**
+     * Fires when the underlying EventSource is in the middle of a
+     * reconnect attempt (after a successful prior open). The UI can
+     * render a quiet "Reconnecting…" pill; we don't surface it as a
+     * full transport error unless retries also fail.
+     */
+    onReconnecting?: (attempt: number) => void
+}
+
+/**
+ * Reconnect strategy: exponential backoff with cap + max attempts.
+ * Ingress doesn't currently support `Last-Event-ID` replay (events
+ * carry no `id:` field), so on reconnect we just re-open a fresh
+ * stream and any events that landed during the gap are missed.
+ * Acceptable for chat — the run keeps going server-side; the UI just
+ * shows a small tail-gap. A future ingress change can swap this for
+ * true resume-from-id by emitting `id:` lines.
+ */
+const RECONNECT_MAX_ATTEMPTS = 5
+const RECONNECT_BASE_DELAY_MS = 750
+const RECONNECT_MAX_DELAY_MS = 8_000
+
 export function listen(
     slug: string,
     sessionId: string,
-    handlers: { onEvent: (event: SessionEvent) => void; onError?: (err: unknown) => void },
+    handlers: ListenHandlers,
     opts: { preview?: PreviewOpts } = {}
 ): () => void {
     // `true` → embed `preview_token=` in the query string; EventSource
     // can't set the `x-agent-preview-token` header so the URL is the
     // only channel for the JWT. Ingress accepts either source.
     const url = buildUrl(slug, 'listen', opts.preview, `session_id=${encodeURIComponent(sessionId)}`, true)
-    const source = new EventSource(url)
-    const onMessage = (e: MessageEvent): void => {
-        try {
-            handlers.onEvent(JSON.parse(e.data) as SessionEvent)
-        } catch (err) {
-            handlers.onError?.(err)
+
+    let attempt = 0
+    let openedAtLeastOnce = false
+    let closed = false
+    let source: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const cleanup = (): void => {
+        if (source) {
+            source.close()
+            source = null
+        }
+        if (reconnectTimer !== null) {
+            clearTimeout(reconnectTimer)
+            reconnectTimer = null
         }
     }
-    const onErrorRaw = (e: Event): void => {
-        handlers.onError?.(e)
+
+    const open = (): void => {
+        source = new EventSource(url)
+        source.addEventListener('open', () => {
+            openedAtLeastOnce = true
+            attempt = 0
+        })
+        source.addEventListener('message', (e: MessageEvent) => {
+            try {
+                handlers.onEvent(JSON.parse(e.data) as SessionEvent)
+            } catch (err) {
+                handlers.onError?.(err)
+            }
+        })
+        source.addEventListener('error', () => {
+            if (closed) {
+                return
+            }
+            // EventSource.CLOSED (2) means the browser gave up — usually
+            // because the response carried a 4xx that EventSource can't
+            // recover from. Surface immediately; no point retrying.
+            const terminal = source?.readyState === EventSource.CLOSED
+            cleanup()
+            // Never-opened → the very first connection failed, surface
+            // as a transport error straight away (likely 4xx). Stream
+            // dropped after open → reconnect within budget.
+            if (terminal || !openedAtLeastOnce || attempt >= RECONNECT_MAX_ATTEMPTS) {
+                handlers.onError?.(new Event('error'))
+                return
+            }
+            attempt += 1
+            handlers.onReconnecting?.(attempt)
+            const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1), RECONNECT_MAX_DELAY_MS)
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null
+                if (!closed) {
+                    open()
+                }
+            }, delay)
+        })
     }
-    source.addEventListener('message', onMessage)
-    source.addEventListener('error', onErrorRaw)
+
+    open()
+
     return () => {
-        source.removeEventListener('message', onMessage)
-        source.removeEventListener('error', onErrorRaw)
-        source.close()
+        closed = true
+        cleanup()
     }
 }
