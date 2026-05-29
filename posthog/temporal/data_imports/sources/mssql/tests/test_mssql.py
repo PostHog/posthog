@@ -165,6 +165,45 @@ class TestBuildQuery:
             )
 
 
+class TestBuildQueryEnabledColumns:
+    @pytest.mark.parametrize(
+        "enabled_columns,primary_keys,expected_select",
+        [
+            (None, ["id"], "SELECT * FROM"),
+            (["email"], ["id"], "SELECT [email], [id] FROM"),
+            ([], None, "SELECT * FROM"),
+            ([], ["id"], "SELECT [id] FROM"),
+        ],
+    )
+    def test_full_refresh_projection(self, enabled_columns, primary_keys, expected_select):
+        query, _ = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+        )
+        assert query.startswith(expected_select)
+
+    def test_incremental_projection_retains_incremental_field(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            enabled_columns=["email"],
+            primary_keys=["id"],
+        )
+        assert query.startswith("SELECT [email], [id], [created_at] FROM")
+        assert "WHERE [created_at] > %(incremental_value)s" in query
+        assert args == {"incremental_value": "2025-01-01"}
+
+
 # ---------------------------------------------------------------------------
 # Per-cursor metadata queries
 # ---------------------------------------------------------------------------

@@ -211,7 +211,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         if delta_table is None:
             logger.error(
                 "no_delta_table_for_post_load",
-                job_id=export_signal.job_id,
+                external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
             return
@@ -252,9 +252,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     logger.info(
         "job_marked_completed",
-        job_id=export_signal.job_id,
+        external_data_job_id=export_signal.job_id,
         team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
+        external_data_schema_id=export_signal.schema_id,
     )
 
 
@@ -268,9 +268,9 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     if existing is not None:
         logger.info(
             "job_already_marked_failed",
-            job_id=export_signal.job_id,
+            external_data_job_id=export_signal.job_id,
             team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
+            external_data_schema_id=export_signal.schema_id,
         )
         return
 
@@ -284,9 +284,9 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
 
     logger.info(
         "job_marked_failed",
-        job_id=export_signal.job_id,
+        external_data_job_id=export_signal.job_id,
         team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
+        external_data_schema_id=export_signal.schema_id,
         error=str(error),
     )
 
@@ -333,7 +333,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             logger.info(
                 "batch_already_processed",
                 team_id=export_signal.team_id,
-                schema_id=export_signal.schema_id,
+                external_data_schema_id=export_signal.schema_id,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -343,7 +343,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             logger.info(
                 "batch_already_processed_running_post_load",
                 team_id=export_signal.team_id,
-                schema_id=export_signal.schema_id,
+                external_data_schema_id=export_signal.schema_id,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -354,7 +354,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         logger.debug(
             "message_received",
             team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
+            external_data_schema_id=export_signal.schema_id,
             resource_name=export_signal.resource_name,
             batch_index=export_signal.batch_index,
             is_final_batch=export_signal.is_final_batch,
