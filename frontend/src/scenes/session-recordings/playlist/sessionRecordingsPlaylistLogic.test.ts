@@ -691,12 +691,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({ otherRecordings: [aRecording, bRecording] })
 
-                // mark abc as viewed so it becomes "hidden" when hideViewedRecordings is on
+                // turning on hide-viewed refetches from the server, so mark abc viewed afterwards
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                // mark abc as viewed so it becomes "hidden" — selecting then deselecting leaves it viewed
                 logic.actions.setSelectedRecordingId('abc')
                 await expectLogic(logic).toFinishAllListeners()
                 // deselect so selectedRecordingId exclusion doesn't interfere
                 logic.actions.setSelectedRecordingId(null)
-                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
 
                 // abc is now hidden (viewed but not selected)
                 await expectLogic(logic).toMatchValues({
