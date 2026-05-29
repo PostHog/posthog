@@ -582,12 +582,11 @@ def _build_template_context(
                     posthog_app_context["custom_products"] = user_product_list.data
 
                 with tracer.start_as_current_span("template.promoted_product_intent"):
-                    # Circular import: promoted_product_lookup imports from posthog.utils.
                     from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
 
-                    # Never let a ClickHouse or Redis hiccup 500 a page render — the
-                    # promoted-product sidebar entry is experimental and best-effort;
-                    # falling back to None just hides it for this request.
+                    # Best-effort — the promoted-product sidebar entry is experimental.
+                    # If the lookup fails for any reason, hide it for this request
+                    # rather than 500ing the page render.
                     try:
                         posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
                     except Exception:

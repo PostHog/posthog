@@ -28,24 +28,6 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const PromotedProductIntentGetSchema = EnvironmentsPromotedProductIntentRetrieveParams.omit({ project_id: true })
-
-const promotedProductIntentGet = (): ToolBase<
-    typeof PromotedProductIntentGetSchema,
-    Schemas.PromotedProductIntent
-> => ({
-    name: 'promoted-product-intent-get',
-    schema: PromotedProductIntentGetSchema,
-    handler: async (context: Context, params: z.infer<typeof PromotedProductIntentGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PromotedProductIntent>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/environments/${encodeURIComponent(String(params.id))}/promoted_product_intent/`,
-        })
-        return result
-    },
-})
-
 const ActivityLogListSchema = ActivityLogListQueryParams.extend({
     page_size: z
         .preprocess(castStringToInt, ActivityLogListQueryParams.shape['page_size'].default(10).optional())
@@ -398,6 +380,24 @@ const organizationsList = (): ToolBase<
     },
 })
 
+const PromotedProductIntentGetSchema = EnvironmentsPromotedProductIntentRetrieveParams.omit({ project_id: true })
+
+const promotedProductIntentGet = (): ToolBase<
+    typeof PromotedProductIntentGetSchema,
+    Schemas.PromotedProductIntent
+> => ({
+    name: 'promoted-product-intent-get',
+    schema: PromotedProductIntentGetSchema,
+    handler: async (context: Context, params: z.infer<typeof PromotedProductIntentGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PromotedProductIntent>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/environments/${encodeURIComponent(String(params.id))}/promoted_product_intent/`,
+        })
+        return result
+    },
+})
+
 const RoleGetSchema = RolesRetrieveParams.omit({ organization_id: true })
 
 const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
@@ -500,7 +500,6 @@ const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema,
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'promoted-product-intent-get': promotedProductIntentGet,
     'activity-log-list': activityLogList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'advanced-activity-logs-list': advancedActivityLogsList,
@@ -515,6 +514,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'org-members-list': orgMembersList,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
+    'promoted-product-intent-get': promotedProductIntentGet,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,

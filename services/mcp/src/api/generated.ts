@@ -34418,6 +34418,14 @@ export namespace Schemas {
       payload: ProjectProfilePayload;
     }
 
+    export interface PromotedProductIntent {
+      /**
+         * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+         * @nullable
+         */
+      product_key: string | null;
+    }
+
     export interface Property {
       /**
        You can use a simplified version:

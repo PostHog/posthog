@@ -1,61 +1,40 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect, useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import {
-    localStorageOverrideKey,
-    localStorageProductKey,
-    PromotedProductTarget,
-    promotedProductLogic,
-} from '~/layout/panel-layout/ai-first/promotedProductLogic'
+import { PromotedProductTargetKind, promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
 
 import { ConfigurePromotedProductModal } from './ConfigurePromotedProductModal'
 
 interface StoryArgs {
-    onboardingIntent: string | null
-    initialOverride: PromotedProductTarget | null
+    /** The target kind pre-selected when the modal opens. */
+    kind: PromotedProductTargetKind
+    /** Product key (kind === 'product') or URL string (kind === 'url'); ignored for 'ai_chat'. */
+    value: string
 }
 
-const PRODUCT_KEY = localStorageProductKey(MOCK_TEAM_ID)
-const OVERRIDE_KEY = localStorageOverrideKey(MOCK_TEAM_ID)
-const LOCAL_STORAGE_KEYS = [PRODUCT_KEY, OVERRIDE_KEY]
-
-function StoryRunner({ onboardingIntent, initialOverride }: StoryArgs): JSX.Element | null {
+/**
+ * The modal renders purely from `promotedProductLogic`'s pending fields, so the stories
+ * stage those directly via the same actions the modal's own controls dispatch. This keeps
+ * the stories independent of feature-flag / localStorage resolution timing — the modal is
+ * not flag-gated, only the nav entry that opens it is.
+ */
+function StoryRunner({ kind, value }: StoryArgs): JSX.Element | null {
     const [ready, setReady] = useState(false)
 
     useEffect(() => {
-        for (const key of LOCAL_STORAGE_KEYS) {
-            window.localStorage.removeItem(key)
-        }
-        if (onboardingIntent) {
-            window.localStorage.setItem(PRODUCT_KEY, onboardingIntent)
-        }
-        if (initialOverride) {
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify(initialOverride))
-        }
-
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PROMOTED_PRODUCT], {
-            [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus',
-        })
-
         const unmount = promotedProductLogic.mount()
-        promotedProductLogic.actions.refreshIntentFromStorage()
-        promotedProductLogic.actions.refreshOverrideFromStorage()
+        promotedProductLogic.actions.setPendingKind(kind)
+        if (kind === 'product') {
+            promotedProductLogic.actions.setPendingProduct(value)
+        } else if (kind === 'url') {
+            promotedProductLogic.actions.setPendingUrl(value)
+        }
         setReady(true)
-
         return () => {
-            for (const key of LOCAL_STORAGE_KEYS) {
-                window.localStorage.removeItem(key)
-            }
-            featureFlagLogic.actions.setFeatureFlags([], {})
             unmount()
             setReady(false)
         }
-    }, [onboardingIntent, initialOverride])
+    }, [kind, value])
 
     if (!ready) {
         return null
@@ -70,42 +49,24 @@ const meta: Meta<StoryArgs> = {
         layout: 'fullscreen',
         viewMode: 'story',
     },
-    argTypes: {
-        onboardingIntent: {
-            control: { type: 'select' },
-            options: [null, 'product_analytics', 'session_replay', 'web_analytics', 'error_tracking', 'llm_analytics'],
-        },
-    },
     render: (args) => <StoryRunner {...args} />,
 }
 export default meta
 
 type Story = StoryObj<StoryArgs>
 
-export const InitialFromOnboardingProduct: Story = {
-    args: {
-        onboardingIntent: 'session_replay',
-        initialOverride: null,
-    },
+export const ProductSelected: Story = {
+    args: { kind: 'product', value: 'session_replay' },
 }
 
-export const InitialFromUrlOverride: Story = {
-    args: {
-        onboardingIntent: 'session_replay',
-        initialOverride: { kind: 'url', value: '/my-dashboard' },
-    },
+export const UrlSelected: Story = {
+    args: { kind: 'url', value: '/my-dashboard' },
 }
 
-export const InitialFromAiChatOverride: Story = {
-    args: {
-        onboardingIntent: 'session_replay',
-        initialOverride: { kind: 'ai_chat', value: 'ai_chat' },
-    },
+export const AiChatSelected: Story = {
+    args: { kind: 'ai_chat', value: '' },
 }
 
-export const NoOnboardingIntent: Story = {
-    args: {
-        onboardingIntent: null,
-        initialOverride: null,
-    },
+export const DefaultProduct: Story = {
+    args: { kind: 'product', value: 'product_analytics' },
 }

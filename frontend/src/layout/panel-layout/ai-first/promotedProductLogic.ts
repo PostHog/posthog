@@ -6,11 +6,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
 
 import type { promotedProductLogicType } from './promotedProductLogicType'
 
-export type PromotedProductVariant = 'control_a' | 'control_b' | 'intent' | 'intent_plus'
+export type PromotedProductVariant = 'control' | 'control_b' | 'intent' | 'intent_plus'
 
 export type PromotedProductTargetKind = 'product' | 'url' | 'ai_chat'
 
@@ -211,7 +210,7 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): PromotedProductVariant | null => {
                 const raw = featureFlags[FEATURE_FLAGS.PROMOTED_PRODUCT]
-                if (raw === 'control_a' || raw === 'control_b' || raw === 'intent' || raw === 'intent_plus') {
+                if (raw === 'control' || raw === 'control_b' || raw === 'intent' || raw === 'intent_plus') {
                     return raw
                 }
                 return null
@@ -316,7 +315,3 @@ export function promotedProductTargetToUrl(target: PromotedProductTarget): strin
 export function isAiChatTarget(target: PromotedProductTarget): boolean {
     return target.kind === 'ai_chat'
 }
-
-export const PROMOTED_PRODUCT_AI_CHAT_TAB = SidePanelTab.Max
-
-export { PRODUCT_KEY_TO_URL }

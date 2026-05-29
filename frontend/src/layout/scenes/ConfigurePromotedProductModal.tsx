@@ -50,7 +50,7 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
             isOpen={isOpen}
             onClose={onClose}
             title="Configure promoted product"
-            description="Choose what the 'Promoted product' nav entry should open."
+            description="Choose a product or link to show at the top of the navbar."
             width="40rem"
             footer={
                 <div className="flex w-full justify-between gap-2">

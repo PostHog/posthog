@@ -1,96 +1,84 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import BaseTest
 
-from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.schema import ProductKey
 
-from posthog.models.product_intent.promoted_product_lookup import _cache_key, get_promoted_product_intent
+from posthog.models.product_intent.product_intent import ProductIntent
+from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
 
 
-class TestPromotedProductLookup(ClickhouseTestMixin, BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        cache.delete(_cache_key(self.team.pk))
-
-    def _create_intent_event(
+class TestPromotedProductLookup(BaseTest):
+    def _create_intent(
         self,
         product_key: str,
-        intent_context: str = "onboarding product selected - primary",
-        timestamp: datetime | None = None,
-    ) -> None:
-        _create_event(
-            team=self.team,
-            event="user showed product intent",
-            distinct_id="user-1",
-            properties={"product_key": product_key, "intent_context": intent_context},
-            timestamp=timestamp or datetime.now(),
+        contexts: dict[str, int] | None = None,
+        updated_at: datetime | None = None,
+        team=None,
+    ) -> ProductIntent:
+        intent = ProductIntent.objects.create(
+            team=team or self.team,
+            product_type=product_key,
+            contexts=contexts if contexts is not None else {"onboarding product selected - primary": 1},
         )
+        if updated_at is not None:
+            # auto_now=True on `updated_at` blocks normal assignment — use a raw update.
+            ProductIntent.objects.filter(pk=intent.pk).update(updated_at=updated_at)
+            intent.refresh_from_db()
+        return intent
 
-    def test_returns_none_when_no_event_exists(self) -> None:
+    def test_returns_none_when_no_intent_exists(self) -> None:
         assert get_promoted_product_intent(self.team.pk) is None
 
     def test_returns_product_key_from_primary_intent(self) -> None:
-        self._create_intent_event(ProductKey.SESSION_REPLAY.value)
-        flush_persons_and_events()
+        self._create_intent(ProductKey.SESSION_REPLAY.value)
 
         assert get_promoted_product_intent(self.team.pk) == "session_replay"
 
-    def test_ignores_secondary_intent_context(self) -> None:
-        self._create_intent_event(
+    def test_ignores_intent_without_primary_onboarding_context(self) -> None:
+        # Same product, but only ever marked via secondary or a non-onboarding context.
+        self._create_intent(
             ProductKey.SESSION_REPLAY.value,
-            intent_context="onboarding product selected - secondary",
+            contexts={"onboarding product selected - secondary": 1, "feature flag created": 1},
         )
-        flush_persons_and_events()
 
         assert get_promoted_product_intent(self.team.pk) is None
 
-    def test_returns_most_recent_primary_intent(self) -> None:
-        now = datetime.now()
-        self._create_intent_event(ProductKey.PRODUCT_ANALYTICS.value, timestamp=now - timedelta(days=2))
-        self._create_intent_event(ProductKey.SESSION_REPLAY.value, timestamp=now - timedelta(days=1))
-        self._create_intent_event(ProductKey.WEB_ANALYTICS.value, timestamp=now)
-        flush_persons_and_events()
+    def test_returns_most_recently_updated_primary_intent(self) -> None:
+        now = timezone.now()
+        self._create_intent(ProductKey.PRODUCT_ANALYTICS.value, updated_at=now - timedelta(days=2))
+        self._create_intent(ProductKey.SESSION_REPLAY.value, updated_at=now - timedelta(days=1))
+        self._create_intent(ProductKey.WEB_ANALYTICS.value, updated_at=now)
 
         assert get_promoted_product_intent(self.team.pk) == "web_analytics"
 
     def test_scopes_by_team(self) -> None:
         other_team = self.organization.teams.create(name="other")
-        self._create_intent_event(ProductKey.SESSION_REPLAY.value)
-        _create_event(
-            team=other_team,
-            event="user showed product intent",
-            distinct_id="user-other",
-            properties={
-                "product_key": ProductKey.WEB_ANALYTICS.value,
-                "intent_context": "onboarding product selected - primary",
-            },
-        )
-        flush_persons_and_events()
+        self._create_intent(ProductKey.SESSION_REPLAY.value)
+        self._create_intent(ProductKey.WEB_ANALYTICS.value, team=other_team)
 
         assert get_promoted_product_intent(self.team.pk) == "session_replay"
         assert get_promoted_product_intent(other_team.pk) == "web_analytics"
 
     def test_rejects_unknown_product_key(self) -> None:
-        self._create_intent_event("not_a_real_product")
-        flush_persons_and_events()
+        # A stray product_type that isn't in the ProductKey enum — defensive guard
+        # against schema drift between the model and the enum.
+        self._create_intent("not_a_real_product")
 
         assert get_promoted_product_intent(self.team.pk) is None
 
-    def test_cache_hit_skips_clickhouse(self) -> None:
-        self._create_intent_event(ProductKey.SESSION_REPLAY.value)
-        flush_persons_and_events()
+    def test_ignores_event_noise_from_other_contexts(self) -> None:
+        # The `feature flag created` intent_context emits the same event as
+        # primary-onboarding but is unrelated — make sure we don't pick it up.
+        self._create_intent(
+            ProductKey.FEATURE_FLAGS.value,
+            contexts={"feature flag created": 7},
+        )
+        self._create_intent(
+            ProductKey.SESSION_REPLAY.value,
+            contexts={"onboarding product selected - primary": 1},
+        )
 
-        # Prime the cache
         assert get_promoted_product_intent(self.team.pk) == "session_replay"
-
-        # Subsequent change in ClickHouse must not be visible until TTL expires
-        self._create_intent_event(ProductKey.WEB_ANALYTICS.value)
-        flush_persons_and_events()
-        assert get_promoted_product_intent(self.team.pk) == "session_replay"
-
-    def test_cache_stores_null_as_empty_string(self) -> None:
-        # First call: no event, caches a sentinel so we don't re-query ClickHouse
-        assert get_promoted_product_intent(self.team.pk) is None
-        assert cache.get(_cache_key(self.team.pk)) == ""

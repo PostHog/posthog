@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 
@@ -8,7 +8,6 @@ import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 export interface NavLinkSideAction {
     onClick: (e: React.MouseEvent) => void
@@ -36,12 +35,11 @@ export function NavLink({
     sideAction,
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
-    const { showConfigureHomeModal } = useActions(navigationLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
-    const hasSideActionRight = (isHomePage || !!sideAction) && !isCollapsed
+    const hasSideActionRight = !!sideAction && !isCollapsed
 
     return (
         <ButtonGroupPrimitive
@@ -81,23 +79,7 @@ export function NavLink({
                     </span>
                 )}
             </Link>
-            {isHomePage && !isCollapsed && (
-                <ButtonPrimitive
-                    className="group -outline-offset-2"
-                    iconOnly
-                    isSideActionRight
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        showConfigureHomeModal()
-                    }}
-                    tooltip="Configure home"
-                    tooltipPlacement="right"
-                    data-attr="nav-configure-home"
-                >
-                    <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
-                </ButtonPrimitive>
-            )}
-            {sideAction && !isCollapsed && (
+            {hasSideActionRight && sideAction && (
                 <ButtonPrimitive
                     className="group -outline-offset-2"
                     iconOnly

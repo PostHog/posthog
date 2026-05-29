@@ -46,7 +46,7 @@ describe('promotedProductLogic', () => {
 
     describe('variant gating', () => {
         it.each([
-            ['control_a', false, false],
+            ['control', false, false],
             ['control_b', false, false],
             ['intent', true, false],
             ['intent_plus', true, true],
