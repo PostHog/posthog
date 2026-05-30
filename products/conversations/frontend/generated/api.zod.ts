@@ -18,6 +18,9 @@ import * as zod from 'zod'
 export const conversationsCreateBodyContentMax = 40000
 
 export const conversationsCreateBodyIsSandboxDefault = false
+export const conversationsCreateBodyAttachedContextItemNameMax = 512
+
+export const conversationsCreateBodyAttachedContextItemValueMax = 4096
 
 export const ConversationsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -49,6 +52,32 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
         resume_payload: zod.unknown().optional(),
+        attached_context: zod
+            .array(
+                zod
+                    .object({
+                        type: zod
+                            .enum([
+                                'action',
+                                'dashboard',
+                                'error_tracking_issue',
+                                'evaluation',
+                                'event',
+                                'insight',
+                                'notebook',
+                                'text',
+                            ])
+                            .describe(
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            ),
+                        id: zod.unknown().optional(),
+                        name: zod.string().max(conversationsCreateBodyAttachedContextItemNameMax).nullish(),
+                        value: zod.string().max(conversationsCreateBodyAttachedContextItemValueMax).nullish(),
+                    })
+                    .describe('A typed entity reference or free-text snippet attached to a message.')
+            )
+            .optional()
+            .describe('Typed entity references and free text attached to a sandbox message.'),
     })
     .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
 

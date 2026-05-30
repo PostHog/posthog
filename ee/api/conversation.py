@@ -51,10 +51,16 @@ from posthog.temporal.ai.research_agent import (
 )
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
+from ee.hogai.api.serializers import (
+    ATTACHED_CONTEXT_MAX_ITEMS,
+    AttachedContextSerializer,
+    ConversationMinimalSerializer,
+    ConversationSerializer,
+)
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
+from ee.hogai.sandbox.context_wrapper import AttachedContext
 from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
@@ -107,6 +113,12 @@ class MessageSerializer(MessageMinimalSerializer):
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     is_sandbox = serializers.BooleanField(required=False, default=False)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
+    attached_context = AttachedContextSerializer(
+        many=True,
+        required=False,
+        max_length=ATTACHED_CONTEXT_MAX_ITEMS,  # 32-item cap (01_CONTEXT § 4.4)
+        help_text="Typed entity references and free text attached to a sandbox message.",
+    )
 
     def validate(self, attrs):
         data = attrs
@@ -410,6 +422,9 @@ class ConversationViewSet(
         is_impersonated = is_impersonated_session(request)
 
         if is_sandbox and has_message:
+            attached_context = [
+                AttachedContext.model_validate(item) for item in serializer.validated_data.get("attached_context") or []
+            ]
             return handle_sandbox_message(
                 conversation=conversation,
                 conversation_id=str(conversation_id),
@@ -417,6 +432,7 @@ class ConversationViewSet(
                 user=cast(User, request.user),
                 team=self.team,
                 is_new_conversation=is_new_conversation,
+                attached_context=attached_context,
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs

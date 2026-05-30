@@ -30,6 +30,8 @@ from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
+from products.tasks.backend.models import Task
+
 from ee.api.conversation import ConversationViewSet
 from ee.models.assistant import Conversation
 
@@ -1153,6 +1155,115 @@ class TestConversation(APIBaseTest):
                 workflow_inputs = mock_astream.call_args[0][1]
                 self.assertIsNotNone(workflow_inputs.billing_context.spend_history)
                 self.assertEqual(len(workflow_inputs.billing_context.spend_history), 20)
+
+
+class TestSandboxConversation(APIBaseTest):
+    def _post_sandbox_message(self, conversation_id: str, attached_context: list[dict] | None = None) -> Any:
+        body: dict[str, Any] = {
+            "content": "Why did conversions drop?",
+            "trace_id": str(uuid.uuid4()),
+            "conversation": conversation_id,
+            "is_sandbox": True,
+        }
+        if attached_context is not None:
+            body["attached_context"] = attached_context
+        return self.client.post(f"/api/environments/{self.team.id}/conversations/", body, format="json")
+
+    def _patched_first_message(self):
+        """Patch the sandbox first-message create path so no Temporal/Redis is touched."""
+        return (
+            patch("ee.hogai.sandbox.executor.Task"),
+            patch("ee.hogai.sandbox.executor.execute_task_processing_workflow"),
+            patch("ee.hogai.sandbox.executor._seed_sandbox_stream"),
+            patch("ee.hogai.sandbox.executor.set_sandbox_mapping"),
+            patch("ee.hogai.sandbox.executor.get_sandbox_mapping", return_value=None),
+            patch(
+                "ee.hogai.sandbox.executor._make_streaming_response",
+                side_effect=lambda factory: StreamingHttpResponse([b""], content_type="text/event-stream"),
+            ),
+        )
+
+    def test_sandbox_first_message_wires_prompt_context_and_no_repository(self):
+        conversation_id = str(uuid.uuid4())
+        mock_task, mock_workflow, mock_seed, mock_set, mock_get, mock_stream = self._patched_first_message()
+        with mock_task as task_cls, mock_workflow as workflow, mock_seed, mock_set, mock_get, mock_stream:
+            created_run = type("Run", (), {"id": uuid.uuid4(), "state": {}})()
+            saved_state: dict[str, Any] = {}
+
+            def _save(update_fields=None):
+                saved_state.update(created_run.state)
+
+            created_run.save = _save  # type: ignore[attr-defined]
+            created_task = type("Task", (), {"id": uuid.uuid4(), "team_id": self.team.id, "latest_run": created_run})()
+            task_cls.create_and_run.return_value = created_task
+            task_cls.OriginProduct = Task.OriginProduct
+
+            response = self._post_sandbox_message(
+                conversation_id,
+                attached_context=[{"type": "dashboard", "id": 123, "name": "Marketing Funnel"}],
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            create_kwargs = task_cls.create_and_run.call_args.kwargs
+            self.assertIsNone(create_kwargs["repository"])
+            self.assertEqual(create_kwargs["create_pr"], False)
+            self.assertEqual(create_kwargs["initial_permission_mode"], "default")
+            self.assertEqual(create_kwargs["start_workflow"], False)
+            # Wrapped content reaches the agent via description (No-Repository Mode first turn).
+            self.assertIn("<posthog_context>", create_kwargs["description"])
+            self.assertIn("Dashboard #123", create_kwargs["description"])
+
+            # System prompt + full structured context land on the Run state.
+            self.assertIn("You are PostHog AI", saved_state["system_prompt"])
+            self.assertEqual(
+                saved_state["attached_context"], [{"type": "dashboard", "id": 123, "name": "Marketing Funnel"}]
+            )
+
+            workflow.assert_called_once()
+
+    def test_sandbox_empty_attached_context_forwards_unwrapped(self):
+        conversation_id = str(uuid.uuid4())
+        mock_task, mock_workflow, mock_seed, mock_set, mock_get, mock_stream = self._patched_first_message()
+        with mock_task as task_cls, mock_workflow, mock_seed, mock_set, mock_get, mock_stream:
+            created_run = type(
+                "Run", (), {"id": uuid.uuid4(), "state": {}, "save": lambda self, update_fields=None: None}
+            )()
+            created_task = type("Task", (), {"id": uuid.uuid4(), "team_id": self.team.id, "latest_run": created_run})()
+            task_cls.create_and_run.return_value = created_task
+            task_cls.OriginProduct = Task.OriginProduct
+
+            response = self._post_sandbox_message(conversation_id, attached_context=[])
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            create_kwargs = task_cls.create_and_run.call_args.kwargs
+            self.assertNotIn("<posthog_context>", create_kwargs["description"])
+
+    def test_attached_context_rejects_unknown_type(self):
+        response = self._post_sandbox_message(str(uuid.uuid4()), attached_context=[{"type": "unknown_thing", "id": 1}])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_attached_context_rejects_bad_id_shape(self):
+        response = self._post_sandbox_message(
+            str(uuid.uuid4()), attached_context=[{"type": "dashboard", "id": "not-an-int"}]
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_attached_context_rejects_bad_uuid_for_error_tracking_issue(self):
+        response = self._post_sandbox_message(
+            str(uuid.uuid4()), attached_context=[{"type": "error_tracking_issue", "id": "123"}]
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_attached_context_rejects_over_item_cap(self):
+        items = [{"type": "dashboard", "id": i} for i in range(33)]
+        response = self._post_sandbox_message(str(uuid.uuid4()), attached_context=items)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_attached_context_rejects_over_text_cap(self):
+        response = self._post_sandbox_message(
+            str(uuid.uuid4()), attached_context=[{"type": "text", "value": "x" * 4097}]
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestConversationSoftDelete(APIBaseTest):

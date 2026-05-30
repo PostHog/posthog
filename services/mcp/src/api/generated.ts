@@ -4541,6 +4541,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `action` - action
+    * `dashboard` - dashboard
+    * `error_tracking_issue` - error_tracking_issue
+    * `evaluation` - evaluation
+    * `event` - event
+    * `insight` - insight
+    * `notebook` - notebook
+    * `text` - text
+     */
+    export type AttachedContextTypeEnum = typeof AttachedContextTypeEnum[keyof typeof AttachedContextTypeEnum];
+
+
+    export const AttachedContextTypeEnum = {
+      Action: 'action',
+      Dashboard: 'dashboard',
+      ErrorTrackingIssue: 'error_tracking_issue',
+      Evaluation: 'evaluation',
+      Event: 'event',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Text: 'text',
+    } as const;
+
+    /**
+     * A typed entity reference or free-text snippet attached to a message.
+     */
+    export interface AttachedContext {
+      type: AttachedContextTypeEnum;
+      id?: unknown;
+      /**
+         * @maxLength 512
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @maxLength 4096
+         * @nullable
+         */
+      value?: string | null;
+    }
+
+    /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
     * `linear` - Linear
@@ -8294,6 +8336,16 @@ export namespace Schemas {
       * `sandbox` - Sandbox */
       readonly agent_runtime: AgentRuntimeEnum;
       readonly is_sandbox: boolean;
+      /**
+         * Permanent link to Task for sandbox conversations.
+         * @nullable
+         */
+      readonly sandbox_task_id: string | null;
+      /**
+         * Permanent link to current TaskRun for sandbox conversations.
+         * @nullable
+         */
+      readonly sandbox_run_id: string | null;
       /** Return pending approval cards as structured data.
 
       Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -21862,6 +21914,8 @@ export namespace Schemas {
       agent_mode?: AgentModeEnum;
       is_sandbox?: boolean;
       resume_payload?: unknown;
+      /** Typed entity references and free text attached to a sandbox message. */
+      attached_context?: AttachedContext[];
     }
 
     export interface MessageCategory {
@@ -27136,6 +27190,16 @@ export namespace Schemas {
       * `sandbox` - Sandbox */
       readonly agent_runtime?: AgentRuntimeEnum;
       readonly is_sandbox?: boolean;
+      /**
+         * Permanent link to Task for sandbox conversations.
+         * @nullable
+         */
+      readonly sandbox_task_id?: string | null;
+      /**
+         * Permanent link to current TaskRun for sandbox conversations.
+         * @nullable
+         */
+      readonly sandbox_run_id?: string | null;
       /** Return pending approval cards as structured data.
 
       Combines metadata from conversation.approval_decisions with payload from checkpoint

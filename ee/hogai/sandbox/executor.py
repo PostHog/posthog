@@ -26,6 +26,8 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
+from ee.hogai.chat_agent.sandbox_prompt import build_posthog_ai_system_prompt
+from ee.hogai.sandbox.context_wrapper import AttachedContext, prune_repeated_entity_refs, wrap_user_message
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
 from ee.hogai.sandbox.types import (
     ACP_METHOD_SESSION_UPDATE,
@@ -52,8 +54,10 @@ def handle_sandbox_message(
     user: User,
     team: Team,
     is_new_conversation: bool,
+    attached_context: list[AttachedContext] | None = None,
 ) -> StreamingHttpResponse:
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
+    attached_context = attached_context or []
     if is_new_conversation:
         conversation.title = content[:80]
         conversation.save(update_fields=["title"])
@@ -136,19 +140,23 @@ def handle_sandbox_message(
                 error=str(e),
             )
     else:
-        # First message: create task + run
-        # TODO(@tatoalo): hardcoding repo for now, already built repo selection wiring
+        # First message: create task + run. No-Repository Mode — the sandbox runtime has no repo,
+        # no GitHub integration, and never opens a PR (04_PROMPTS § 2.3).
+        wrapped_content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))
+        system_prompt = asgi_async_to_sync(build_posthog_ai_system_prompt)(team, user)
+
         try:
             task = Task.create_and_run(
                 team=team,
                 title=content[:80],
-                description=content,
+                description=wrapped_content,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.pk,
-                repository="posthog/posthog",
+                repository=None,
                 create_pr=False,
                 mode="interactive",
-                start_workflow=True,
+                initial_permission_mode="default",
+                start_workflow=False,
             )
         except ValueError:
             raise exceptions.ValidationError("Failed to create sandbox task.")
@@ -158,12 +166,34 @@ def handle_sandbox_message(
             raise exceptions.ValidationError("Failed to create sandbox task run.")
         task_run = task_run_or_none
 
+        # Stash the composed system prompt and the full, undeduped structured context on the Run
+        # state before the workflow launches. RunState is extra="allow", so these well-known keys
+        # are non-breaking (01_CONTEXT § 4.1, § 4.5).
+        # Deliberate divergence: `description` carries the pruned (deduped) wrapped content sent to
+        # the agent, while `state["attached_context"]` keeps the full undeduped list as a raw-audit copy.
+        run_state = task_run.state or {}
+        run_state["system_prompt"] = system_prompt
+        run_state["attached_context"] = [item.model_dump(exclude_none=True) for item in attached_context]
+        task_run.state = run_state
+        task_run.save(update_fields=["state"])
+
         run_id = str(task_run.id)
         set_sandbox_mapping(conversation_id, str(task.id), run_id)
 
         conversation.sandbox_task_id = task.id
         conversation.sandbox_run_id = task_run.id
         conversation.save(update_fields=["sandbox_task_id", "sandbox_run_id"])
+
+        # Force "full" MCP scopes to preserve Task.create_and_run's default — the workflow
+        # entrypoint defaults to "read_only", which would silently strip the agent's write tools.
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            run_id=run_id,
+            team_id=task.team_id,
+            user_id=user.pk,
+            create_pr=False,
+            posthog_mcp_scopes="full",
+        )
 
         _seed_sandbox_stream(run_id)
 

@@ -164,6 +164,47 @@ export const AgentModeEnumApi = {
 } as const
 
 /**
+ * * `action` - action
+ * `dashboard` - dashboard
+ * `error_tracking_issue` - error_tracking_issue
+ * `evaluation` - evaluation
+ * `event` - event
+ * `insight` - insight
+ * `notebook` - notebook
+ * `text` - text
+ */
+export type AttachedContextTypeEnumApi = (typeof AttachedContextTypeEnumApi)[keyof typeof AttachedContextTypeEnumApi]
+
+export const AttachedContextTypeEnumApi = {
+    Action: 'action',
+    Dashboard: 'dashboard',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Evaluation: 'evaluation',
+    Event: 'event',
+    Insight: 'insight',
+    Notebook: 'notebook',
+    Text: 'text',
+} as const
+
+/**
+ * A typed entity reference or free-text snippet attached to a message.
+ */
+export interface AttachedContextApi {
+    type: AttachedContextTypeEnumApi
+    id?: unknown
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 4096
+     * @nullable
+     */
+    value?: string | null
+}
+
+/**
  * Serializer for appending a message to an existing conversation without triggering AI processing.
  */
 export interface MessageApi {
@@ -181,6 +222,8 @@ export interface MessageApi {
     agent_mode?: AgentModeEnumApi
     is_sandbox?: boolean
     resume_payload?: unknown
+    /** Typed entity references and free text attached to a sandbox message. */
+    attached_context?: AttachedContextApi[]
 }
 
 export type ConversationApiMessagesItem = { [key: string]: unknown }
@@ -237,6 +280,16 @@ export interface ConversationApi {
   * `sandbox` - Sandbox */
     readonly agent_runtime: AgentRuntimeEnumApi
     readonly is_sandbox: boolean
+    /**
+     * Permanent link to Task for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_task_id: string | null
+    /**
+     * Permanent link to current TaskRun for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_run_id: string | null
     /** Return pending approval cards as structured data.
 
   Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -295,6 +348,16 @@ export interface PatchedConversationApi {
   * `sandbox` - Sandbox */
     readonly agent_runtime?: AgentRuntimeEnumApi
     readonly is_sandbox?: boolean
+    /**
+     * Permanent link to Task for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_task_id?: string | null
+    /**
+     * Permanent link to current TaskRun for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_run_id?: string | null
     /** Return pending approval cards as structured data.
 
   Combines metadata from conversation.approval_decisions with payload from checkpoint
