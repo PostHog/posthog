@@ -10,7 +10,7 @@ permissions:
 
 jobs:
     update-browserslist-database:
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
             HUSKY: 0

@@ -17,7 +17,7 @@ concurrency:
 jobs:
     check-version:
         name: Check version legitimacy
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-22.04
         timeout-minutes: 5
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
@@ -156,7 +156,7 @@ jobs:
         permissions:
             id-token: write # PyPI trusted publishing + provenance OIDC handshake
             attestations: write # actions/attest-build-provenance writes here
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-22.04
         timeout-minutes: 10
         steps:
             - name: Download all wheel artifacts

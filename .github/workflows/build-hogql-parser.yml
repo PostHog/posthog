@@ -17,7 +17,7 @@ concurrency:
 jobs:
     check-version:
         name: Check version legitimacy
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-22.04
         timeout-minutes: 5
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
@@ -70,7 +70,7 @@ jobs:
     build-wheels:
         name: Build wheels on ${{ matrix.os }}
         needs: check-version
-        runs-on: ${{ matrix.runner || matrix.os }}
+        runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         if: needs.check-version.outputs.parser-release-needed == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
@@ -85,11 +85,9 @@ jobs:
                       cibw_archs_macos: x86_64
                       MACOSX_DEPLOYMENT_TARGET: 15
                     - os: ubuntu-22.04
-                      runner: posthog-hetzner
                       cibw_archs_linux: x86_64
                       MACOSX_DEPLOYMENT_TARGET: ''
                     - os: ubuntu-22.04-arm
-                      runner: posthog-hetzner
                       cibw_archs_linux: aarch64
                       MACOSX_DEPLOYMENT_TARGET: ''
 
@@ -132,7 +130,7 @@ jobs:
         environment: pypi-hogql-parser
         permissions:
             id-token: write
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-22.04
         timeout-minutes: 10
         steps:
             - name: Download wheels from ubuntu-22.04

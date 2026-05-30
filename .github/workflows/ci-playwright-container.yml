@@ -17,7 +17,7 @@ on:
 jobs:
     mirror:
         name: Mirror mcr.microsoft.com/playwright to GHCR
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
             packages: write

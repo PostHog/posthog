@@ -19,7 +19,7 @@ jobs:
         #   - https://gh.io/recommended-hardware-resources-for-running-codeql
         #   - https://gh.io/supported-runners-and-hardware-resources
         #   - https://gh.io/using-larger-runners
-        runs-on: posthog-hetzner
+        runs-on: 'ubuntu-latest'
         timeout-minutes: 30
         permissions:
             # required for all workflows

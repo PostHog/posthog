@@ -21,7 +21,7 @@ jobs:
         # `gh workflow run publish-hogli.yml --ref hogli-vX.Y.Z`); dispatching
         # from a branch is a no-op.
         if: startsWith(github.ref, 'refs/tags/hogli-v')
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-22.04
         timeout-minutes: 10
         environment: pypi-hogli
         permissions:

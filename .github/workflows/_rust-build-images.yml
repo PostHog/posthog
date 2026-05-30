@@ -19,7 +19,7 @@ on:
             timeout-minutes:
                 description: 'Per-image build timeout'
                 type: number
-                default: 60
+                default: 30
             event-name:
                 description: 'PostHog event name for failure reporting'
                 type: string
@@ -40,7 +40,7 @@ on:
 jobs:
     load-matrix:
         name: load image matrix
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 2
         permissions:
             contents: read
@@ -77,7 +77,7 @@ jobs:
         strategy:
             matrix:
                 include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
-        runs-on: posthog-hetzner
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: ${{ inputs.timeout-minutes }}
         permissions:
             id-token: write
@@ -104,6 +104,15 @@ jobs:
               working-directory: .
               run: cp -r proto rust/proto
 
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+              with:
+                  image: tonistiigi/binfmt:qemu-v10.2.1@sha256:7c76af7ed8714b80e3fc6d6d1c748ebcac867ad6b631167d0a6d3d92952151ea
+                  platforms: all
+
             - name: Login to ghcr.io
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -119,52 +128,36 @@ jobs:
                   tags: ${{ inputs.tag-rules }}
 
             - name: Set up Docker Buildx
-              id: setup-buildx
+              id: buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-            - name: Cache Rust BuildKit cache mounts
-              id: rust-buildkit-cache
-              uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .buildkit-rust-cache/${{ matrix.image }}
-                  # actions/cache entries are immutable, so key by SHA and restore the latest per-image branch/master cache.
-                  key: buildkit-rust-${{ matrix.image }}-${{ github.ref_name }}-${{ github.sha }}
-                  restore-keys: |
-                      buildkit-rust-${{ matrix.image }}-${{ github.ref_name }}-
-                      buildkit-rust-${{ matrix.image }}-master-
-
-            - name: Restore Rust Docker cache mounts
-              uses: reproducible-containers/buildkit-cache-dance@2925f5cfd92896e0f5a155899ff2ed2922b575c6 # v3.4.0
-              with:
-                  builder: ${{ steps.setup-buildx.outputs.name }}
-                  cache-map: |
-                      {
-                        ".buildkit-rust-cache/${{ matrix.image }}/cargo-registry": "/usr/local/cargo/registry",
-                        ".buildkit-rust-cache/${{ matrix.image }}/cargo-git": "/usr/local/cargo/git",
-                        ".buildkit-rust-cache/${{ matrix.image }}/sccache": "/sccache"
-                      }
-                  skip-extraction: ${{ steps.rust-buildkit-cache.outputs.cache-hit }}
+            - name: Retrieve sccache configuration
+              id: sccache
+              run: |
+                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
+                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
+                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
 
             - name: Build and push image
               id: docker_build
-              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  project: ${{ matrix.project }}
                   context: ./rust/
                   file: ${{ matrix.dockerfile }}
                   target: ${{ matrix.target || '' }}
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  platforms: linux/amd64
+                  platforms: linux/arm64,linux/amd64
                   build-args: |
                       SCCACHE_LOG=debug
                       SCCACHE_NO_DAEMON=1
                       BIN=${{ matrix.bin || matrix.image }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
-                  cache-from: |
-                      type=gha,scope=rust-${{ matrix.image }}-${{ github.ref_name }}
-                      type=gha,scope=rust-${{ matrix.image }}
-                  cache-to: ${{ github.ref == 'refs/heads/master' && format('type=gha,scope=rust-{0},mode=max', matrix.image) || format('type=gha,scope=rust-{0}-{1},mode=max', matrix.image, github.ref_name) }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
 
             - name: Build failure properties
               if: failure()
@@ -209,7 +202,7 @@ jobs:
     collect:
         name: collect digests
         needs: [load-matrix, build]
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 2
         permissions:
             contents: read

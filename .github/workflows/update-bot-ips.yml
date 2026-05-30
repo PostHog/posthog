@@ -11,7 +11,7 @@ permissions:
 
 jobs:
     update-bot-ips:
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 5
 
         steps:

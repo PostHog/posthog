@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
         name: Determine need to run Docker checks
@@ -83,8 +83,8 @@ jobs:
         needs: changes
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: posthog-hetzner-4
-        timeout-minutes: 60
+        runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -98,16 +98,17 @@ jobs:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Build and cache Docker image
+            - name: Build and cache Docker image in Depot
               id: build
               uses: ./.github/actions/build-n-cache-image
               with:
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
                   aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
-                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-docker-cache') }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
             - name: Container image digest
               env:
@@ -126,7 +127,7 @@ jobs:
 
     lint:
         name: Lint changed Dockerfiles
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Check out

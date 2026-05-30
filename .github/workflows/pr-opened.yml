@@ -10,7 +10,7 @@ permissions:
 jobs:
     check-description:
         name: Check that PR has description
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.event.pull_request.draft == false
 

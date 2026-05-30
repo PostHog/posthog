@@ -37,7 +37,7 @@ jobs:
                 type=semver,pattern={{version}}
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
-            timeout-minutes: 60
+            timeout-minutes: 30
         secrets: inherit
         permissions:
             id-token: write
@@ -46,7 +46,7 @@ jobs:
 
     deploy:
         name: deploy ${{ matrix.release }}
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build-images
         if: github.ref == 'refs/heads/master'

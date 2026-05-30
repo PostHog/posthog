@@ -29,7 +29,7 @@ jobs:
               || needs.decide-delta.outputs.run_review == 'true'
               || needs.decide-delta.result == 'failure'
             )
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 10
 
         steps:
@@ -141,7 +141,7 @@ jobs:
             github.event.action == 'synchronize'
             && !github.event.pull_request.draft
             && contains(github.event.pull_request.labels.*.name, 'stamphog')
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
             dismiss_approval: ${{ steps.decide.outputs.dismiss_approval }}
@@ -226,7 +226,7 @@ jobs:
               || needs.decide-delta.result == 'failure'
               || needs.decide-delta.result == 'skipped'
             )
-        runs-on: posthog-hetzner
+        runs-on: ubuntu-latest
         timeout-minutes: 5
 
         steps:
