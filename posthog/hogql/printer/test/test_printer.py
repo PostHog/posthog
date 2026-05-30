@@ -3973,15 +3973,27 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
-    def test_cte_materialization_hint_not_supported(self):
-        with self.assertRaises(ImpossibleASTError) as ctx:
+    def test_cte_materialization_hint_materialized(self):
+        self.assertEqual(
             self._select(
                 """
                 WITH some_cte AS MATERIALIZED (SELECT event FROM events)
                 SELECT event FROM some_cte
                 """,
+            ),
+            f"WITH some_cte AS MATERIALIZED (SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk})) "
+            "SELECT some_cte.event AS event FROM some_cte LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_not_materialized_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                """
+                WITH some_cte AS NOT MATERIALIZED (SELECT event FROM events)
+                SELECT event FROM some_cte
+                """,
             )
-        self.assertIn("not supported", str(ctx.exception))
+        self.assertIn("NOT MATERIALIZED", str(ctx.exception))
 
     def test_cte_column_name_list_not_supported(self):
         with self.assertRaises(NotImplementedError):

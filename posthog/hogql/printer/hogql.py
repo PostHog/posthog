@@ -15,6 +15,24 @@ class HogQLPrinter(BasePrinter):
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "hogql"
 
+    def visit_cte(self, node: ast.CTE):
+        materialization_hint = (
+            "" if node.materialized is None else ("MATERIALIZED " if node.materialized else "NOT MATERIALIZED ")
+        )
+
+        if node.cte_type == "subquery":
+            columns_sql = (
+                "" if node.columns is None else f"({', '.join(self._print_identifier(col) for col in node.columns)})"
+            )
+            using_key_sql = (
+                ""
+                if node.using_key is None
+                else f" USING KEY ({', '.join(self._print_identifier(col) for col in node.using_key)})"
+            )
+            return f"{self._print_identifier(node.name)}{columns_sql}{using_key_sql} AS {materialization_hint}{self.visit(node.expr)}"
+
+        return super().visit_cte(node)
+
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
         return node.name
 

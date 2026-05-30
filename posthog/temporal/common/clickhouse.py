@@ -121,6 +121,47 @@ class ChunkBytesAsyncStreamIterator:
         return data
 
 
+class DecodedResponse(typing.Protocol):
+    def iter_content(self, chunk_size: int = ...) -> collections.abc.Iterator[bytes]: ...
+
+
+class DecodedResponseStream:
+    """File-like wrapper that buffers decoded requests response chunks for PyArrow."""
+
+    mode = "rb"
+
+    def __init__(self, response: DecodedResponse) -> None:
+        self._chunks = response.iter_content(chunk_size=8192)
+        self._buffer = bytearray()
+        self.closed = False
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int | None = -1) -> bytes:
+        if size is None or size < 0:
+            chunks = [bytes(self._buffer)]
+            self._buffer.clear()
+            chunks.extend(chunk for chunk in self._chunks if chunk)
+            return b"".join(chunks)
+
+        while len(self._buffer) < size:
+            try:
+                chunk = next(self._chunks)
+            except StopIteration:
+                break
+
+            if chunk:
+                self._buffer.extend(chunk)
+
+        data = bytes(self._buffer[:size])
+        del self._buffer[:size]
+        return data
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class ClickHouseClientNotConnected(Exception):
     """Exception raised when attempting to run an async query without connecting."""
 
@@ -777,7 +818,7 @@ class ClickHouseClient:
         As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
+            with pa.ipc.open_stream(pa.PythonFile(DecodedResponseStream(response))) as reader:
                 yield from reader
 
     async def astream_query_as_arrow(

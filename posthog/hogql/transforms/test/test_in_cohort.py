@@ -176,7 +176,8 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        pretty_response = pretty_print_response_in_tests(response, self.team.pk)
+        assert "\n".join(line.rstrip() for line in pretty_response.split("\n")) == self.snapshot  # type: ignore
         self.assertEqual(len(response.results or []), 1)
         self.assertEqual((response.results or [])[0][0], random_uuid)
 

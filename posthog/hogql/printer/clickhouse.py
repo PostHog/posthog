@@ -59,6 +59,19 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
 
+    def visit_cte(self, node: ast.CTE):
+        if node.materialized is False:
+            raise ImpossibleASTError("ClickHouse does not support NOT MATERIALIZED CTEs")
+        if node.using_key is not None:
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
+
+        if node.cte_type == "subquery":
+            if node.columns is not None:
+                raise NotImplementedError("CTE column name lists are not supported in this dialect")
+            materialized = " MATERIALIZED" if node.materialized else ""
+            return f"{self._print_identifier(node.name)} AS{materialized} {self.visit(node.expr)}"
+        return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
+
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return str(self._limit_percent_constant_value(limit))
 
