@@ -113,3 +113,10 @@ export type { GoalLineConfig } from './utils/goal-lines'
 
 // Statistics helpers (used by trend-line / moving-average / confidence-interval features)
 export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/statistics'
+
+// Generic UI primitives (no canvas) — composed alongside charts by adapters
+export { Legend } from './components/Legend/Legend'
+export type { LegendItem, LegendProps } from './components/Legend/Legend'
+export { ChartLegendLayout } from './components/Legend/ChartLegendLayout'
+export type { ChartLegendLayoutProps } from './components/Legend/ChartLegendLayout'
+export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'

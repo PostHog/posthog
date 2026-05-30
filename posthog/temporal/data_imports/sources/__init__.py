@@ -35,6 +35,7 @@ from .confluence.source import ConfluenceSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
 from .copper.source import CopperSource
+from .custom.source import CustomSource
 from .customer_io.source import CustomerIOSource
 from .datadog.source import DatadogSource
 from .doit.source import DoItSource
@@ -182,6 +183,7 @@ __all__ = [
     "ConvertKitSource",
     "ConvexSource",
     "CopperSource",
+    "CustomSource",
     "CustomerIOSource",
     "DatadogSource",
     "DoItSource",
