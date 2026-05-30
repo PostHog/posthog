@@ -98,14 +98,8 @@ def _capture_old_state_if_deferred(sender: type[Team], instance: Team, **kwargs:
 
 
 def _value_changed(instance: Team, snapshot_attr: str, field_name: str) -> bool:
-    """
-    Compare an instance's loaded snapshot with the about-to-save value. The
-    sentinel distinguishes "no snapshot" (deferred + no fallback) from
-    "snapshot of None" (loaded as null). Reads via __dict__ so a deferred-load
-    save that doesn't touch the field doesn't trigger a lazy load just to
-    feed the comparison; only acts on an observed change where both sides
-    have a real value.
-    """
+    """Sentinel-based change check: True only when both old and new are present and differ.
+    Reads via __dict__ to skip lazy-load on deferred fields."""
     old = instance.__dict__.get(snapshot_attr, _NO_SNAPSHOT)
     new = instance.__dict__.get(field_name, _NO_SNAPSHOT)
     return old is not _NO_SNAPSHOT and new is not _NO_SNAPSHOT and old != new
