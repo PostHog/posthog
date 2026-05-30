@@ -32,7 +32,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # support binary attachments, add to both consumers in the same change.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # Mirror the per-skill contract limits enforced by the REST API at
-# `products/llm_analytics/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
+# `products/ai_observability/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
 # bypasses the service layer (no "create from scratch with files" helper exists), so
 # these are inlined and checked at parse time. Inlined rather than imported because
 # `skill_services.py` pulls in Django app surface that triggers a circular import
