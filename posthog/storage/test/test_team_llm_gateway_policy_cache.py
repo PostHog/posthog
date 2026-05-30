@@ -171,8 +171,9 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_unrelated_save_does_not_clear_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
-        """A save that touches neither api_token nor llm_gateway_revoked_at must
-        not invalidate the cache; the async task still refreshes the blob."""
+        """A save that touches no tracked field (api_token, llm_gateway_enabled_at,
+        llm_gateway_revoked_at) must not invalidate the cache; the async task still
+        refreshes the blob."""
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
