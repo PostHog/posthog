@@ -1,11 +1,13 @@
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { DocumentBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
     AssistantMessageType,
+    NotebookArtifactContent,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { AssistantRecordingsQueryPropertyFilter } from '~/queries/schema/schema-assistant-queries'
@@ -229,6 +231,63 @@ export function parseSessionSummarizationUpdates(content: unknown[] | undefined)
         }
     }
     return updates
+}
+
+export interface NotebookArtifact {
+    content: NotebookArtifactContent
+    artifactId?: string
+}
+
+/** Narrow an unknown value to a `DocumentBlock[]` — every element must be a tagged block object. */
+function asDocumentBlocks(value: unknown): DocumentBlock[] | null {
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const blocks: DocumentBlock[] = []
+    for (const item of value) {
+        const obj = asObject(item)
+        if (!obj || typeof obj.type !== 'string') {
+            return null
+        }
+        blocks.push(obj as unknown as DocumentBlock)
+    }
+    return blocks
+}
+
+/**
+ * Build a `NotebookArtifactContent` (+ saved `artifactId`) for the `notebooks-create` tool. The
+ * AI emits the notebook as structured `blocks` (`DocumentBlock[]`) with an optional `title`;
+ * `short_id` / `id` from the tool output identifies the saved notebook. v1 is batch-only — the
+ * whole notebook is read off `rawOutput` (with input fallback) on completion. Returns `null` when
+ * no blocks are present so the adapter degrades gracefully to the generic card.
+ */
+export function extractNotebookContent(message: McpToolCallMessage): NotebookArtifact | null {
+    const out = asObject(message.rawOutput)
+    const input = toolInput(message)
+
+    const blocks = asDocumentBlocks(out?.blocks) ?? asDocumentBlocks(input.blocks)
+    if (!blocks || blocks.length === 0) {
+        return null
+    }
+
+    const title =
+        (typeof out?.title === 'string' && out.title) || (typeof input.title === 'string' && input.title) || null
+
+    const artifactId =
+        (typeof out?.short_id === 'string' && out.short_id) ||
+        (typeof out?.id === 'string' && out.id) ||
+        (typeof input.id === 'string' && input.id) ||
+        undefined
+
+    const content: NotebookArtifactContent = {
+        content_type: ArtifactContentType.Notebook,
+        blocks,
+        title,
+        // A persisted notebook (short_id present) is already saved server-side.
+        is_saved: artifactId !== undefined,
+    }
+
+    return { content, artifactId }
 }
 
 /** Header text for the single-exec discovery verbs, derived from the raw `command`. */

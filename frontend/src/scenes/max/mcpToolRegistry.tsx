@@ -1,9 +1,18 @@
 import { ComponentType } from 'react'
 
-import { IconBug, IconDashboard, IconDatabase, IconGraph, IconRewindPlay, IconWrench } from '@posthog/icons'
+import {
+    IconBug,
+    IconDashboard,
+    IconDatabase,
+    IconGraph,
+    IconNotebook,
+    IconRewindPlay,
+    IconWrench,
+} from '@posthog/icons'
 
 import { McpToolCallMessage } from './maxTypes'
 import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
+import { CreateNotebookAdapter } from './messages/adapters/CreateNotebookAdapter'
 import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
 import { ExecuteSqlAdapter } from './messages/adapters/ExecuteSqlAdapter'
 import { ExecVerbAdapter } from './messages/adapters/ExecVerbAdapter'
@@ -192,6 +201,10 @@ for (const key of [
 for (const key of ['dashboard-create', 'dashboard-update']) {
     register(key, 'Dashboard', <IconDashboard />, UpsertDashboardAdapter)
 }
+
+// Notebook creation — the real generated slug is plural (`notebooks-create`). Batch-only: the
+// whole notebook renders on completion via the existing NotebookArtifactAnswer, unchanged.
+register('notebooks-create', 'Notebook', <IconNotebook />, CreateNotebookAdapter)
 
 // Session recordings search — RecordingsWidget inline.
 register('query-session-recordings-list', 'Search recordings', <IconRewindPlay />, SearchSessionRecordingsAdapter)
