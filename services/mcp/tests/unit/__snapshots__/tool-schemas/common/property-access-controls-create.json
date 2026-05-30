@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for upserting a rule (create or update).",
+    "properties": {
+        "access_level": {
+            "description": "The access level to set for this rule.\n\n* `read_write` - read_write\n* `read` - read\n* `none` - none",
+            "enum": ["read_write", "read", "none"],
+            "type": "string"
+        },
+        "organization_member": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The organization member UUID to set an override for."
+        },
+        "property_definition_id": {
+            "description": "The property definition ID this rule applies to.",
+            "type": "string"
+        },
+        "role": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The role UUID to set an override for."
+        }
+    },
+    "required": ["property_definition_id", "access_level"],
+    "type": "object"
+}

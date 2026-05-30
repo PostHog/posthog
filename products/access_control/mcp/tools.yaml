@@ -11,10 +11,54 @@ ui_apps: {}
 tools:
     property-access-controls-create:
         operation: property_access_controls_create
-        enabled: false
+        enabled: true
+        scopes:
+            - property_definition:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Create or update a property access control rule.
+        description: >
+            Create or update a property access control rule for a property definition. `access_level` controls what the
+            targeted user(s) can do with the property: `read_write` lets them read it in queries and edit its
+            definition, `read` lets them read it in queries but not edit it, and `none` strips the property from queries
+            entirely and hides its values. Pass `organization_member` to set a rule for a single member, `role` to set a
+            rule for every member of that role, or omit both to set the property's default rule. Member-specific rules
+            take precedence over role-specific rules, which take precedence over the default. Posting again with the
+            same target updates the existing rule in place; to remove a rule, use `property-access-controls-destroy`.
+            Requires the calling user to be a project admin.
     property-access-controls-destroy:
         operation: property_access_controls_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - property_definition:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a property access control rule.
+        description: >
+            Delete a property access control rule for a property definition. Pass `organization_member` to remove a
+            member-specific rule, `role` to remove a role-specific rule, or omit both to remove the property's default
+            rule (which restores the system-wide default of `read_write`). Removing a rule does not affect the other
+            rules on the property — e.g. deleting a member's rule causes that member to fall back to the role-specific
+            or default rule, not to lose access. Requires the calling user to be a project admin.
     property-access-controls-retrieve:
         operation: property_access_controls_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List property access control rules for a property definition.
+        description: >
+            List all property-level access control rules for a specific property definition. Pass the property
+            definition's UUID as the `property_definition_id` query parameter. Returns the default rule plus any
+            member-specific or role-specific overrides. Each rule's `access_level` is one of: `read_write` (target can
+            read the property in queries and edit its definition), `read` (target can read it in queries but not edit
+            it), or `none` (the property is stripped from queries entirely and the target cannot see its values).
+            Member-specific rules win over role-specific rules, which win over the default rule. Use this to audit who
+            can see or modify a given property.

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "property_definition_id": {
+            "description": "The property definition ID to fetch access control rules for.",
+            "type": "string"
+        }
+    },
+    "required": ["property_definition_id"],
+    "type": "object"
+}
