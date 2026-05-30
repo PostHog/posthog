@@ -7489,6 +7489,10 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
+    useRetentionPreAggregation: bool | None = Field(
+        default=None,
+        description=("Whether to read first-occurrence retention from the pre-aggregated retention_curve table"),
+    )
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 

@@ -34,8 +34,15 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
+from posthog.hogql_queries.insights.retention.retention_base_query_preagg import build_preagg_base_query
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
+)
+from posthog.hogql_queries.insights.retention.retention_curve_materialize import (
+    HORIZON_DAYS,
+    SUPPORTED_KINDS,
+    ensure_retention_curve,
+    kind_for_entity_id,
 )
 from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -412,11 +419,56 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         return refresh_frequency
 
+    @cached_property
+    def should_use_retention_preagg(self) -> bool:
+        # Routing gate for the per-person retention_curve. Conservative on purpose — each
+        # condition rules out a shape v1 can't answer. Expand by extending the curve, not by
+        # relaxing checks here.
+        if not self.modifiers.useRetentionPreAggregation:
+            return False
+        # First-occurrence only; recurring re-cohorts every period and falls through to raw.
+        if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            return False
+        # 24h windows and custom brackets have per-interval shapes the curve doesn't reproduce.
+        if self.is_24h_window_calculation or self.is_custom_bracket_retention:
+            return False
+        # Person retention only.
+        if self.group_type_index is not None:
+            return False
+        # Property aggregation / minimum-occurrences / property filters need event data the
+        # curve doesn't store.
+        if self.has_property_aggregation:
+            return False
+        if (self.query.retentionFilter.minimumOccurrences or 1) > 1:
+            return False
+        if self.query.properties or self.start_event.properties or self.return_event.properties:
+            return False
+        # Both entities must be the same materialised kind (page-view or all-events).
+        if self.start_event.type != EntityType.EVENTS or self.return_event.type != EntityType.EVENTS:
+            return False
+        start_kind = kind_for_entity_id(self.start_event.id)
+        if not (start_kind == kind_for_entity_id(self.return_event.id) and start_kind in SUPPORTED_KINDS):
+            return False
+        # Curve only holds offsets up to the horizon; longer lookaheads fall through to raw.
+        return self._max_lookahead_days() <= HORIZON_DAYS
+
+    def _max_lookahead_days(self) -> int:
+        interval_days = {"day": 1, "week": 7, "month": 31}.get(self.query_date_range.interval_name, 1)
+        return self.query_date_range.lookahead * interval_days
+
     def _base_query(
         self,
         start_interval_index_filter: Optional[int] = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
+        if self.should_use_retention_preagg:
+            preagg_query = self._build_preagg_base_query(
+                start_interval_index_filter=start_interval_index_filter,
+                selected_breakdown_value=selected_breakdown_value,
+            )
+            if preagg_query is not None:
+                return preagg_query
+            # Materialisation not ready or shape unsupported — raw events are always correct.
         builder_class = (
             RetentionRollingIntervalBaseQueryBuilder
             if self.is_24h_window_calculation
@@ -426,6 +478,19 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             start_interval_index_filter=start_interval_index_filter,
             selected_breakdown_value=selected_breakdown_value,
         )
+
+    def _build_preagg_base_query(
+        self,
+        start_interval_index_filter: Optional[int] = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery | None:
+        # Actor drill-down post-filters (HAVING) aren't reproduced on the curve path yet.
+        if start_interval_index_filter is not None or selected_breakdown_value is not None:
+            return None
+        materialisation = ensure_retention_curve(self.team, kind_for_entity_id(self.start_event.id))
+        if not materialisation.ready:
+            return None
+        return build_preagg_base_query(RetentionFixedIntervalBaseQueryBuilder(self))
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
