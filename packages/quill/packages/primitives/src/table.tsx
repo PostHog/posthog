@@ -5,6 +5,18 @@ import { cn } from './lib/utils'
 
 type Sticky = 'left' | 'right'
 
+// Sets each ref (object or callback) to the same node — lets the viewport carry
+// both the internal scroll-tracking ref and a caller-supplied `viewportRef`.
+function setRefs<T>(node: T, ...refs: Array<React.Ref<T> | undefined>): void {
+    for (const ref of refs) {
+        if (typeof ref === 'function') {
+            ref(node)
+        } else if (ref) {
+            ;(ref as React.MutableRefObject<T | null>).current = node
+        }
+    }
+}
+
 // Reflects which edges of `viewport` still have hidden content as
 // `data-scroll-{top,right,bottom,left}` on `root` (the non-scrolling wrapper, so
 // edge-shadow overlays on it stay fixed while content scrolls). CSS keys the
@@ -44,12 +56,7 @@ function useScrollEdges(
     }, [rootRef, viewportRef])
 }
 
-function Table({
-    className,
-    tableClassName,
-    stickyHeader = false,
-    ...props
-}: React.ComponentProps<'table'> & {
+type TableProps = React.ComponentProps<'table'> & {
     /**
      * `true` — header sticks within the table's own scroll viewport (needs a
      * bounded height). `'page'` — header sticks to document scroll instead; the
@@ -57,12 +64,25 @@ function Table({
      * Offset it past fixed page chrome with `--quill-table-sticky-top`.
      */
     stickyHeader?: boolean | 'page'
-    /** Classes for the inner <table>. Size/scroll go on the container via `className`. */
+    /** Classes for the inner `<table>`. Size/scroll go on the container via `className`. */
     tableClassName?: string
-}): React.ReactElement {
+    /** Ref to the scrolling viewport — for scroll-to-row, virtualization, IntersectionObservers, etc. */
+    viewportRef?: React.Ref<HTMLDivElement>
+}
+
+// The forwarded ref points at the `<table>` element (consistent with `...props`,
+// which also land there). The scroll container is reached via `viewportRef`.
+const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
+    { className, tableClassName, stickyHeader = false, viewportRef, ...props },
+    ref
+) {
     const rootRef = React.useRef<HTMLDivElement | null>(null)
-    const viewportRef = React.useRef<HTMLDivElement | null>(null)
-    useScrollEdges(rootRef, viewportRef)
+    const innerViewportRef = React.useRef<HTMLDivElement | null>(null)
+    useScrollEdges(rootRef, innerViewportRef)
+    const setViewport = React.useCallback(
+        (node: HTMLDivElement | null): void => setRefs(node, innerViewportRef, viewportRef),
+        [viewportRef]
+    )
     // `className` sizes the non-scrolling root (which clips + hosts the fixed edge
     // shadows); the inner viewport owns the scroll. Sticky header/columns position
     // against the viewport.
@@ -74,8 +94,9 @@ function Table({
             data-page-sticky={stickyHeader === 'page' ? '' : undefined}
             className={cn('quill-table__root', className)}
         >
-            <div ref={viewportRef} data-slot="table-viewport" className="quill-table__viewport">
+            <div ref={setViewport} data-slot="table-viewport" className="quill-table__viewport">
                 <table
+                    ref={ref}
                     data-slot="table"
                     data-sticky-header={stickyHeader ? '' : undefined}
                     className={cn('quill-table', tableClassName)}
@@ -84,56 +105,80 @@ function Table({
             </div>
         </div>
     )
-}
+})
 
-function TableHeader({ className, ...props }: React.ComponentProps<'thead'>): React.ReactElement {
-    return <thead data-slot="table-header" className={cn('quill-table__header', className)} {...props} />
-}
+const TableHeader = React.forwardRef<HTMLTableSectionElement, React.ComponentProps<'thead'>>(function TableHeader(
+    { className, ...props },
+    ref
+) {
+    return <thead ref={ref} data-slot="table-header" className={cn('quill-table__header', className)} {...props} />
+})
 
-function TableBody({ className, ...props }: React.ComponentProps<'tbody'>): React.ReactElement {
-    return <tbody data-slot="table-body" className={cn('quill-table__body', className)} {...props} />
-}
+const TableBody = React.forwardRef<HTMLTableSectionElement, React.ComponentProps<'tbody'>>(function TableBody(
+    { className, ...props },
+    ref
+) {
+    return <tbody ref={ref} data-slot="table-body" className={cn('quill-table__body', className)} {...props} />
+})
 
-function TableFooter({ className, ...props }: React.ComponentProps<'tfoot'>): React.ReactElement {
-    return <tfoot data-slot="table-footer" className={cn('quill-table__footer', className)} {...props} />
-}
+const TableFooter = React.forwardRef<HTMLTableSectionElement, React.ComponentProps<'tfoot'>>(function TableFooter(
+    { className, ...props },
+    ref
+) {
+    return <tfoot ref={ref} data-slot="table-footer" className={cn('quill-table__footer', className)} {...props} />
+})
 
-function TableRow({ className, ...props }: React.ComponentProps<'tr'>): React.ReactElement {
-    return <tr data-slot="table-row" className={cn('quill-table__row', className)} {...props} />
-}
+const TableRow = React.forwardRef<HTMLTableRowElement, React.ComponentProps<'tr'>>(function TableRow(
+    { className, ...props },
+    ref
+) {
+    return <tr ref={ref} data-slot="table-row" className={cn('quill-table__row', className)} {...props} />
+})
 
-function TableHead({
-    className,
-    sticky,
-    ...props
-}: React.ComponentProps<'th'> & { sticky?: Sticky }): React.ReactElement {
-    return (
-        <th
-            data-slot="table-head"
-            data-sticky={sticky}
-            className={cn('quill-table__head', className)}
-            {...props}
-        />
-    )
-}
+const TableHead = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'th'> & { sticky?: Sticky }>(
+    // `scope="col"` by default (the common case); override to "row" for row headers.
+    function TableHead({ className, sticky, scope = 'col', ...props }, ref) {
+        return (
+            <th
+                ref={ref}
+                data-slot="table-head"
+                data-sticky={sticky}
+                scope={scope}
+                className={cn('quill-table__head', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function TableCell({
-    className,
-    sticky,
-    ...props
-}: React.ComponentProps<'td'> & { sticky?: Sticky }): React.ReactElement {
-    return (
-        <td
-            data-slot="table-cell"
-            data-sticky={sticky}
-            className={cn('quill-table__cell', className)}
-            {...props}
-        />
-    )
-}
+const TableCell = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'td'> & { sticky?: Sticky }>(
+    function TableCell({ className, sticky, ...props }, ref) {
+        return (
+            <td
+                ref={ref}
+                data-slot="table-cell"
+                data-sticky={sticky}
+                className={cn('quill-table__cell', className)}
+                {...props}
+            />
+        )
+    }
+)
 
-function TableCaption({ className, ...props }: React.ComponentProps<'caption'>): React.ReactElement {
-    return <caption data-slot="table-caption" className={cn('quill-table__caption', className)} {...props} />
-}
+const TableCaption = React.forwardRef<HTMLTableCaptionElement, React.ComponentProps<'caption'>>(function TableCaption(
+    { className, ...props },
+    ref
+) {
+    return <caption ref={ref} data-slot="table-caption" className={cn('quill-table__caption', className)} {...props} />
+})
+
+Table.displayName = 'Table'
+TableHeader.displayName = 'TableHeader'
+TableBody.displayName = 'TableBody'
+TableFooter.displayName = 'TableFooter'
+TableRow.displayName = 'TableRow'
+TableHead.displayName = 'TableHead'
+TableCell.displayName = 'TableCell'
+TableCaption.displayName = 'TableCaption'
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption }
