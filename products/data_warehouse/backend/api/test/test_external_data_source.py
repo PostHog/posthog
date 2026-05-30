@@ -7403,9 +7403,17 @@ class TestDisableCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
     def test_disable_cdc_cancels_running_workflow(self, mock_cancel, _cleanup) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
         running_job = ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             team_id=self.team.pk,
+            schema=cdc_schema,
             workflow_id="cdc-extraction-running-workflow",
             status="Running",
             rows_synced=0,
@@ -7416,6 +7424,36 @@ class TestDisableCDC(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         mock_cancel.assert_called_once_with(running_job.workflow_id)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
+    def test_disable_cdc_does_not_cancel_non_cdc_running_jobs(self, mock_cancel, _cleanup) -> None:
+        # A running incremental sync on the same source must NOT be cancelled by disable_cdc.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        incremental_schema = ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            team_id=self.team.pk,
+            schema=incremental_schema,
+            workflow_id="incremental-running-workflow",
+            status="Running",
+            rows_synced=0,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+        mock_cancel.assert_not_called()
 
     @patch(
         "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",

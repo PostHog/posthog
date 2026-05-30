@@ -2047,17 +2047,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": cdc_error},
             )
 
-        # Ensure the CDC extraction schedule + global cleanup schedule exist. No CDC
-        # schemas yet (user must switch sync_type=cdc on the Sync tab afterward), so
-        # `sync_cdc_extraction_schedule` no-ops or creates a paused schedule — that's
-        # fine, it'll start running on the next schema update.
+        # Ensure the global cleanup schedule exists. There are no CDC schemas yet (the user
+        # picks sync_type=cdc per schema afterward), so `sync_cdc_extraction_schedule` is a
+        # no-op here — the extraction schedule is authoritatively (re)created when a schema is
+        # switched to CDC. A failure here therefore can't leave a "CDC on, never runs" state:
+        # the slot + config are valid and the schedule self-heals on the first CDC schema
+        # toggle. Surface failures (capture, not just log) and flag them in the response.
+        schedules_ok = True
         try:
             sync_cdc_extraction_schedule(instance, create=True)
             ensure_cdc_slot_cleanup_schedule()
         except Exception as e:
+            schedules_ok = False
             logger.exception("Could not create CDC schedules after enable_cdc", exc_info=e)
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
 
-        return Response(status=status.HTTP_200_OK, data={"success": True})
+        return Response(status=status.HTTP_200_OK, data={"success": True, "schedules_ready": schedules_ok})
 
     @action(methods=["POST"], detail=True)
     def disable_cdc(self, request: Request, *arg: Any, **kwargs: Any):
@@ -2081,9 +2086,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not cdc_config.enabled:
             return Response(status=status.HTTP_200_OK, data={"success": True, "already_disabled": True})
 
-        # Cancel ALL running workflows first — any one holding the slot fails pg_drop_replication_slot.
+        # Cancel running jobs for this source's CDC schemas — one holding the slot fails
+        # pg_drop_replication_slot. Scope to CDC schemas so we don't cancel unrelated
+        # incremental/full-refresh syncs on the same source. Read before the sync_type reset
+        # below, while these schemas are still marked CDC.
+        cdc_schema_ids = list(
+            ExternalDataSchema.objects.filter(
+                source=instance,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+            )
+            .exclude(deleted=True)
+            .values_list("id", flat=True)
+        )
         running_jobs = ExternalDataJob.objects.filter(
-            pipeline_id=instance.pk, team_id=instance.team_id, status="Running"
+            pipeline_id=instance.pk,
+            team_id=instance.team_id,
+            status="Running",
+            schema_id__in=cdc_schema_ids,
         ).exclude(workflow_id__isnull=True)
         for running_job in running_jobs:
             if not running_job.workflow_id:

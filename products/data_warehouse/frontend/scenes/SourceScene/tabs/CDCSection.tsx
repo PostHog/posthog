@@ -67,16 +67,20 @@ function getCdcConfig(source: ExternalDataSource): {
     }
 }
 
-// Quote a (possibly schema-qualified) table identifier for SQL. `orders` -> "public"."orders";
+// Quote a single SQL identifier, escaping embedded double-quotes ("" per the SQL spec) so a
+// source/table/user/publication name containing `"` can't break out of the quotes and inject
+// extra statements into the generated copy-paste setup script.
+function quoteIdent(ident: string): string {
+    return `"${ident.replace(/"/g, '""')}"`
+}
+
+// Quote a (possibly schema-qualified) table identifier. `orders` -> "public"."orders";
 // `analytics.events` -> "analytics"."events".
 function quoteTable(name: string, defaultSchema: string): string {
     if (name.includes('.')) {
-        return name
-            .split('.')
-            .map((part) => `"${part}"`)
-            .join('.')
+        return name.split('.').map(quoteIdent).join('.')
     }
-    return `"${defaultSchema}"."${name}"`
+    return `${quoteIdent(defaultSchema)}.${quoteIdent(name)}`
 }
 
 // Self-managed CDC setup SQL the customer's DBA runs before PostHog creates the slot.
@@ -90,25 +94,32 @@ function buildSelfManagedCdcSql(source: ExternalDataSource, publicationName: str
     // No CDC tables picked yet at enable time, so default to the source's synced tables.
     const syncedTables = (source.schemas ?? []).filter((s) => s.should_sync).map((s) => s.name)
     const tableList =
-        syncedTables.length > 0 ? syncedTables.map((t) => quoteTable(t, schema)).join(', ') : `"${schema}"."your_table"`
+        syncedTables.length > 0
+            ? syncedTables.map((t) => quoteTable(t, schema)).join(', ')
+            : `${quoteIdent(schema)}.${quoteIdent('your_table')}`
+
+    // All identifiers go through quoteIdent so a name with an embedded `"` can't inject SQL.
+    const user = quoteIdent(dbUser)
+    const sch = quoteIdent(schema)
+    const pub = quoteIdent(pubName)
 
     return `-- 1. Grants for the PostHog user
 --    Reading a replication slot requires REPLICATION (or rds_replication on RDS).
 --    Run ONE of the lines below, depending on your environment:
-ALTER USER "${dbUser}" WITH REPLICATION;             -- self-hosted / most clouds
--- GRANT rds_replication TO "${dbUser}";             -- AWS RDS
-GRANT USAGE ON SCHEMA "${schema}" TO "${dbUser}";
-GRANT SELECT ON ${tableList} TO "${dbUser}";
+ALTER USER ${user} WITH REPLICATION;             -- self-hosted / most clouds
+-- GRANT rds_replication TO ${user};             -- AWS RDS
+GRANT USAGE ON SCHEMA ${sch} TO ${user};
+GRANT SELECT ON ${tableList} TO ${user};
 
 -- 2. Publication covering the tables you'll sync via CDC.
 --    Run this as the table owner (or a superuser). Adjust the table list to match the
 --    tables you intend to switch to CDC on the Schemas tab. PostHog creates and manages
 --    the replication slot itself once you enable CDC.
-CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
+CREATE PUBLICATION ${pub} FOR TABLE ${tableList}
   WITH (publish_via_partition_root = true);
 
 -- Later, to add a new table to the publication:
--- ALTER PUBLICATION "${pubName}" ADD TABLE "${schema}"."new_table";`
+-- ALTER PUBLICATION ${pub} ADD TABLE ${sch}.${quoteIdent('new_table')};`
 }
 
 function confirmThen(opts: {
