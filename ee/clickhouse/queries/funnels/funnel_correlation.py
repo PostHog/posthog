@@ -465,6 +465,13 @@ class FunnelCorrelation:
         """
 
     def _get_aggregation_join_query(self):
+        if (
+            self._filter.aggregation_group_type_index is None
+            and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
+            and alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED
+        ):
+            return "", {}
+
         if self._filter.aggregation_group_type_index is None:
             person_query, person_query_params = PersonQuery(
                 self._filter,
@@ -496,12 +503,11 @@ class FunnelCorrelation:
                 else group_properties_field
             )
 
+        person_property_params: dict[str, Any] = {}
         if "$all" in cast(list, self._filter.correlation_property_names):
             prop_array_query = f"JSONExtractKeysAndValues({aggregation_properties_alias}, 'String')"
-            person_property_params = {}
         else:
             person_property_expressions = []
-            person_property_params = {}
             for index, property_name in enumerate(cast(list, self._filter.correlation_property_names)):
                 param_name = f"property_name_{index}"
                 if self._filter.aggregation_group_type_index is not None:

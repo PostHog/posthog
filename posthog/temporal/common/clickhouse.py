@@ -1,3 +1,4 @@
+import io
 import re
 import ssl
 import sys
@@ -125,15 +126,15 @@ class DecodedResponse(typing.Protocol):
     def iter_content(self, chunk_size: int = ...) -> collections.abc.Iterator[bytes]: ...
 
 
-class DecodedResponseStream:
+class DecodedResponseStream(io.RawIOBase):
     """File-like wrapper that buffers decoded requests response chunks for PyArrow."""
 
     mode = "rb"
 
     def __init__(self, response: DecodedResponse) -> None:
+        super().__init__()
         self._chunks = response.iter_content(chunk_size=8192)
         self._buffer = bytearray()
-        self.closed = False
 
     def readable(self) -> bool:
         return True
@@ -158,8 +159,15 @@ class DecodedResponseStream:
         del self._buffer[:size]
         return data
 
+    def readinto(self, buffer: collections.abc.Buffer) -> int:
+        view = memoryview(buffer)
+        data = self.read(len(view))
+        bytes_read = len(data)
+        view[:bytes_read] = data
+        return bytes_read
+
     def close(self) -> None:
-        self.closed = True
+        super().close()
 
 
 class ClickHouseClientNotConnected(Exception):
