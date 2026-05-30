@@ -115,7 +115,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
-                    const response = await api.conversations.list()
+                    let response: Awaited<ReturnType<typeof api.conversations.list>>
+                    try {
+                        response = await api.conversations.list()
+                    } catch (err: any) {
+                        if (err?.status === 404) {
+                            // The conversations endpoint is only registered when Max is available (e.g. EE routes).
+                            // When it isn't, the request falls through to the catch-all 404. Treat this as
+                            // "Max unavailable" and swallow it silently — no toast, no error tracking noise.
+                            return values.conversationHistory
+                        }
+                        throw err
+                    }
                     return response.results.map((conversation) =>
                         mergeConversations(
                             conversation,

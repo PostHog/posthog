@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -41,6 +43,38 @@ describe('maxGlobalLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    describe('loadConversationHistory', () => {
+        it('swallows a 404 (Max unavailable) without a toast or error', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/conversations/': () => [404, { detail: 'Endpoint not found.' }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversationHistory()
+            })
+                .toDispatchActions(['loadConversationHistorySuccess'])
+                .toNotHaveDispatchedActions(['loadConversationHistoryFailure'])
+                .toMatchValues({ conversationHistory: [] })
+
+            expect(toastSpy).not.toHaveBeenCalled()
+        })
+
+        it('still fails on non-404 errors', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/conversations/': () => [500, { detail: 'Server error' }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversationHistory()
+            }).toDispatchActions(['loadConversationHistoryFailure'])
+        })
     })
 
     describe('editInsightToolRegistered selector', () => {
