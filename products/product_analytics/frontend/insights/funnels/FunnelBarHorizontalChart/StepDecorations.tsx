@@ -66,7 +66,20 @@ export function StepDecorations({
 
                 const dimRow = isOptional ? 'opacity-60' : ''
 
-                const halfGlyph = `${GLYPH_HEIGHT_PX / 2}px`
+                // Conversion-% label for the step, placed in the empty track just past the bar so it
+                // never paints over breakdown segments. The fill fraction matches the bar's filled
+                // width (value series / stack total). Omitted when the bar leaves no room for it.
+                const barCenterY = rowHeight / 2
+                const fillFraction = Math.max(0, Math.min(1, step.conversionRates.fromBasisStep))
+                const fillPx = fillFraction * plotWidth
+                const pctLabel = formatConvertedPercentage(step)
+                const pctFitsTrack = plotWidth - fillPx >= pctLabel.length * 8 + 16
+
+                const halfGlyphPx = GLYPH_HEIGHT_PX / 2
+                // Align the step glyph with the header title rather than the bar's vertical centre,
+                // so the numbered circle reads inline with the step title. The small nudge past the
+                // line-box centre matches the title text's optical centre (text sits low in its box).
+                const glyphCenter = gapHeight / 2 + 4
                 const lineStyle = {
                     position: 'absolute' as const,
                     left: 'calc(50% - 1px)',
@@ -78,25 +91,39 @@ export function StepDecorations({
                 return (
                     <div
                         key={step.order}
+                        // Clicks on the overlay's own controls (kebab, value buttons) must not bubble to
+                        // the chart wrapper's click handler, which would also open the persons modal.
+                        onClick={(e) => e.stopPropagation()}
                         style={{ position: 'absolute', top: rowTop, left: 0, width: '100%', height: rowHeight }}
                         className="pointer-events-none [&_[role=button]]:pointer-events-auto [&_a]:pointer-events-auto [&_button]:pointer-events-auto"
                     >
                         <div
                             style={{ position: 'absolute', top: 0, left: 0, width: plotLeft, height: rowHeight }}
-                            className={clsx('flex flex-col items-center justify-center', isOptional && 'opacity-70')}
+                            className={clsx(isOptional && 'opacity-70')}
                         >
                             {stepIndex > 0 && (
-                                <div style={{ ...lineStyle, top: 0, height: `calc(50% - ${halfGlyph})` }} />
+                                <div style={{ ...lineStyle, top: 0, height: Math.max(0, glyphCenter - halfGlyphPx) }} />
                             )}
                             {isOptional && hasOptionalSteps && (
-                                <div className="absolute top-0 left-[calc(50%-1px)] w-[2px] h-full bg-[var(--color-border-primary)] opacity-50 z-[1]" />
+                                <div
+                                    className="absolute left-[calc(50%-1px)] w-[2px] bg-[var(--color-border-primary)] opacity-50 z-[1]"
+                                    style={{ top: 0, height: rowHeight }}
+                                />
                             )}
                             {isOptional && (
-                                <div className="absolute top-[calc(50%-1px)] left-[calc(50%-1px)] w-6 h-[2px] bg-[var(--color-border-primary)] opacity-50" />
+                                <div
+                                    className="absolute left-[calc(50%-1px)] w-6 h-[2px] bg-[var(--color-border-primary)] opacity-50"
+                                    style={{ top: glyphCenter - 1 }}
+                                />
                             )}
                             <div
-                                className={clsx('relative z-10 select-none', isOptional && 'ml-6')}
-                                style={{ pointerEvents: 'auto' }}
+                                className={clsx('absolute z-10 select-none', isOptional && 'ml-6')}
+                                style={{
+                                    top: glyphCenter,
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    pointerEvents: 'auto',
+                                }}
                             >
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     {isUnordered ? (
@@ -107,7 +134,7 @@ export function StepDecorations({
                                 </SeriesGlyph>
                             </div>
                             {stepIndex < steps.length - 1 && (
-                                <div style={{ ...lineStyle, top: `calc(50% + ${halfGlyph})`, bottom: 0 }} />
+                                <div style={{ ...lineStyle, top: glyphCenter + halfGlyphPx, bottom: 0 }} />
                             )}
                         </div>
 
@@ -131,9 +158,13 @@ export function StepDecorations({
                                 </div>
                                 {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
                                 {!isUnordered && stepIndex > 0 && step.action_id === steps[stepIndex - 1].action_id && (
-                                    <DuplicateStepIndicator />
+                                    // pointer-events-auto so the click hits the overlay (then stops) instead of
+                                    // falling through to the canvas and opening the persons modal.
+                                    <span className="pointer-events-auto inline-flex items-center">
+                                        <DuplicateStepIndicator />
+                                    </span>
                                 )}
-                                <FunnelStepMore stepIndex={stepIndex} />
+                                <FunnelStepMore stepIndex={stepIndex} className="ml-2" />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
                                 <div
@@ -145,6 +176,20 @@ export function StepDecorations({
                                 </div>
                             ) : null}
                         </header>
+
+                        {pctFitsTrack && (
+                            <div
+                                className={clsx('absolute text-sm font-bold whitespace-nowrap', dimRow)}
+                                style={{
+                                    top: barCenterY,
+                                    left: plotLeft + fillPx + 8,
+                                    transform: 'translateY(-50%)',
+                                    color: 'var(--text-3000)',
+                                }}
+                            >
+                                {pctLabel}
+                            </div>
+                        )}
 
                         <div
                             style={{

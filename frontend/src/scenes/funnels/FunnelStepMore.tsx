@@ -13,9 +13,10 @@ import { funnelDataLogic } from './funnelDataLogic'
 
 type FunnelStepMoreProps = {
     stepIndex: number
+    className?: string
 }
 
-export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
+export function FunnelStepMore({ stepIndex, className }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
 
@@ -50,7 +51,7 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
         return null
     }
 
-    return (
+    const more = (
         <More
             placement="bottom-start"
             noPadding
@@ -83,4 +84,8 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
             }
         />
     )
+
+    // Wrap so a caller's margin lands on the flex item, not the inner button (the dropdown
+    // wraps the button in its own reference element, which swallows margins applied via className).
+    return className ? <span className={`inline-flex items-center ${className}`}>{more}</span> : more
 }
