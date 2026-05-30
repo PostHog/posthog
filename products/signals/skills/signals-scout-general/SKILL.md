@@ -33,8 +33,8 @@ Three cheap reads cold-start a run:
 - `signals-scout-scratchpad-search` — durable observations from past runs (the
   team's history). Search with `text=<keyword>` (ILIKE on key + content).
 - `signals-scout-runs-list` — recent summaries from this scout and siblings. Skim
-  the prose; pull `runs-retrieve` only when a summary mentions something you're
-  considering.
+  the prose; pull `signals-scout-runs-retrieve` only when a summary mentions
+  something you're considering.
 
 ## Explore
 

@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             model_name="signalscoutconfig",
             name="runs_per_tick",
             field=models.PositiveSmallIntegerField(
+                db_default=1,
                 default=1,
                 validators=[
                     django.core.validators.MinValueValidator(0),

@@ -420,6 +420,7 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
     # misconfigured team can't blow the global cap on its own.
     runs_per_tick = models.PositiveSmallIntegerField(
         default=1,
+        db_default=1,
         validators=[MinValueValidator(0), MaxValueValidator(50)],
     )
     created_at = models.DateTimeField(auto_now_add=True)
