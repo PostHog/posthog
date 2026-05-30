@@ -4,6 +4,7 @@
     "properties": {
         "content": {
             "description": "Prose to write. Read verbatim into future prompts.",
+            "maxLength": 50000,
             "type": "string"
         },
         "key": {

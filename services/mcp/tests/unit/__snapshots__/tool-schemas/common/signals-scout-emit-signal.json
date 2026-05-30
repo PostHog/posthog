@@ -16,6 +16,7 @@
         },
         "description": {
             "description": "Canonical evidence-bundle prose. Becomes the signal's `description`.",
+            "maxLength": 50000,
             "type": "string"
         },
         "evidence": {
