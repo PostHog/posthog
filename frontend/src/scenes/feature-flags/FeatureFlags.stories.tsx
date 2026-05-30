@@ -176,8 +176,8 @@ export const NewRemoteConfigFlagPayloadError: Story = {
         // screenshot captures the default "Unnamed" state (~37% visual diff).
         await waitFor(
             () => {
-                const hasPayloadSection = Array.from(canvasElement.querySelectorAll('.LemonLabel')).some(
-                    (el) => el.textContent?.includes('Payload')
+                const hasPayloadSection = Array.from(canvasElement.querySelectorAll('.LemonLabel')).some((el) =>
+                    el.textContent?.includes('Payload')
                 )
                 if (!hasPayloadSection) {
                     throw new Error('Payload section not yet visible — is_remote_configuration not flushed')
