@@ -14,7 +14,9 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationApi,
+    ConversationLogApi,
     ConversationsListParams,
+    ConversationsLogRetrieveParams,
     ConversationsTicketsListParams,
     ConversationsViewsListParams,
     MessageApi,
@@ -167,6 +169,41 @@ export const conversationsCancelPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedConversationApi),
+    })
+}
+
+export const getConversationsLogRetrieveUrl = (
+    projectId: string,
+    conversation: string,
+    params?: ConversationsLogRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/conversations/${conversation}/log/?${stringifiedParams}`
+        : `/api/environments/${projectId}/conversations/${conversation}/log/`
+}
+
+/**
+ * Server-assembled multi-Run history for a sandbox conversation. Walks the conversation's Task Runs chronologically and concatenates each Run's stored ACP log entries into a single buffer. Sandbox runtime only — langgraph conversations have no ACP logs and return 400.
+ */
+export const conversationsLogRetrieve = async (
+    projectId: string,
+    conversation: string,
+    params?: ConversationsLogRetrieveParams,
+    options?: RequestInit
+): Promise<ConversationLogApi> => {
+    return apiMutator<ConversationLogApi>(getConversationsLogRetrieveUrl(projectId, conversation, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

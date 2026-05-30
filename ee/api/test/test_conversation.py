@@ -1,3 +1,4 @@
+import json
 import uuid
 import datetime
 from typing import Any, cast
@@ -30,7 +31,7 @@ from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet
 from ee.models.assistant import Conversation
@@ -1158,6 +1159,16 @@ class TestConversation(APIBaseTest):
 
 
 class TestSandboxConversation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.other_team = Team.objects.create(organization=self.organization, name="other team")
+        self.other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="sandbox-other@posthog.com",
+            password="password",
+            first_name="Other",
+        )
+
     def _post_sandbox_message(self, conversation_id: str, attached_context: list[dict] | None = None) -> Any:
         body: dict[str, Any] = {
             "content": "Why did conversions drop?",
@@ -1264,6 +1275,147 @@ class TestSandboxConversation(APIBaseTest):
             str(uuid.uuid4()), attached_context=[{"type": "text", "value": "x" * 4097}]
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # --- GET /log/ (02_CORE § 4.6) + detail messages shape (§ 4.7) ---
+
+    def _make_sandbox_conversation(self, *, user=None, team=None, with_task: bool = True) -> Conversation:
+        conversation = Conversation.objects.create(
+            user=user or self.user,
+            team=team or self.team,
+            title="Sandbox chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+        if with_task:
+            task = Task.objects.create(
+                team=team or self.team,
+                created_by=user or self.user,
+                title="Sandbox chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            conversation.sandbox_task_id = task.id
+            conversation.save(update_fields=["sandbox_task_id"])
+        return conversation
+
+    def _make_run(self, conversation: Conversation, status_value: str) -> TaskRun:
+        return TaskRun.objects.create(task_id=conversation.sandbox_task_id, team=self.team, status=status_value)
+
+    @staticmethod
+    def _ndjson(entries: list[dict[str, Any]]) -> str:
+        return "\n".join(json.dumps(e) for e in entries)
+
+    def test_log_returns_concatenated_entries_in_order(self):
+        conversation = self._make_sandbox_conversation()
+        run1 = self._make_run(conversation, TaskRun.Status.COMPLETED)
+        run2 = self._make_run(conversation, TaskRun.Status.IN_PROGRESS)
+        contents = {
+            run1.log_url: self._ndjson([{"type": "notification", "seq": 1}, {"type": "notification", "seq": 2}]),
+            run2.log_url: self._ndjson([{"type": "notification", "seq": 3}]),
+        }
+        with patch(
+            "ee.hogai.sandbox.log_assembler.object_storage.read",
+            side_effect=lambda url, missing_ok=True: contents.get(url, ""),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([e["seq"] for e in data["entries"]], [1, 2, 3])
+        self.assertFalse(data["has_more"])
+        self.assertEqual(data["current_run_status"], TaskRun.Status.IN_PROGRESS)
+
+    def test_log_limit_caps_and_reports_has_more(self):
+        conversation = self._make_sandbox_conversation()
+        self._make_run(conversation, TaskRun.Status.COMPLETED)
+        with patch(
+            "ee.hogai.sandbox.log_assembler.object_storage.read",
+            return_value=self._ndjson([{"seq": i} for i in range(5)]),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/?limit=2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["entries"]), 2)
+        self.assertTrue(data["has_more"])
+
+    def test_log_desc_order(self):
+        conversation = self._make_sandbox_conversation()
+        self._make_run(conversation, TaskRun.Status.COMPLETED)
+        with patch(
+            "ee.hogai.sandbox.log_assembler.object_storage.read",
+            return_value=self._ndjson([{"seq": 1}, {"seq": 2}, {"seq": 3}]),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/?order=desc"
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([e["seq"] for e in response.json()["entries"]], [3, 2, 1])
+
+    def test_log_rejects_limit_over_cap(self):
+        conversation = self._make_sandbox_conversation()
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/?limit=5001")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_log_no_runs_returns_empty(self):
+        conversation = self._make_sandbox_conversation(with_task=False)
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["entries"], [])
+        self.assertFalse(data["has_more"])
+        self.assertIsNone(data["current_run_status"])
+
+    def test_log_rejects_langgraph_runtime(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Langgraph chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("sandbox-runtime only", response.json()["detail"])
+
+    def test_log_other_users_conversation_in_team_succeeds(self):
+        # Mirrors retrieve: other users in the same team can read the conversation by id.
+        conversation = self._make_sandbox_conversation(user=self.other_user, with_task=False)
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_log_other_teams_conversation_fails(self):
+        conversation = self._make_sandbox_conversation(user=self.user, team=self.other_team, with_task=False)
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/log/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_log_nonexistent_conversation_returns_404(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{uuid.uuid4()}/log/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_sandbox_detail_returns_empty_messages(self):
+        conversation = self._make_sandbox_conversation(with_task=False)
+        # Even with persisted turn messages, the detail endpoint must return an empty array
+        # for sandbox conversations (history lives in S3, fetched via GET /log/).
+        conversation.messages_json = [{"type": "human", "content": "hi"}]
+        conversation.save(update_fields=["messages_json"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["messages"], [])
+
+    def test_langgraph_detail_messages_unchanged(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Langgraph chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+            messages_json=[{"type": "human", "content": "hi"}],
+        )
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Non-sandbox conversation with messages_json keeps returning it (legacy behavior unchanged).
+        self.assertEqual(response.json()["messages"], [{"type": "human", "content": "hi"}])
 
 
 class TestConversationSoftDelete(APIBaseTest):

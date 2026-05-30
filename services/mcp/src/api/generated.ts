@@ -8353,6 +8353,21 @@ export namespace Schemas {
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
     }
 
+    /**
+     * Response body for the multi-Run sandbox history endpoint (02_CORE § 4.6).
+     */
+    export interface ConversationLog {
+      /** ACP log entries concatenated across all of the conversation's Runs, in the requested order. */
+      entries: unknown[];
+      /** Whether the assembled buffer held more entries than were returned in this response. */
+      has_more: boolean;
+      /**
+         * Status of the most recent Run (last by created_at), or null when no Run exists yet.
+         * @nullable
+         */
+      current_run_status: string | null;
+    }
+
     export interface ConversationMinimal {
       readonly id: string;
       readonly status: ConversationStatus;
@@ -41934,6 +41949,35 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type ConversationsLogRetrieveParams = {
+    /**
+     * Only return entries strictly after this ISO8601 timestamp (chronological cursor).
+     */
+    after?: string;
+    /**
+     * Maximum number of entries to return (default and cap 5000).
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number;
+    /**
+     * Chronological order: 'asc' (default) or 'desc' (newest first, for previews).
+
+    * `asc` - asc
+    * `desc` - desc
+     * @minLength 1
+     */
+    order?: ConversationsLogRetrieveOrder;
+    };
+
+    export type ConversationsLogRetrieveOrder = typeof ConversationsLogRetrieveOrder[keyof typeof ConversationsLogRetrieveOrder];
+
+
+    export const ConversationsLogRetrieveOrder = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
 
     export type ConversationsViewsListParams = {
     /**

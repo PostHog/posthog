@@ -50,10 +50,14 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
+from products.tasks.backend.models import TaskRun
+
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import (
     ATTACHED_CONTEXT_MAX_ITEMS,
     AttachedContextSerializer,
+    ConversationLogQuerySerializer,
+    ConversationLogSerializer,
     ConversationMinimalSerializer,
     ConversationSerializer,
 )
@@ -62,6 +66,7 @@ from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.sandbox.context_wrapper import AttachedContext
 from ee.hogai.sandbox.executor import handle_sandbox_message
+from ee.hogai.sandbox.log_assembler import assemble_conversation_log
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
@@ -231,8 +236,9 @@ class ConversationViewSet(
     def safely_get_queryset(self, queryset):
         queryset = queryset.select_related("user").exclude(deleted=True)
 
-        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
-        if self.action != "retrieve":
+        # Single retrieval and history reads of a specific conversation are allowed for other users'
+        # conversations in the same team (if ID known) — same team-membership gate as `retrieve`.
+        if self.action not in ("retrieve", "log"):
             queryset = queryset.filter(user=self.request.user)
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
@@ -617,6 +623,46 @@ class ConversationViewSet(
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        description=(
+            "Server-assembled multi-Run history for a sandbox conversation. Walks the conversation's "
+            "Task Runs chronologically and concatenates each Run's stored ACP log entries into a single "
+            "buffer. Sandbox runtime only — langgraph conversations have no ACP logs and return 400."
+        ),
+        parameters=[ConversationLogQuerySerializer],
+        responses={200: ConversationLogSerializer},
+    )
+    @action(detail=True, methods=["GET"], url_path="log")
+    def log(self, request: Request, *args, **kwargs) -> Response:
+        # get_object() applies the same team-membership gate as `retrieve` (history reads are allowed
+        # for any member of the conversation's team via safely_get_queryset + the mixin's team scoping)
+        # — no new IDOR surface.
+        conversation: Conversation = self.get_object()
+
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            return Response(
+                {"detail": "log endpoint is sandbox-runtime only; use GET /conversations/{id}/ for langgraph messages"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        query = ConversationLogQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        runs: list[TaskRun] = []
+        if conversation.sandbox_task_id is not None:
+            runs = list(
+                # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+                TaskRun.objects.filter(task_id=conversation.sandbox_task_id, team=self.team).order_by("created_at")
+            )
+
+        assembled = assemble_conversation_log(
+            runs,
+            after=query.validated_data.get("after"),
+            limit=query.validated_data["limit"],
+            order=query.validated_data["order"],
+        )
+        return Response(assembled)
 
     @extend_schema(
         description="Delete a conversation.",

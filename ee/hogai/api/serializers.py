@@ -116,6 +116,50 @@ class AttachedContextSerializer(serializers.Serializer):
         return _is_int_like(item_id) or (isinstance(item_id, str) and bool(_SHORT_ID_RE.match(item_id)))
 
 
+# GET /log/ pagination contract (02_CORE § 4.6). Single-shot, capped read across all of a
+# sandbox conversation's Runs — defaults asc/chronological, caps at 5000.
+LOG_ENTRIES_MAX_LIMIT = 5000
+LOG_ENTRIES_DEFAULT_LIMIT = 5000
+
+
+class ConversationLogQuerySerializer(serializers.Serializer):
+    """Query params for the multi-Run sandbox history endpoint (02_CORE § 4.6)."""
+
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return entries strictly after this ISO8601 timestamp (chronological cursor).",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=LOG_ENTRIES_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=LOG_ENTRIES_MAX_LIMIT,
+        help_text="Maximum number of entries to return (default and cap 5000).",
+    )
+    order = serializers.ChoiceField(
+        required=False,
+        default="asc",
+        choices=["asc", "desc"],
+        help_text="Chronological order: 'asc' (default) or 'desc' (newest first, for previews).",
+    )
+
+
+class ConversationLogSerializer(serializers.Serializer):
+    """Response body for the multi-Run sandbox history endpoint (02_CORE § 4.6)."""
+
+    entries = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="ACP log entries concatenated across all of the conversation's Runs, in the requested order.",
+    )
+    has_more = serializers.BooleanField(
+        help_text="Whether the assembled buffer held more entries than were returned in this response.",
+    )
+    current_run_status = serializers.CharField(
+        allow_null=True,
+        help_text="Status of the most recent Run (last by created_at), or null when no Run exists yet.",
+    )
+
+
 class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
@@ -149,6 +193,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+        # Sandbox conversations own their history in S3 ACP logs, fetched via GET /log/ (02_CORE § 4.7).
+        # The detail endpoint stays fast and never paginates S3 — it returns an empty messages array
+        # and lets the frontend assemble history from the log endpoint.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return []
+
         if conversation.messages_json is not None:
             return conversation.messages_json
 
