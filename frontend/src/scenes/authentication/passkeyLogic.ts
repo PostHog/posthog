@@ -1,15 +1,11 @@
-import {
-    type PublicKeyCredentialDescriptorJSON,
-    type WebAuthnError,
-    startAuthentication,
-} from '@simplewebauthn/browser'
+import { type PublicKeyCredentialDescriptorJSON, startAuthentication } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
+import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { handleLoginRedirect, loginLogic } from './loginLogic'
@@ -47,6 +43,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
             params?: BeginPasskeyLoginParams
         ) => ({ allowCredentials, params }),
         startPasskeyAuthentication: true,
+        passkeyAuthenticationCancelled: true,
         reset: true,
     }),
     reducers({
@@ -77,6 +74,13 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 startPasskeyAuthenticationSuccess: () => false,
                 startPasskeyAuthenticationFailure: () => false,
                 reset: () => false,
+            },
+        ],
+        wasCancelled: [
+            false,
+            {
+                beginPasskeyLogin: () => false,
+                passkeyAuthenticationCancelled: () => true,
             },
         ],
     }),
@@ -110,24 +114,13 @@ export const passkeyLogic = kea<passkeyLogicType>([
 
                         return null
                     } catch (e: unknown) {
-                        // Only set error if it's not a user cancellation (those are expected)
-                        if (e && typeof e === 'object' && 'name' in e) {
-                            const errorName = (e as WebAuthnError).name
-                            if (errorName !== 'NotAllowedError' && errorName !== 'AbortError') {
-                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
-                            }
-                        } else if (e && typeof e === 'object' && 'error' in e) {
-                            const nestedError = (e as { error?: WebAuthnError }).error
-                            if (
-                                nestedError?.name &&
-                                nestedError.name !== 'NotAllowedError' &&
-                                nestedError.name !== 'AbortError'
-                            ) {
-                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
-                            }
-                        } else {
-                            actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        if (isWebAuthnCancellation(e)) {
+                            // Expected user cancellation — fully swallow so it
+                            // doesn't surface in the UI or in error tracking.
+                            actions.passkeyAuthenticationCancelled()
+                            return null
                         }
+                        actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         throw e
                     }
                 },
@@ -140,6 +133,14 @@ export const passkeyLogic = kea<passkeyLogicType>([
             actions.startPasskeyAuthentication()
         },
         startPasskeyAuthenticationSuccess: async () => {
+            // The loader returns null on user cancellation to avoid surfacing
+            // the DOMException to global error capture. Skip the post-login
+            // redirect/reload path in that case so the user stays on the
+            // login screen and can retry.
+            if (values.wasCancelled) {
+                actions.reset()
+                return
+            }
             // for reauth, clear authentication required flag
             if (values.isReauth) {
                 actions.setTimeSensitiveAuthenticationRequired(false)
@@ -158,8 +159,8 @@ export const passkeyLogic = kea<passkeyLogicType>([
             window.location.reload()
         },
         startPasskeyAuthenticationFailure: () => {
-            // When passkey authentication fails (user cancels, etc.), reset state
-            // This allows the normal login flow to continue (e.g., password + 2FA)
+            // Reset state on real authentication failures so the user can fall
+            // back to the normal login flow (e.g., password + 2FA).
             actions.reset()
         },
     })),

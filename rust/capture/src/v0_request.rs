@@ -4,7 +4,7 @@ use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{error, instrument, warn, Span};
+use tracing::{instrument, Span};
 
 use crate::{
     api::CaptureError,
@@ -84,9 +84,9 @@ impl RawRequest {
                         properties: engage_event.properties,
                     }])
                 } else {
-                    let err_msg = String::from("non-engage request missing event name attribute");
-                    error!("event hydration from request failed: {err_msg}");
-                    Err(CaptureError::RequestHydrationError(err_msg))
+                    Err(CaptureError::RequestHydrationError(String::from(
+                        "non-engage request missing event name attribute",
+                    )))
                 }
             }
         };
@@ -95,7 +95,6 @@ impl RawRequest {
         match result {
             Ok(mut events) => {
                 if events.is_empty() {
-                    warn!("rejected empty batch");
                     return Err(CaptureError::EmptyBatch);
                 }
 

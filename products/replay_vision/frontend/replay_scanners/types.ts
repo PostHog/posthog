@@ -1,5 +1,6 @@
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
+import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
 export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
@@ -83,17 +84,31 @@ export function failureKindDescription(kind: FailureKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL = 'gemini-3-flash-preview'
+export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
     { value: 'disabled', label: 'Disabled' },
 ]
 
-export const MODEL_OPTIONS: { value: string; label: string }[] = [
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
-    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3 Flash Lite' },
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = [
+    { value: ScannerModelEnumApi.Gemini3FlashPreview, label: 'Gemini 3 Flash' },
+    { value: ScannerModelEnumApi.Gemini31FlashLitePreview, label: 'Gemini 3 Flash Lite' },
 ]
+
+export function modelLabel(model: string | null | undefined): string {
+    if (!model) {
+        return '—'
+    }
+    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
+}
+
+export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
+    if (!scannerType) {
+        return '—'
+    }
+    return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
+}
 
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [
     {
@@ -116,16 +131,11 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
-    {
-        value: 'indexer',
-        label: 'Indexer',
-        description: 'Generates semantic embeddings of the session for free-text search.',
-    },
 ]
 
-export type EditorTab = 'configuration' | 'triggers' | 'observations'
+export type EditorTab = 'observations' | 'configuration'
 
-export const ALL_EDITOR_TABS: EditorTab[] = ['configuration', 'triggers', 'observations']
+export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string
@@ -134,12 +144,14 @@ export interface MonitorScannerConfig {
 export interface SummarizerScannerConfig {
     prompt: string
     length: 'short' | 'medium' | 'long'
+    emits_embeddings: boolean
 }
 
 export interface ClassifierScannerConfig {
     prompt: string
     tags: string[]
     multi_label: boolean
+    allow_freeform_tags?: boolean
 }
 
 export interface ScorerScannerConfig {
@@ -149,6 +161,7 @@ export interface ScorerScannerConfig {
 
 export interface IndexerScannerConfig {
     prompt: string
+    emits_embeddings: boolean
 }
 
 export type ScannerConfig =
@@ -203,20 +216,7 @@ export interface IndexerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | IndexerScanner
 
-export interface VisionUsagePoint {
-    date: string
-    count: number
-}
-
-export interface VisionQuota {
-    used: number
-    limit: number
-    policy: 'block' | 'usage_based'
-    period_start: string
-    period_end: string
-    /** Daily observation counts across the current period. Optional until the backend exposes it. */
-    usage_history?: VisionUsagePoint[]
-}
+export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
 
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.

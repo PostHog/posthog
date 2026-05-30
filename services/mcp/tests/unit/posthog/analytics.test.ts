@@ -76,6 +76,7 @@ describe('initMcpAnalytics', () => {
             getMcpClientName: vi.fn().mockResolvedValue('claude-code'),
             getMcpClientVersion: vi.fn().mockResolvedValue('1.2.3'),
             getMcpProtocolVersion: vi.fn().mockResolvedValue('2024-11-05'),
+            getMcpVendorClient: vi.fn().mockResolvedValue('ClaudeCode'),
             getRegion: vi.fn().mockResolvedValue('us'),
             getAnalyticsContext: vi.fn().mockResolvedValue({
                 organizationId: 'org-789',
@@ -227,6 +228,7 @@ describe('initMcpAnalytics', () => {
             $mcp_client_user_agent: 'test-agent/1.0',
             $mcp_client_name: 'claude-code',
             $mcp_client_version: '1.2.3',
+            mcp_vendor_client: 'ClaudeCode',
             $mcp_protocol_version: '2024-11-05',
             $mcp_region: 'us',
             $mcp_organization_id: 'org-789',

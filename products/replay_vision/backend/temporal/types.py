@@ -9,13 +9,12 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 
 AnyScannerOutput = Annotated[
-    ClassifierOutput | IndexerOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
 
@@ -79,10 +78,11 @@ class CreateObservationInputs(BaseModel, frozen=True):
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
-    """`was_created=False` means the row already existed; the caller should no-op."""
-
-    observation_id: UUID
+    # `was_created=False` means no row was persisted (either the row already existed, or the org's monthly quota is exhausted); the caller should no-op.
+    observation_id: UUID | None
     was_created: bool
+    scanner_type: ScannerType
+    emits_embeddings: bool = False
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
@@ -91,13 +91,16 @@ class MarkObservationRunningInputs(BaseModel, frozen=True):
 
 class MarkObservationFailedInputs(BaseModel, frozen=True):
     observation_id: UUID
+    # `kind:message` — kind is one of FailureKind values.
     error_reason: str
+    scanner_type: ScannerType
 
 
 class MarkObservationIneligibleInputs(BaseModel, frozen=True):
     observation_id: UUID
     # `kind:message` — kind is one of IneligibleSessionKind values.
     error_reason: str
+    scanner_type: ScannerType
 
 
 class FetchSessionEventsInputs(BaseModel, frozen=True):
@@ -205,13 +208,13 @@ class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
-class EmbedIndexerObservationInputs(BaseModel, frozen=True):
-    """Input to the indexer-side-effect activity that emits per-facet embedding requests."""
+class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
+    """Input to the summarizer-side-effect activity that emits per-facet embedding requests."""
 
     team_id: int
     session_id: str
     observation_id: UUID
-    indexer_output: IndexerOutput
+    summarizer_output: SummarizerOutput
 
 
 class EmitClassifierTagsInputs(BaseModel, frozen=True):
@@ -226,6 +229,7 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
 class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
     scanner_result: ScannerResult
+    scanner_type: ScannerType
 
 
 class EmitObservationEventInputs(BaseModel, frozen=True):

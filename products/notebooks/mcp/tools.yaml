@@ -123,6 +123,8 @@ tools:
             Retrieve the notebook first to get the latest version.
         exclude_params:
             - _create_in_folder
+        feature_flag: notebooks-collaboration
+        feature_flag_behavior: disable
     notebooks-recording-comments-retrieve:
         operation: notebooks_recording_comments_retrieve
         enabled: false

@@ -269,10 +269,13 @@ landing.
 ### Shadow compare in TEST via `cpp-with-rust-shadow`
 
 In `TEST` mode the default backend is `cpp-with-rust-shadow`: both
-backends parse, ASTs are compared, mismatches **raise** so the failing
-test points right at the offending query. In production this same
-mode runs at a 1% sample and only logs. Useful when a regression
-slips past the PBT but shows up in the suite.
+backends parse, ASTs are compared **including per-node `start` / `end`
+positions** (matching the diagnostics' default), mismatches **raise**
+so the failing test points right at the offending query. In production
+this same mode runs at a 1% sample and only logs — a mismatch there is
+tagged `hogql_parser_position_only_mismatch` so position-only
+divergences are triaged apart from structural ones. Useful when a
+regression slips past the PBT but shows up in the suite.
 
 ```python
 from posthog.hogql.constants import HogQLParserBackend

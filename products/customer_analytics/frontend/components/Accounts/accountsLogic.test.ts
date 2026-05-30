@@ -2,13 +2,23 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType } from '~/types'
 
 import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import {
+    ACCOUNTS_HOGQL_DEFAULT_SELECT,
+    ACCOUNTS_NAME_COLUMN,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
 import { ACCOUNTS_PAGE_SIZE, accountsLogic, savingRoleKey } from './accountsLogic'
+
+// `hogqlQuery.source` is typed as the full DataTableNode source union; this logic
+// always produces an AccountsQuery, so narrow once for the orderBy assertions.
+const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
@@ -176,6 +186,99 @@ describe('accountsLogic', () => {
         expect(lastParams).not.toHaveProperty('csm')
         expect(lastParams).not.toHaveProperty('account_executive')
         expect(lastParams).not.toHaveProperty('account_owner')
+    })
+
+    describe('sortOrder', () => {
+        it('starts unset and produces no orderBy on the AccountsQuery', () => {
+            expect(logic.values.sortOrder).toBeNull()
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+        })
+
+        it('toggleSort on a fresh column starts ascending', () => {
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count'])
+        })
+
+        it('toggleSort cycles asc -> desc -> null on repeated clicks', () => {
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder?.direction).toBe('asc')
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: 'notebook_count', direction: 'desc' })
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['notebook_count DESC'])
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.sortOrder).toBeNull()
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+        })
+
+        it('toggleSort on a different column resets to ascending', () => {
+            logic.actions.toggleSort('notebook_count')
+            logic.actions.toggleSort('notebook_count') // desc
+            logic.actions.toggleSort('csm')
+            expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2)'])
+        })
+
+        it('csm desc produces tupleElement(csm, 2) DESC', () => {
+            logic.actions.toggleSort('csm')
+            logic.actions.toggleSort('csm')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2) DESC'])
+        })
+
+        it('account_executive sort uses the tupleElement expression', () => {
+            logic.actions.toggleSort('account_executive')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_executive, 2)'])
+        })
+
+        it('account_owner sort uses the tupleElement expression', () => {
+            logic.actions.toggleSort('account_owner')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_owner, 2)'])
+        })
+
+        it('arbitrary column sorts by its alias directly', () => {
+            logic.actions.toggleSort('name')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name'])
+            logic.actions.toggleSort('name')
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name DESC'])
+        })
+
+        it('toggleSort resets pagination to page 1', async () => {
+            logic.actions.setCurrentPage(3)
+            logic.actions.toggleSort('notebook_count')
+            await expectLogic(logic).toMatchValues({ currentPage: 1 })
+        })
+    })
+
+    describe('selectColumns', () => {
+        it('starts with the default select and includes the mandatory name column', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            expect(config?.values.selectColumns).toEqual(ACCOUNTS_HOGQL_DEFAULT_SELECT)
+            expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
+        })
+
+        it('hogqlQuery.source.select equals selectColumns verbatim — no pinned aliases', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(source.select).toEqual(config?.values.selectColumns)
+        })
+
+        it('refuses to remove the name column via unselectColumn', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.unselectColumn(ACCOUNTS_NAME_COLUMN)
+            expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
+        })
+
+        it('re-inserts the name column when setSelectColumns omits it', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.setSelectColumns(['csm', 'account_executive'])
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm', 'account_executive'])
+        })
+
+        it('keeps user ordering when setSelectColumns already contains name', () => {
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.setSelectColumns(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
+            expect(config?.values.selectColumns).toEqual(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
+        })
     })
 
     it('setCurrentPage updates the offset in the next request', async () => {

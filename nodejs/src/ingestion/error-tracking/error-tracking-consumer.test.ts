@@ -60,6 +60,7 @@ const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
     fetchPerson: jest.fn().mockResolvedValue(undefined),
     fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
     fetchPersonsByPersonIds: jest.fn(),
+    fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
     createPerson: jest.fn(),
     updatePerson: jest.fn(),
     updatePersonAssertVersion: jest.fn(),
@@ -207,6 +208,7 @@ describe('ErrorTrackingConsumer', () => {
             errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
+            cookielessManager: hub.cookielessManager,
             redisPool: hub.redisPool,
             personRepository: hub.personRepository,
         }

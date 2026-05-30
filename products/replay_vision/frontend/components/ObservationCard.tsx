@@ -1,18 +1,16 @@
-import { IconWarning } from '@posthog/icons'
-import { LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
+import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
-import type { ScannerTypeEnumApi, ReplayObservationApi } from '../generated/api.schemas'
-import { failureKindDescription, parseFailureReason, parseIneligibleReason } from '../replay_scanners/types'
-
-const SCANNER_TYPE_LABEL: Record<ScannerTypeEnumApi, string> = {
-    monitor: 'Monitor',
-    classifier: 'Classifier',
-    scorer: 'Scorer',
-    summarizer: 'Summarizer',
-    indexer: 'Indexer',
-}
+import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
+import {
+    failureKindDescription,
+    parseFailureReason,
+    parseIneligibleReason,
+    scannerTypeLabel,
+} from '../replay_scanners/types'
+import { CitationPart, formatSessionOffset, parseCitedText } from '../utils/citations'
 
 export function ObservationStatusTag({ status }: { status: ReplayObservationApi['status'] }): JSX.Element {
     if (status === 'succeeded') {
@@ -35,12 +33,251 @@ export function ObservationStatusTag({ status }: { status: ReplayObservationApi[
     return <LemonTag type="default">Pending</LemonTag>
 }
 
-function readResult(observation: ReplayObservationApi): Record<string, unknown> | null {
+export function readResult(observation: ReplayObservationApi): Record<string, unknown> | null {
     const output = observation.scanner_result?.model_output
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-/** Compact, single-cell preview of an observation result for the Vision scene's observations table. */
+/** Dumb renderer for parsed citation parts. Pass `onSeek` to make citations interactive; omit for plain-text timestamps. */
+export function CitedText({
+    parts,
+    onSeek,
+}: {
+    parts: CitationPart[]
+    onSeek?: (timestampMs: number) => void
+}): JSX.Element {
+    return (
+        <>
+            {parts.map((part, i) => {
+                if (part.type === 'text') {
+                    return <span key={i}>{part.value}</span>
+                }
+                const label = formatSessionOffset(part.timestampMs)
+                if (onSeek) {
+                    return (
+                        <Link key={i} onClick={() => onSeek(part.timestampMs)}>
+                            <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
+                            <span className="font-mono">{label}</span>
+                        </Link>
+                    )
+                }
+                return (
+                    <span key={i} className="text-muted font-mono">
+                        {label}
+                    </span>
+                )
+            })}
+        </>
+    )
+}
+
+export function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
+    const config = snapshot?.scanner_config
+    return config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
+}
+
+export function ObservationPrimaryOutput({
+    observation,
+    compact = false,
+    showPrompt = true,
+    onSeek,
+    expandSummary = false,
+}: {
+    observation: ReplayObservationApi
+    compact?: boolean
+    showPrompt?: boolean
+    /** Called with timestamp_ms when a citation chip is clicked. If omitted, citations render as plain text. */
+    onSeek?: (timestampMs: number) => void
+    /** When true (dock/detail), summarizer body wraps in full; when false (table), single-line truncate. */
+    expandSummary?: boolean
+}): JSX.Element | null {
+    const snapshot = observation.scanner_snapshot
+    const result = readResult(observation)
+    if (!snapshot || !result) {
+        return null
+    }
+    const scannerType = snapshot.scanner_type
+    const config = readConfig(snapshot)
+    const prompt = showPrompt && typeof config.prompt === 'string' ? config.prompt : null
+    const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
+    const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
+    const promptClass = 'text-xs text-muted'
+
+    if (scannerType === 'monitor') {
+        const verdict = Boolean(result.verdict)
+        return (
+            <div className="flex flex-col gap-1">
+                <LemonTag size="medium" type={verdict ? 'success' : 'default'} className="self-start">
+                    {verdict ? 'Yes' : 'No'}
+                </LemonTag>
+                {prompt && <span className={promptClass}>{prompt}</span>}
+            </div>
+        )
+    }
+
+    if (scannerType === 'summarizer') {
+        const title = typeof result.title === 'string' ? result.title : null
+        const summary = typeof result.summary === 'string' ? result.summary : null
+        return (
+            <div className="flex flex-col gap-1">
+                {title && <span className="font-semibold text-sm">{title}</span>}
+                {summary && (
+                    <span className={summaryClass}>
+                        <CitedText
+                            parts={parseCitedText(summary, observation.scanner_result?.event_id_mapping)}
+                            onSeek={onSeek}
+                        />
+                    </span>
+                )}
+            </div>
+        )
+    }
+
+    if (scannerType === 'classifier') {
+        const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
+        const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
+        const empty = fixedTags.length === 0 && freeformTags.length === 0
+        const renderFixed = (): JSX.Element[] =>
+            fixedTags.map((tag) => (
+                <LemonTag key={`fixed-${tag}`} size="medium" type="option" title="From the configured tag list">
+                    {tag}
+                </LemonTag>
+            ))
+        const renderFreeform = (): JSX.Element[] =>
+            freeformTags.map((tag) => (
+                <LemonTag
+                    key={`freeform-${tag}`}
+                    size="medium"
+                    type="default"
+                    icon={<IconSparkles />}
+                    title="Free-form tag from the model"
+                >
+                    {tag}
+                </LemonTag>
+            ))
+        if (compact) {
+            return (
+                <div className="flex flex-col gap-1">
+                    <div className="flex flex-wrap gap-1">
+                        {empty ? (
+                            <span className="text-muted text-sm">No tags</span>
+                        ) : (
+                            <>
+                                {renderFixed()}
+                                {renderFreeform()}
+                            </>
+                        )}
+                    </div>
+                    {prompt && <span className={promptClass}>{prompt}</span>}
+                </div>
+            )
+        }
+        if (empty) {
+            return (
+                <div className="flex flex-col gap-1">
+                    <span className="text-muted text-sm">No tags</span>
+                    {prompt && <span className={promptClass}>{prompt}</span>}
+                </div>
+            )
+        }
+        return (
+            <div className="flex flex-col gap-3">
+                {fixedTags.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted">Fixed</div>
+                        <p className="text-xs text-muted m-0">Tags from the scanner's configured list.</p>
+                        <div className="flex flex-wrap gap-1">{renderFixed()}</div>
+                    </div>
+                )}
+                {freeformTags.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted">
+                            <IconSparkles className="text-sm" />
+                            <span>Freeform</span>
+                        </div>
+                        <p className="text-xs text-muted m-0">Emitted by the model outside the configured tags.</p>
+                        <div className="flex flex-wrap gap-1">{renderFreeform()}</div>
+                    </div>
+                )}
+                {prompt && <span className={promptClass}>{prompt}</span>}
+            </div>
+        )
+    }
+
+    if (scannerType === 'scorer') {
+        const score = typeof result.score === 'number' ? result.score : null
+        const resultLabel = typeof result.label === 'string' ? result.label : null
+        const scale =
+            config.scale && typeof config.scale === 'object' ? (config.scale as Record<string, unknown>) : null
+        const scaleMax = scale && typeof scale.max === 'number' ? scale.max : null
+        const scaleLabel = scale && typeof scale.label === 'string' ? scale.label : null
+        // Prefer the per-observation label (specific); fall back to the configured scale label (axis name).
+        const displayLabel = resultLabel ?? scaleLabel
+        return (
+            <div className="flex flex-col gap-1">
+                <span className="text-sm">
+                    <span className="font-semibold text-base">{score ?? '—'}</span>
+                    {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
+                    {displayLabel && <span className="text-muted"> — {displayLabel}</span>}
+                </span>
+                {prompt && <span className={promptClass}>{prompt}</span>}
+            </div>
+        )
+    }
+
+    // Unknown / generic fallback (also covers summarizers that emit facets alongside title/summary).
+    const summary = typeof result.summary === 'string' ? result.summary : null
+    const userType = typeof result.user_type === 'string' ? result.user_type : null
+    const outcome = typeof result.outcome === 'string' ? result.outcome : null
+    const keywords = Array.isArray(result.keywords) ? (result.keywords as string[]) : []
+    return (
+        <div className="flex flex-col gap-1">
+            {summary && <span className={bodyClass}>{summary}</span>}
+            {userType && (
+                <span className="text-muted text-xs">
+                    <span className="font-medium">User: </span>
+                    {userType}
+                </span>
+            )}
+            {outcome && (
+                <span className="text-muted text-xs">
+                    <span className="font-medium">Outcome: </span>
+                    {outcome}
+                </span>
+            )}
+            {keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                    {keywords.map((keyword) => (
+                        <LemonTag key={keyword} type="option" size="small">
+                            {keyword}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function ObservationConfidence({ result }: { result: Record<string, unknown> }): JSX.Element | null {
+    if (typeof result.confidence !== 'number') {
+        return null
+    }
+    const value = result.confidence
+    const pct = Math.round(value * 100)
+    const { type, label } =
+        value >= 0.8
+            ? ({ type: 'success', label: 'High' } as const)
+            : value >= 0.5
+              ? ({ type: 'warning', label: 'Medium' } as const)
+              : ({ type: 'danger', label: 'Low' } as const)
+    return (
+        <div className="flex items-center gap-2">
+            <LemonTag type={type}>{label}</LemonTag>
+            <span className="text-sm tabular-nums text-muted">{pct}%</span>
+        </div>
+    )
+}
+
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     if (observation.status === 'ineligible') {
         const parsed = parseIneligibleReason(observation.error_reason)
@@ -66,115 +303,15 @@ export function ObservationResultSummary({ observation }: { observation: ReplayO
             </Tooltip>
         )
     }
-    const scannerType = observation.scanner_snapshot?.scanner_type
+    const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
-    if (!scannerType || !result) {
+    if (!snapshot || !result) {
         return <span className="text-muted text-sm">—</span>
     }
-    return <ObservationResult scannerType={scannerType} result={result} compact />
+    return <ObservationPrimaryOutput observation={observation} compact showPrompt={false} />
 }
 
-function ObservationResult({
-    scannerType,
-    result,
-    compact = false,
-}: {
-    scannerType: ScannerTypeEnumApi
-    result: Record<string, unknown>
-    compact?: boolean
-}): JSX.Element {
-    const reasoning = typeof result.reasoning === 'string' ? result.reasoning : null
-    const reasoningClass = compact ? 'text-muted text-xs truncate' : 'text-muted text-sm'
-    const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
-
-    if (scannerType === 'monitor') {
-        const verdict = Boolean(result.verdict)
-        return (
-            <div className="flex flex-col gap-1">
-                <LemonTag type={verdict ? 'success' : 'default'}>{verdict ? 'Yes' : 'No'}</LemonTag>
-                {reasoning && <span className={reasoningClass}>{reasoning}</span>}
-            </div>
-        )
-    }
-
-    if (scannerType === 'summarizer') {
-        const title = typeof result.title === 'string' ? result.title : null
-        const summary = typeof result.summary === 'string' ? result.summary : null
-        return (
-            <div className="flex flex-col gap-1">
-                {title && <span className="font-semibold text-sm">{title}</span>}
-                {summary && <span className={bodyClass}>{summary}</span>}
-            </div>
-        )
-    }
-
-    if (scannerType === 'classifier') {
-        const tags = Array.isArray(result.tags) ? (result.tags as string[]) : []
-        return (
-            <div className="flex flex-col gap-1">
-                <div className="flex flex-wrap gap-1">
-                    {tags.length === 0 ? (
-                        <span className="text-muted text-sm">No tags</span>
-                    ) : (
-                        tags.map((tag) => (
-                            <LemonTag key={tag} type="option">
-                                {tag}
-                            </LemonTag>
-                        ))
-                    )}
-                </div>
-                {reasoning && <span className={reasoningClass}>{reasoning}</span>}
-            </div>
-        )
-    }
-
-    if (scannerType === 'scorer') {
-        const score = typeof result.score === 'number' ? result.score : null
-        const label = typeof result.label === 'string' ? result.label : null
-        return (
-            <div className="flex flex-col gap-1">
-                <span className="text-sm">
-                    <span className="font-semibold">{score ?? '—'}</span>
-                    {label && <span className="text-muted"> {label}</span>}
-                </span>
-                {reasoning && <span className={reasoningClass}>{reasoning}</span>}
-            </div>
-        )
-    }
-
-    const summary = typeof result.summary === 'string' ? result.summary : null
-    const userType = typeof result.user_type === 'string' ? result.user_type : null
-    const outcome = typeof result.outcome === 'string' ? result.outcome : null
-    const keywords = Array.isArray(result.keywords) ? (result.keywords as string[]) : []
-    return (
-        <div className="flex flex-col gap-1">
-            {summary && <span className={bodyClass}>{summary}</span>}
-            {userType && (
-                <span className={reasoningClass}>
-                    <span className="font-medium">User: </span>
-                    {userType}
-                </span>
-            )}
-            {outcome && (
-                <span className={reasoningClass}>
-                    <span className="font-medium">Outcome: </span>
-                    {outcome}
-                </span>
-            )}
-            {keywords.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                    {keywords.map((keyword) => (
-                        <LemonTag key={keyword} type="option" size="small">
-                            {keyword}
-                        </LemonTag>
-                    ))}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
+export function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
     const parsed = parseFailureReason(errorReason)
     if (!parsed) {
         return <div className="text-danger text-sm">{errorReason}</div>
@@ -188,7 +325,7 @@ function FailureDetail({ errorReason }: { errorReason: string }): JSX.Element {
     )
 }
 
-function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element {
+export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element {
     const parsed = parseIneligibleReason(errorReason)
     if (!parsed) {
         return <div className="text-muted text-sm">{errorReason}</div>
@@ -201,7 +338,6 @@ function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.Element
     )
 }
 
-/** In-progress state for a pending/running observation. */
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     return (
         <div className="flex items-center gap-2 text-muted text-sm">
@@ -211,12 +347,16 @@ function ObservationProgress({ observation }: { observation: ReplayObservationAp
     )
 }
 
-/** Full observation presentation for the replay-page dock and the Vision scene's expanded rows. */
-export function ObservationCard({ observation }: { observation: ReplayObservationApi }): JSX.Element {
+export function ObservationDockCard({
+    observation,
+    onSeek,
+}: {
+    observation: ReplayObservationApi
+    onSeek?: (timestampMs: number) => void
+}): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
-    const signalsCount = observation.scanner_result?.signals_count ?? 0
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -224,9 +364,11 @@ export function ObservationCard({ observation }: { observation: ReplayObservatio
                 <div className="flex items-center gap-2 min-w-0">
                     <ObservationStatusTag status={observation.status} />
                     <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
-                    {scannerType && <span className="text-muted text-xs">{SCANNER_TYPE_LABEL[scannerType]}</span>}
+                    {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
                 </div>
-                <TZLabel time={observation.created_at} className="text-muted text-xs whitespace-nowrap" />
+                <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
+                    View details
+                </Link>
             </div>
 
             {observation.status === 'failed' && observation.error_reason && (
@@ -237,22 +379,13 @@ export function ObservationCard({ observation }: { observation: ReplayObservatio
                 <IneligibleDetail errorReason={observation.error_reason} />
             )}
 
-            {observation.status === 'succeeded' && scannerType && result && (
-                <ObservationResult scannerType={scannerType} result={result} />
+            {observation.status === 'succeeded' && snapshot && result && (
+                <ObservationPrimaryOutput observation={observation} compact onSeek={onSeek} expandSummary />
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (
                 <ObservationProgress observation={observation} />
             )}
-
-            <div className="flex items-center gap-3 text-muted text-xs">
-                {snapshot?.model && <span className="font-mono">{snapshot.model}</span>}
-                {signalsCount > 0 && (
-                    <span>
-                        {signalsCount} signal{signalsCount === 1 ? '' : 's'}
-                    </span>
-                )}
-            </div>
         </div>
     )
 }
