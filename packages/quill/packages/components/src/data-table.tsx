@@ -6,10 +6,10 @@ import {
     getSortedRowModel,
     useReactTable,
 } from '@tanstack/react-table'
-import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronsUpDown, Inbox } from 'lucide-react'
 import * as React from 'react'
 
-import { Button, cn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import { Button, cn, Empty, EmptyHeader, EmptyMedia, EmptyTitle, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
 
 export interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
@@ -18,12 +18,29 @@ export interface DataTableProps<TData, TValue> {
     className?: string
     /** Sticky header mode, forwarded to the Table primitive. `'page'` sticks to document scroll. */
     stickyHeader?: boolean | 'page'
-    /** Shown in place of rows when `data` is empty. */
-    emptyMessage?: React.ReactNode
+    /**
+     * Rendered in place of rows when `data` is empty. Defaults to a minimal
+     * "No results" Empty; pass a richer node (custom copy, actions) to override.
+     */
+    empty?: React.ReactNode
 }
 
 // `getIsSorted()` → ARIA sort token for the header cell.
 const ARIA_SORT = { asc: 'ascending', desc: 'descending' } as const
+
+// Minimal, generic empty state. Deliberately unopinionated — no app-specific
+// copy or action buttons; pass a richer `empty` for those. Module-level so it's
+// not re-created each render and stays out of the function signature.
+const DEFAULT_EMPTY = (
+    <Empty>
+        <EmptyHeader>
+            <EmptyMedia variant="icon">
+                <Inbox />
+            </EmptyMedia>
+            <EmptyTitle>No results</EmptyTitle>
+        </EmptyHeader>
+    </Empty>
+)
 
 /**
  * Headless TanStack Table wired onto the quill Table primitive — client-side
@@ -36,7 +53,7 @@ function DataTable<TData, TValue>({
     data,
     className,
     stickyHeader,
-    emptyMessage = 'No results.',
+    empty = DEFAULT_EMPTY,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const [sorting, setSorting] = React.useState<SortingState>([])
     const table = useReactTable({
@@ -112,9 +129,9 @@ function DataTable<TData, TValue>({
                     <TableRow>
                         <TableCell
                             colSpan={columns.length}
-                            className="py-6 text-center text-[var(--muted-foreground)]"
+                            className="p-2 hover:bg-transparent"
                         >
-                            {emptyMessage}
+                            {empty}
                         </TableCell>
                     </TableRow>
                 )}
