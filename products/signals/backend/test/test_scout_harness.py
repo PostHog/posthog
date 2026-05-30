@@ -15,7 +15,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
+from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout

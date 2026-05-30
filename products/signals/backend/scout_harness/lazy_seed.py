@@ -11,7 +11,7 @@ import yaml
 
 from posthog.models.team.team import Team
 
-from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
+from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 
 logger = logging.getLogger(__name__)

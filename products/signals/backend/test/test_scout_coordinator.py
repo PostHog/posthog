@@ -14,7 +14,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.llm_analytics.backend.models.skills import LLMSkill
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     MAX_RUNS_PER_TICK,

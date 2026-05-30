@@ -13,7 +13,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.llm_analytics.backend.models.skills import LLMSkill
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX

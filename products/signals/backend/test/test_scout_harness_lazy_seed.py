@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from posthog.test.base import BaseTest
 
-from products.llm_analytics.backend.models.skills import LLMSkill
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.scout_harness.lazy_seed import (
     CanonicalSkillParseError,
     discover_canonical_skills,
