@@ -1,6 +1,21 @@
+import { expectLogic } from 'kea-test-utils'
+import { ReadableStream as NodeReadableStream } from 'stream/web'
+
+import { initKeaTests } from '~/test/init'
+
 import { resolveToolKey } from './mcpToolRegistry'
-import { EMPTY_STREAM_STATE, ingestAcpFrame, SandboxStreamState } from './sandboxStreamLogic'
-import { StoredLogEntry } from './types/sandboxStreamTypes'
+import {
+    computeBackoffDelay,
+    EMPTY_STREAM_STATE,
+    ingestAcpFrame,
+    isTerminalRunStatus,
+    MAX_SSE_RECONNECT_ATTEMPTS,
+    mapStatusToErrorEnvelope,
+    sandboxStreamLogic,
+    SandboxStreamState,
+    serializeEntryForDedup,
+} from './sandboxStreamLogic'
+import { RunStatus, StoredLogEntry } from './types/sandboxStreamTypes'
 
 describe('sandboxStreamLogic', () => {
     function notification(method: string, params?: Record<string, unknown>): StoredLogEntry {
@@ -102,6 +117,23 @@ describe('sandboxStreamLogic', () => {
             expect(state.toolInvocations).toEqual({})
             expect(state.threadItems).toEqual([])
         })
+
+        it('detects a duplicate tool_call frame via serialized-JSON content equality', () => {
+            const frame = sessionUpdate({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tc-dup',
+                status: 'in_progress',
+                rawInput: { command: 'call execute-sql {}' },
+                _meta: { serverName: 'posthog', claudeCode: { toolName: 'exec' } },
+            })
+            // Same content, different frame ids (Redis vs S3-log) — the second must be deduped.
+            const state = fold([
+                [frame, 'log-0'],
+                [frame, 'stream-99'],
+            ])
+            expect(state.threadItems).toEqual([{ kind: 'tool_invocation', toolCallId: 'tc-dup' }])
+            expect(state.ingestedEntryHashes).toHaveLength(1)
+        })
     })
 
     describe('ingestAcpFrame — lifecycle frames', () => {
@@ -126,12 +158,16 @@ describe('sandboxStreamLogic', () => {
             expect(state.threadItems).toEqual([{ kind: 'error', id: 'f1', message: 'boom' }])
         })
 
-        it('ignores unrelated _posthog/* methods', () => {
+        it('ignores unrelated _posthog/* methods (no thread/tool effect)', () => {
             const state = fold([
                 [notification('_posthog/console', { message: 'log line' }), 'f1'],
                 [notification('_posthog/usage_update', { tokens: 10 }), 'f2'],
             ])
-            expect(state).toEqual(EMPTY_STREAM_STATE)
+            // No renderable effect, but the frames are still tracked for content dedup.
+            expect(state.threadItems).toEqual([])
+            expect(state.toolInvocations).toEqual({})
+            expect(state.runStarted).toBe(false)
+            expect(state.turnComplete).toBe(false)
         })
 
         it('ignores malformed frames with no method', () => {
@@ -185,4 +221,376 @@ describe('sandboxStreamLogic', () => {
             expect(resolved.innerInput).toEqual({})
         })
     })
+
+    describe('computeBackoffDelay — capped exponential schedule', () => {
+        it.each([
+            [1, 2_000],
+            [2, 4_000],
+            [3, 8_000],
+            [4, 16_000],
+            [5, 30_000],
+            [6, 30_000],
+        ])('attempt %i -> %ims', (attempt, expected) => {
+            expect(computeBackoffDelay(attempt)).toBe(expected)
+        })
+
+        it('produces the documented 2/4/8/16/30 schedule across the max attempts', () => {
+            const schedule = Array.from({ length: MAX_SSE_RECONNECT_ATTEMPTS }, (_, i) => computeBackoffDelay(i + 1))
+            expect(schedule).toEqual([2_000, 4_000, 8_000, 16_000, 30_000])
+        })
+    })
+
+    describe('mapStatusToErrorEnvelope — error-class table', () => {
+        it.each<[number | undefined, string, boolean]>([
+            [401, 'Cloud authentication expired', true],
+            [403, 'Cloud access denied', true],
+            [406, 'Cloud stream unavailable', true],
+            [500, 'Cloud stream failed', true],
+            [undefined, 'Cloud stream failed', true],
+            [404, 'Conversation backing run not found', false],
+        ])('%s -> %s (retryable=%s)', (status, errorTitle, retryable) => {
+            expect(mapStatusToErrorEnvelope(status)).toEqual({ errorTitle, retryable })
+        })
+    })
+
+    describe('isTerminalRunStatus', () => {
+        it.each<[RunStatus | undefined, boolean]>([
+            ['queued', false],
+            ['in_progress', false],
+            ['completed', true],
+            ['failed', true],
+            ['cancelled', true],
+            [undefined, false],
+        ])('%s -> %s', (status, terminal) => {
+            expect(isTerminalRunStatus(status)).toBe(terminal)
+        })
+    })
+
+    describe('serializeEntryForDedup', () => {
+        it('hashes structurally-equal frames identically regardless of key order', () => {
+            const a: StoredLogEntry = {
+                type: 'notification',
+                notification: { jsonrpc: '2.0', method: 'session/update', params: { update: { sessionUpdate: 'x' } } },
+            }
+            const b: StoredLogEntry = {
+                type: 'notification',
+                notification: { method: 'session/update', params: { update: { sessionUpdate: 'x' } }, jsonrpc: '2.0' },
+            }
+            expect(serializeEntryForDedup(a)).toBe(serializeEntryForDedup(b))
+        })
+    })
+
+    describe('openSseForRun listener — direct stream', () => {
+        const originalFetch = global.fetch
+
+        function buildReadableStream(chunks: string[]): ReadableStream<Uint8Array> {
+            const encoder = new TextEncoder()
+            let index = 0
+            const StreamConstructor = globalThis.ReadableStream ?? NodeReadableStream
+            return new StreamConstructor({
+                pull(controller) {
+                    if (index < chunks.length) {
+                        controller.enqueue(encoder.encode(chunks[index]))
+                        index += 1
+                    } else {
+                        controller.close()
+                    }
+                },
+            })
+        }
+
+        function streamResponse(chunks: string[]): Response {
+            return { ok: true, status: 200, body: buildReadableStream(chunks) } as Response
+        }
+
+        function jsonResponse(payload: unknown): Response {
+            return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+        }
+
+        function agentChunkFrame(id: string, text: string): string {
+            return `id: ${id}\nevent: message\ndata: ${JSON.stringify({
+                type: 'notification',
+                notification: {
+                    jsonrpc: '2.0',
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } },
+                },
+            })}\n\n`
+        }
+
+        function taskRunStateFrame(id: string, status: RunStatus): string {
+            return `id: ${id}\nevent: message\ndata: ${JSON.stringify({ type: 'task_run_state', status })}\n\n`
+        }
+
+        async function flushStreaming(): Promise<void> {
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            global.fetch = originalFetch
+        })
+
+        it('dispatches connecting->open->status and ingestFrame from a mocked reader', async () => {
+            const run: Partial<TaskRunLike> = { status: 'completed' }
+            global.fetch = jest.fn((input: RequestInfo | URL) => {
+                const url = String(input)
+                if (url.endsWith('/stream/')) {
+                    return Promise.resolve(streamResponse([agentChunkFrame('1', 'Hello')]))
+                }
+                if (/\/runs\/[^/]+\/$/.test(url)) {
+                    return Promise.resolve(jsonResponse(run))
+                }
+                throw new Error(`Unexpected fetch url: ${url}`)
+            }) as typeof fetch
+
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-1' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toDispatchActions(['openSseForRun', 'setSseStatus'])
+
+            await flushStreaming()
+
+            // The agent chunk folded into a thread item via ingestFrame.
+            expect(logic.values.threadItems).toEqual([
+                { kind: 'assistant_message', id: 'stream-1', text: 'Hello', complete: false },
+            ])
+            // EOF -> REST refetch found a terminal run -> closed + terminal status driven.
+            expect(logic.values.currentRunStatus).toBe('completed')
+            expect(logic.values.isRunTerminal).toBe(true)
+            logic.unmount()
+        })
+
+        it('drives a non-retryable error envelope on a 404 stream open', async () => {
+            global.fetch = jest.fn((input: RequestInfo | URL) => {
+                const url = String(input)
+                if (url.endsWith('/stream/')) {
+                    return Promise.resolve({ ok: false, status: 404, body: null } as Response)
+                }
+                throw new Error(`Unexpected fetch url: ${url}`)
+            }) as typeof fetch
+
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-404' })
+            logic.mount()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushStreaming()
+
+            expect(logic.values.streamError).toEqual({
+                errorTitle: 'Conversation backing run not found',
+                retryable: false,
+            })
+            expect(logic.values.sseStatus).toBe('error')
+            logic.unmount()
+        })
+
+        it('closes the stream and drives terminal on a terminal task_run_state frame', async () => {
+            global.fetch = jest.fn((input: RequestInfo | URL) => {
+                const url = String(input)
+                if (url.endsWith('/stream/')) {
+                    return Promise.resolve(streamResponse([taskRunStateFrame('1', 'failed')]))
+                }
+                throw new Error(`Unexpected fetch url: ${url}`)
+            }) as typeof fetch
+
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-terminal' })
+            logic.mount()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushStreaming()
+
+            // Terminal status closes the stream without waiting for a REST refetch on EOF.
+            expect(logic.values.currentRunStatus).toBe('failed')
+            expect(logic.values.isRunTerminal).toBe(true)
+            expect(logic.values.sseStatus).toBe('closed')
+            logic.unmount()
+        })
+    })
+
+    describe('openSseForRun listener — reconnect loop (fake timers)', () => {
+        const originalFetch = global.fetch
+
+        function buildReadableStream(chunks: string[]): ReadableStream<Uint8Array> {
+            const encoder = new TextEncoder()
+            let index = 0
+            const StreamConstructor = globalThis.ReadableStream ?? NodeReadableStream
+            return new StreamConstructor({
+                pull(controller) {
+                    if (index < chunks.length) {
+                        controller.enqueue(encoder.encode(chunks[index]))
+                        index += 1
+                    } else {
+                        controller.close()
+                    }
+                },
+            })
+        }
+
+        function streamResponse(chunks: string[]): Response {
+            return { ok: true, status: 200, body: buildReadableStream(chunks) } as Response
+        }
+
+        function jsonResponse(payload: unknown): Response {
+            return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+        }
+
+        function agentChunkFrame(id: string, text: string): string {
+            return `id: ${id}\nevent: message\ndata: ${JSON.stringify({
+                type: 'notification',
+                notification: {
+                    jsonrpc: '2.0',
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } },
+                },
+            })}\n\n`
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            // Drain any timer left dangling by an unfinished reconnect chain before restoring.
+            jest.clearAllTimers()
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+            global.fetch = originalFetch
+        })
+
+        it('schedules a reconnect at the computed backoff delay after an open-then-EOF drop on a non-terminal run', async () => {
+            // /stream/ opens then immediately EOFs with no terminal frame; /runs/ reports the
+            // backing run is still in_progress -> the drop is retryable, not terminal.
+            const run: TaskRunLike = { status: 'in_progress' }
+            global.fetch = jest.fn((input: RequestInfo | URL) => {
+                const url = String(input)
+                if (url.endsWith('/stream/')) {
+                    return Promise.resolve(streamResponse([]))
+                }
+                if (/\/runs\/[^/]+\/$/.test(url)) {
+                    return Promise.resolve(jsonResponse(run))
+                }
+                throw new Error(`Unexpected fetch url: ${url}`)
+            }) as typeof fetch
+
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-reconnect' })
+            logic.mount()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            // Flush the open + EOF + REST refetch, all of which resolve as microtasks (no timer yet).
+            await jest.advanceTimersByTimeAsync(0)
+
+            // The first drop scheduled a reconnect: status flipped to reconnecting, attempt is 1.
+            expect(logic.values.sseStatus).toBe('reconnecting')
+            expect(logic.values.reconnectAttempt).toBe(1)
+            // No retry has actually fired yet — the timer is armed at the base backoff delay.
+            const fetchMock = global.fetch as jest.Mock
+            const streamCallsBeforeDelay = fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/stream/')).length
+            expect(streamCallsBeforeDelay).toBe(1)
+
+            // Just before the computed delay, the retry must NOT have fired.
+            await jest.advanceTimersByTimeAsync(computeBackoffDelay(1) - 1)
+            const streamCallsJustBeforeFire = fetchMock.mock.calls.filter(([u]) =>
+                String(u).endsWith('/stream/')
+            ).length
+            expect(streamCallsJustBeforeFire).toBe(1)
+
+            // Crossing the delay fires exactly one reconnect attempt (a second /stream/ open).
+            await jest.advanceTimersByTimeAsync(1)
+            const streamCallsAfterFire = fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/stream/')).length
+            expect(streamCallsAfterFire).toBe(2)
+
+            logic.unmount()
+        })
+
+        it('counts consecutive open-then-EOF cycles toward the cap and errors out after MAX attempts', async () => {
+            // Every /stream/ open EOFs with no frame ingested; every /runs/ refetch is non-terminal.
+            // FIX 2: bare 'open' must NOT reset reconnectAttempt — only a real frame ingest does —
+            // so these open-then-EOF cycles accumulate toward MAX_SSE_RECONNECT_ATTEMPTS.
+            const run: TaskRunLike = { status: 'in_progress' }
+            global.fetch = jest.fn((input: RequestInfo | URL) => {
+                const url = String(input)
+                if (url.endsWith('/stream/')) {
+                    return Promise.resolve(streamResponse([]))
+                }
+                if (/\/runs\/[^/]+\/$/.test(url)) {
+                    return Promise.resolve(jsonResponse(run))
+                }
+                throw new Error(`Unexpected fetch url: ${url}`)
+            }) as typeof fetch
+
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-cap' })
+            logic.mount()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.reconnectAttempt).toBe(1)
+            expect(logic.values.sseStatus).toBe('reconnecting')
+
+            // Walk the schedule: each backoff delay opens, EOFs, refetches non-terminal, reschedules.
+            // After MAX_SSE_RECONNECT_ATTEMPTS scheduled retries, the next drop trips the cap.
+            for (let attempt = 1; attempt <= MAX_SSE_RECONNECT_ATTEMPTS; attempt++) {
+                await jest.advanceTimersByTimeAsync(computeBackoffDelay(attempt))
+            }
+
+            // The (MAX+1)th drop exceeds the cap -> retryable error envelope + error status, no further retries.
+            expect(logic.values.sseStatus).toBe('error')
+            expect(logic.values.streamError).toEqual({ errorTitle: 'Cloud stream failed', retryable: true })
+            expect(logic.values.reconnectAttempt).toBe(MAX_SSE_RECONNECT_ATTEMPTS)
+
+            logic.unmount()
+        })
+
+        it('resets the attempt counter only after a real frame ingest, not on bare open', async () => {
+            // First open carries a real frame (counter resets to 0 on ingest), then EOFs.
+            // Second open carries NO frame and EOFs -> the post-ingest reset means this counts
+            // as attempt 1 again, proving the reset is keyed to ingestFrame, not setSseStatus('open').
+            const run: TaskRunLike = { status: 'in_progress' }
+            let streamOpens = 0
+            global.fetch = jest.fn((input: RequestInfo | URL) => {
+                const url = String(input)
+                if (url.endsWith('/stream/')) {
+                    streamOpens += 1
+                    // Only the first open carries a frame; subsequent opens are bare open-then-EOF.
+                    return Promise.resolve(streamResponse(streamOpens === 1 ? [agentChunkFrame('1', 'Hi')] : []))
+                }
+                if (/\/runs\/[^/]+\/$/.test(url)) {
+                    return Promise.resolve(jsonResponse(run))
+                }
+                throw new Error(`Unexpected fetch url: ${url}`)
+            }) as typeof fetch
+
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-frame-reset' })
+            logic.mount()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await jest.advanceTimersByTimeAsync(0)
+
+            // The frame folded in and the run is non-terminal, so a reconnect is scheduled.
+            // The frame ingest reset the counter, so this first reconnect is attempt 1.
+            expect(logic.values.threadItems).toEqual([
+                { kind: 'assistant_message', id: 'stream-1', text: 'Hi', complete: false },
+            ])
+            expect(logic.values.reconnectAttempt).toBe(1)
+
+            // Fire the reconnect: the second open is bare open-then-EOF (no frame). Because the
+            // counter was reset by the earlier ingest, this advances to attempt 2 — it does NOT
+            // reset to 0 on the bare 'open'.
+            await jest.advanceTimersByTimeAsync(computeBackoffDelay(1))
+            expect(logic.values.reconnectAttempt).toBe(2)
+            expect(logic.values.sseStatus).toBe('reconnecting')
+
+            logic.unmount()
+        })
+    })
 })
+
+interface TaskRunLike {
+    status: RunStatus
+}

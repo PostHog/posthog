@@ -6970,6 +6970,15 @@ export interface Conversation {
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    /**
+     * Cloud-agent Task backing a sandbox-runtime conversation. Plain UUID — the boundary
+     * between the ee Conversation and the products/tasks Task/Run. The sandbox frontend
+     * opens its direct SSE against /tasks/{sandbox_task_id}/runs/{sandbox_run_id}/stream/.
+     * Absent on langgraph conversations.
+     */
+    sandbox_task_id?: string | null
+    /** Cloud-agent Run currently backing the sandbox conversation (see sandbox_task_id). */
+    sandbox_run_id?: string | null
 }
 
 export interface ConversationDetail extends Conversation {
