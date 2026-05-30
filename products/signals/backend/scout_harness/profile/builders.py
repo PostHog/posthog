@@ -36,15 +36,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlag
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.dashboards.backend.models.dashboard import Dashboard
 
 # `products.experiments` ships a facade (api.py + contracts.py) but the contract is
@@ -53,11 +51,13 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # orientation reader here imports the model directly. When experiments isolation is
 # enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
 

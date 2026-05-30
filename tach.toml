@@ -496,10 +496,20 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.ai_observability",
+    "products.alerts",
+    "products.cdp",
+    "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks", "products.warehouse_sources",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
+    "products.surveys",
+    "products.tasks",
+    "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 

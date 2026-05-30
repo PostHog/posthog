@@ -14,17 +14,16 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlag
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalProjectProfile, SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
@@ -56,6 +55,7 @@ from products.signals.backend.scout_harness.tools.profile import (
 )
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class TestProjectContext(BaseTest):
