@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from typing import Any
+from urllib.parse import unquote
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -164,6 +165,9 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert "token=secret-token" in cdp_url
         assert "timeout=180000" in cdp_url
         assert mock_p.chromium.connect_over_cdp.call_args.kwargs["timeout"] == 30000
+        # The launch param sets the window size to the requested width (viewport is fixed at launch over CDP)
+        assert "--window-size=1024,800" in unquote(cdp_url)
+        assert "--force-device-scale-factor=1" in unquote(cdp_url)
 
         # On the cloud path we must NOT install per-request interception (would round-trip the WAN)
         mock_page.route.assert_not_called()
@@ -174,6 +178,48 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         # The mode-usage event reflects the browserless path
         assert self.captured_events[-1]["properties"]["mode"] == "browserless"
         assert self.captured_events[-1]["properties"]["success"] is True
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot._use_browserless_for_screenshot", return_value=True)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.sync_playwright")
+    def test_cloud_path_opens_one_connection_per_width(
+        self, mock_sync_playwright: MagicMock, mock_use_browserless: MagicMock
+    ) -> None:
+        mock_p = MagicMock()
+        mock_browser = MagicMock()
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_sync_playwright.return_value.__enter__.return_value = mock_p
+        mock_p.chromium.connect_over_cdp.return_value = mock_browser
+        mock_browser.new_context.return_value = mock_context
+        mock_context.new_page.return_value = mock_page
+        mock_page.evaluate.return_value = 1200
+        mock_page.screenshot.side_effect = [b"img320", b"img768", b"img1024"]
+
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[320, 768, 1024],
+            status=SavedHeatmap.Status.PROCESSING,
+        )
+
+        generate_heatmap_screenshot(heatmap.id)
+
+        # One Browserless connection per width, each launched at that width's exact window size
+        assert mock_p.chromium.connect_over_cdp.call_count == 3
+        assert mock_browser.close.call_count == 3
+        mock_p.chromium.launch.assert_not_called()
+        urls = [unquote(call.args[0]) for call in mock_p.chromium.connect_over_cdp.call_args_list]
+        assert "--window-size=320,800" in urls[0]
+        assert "--window-size=768,800" in urls[1]
+        assert "--window-size=1024,800" in urls[2]
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.COMPLETED
+        # Each width's bytes land on the matching row (the width→image mapping must be preserved)
+        snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
+        assert snaps == {320: b"img320", 768: b"img768", 1024: b"img1024"}
 
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.sync_playwright")
     def test_local_path_installs_request_interception(self, mock_sync_playwright: MagicMock) -> None:
@@ -248,9 +294,10 @@ class TestHeatmapScreenshotTask(APIBaseTest):
     ) -> None:
         mock_p = MagicMock()
         mock_sync_playwright.return_value.__enter__.return_value = mock_p
-        # Playwright echoes the full endpoint URL (incl. the token) into connect errors
+        # Playwright echoes the full endpoint URL (incl. the token AND the launch param) into errors
         mock_p.chromium.connect_over_cdp.side_effect = RuntimeError(
-            "connect ECONNREFUSED wss://production-sfo.browserless.io/chromium?token=secret-token&timeout=180000"
+            "connect ECONNREFUSED wss://production-sfo.browserless.io/chromium"
+            "?token=secret-token&timeout=180000&launch=%7B%22args%22%3A%5B%22--window-size%3D1024%2C800%22%5D%7D"
         )
 
         heatmap = SavedHeatmap.objects.create(
@@ -276,6 +323,41 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert failure_event["properties"]["success"] is False
         assert failure_event["properties"]["error_type"] == "RuntimeError"
         assert "secret-token" not in str(failure_event)
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot._use_browserless_for_screenshot", return_value=True)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.sync_playwright")
+    def test_cloud_path_failure_on_later_width_marks_failed_and_persists_nothing(
+        self, mock_sync_playwright: MagicMock, mock_use_browserless: MagicMock
+    ) -> None:
+        mock_p = MagicMock()
+        mock_browser = MagicMock()
+        mock_context = MagicMock()
+        mock_page = MagicMock()
+        mock_sync_playwright.return_value.__enter__.return_value = mock_p
+        # First width connects; the second width's connection fails
+        mock_p.chromium.connect_over_cdp.side_effect = [mock_browser, RuntimeError("boom on second width")]
+        mock_browser.new_context.return_value = mock_context
+        mock_context.new_page.return_value = mock_page
+        mock_page.evaluate.return_value = 1200
+        mock_page.screenshot.side_effect = [b"img320"]
+
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[320, 768],
+            status=SavedHeatmap.Status.PROCESSING,
+        )
+
+        with self.assertRaises(RuntimeError):
+            generate_heatmap_screenshot(heatmap.id)
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.FAILED
+        # Snapshots persist only after every width succeeds, so a later failure leaves none
+        assert HeatmapSnapshot.objects.filter(heatmap=heatmap).count() == 0
+        assert self.captured_events[-1]["properties"]["success"] is False
 
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch(
@@ -356,6 +438,35 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
     def test_build_cdp_url_returns_none_when_unset(self) -> None:
         assert _build_browserless_cdp_url() is None
 
+    @override_settings(
+        HEATMAP_BROWSERLESS_URL="wss://host/chromium",
+        HEATMAP_BROWSERLESS_TOKEN="t",
+        HEATMAP_BROWSERLESS_TIMEOUT_MS=300000,
+    )
+    def test_build_cdp_url_adds_window_size_launch_arg_for_width(self) -> None:
+        # The width sets the launch window size — the only way to control rendered width over CDP.
+        url = _build_browserless_cdp_url(1024)
+        assert url is not None
+        assert "launch=" in url
+        assert "--window-size=1024,800" in unquote(url)
+        # No width → no launch param (e.g. local path / unspecified)
+        assert "launch=" not in (_build_browserless_cdp_url() or "")
+
+    @override_settings(
+        HEATMAP_BROWSERLESS_URL="wss://production-sfo.browserless.io/chromium   # region nearest your worker",
+        HEATMAP_BROWSERLESS_TOKEN="t",
+        HEATMAP_BROWSERLESS_TIMEOUT_MS=300000,
+    )
+    def test_build_cdp_url_strips_inline_comment_and_whitespace(self) -> None:
+        # A bash-sourced .env keeps the inline comment in the value; we must not let it become a fragment.
+        url = _build_browserless_cdp_url()
+        assert url is not None
+        assert "#" not in url
+        assert " " not in url
+        assert "region" not in url
+        assert url.startswith("wss://production-sfo.browserless.io/chromium?")
+        assert "token=t" in url
+
     @parameterized.expand(
         [
             ("both_off", False, False, [], ["blockAds", "blockConsentModals"]),
@@ -391,8 +502,17 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "user" not in redacted
         assert "pass" not in redacted
         assert "token=REDACTED" in redacted
-        # Non-sensitive params survive
         assert "timeout=1000" in redacted
+
+    def test_redact_browserless_url_keeps_token_out_with_launch_param(self) -> None:
+        url = (
+            "wss://host/chromium?token=supersecret&timeout=180000"
+            "&launch=%7B%22args%22%3A%5B%22--window-size%3D1024%2C800%22%5D%7D"
+        )
+        redacted = _redact_browserless_url(url)
+        assert "supersecret" not in redacted
+        assert "token=REDACTED" in redacted
+        assert "--window-size=1024,800" in unquote(redacted)
 
     @override_settings(HEATMAP_BROWSERLESS_TOKEN="supersecret")
     def test_sanitize_browserless_error_scrubs_token_but_keeps_reason(self) -> None:

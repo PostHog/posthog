@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -183,9 +184,8 @@ def _capture_mode_usage(
     duration_seconds: float | None = None,
     error_type: str | None = None,
 ) -> None:
-    # Track which Playwright mode (Browserless cloud vs local Chromium) ran, to monitor rollout and
-    # compare reliability/latency. Uses ph_scoped_capture (not posthoganalytics.capture) because
-    # events from Celery tasks are otherwise silently lost; it no-ops off PostHog Cloud.
+    # ph_scoped_capture (not posthoganalytics.capture) — events from Celery tasks are otherwise
+    # silently lost; no-ops off PostHog Cloud.
     team = screenshot.team
     with ph_scoped_capture() as capture:
         capture(
@@ -293,20 +293,27 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             raise
 
 
-def _build_browserless_cdp_url() -> str | None:
-    # Read settings at call time (not import) so override_settings works in tests. Returns the
-    # token-bearing CDP URL when Browserless is configured, else None (→ local launch).
-    base_url = settings.HEATMAP_BROWSERLESS_URL
+def _build_browserless_cdp_url(width: int | None = None) -> str | None:
+    # Read settings at call time (not import) so override_settings works in tests.
+    # Strip whitespace + any inline comment a bash-sourced .env left in the value, else a `#` is
+    # parsed as a URL fragment and connect fails.
+    base_url = settings.HEATMAP_BROWSERLESS_URL.split("#", 1)[0].strip()
     if not base_url:
         return None
 
-    # Only append params the strict v2 CDP/WSS endpoint accepts — an unknown param fails the
-    # whole connection. (rejectResourceTypes/rejectRequestPattern are REST-only; don't add them.)
+    # Strict v2 connect rejects unknown params, so only append ones the WSS endpoint accepts.
     params = {"token": settings.HEATMAP_BROWSERLESS_TOKEN, "timeout": str(settings.HEATMAP_BROWSERLESS_TIMEOUT_MS)}
     if settings.HEATMAP_BROWSERLESS_BLOCK_ADS:
         params["blockAds"] = "true"
     if settings.HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS:
         params["blockConsentModals"] = "true"
+    if width is not None:
+        # Over CDP the per-context viewport is ignored; the rendered width is fixed by the launch
+        # window size, so each width launches with its own --window-size.
+        params["launch"] = json.dumps(
+            {"args": ["--force-device-scale-factor=1", f"--window-size={int(width)},800"]},
+            separators=(",", ":"),
+        )
 
     parts = urlsplit(base_url)
     # Preserve any query already on the base URL; our params win on key collisions.
@@ -331,8 +338,7 @@ _TOKEN_QS_RE = re.compile(r"(token=)[^&\s\"']+")
 
 
 def _sanitize_browserless_error(message: str) -> str:
-    # Keep the real Playwright error reason for debugging, but scrub the token wherever it appears
-    # (the raw value, and any `token=...` in an echoed URL) before it reaches logs / the DB.
+    # Scrub the token (raw value + any `token=...` in an echoed URL) while keeping the error reason.
     token = settings.HEATMAP_BROWSERLESS_TOKEN
     if token:
         message = message.replace(token, "REDACTED")
@@ -340,9 +346,8 @@ def _sanitize_browserless_error(message: str) -> str:
 
 
 def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
-    # Browserless cloud is used only when it's configured AND enabled for this team. In local dev the
-    # env var alone is the switch; in prod the flag gates per-team/org rollout. Fail closed to the
-    # local launch on any flag-eval error so a flags outage never forces traffic onto Browserless.
+    # Gated per team in prod; in local dev (DEBUG) the env var alone is the switch. Fail closed to
+    # the local launch on any flag-eval error.
     if not settings.HEATMAP_BROWSERLESS_URL:
         return False
     if settings.DEBUG:
@@ -366,18 +371,15 @@ def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
         return False
 
 
-def _connect_or_launch_browser(p: Playwright, use_browserless: bool) -> Browser:
-    # Render on a remote Browserless instance over CDP when enabled, so untrusted external
-    # pages don't execute in a local --no-sandbox Chromium on our infra.
-    cdp_url = _build_browserless_cdp_url() if use_browserless else None
+def _connect_or_launch_browser(p: Playwright, use_browserless: bool, width: int | None = None) -> Browser:
+    # Cloud path connects to Browserless over CDP; `width` sets that connection's launch window size.
+    cdp_url = _build_browserless_cdp_url(width) if use_browserless else None
     if cdp_url:
         try:
             return p.chromium.connect_over_cdp(cdp_url, timeout=settings.HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS)
         except Exception as e:
-            # Playwright echoes the full endpoint URL (incl. ?token=) into connect errors, and this
-            # task persists exceptions to SavedHeatmap.exception (API-readable), logs, and the error
-            # tracker — amplified by autoretry. Re-raise with the credential stripped and the original
-            # context suppressed so the raw token can't leak via __context__.
+            # Playwright echoes the token-bearing URL into connect errors, which this task persists to
+            # SavedHeatmap.exception; re-raise scrubbed, with `from None` so the token can't leak via __context__.
             raise RuntimeError(
                 f"Browserless connect failed for {_redact_browserless_url(cdp_url)}: "
                 f"{_sanitize_browserless_error(str(e))}"
@@ -398,6 +400,66 @@ def _connect_or_launch_browser(p: Playwright, use_browserless: bool) -> Browser:
     )
 
 
+def _render_width(browser: Browser, width: int, url: str, is_cloud: bool) -> bytes:
+    ctx = browser.new_context(
+        viewport={"width": int(width), "height": 800},
+        device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
+        is_mobile=(width < 500),  # trigger mobile layout on small widths
+        has_touch=(width < 500),  # some sites key on touch capability
+        user_agent=(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/115.0.0.0 "
+            "Mobile/15E148 Safari/604.1"
+            if width < 500
+            else None
+        ),
+    )
+    try:
+        page = ctx.new_page()
+        # Local-only: the --no-sandbox Chromium is on our network, so per-request SSRF interception is
+        # load-bearing. The cloud browser is off-net, so egress containment is delegated to Browserless.
+        if not is_cloud:
+            _block_internal_requests(page)
+
+        # Start navigation and try to wait for DOM ready, but only up to 5s
+        dom_ready = True
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=5_000)
+        except PlaywrightTimeoutError:
+            dom_ready = False
+            # Navigation may still continue in the background; we just won't block on it.
+
+        # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
+        page.wait_for_timeout(3000 if dom_ready else 1000)
+
+        # Try to clear overlays/cookie banners if present
+        _dismiss_cookie_banners(page)
+        page.wait_for_timeout(500)
+
+        # Scroll to bottom and back to top to trigger lazy-loaded content
+        _scroll_page(page)
+
+        # Hide scrollbars so they don't appear in the exported image
+        try:
+            page.add_style_tag(
+                content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
+            )
+        except Exception:
+            pass
+
+        return page.screenshot(full_page=True, type="jpeg", quality=70)
+    finally:
+        ctx.close()
+
+
+def _close_browser_quietly(browser: Browser) -> None:
+    # Closing a torn-down CDP connection can itself raise; swallow so it can't mask the render error.
+    try:
+        browser.close()
+    except Exception:
+        logger.warning("heatmap_screenshot.browser_close_failed", exc_info=True)
+
+
 def _generate_screenshots(screenshot: SavedHeatmap, use_browserless: bool) -> int:
     # Determine target widths
     target_widths = screenshot.target_widths or DEFAULT_TARGET_WIDTHS
@@ -412,72 +474,27 @@ def _generate_screenshots(screenshot: SavedHeatmap, use_browserless: bool) -> in
     if not widths:
         widths = [1024]
 
-    # Collect in-memory and persist AFTER the Playwright block: Django ORM calls inside
-    # `with sync_playwright()` run in its greenlet/event-loop context and raise SynchronousOnlyOperation.
+    # Persist AFTER the Playwright block: ORM calls inside `with sync_playwright()` raise
+    # SynchronousOnlyOperation (its greenlet/event-loop context).
     snapshot_bytes: list[tuple[int, bytes]] = []
-    is_cloud = use_browserless
     with sync_playwright() as p:
-        browser = _connect_or_launch_browser(p, use_browserless)
-        try:
+        if use_browserless:
+            # Each width opens its own connection so it can launch at its own window size, the only
+            # way to control rendered width over CDP (see _build_browserless_cdp_url).
             for w in widths:
-                ctx = browser.new_context(
-                    viewport={"width": int(w), "height": 800},
-                    device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
-                    is_mobile=(w < 500),  # trigger mobile layout on small widths
-                    has_touch=(w < 500),  # some sites key on touch capability
-                    user_agent=(
-                        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
-                        "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/115.0.0.0 "
-                        "Mobile/15E148 Safari/604.1"
-                        if w < 500
-                        else None
-                    ),
-                )
-                page = ctx.new_page()
-                # On the cloud path the browser is off our network, so page.route("**/*") wouldn't
-                # protect our infra; it would instead round-trip every subresource over the WAN (and
-                # run its DNS check on the worker, not Browserless), fighting the 5s nav budget.
-                # Egress containment there is delegated to Browserless. Locally the --no-sandbox
-                # Chromium is on our network, so the interception is load-bearing and stays.
-                if not is_cloud:
-                    _block_internal_requests(page)
-
-                # Start navigation and try to wait for DOM ready, but only up to 5s
-                dom_ready = True
+                browser = _connect_or_launch_browser(p, use_browserless=True, width=w)
                 try:
-                    page.goto(screenshot.url, wait_until="domcontentloaded", timeout=5_000)
-                except PlaywrightTimeoutError:
-                    dom_ready = False
-                    # Navigation may still continue in the background; we just won't block on it.
+                    snapshot_bytes.append((w, _render_width(browser, w, screenshot.url, is_cloud=True)))
+                finally:
+                    _close_browser_quietly(browser)
+        else:
+            browser = _connect_or_launch_browser(p, use_browserless=False)
+            try:
+                for w in widths:
+                    snapshot_bytes.append((w, _render_width(browser, w, screenshot.url, is_cloud=False)))
+            finally:
+                _close_browser_quietly(browser)
 
-                # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
-                page.wait_for_timeout(3000 if dom_ready else 1000)
-
-                # Try to clear overlays/cookie banners if present
-                _dismiss_cookie_banners(page)
-                page.wait_for_timeout(500)
-
-                # Scroll to bottom and back to top to trigger lazy-loaded content
-                _scroll_page(page)
-
-                # Hide scrollbars so they don't appear in the exported image
-                try:
-                    page.add_style_tag(
-                        content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
-                    )
-                except Exception:
-                    pass
-
-                # Take full-page screenshot without resizing viewport
-                # (resizing viewport causes elements with vh units to expand)
-                image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
-                snapshot_bytes.append((w, image_data))
-                ctx.close()
-        finally:
-            browser.close()
-
-    # Persisted outside the Playwright context (see note above). A mid-loop session kill therefore
-    # loses this run's snapshots and retries, so HEATMAP_BROWSERLESS_TIMEOUT_MS must cover all widths.
     for w, image_data in snapshot_bytes:
         snapshot, _ = HeatmapSnapshot.objects.get_or_create(heatmap=screenshot, width=w)
         snapshot.content = image_data
