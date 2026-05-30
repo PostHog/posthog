@@ -5,7 +5,11 @@ import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { parseJSON } from '../../../utils/json-parse'
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CdpOutput } from '../../cdp-services'
-import { HogInvocationResultRow, HogInvocationResultsService } from './hog-invocation-results.service'
+import {
+    HogInvocationResultRow,
+    HogInvocationResultsService,
+    decodeInvocationGlobals,
+} from './hog-invocation-results.service'
 
 const buildOutputsMock = (): jest.Mocked<IngestionOutputs<CdpOutput>> => {
     return {
@@ -88,18 +92,43 @@ describe('HogInvocationResultsService', () => {
 
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(1)
-            const globals = parseJSON(rows[0].invocation_globals) as Record<string, any>
+            const globals = (await decodeInvocationGlobals(rows[0].invocation_globals)) as Record<string, any>
 
-            // The event/person/project context we care about is preserved.
+            // The event context we care about is preserved.
             expect(globals.event?.uuid).toBeDefined()
-            expect(globals.person?.id).toBeDefined()
+            expect(globals.project?.id).toBeDefined()
             // But `inputs` is gone entirely.
             expect(globals).not.toHaveProperty('inputs')
-            // And the serialized blob does not mention the secret anywhere
+            // And the decoded payload does not mention the secret anywhere
             // (catches the case where a future schema change moves inputs
             // under a different key without us noticing).
-            expect(rows[0].invocation_globals).not.toContain('sk-super-secret')
-            expect(rows[0].invocation_globals).not.toContain('abc123')
+            const decoded = JSON.stringify(globals)
+            expect(decoded).not.toContain('sk-super-secret')
+            expect(decoded).not.toContain('abc123')
+        })
+
+        it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {
+            const invocation = createExampleInvocation({}, {
+                groups: {
+                    organization: {
+                        id: 'org-1',
+                        type: 'organization',
+                        index: 0,
+                        url: 'http://localhost',
+                        properties: { plan: 'enterprise', seats: 500 },
+                    },
+                },
+            } as any)
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            const globals = (await decodeInvocationGlobals(rows[0].invocation_globals)) as Record<string, any>
+            expect(globals).not.toHaveProperty('groups')
+            expect(globals).not.toHaveProperty('person')
+            // The event — the rerun trigger — is kept.
+            expect(globals.event?.uuid).toBeDefined()
+            expect(globals.project?.id).toBeDefined()
         })
 
         it('marks is_retry=1 and attempts=N when state.rerunAttempts is set', async () => {
@@ -248,6 +277,42 @@ describe('HogInvocationResultsService', () => {
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(2)
             expect(BigInt(rows[1].version)).toBeGreaterThan(BigInt(rows[0].version))
+        })
+    })
+
+    describe('invocation_globals compression', () => {
+        it('produces invocation_globals as a compressed blob that round-trips back to the event', async () => {
+            const invocation = createExampleInvocation({}, {
+                event: {
+                    uuid: 'event-uuid-rt',
+                    event: '$pageview',
+                    elements_chain: '',
+                    distinct_id: 'distinct-rt',
+                    url: 'http://localhost',
+                    properties: { $current_url: 'https://posthog.com', big: 'x'.repeat(5000) },
+                    timestamp: '2026-05-01T00:00:00Z',
+                },
+            } as any)
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            const stored = rows[0].invocation_globals
+            // On the wire the field is a base64 blob — never raw JSON.
+            expect(stored.startsWith('{')).toBe(false)
+            // A repetitive 5KB event compresses well below its raw size.
+            expect(stored.length).toBeLessThan(JSON.stringify(invocation.state.globals.event).length)
+            // And it decodes back to the original event payload intact.
+            const globals = (await decodeInvocationGlobals(stored)) as Record<string, any>
+            expect(globals.event).toEqual(invocation.state.globals.event)
+        })
+
+        it('decodes legacy uncompressed (raw JSON) rows unchanged', async () => {
+            const legacy = JSON.stringify({ event: { uuid: 'legacy-uuid' }, project: { id: 7 } })
+            expect(await decodeInvocationGlobals(legacy)).toEqual({
+                event: { uuid: 'legacy-uuid' },
+                project: { id: 7 },
+            })
         })
     })
 

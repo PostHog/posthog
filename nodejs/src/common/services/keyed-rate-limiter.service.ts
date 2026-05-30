@@ -137,13 +137,12 @@ export class KeyedRateLimiterService {
     }
 
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
-     * batches the per-input decisions match rateLimitMany exactly.
+     * Coalesced variant of rateLimitMany — N inputs across M unique ids → M Redis calls.
+     * Per-input decisions fan out client-side from each id's `tokensBefore`.
      *
-     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
-     * Per-id bucket params come from the first request seen for that id.
+     * Boundary differs from rateLimitMany: an input whose cost lands exactly on
+     * the local budget (`next === 0`) is allowed here, rate-limited there. Per-id
+     * bucket params come from the first request seen for that id.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
@@ -209,16 +208,13 @@ export class KeyedRateLimiterService {
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
             const tokensBefore = budgetById.get(req.id) ?? 0
+            // Boundary is `next < 0`, not `<= 0` — needed so the lua's floor-drain of
+            // one token under sustained overload actually lets that input through.
             if (tokensBefore >= req.cost) {
                 const next = tokensBefore - req.cost
                 budgetById.set(req.id, next)
-                const isRateLimited = next <= 0
-                if (isRateLimited) {
-                    limited++
-                } else {
-                    allowed++
-                }
-                return [req.id, { tokensBefore, tokens: next, isRateLimited }]
+                allowed++
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
             }
             limited++
             return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]

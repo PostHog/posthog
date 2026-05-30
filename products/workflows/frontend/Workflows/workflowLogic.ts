@@ -474,9 +474,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                from: !emailValue?.from?.email
-                                    ? 'From is required'
-                                    : getTemplatingError(emailValue?.from?.email, emailTemplating),
+                                from:
+                                    !emailValue?.from?.integrationId || !emailValue?.from?.email
+                                        ? 'Choose who to send this email from'
+                                        : getTemplatingError(emailValue?.from?.email, emailTemplating),
                                 to: !emailValue?.to?.email
                                     ? 'To is required'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -502,6 +503,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             if (!template) {
                                 result.valid = false
                                 result.errors = {
+                                    ...result.errors,
                                     // This is a special case for the template_id field which might need to go to a generic error message
                                     _template_id: 'Template not found',
                                 }
@@ -510,8 +512,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                     action.config.inputs,
                                     template.inputs_schema ?? []
                                 )
-                                result.valid = configValidation.valid
-                                result.errors = configValidation.errors
+                                // Merge so the type-specific block above (e.g. function_email's
+                                // stricter `from` check) is not clobbered by the generic validator.
+                                result.valid = result.valid && configValidation.valid
+                                result.errors = { ...configValidation.errors, ...result.errors }
                             }
                         }
 

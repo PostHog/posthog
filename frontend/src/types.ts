@@ -1,11 +1,11 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
+import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-import { LogLevel } from '@posthog/rrweb-plugin-console-record'
-import { eventWithTime } from '@posthog/rrweb-types'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
@@ -420,6 +420,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
+    pipeline_notifications_disabled?: Record<string, boolean>
 }
 
 export interface InAppNotification {
@@ -1584,8 +1585,15 @@ export interface PersonActorType extends CommonActorType {
     type: 'person'
     id: string
     name?: string
-    distinct_ids: string[]
-    is_identified: boolean
+    // distinct_ids and is_identified are required for resolved persons but absent on
+    // stubs returned when the ClickHouse actor_id couldn't be hydrated from Postgres
+    // (see is_unresolved). Callers must guard for the stub case.
+    distinct_ids?: string[]
+    is_identified?: boolean
+    // Set when the person's actor_id from ClickHouse couldn't be hydrated from Postgres
+    // (typically because the person was merged into another or deleted). When true,
+    // distinct_ids/is_identified/properties/created_at may all be missing.
+    is_unresolved?: boolean
 }
 
 export interface GroupActorType extends CommonActorType {
@@ -1707,6 +1715,7 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
+    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
@@ -2421,6 +2430,7 @@ export interface EndpointType extends WithAccessControl {
     materialization?: EndpointVersionMaterializationType
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
+    tags?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -2960,6 +2970,8 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
     min_decimal_places?: number
+    x_axis_label?: string
+    y_axis_label?: string
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -4083,7 +4095,7 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {
@@ -4556,6 +4568,7 @@ export enum ExperimentConclusion {
 }
 
 export interface ExperimentHoldoutType {
+    /** @asType integer */
     id: number | null
     name: string
     description: string | null
@@ -4604,6 +4617,7 @@ export interface Experiment {
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
+        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4624,6 +4638,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        baseline_variant_key?: string
         bayesian?: {
             ci_level?: number
         }
@@ -5364,19 +5379,21 @@ export type APIScopeObject =
     | 'llm_provider_key'
     | 'llm_skill'
     | 'logs'
+    | 'marketing_analytics'
+    | 'metrics'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'personal_spend'
     | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
-    | 'replay_lens'
+    | 'query_performance'
+    | 'replay_scanner'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -5585,6 +5602,7 @@ export enum ActivityScope {
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    INSTANCE_SETTING = 'InstanceSetting',
 }
 
 export type CommentType = {
@@ -5810,6 +5828,7 @@ export interface ExternalDataSource {
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
+    supports_column_selection?: boolean
 }
 
 export interface WebhookExternalStatus {
@@ -5913,6 +5932,12 @@ export interface ExternalDataSourceSyncSchema {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     /**
+     * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
+     * reason this endpoint is currently unreachable. `null`/undefined = endpoint is
+     * available. The UI should disable selection and surface this string when set.
+     */
+    permission_error?: string | null
+    /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
      */
@@ -5966,6 +5991,12 @@ export interface ExternalDataJob {
     rows_synced: number
     latest_error: string
     workflow_run_id?: string
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows
+     * produced for the same schema: `incremental_merge` (consolidated table) vs `scd2_append`
+     * (cdc-only history table). `null` for non-CDC syncs.
+     */
+    cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
 }
 
 export interface SimpleDataWarehouseTable {
@@ -6464,7 +6495,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
-    | ProductKey.LLM_ANALYTICS
+    | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS,
     OnboardingProduct
@@ -6506,6 +6537,8 @@ export type CyclotronJobInputSchemaType = {
     key: string
     label: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean
@@ -6631,6 +6664,7 @@ export type HogFunctionConfigurationContextId =
     | 'insight-alerts'
     | 'experiment-alerts'
     | 'logs-alerting'
+    | 'health-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6647,6 +6681,8 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-resolved'
     | 'logs-alert-auto-disabled'
     | 'logs-alert-errored'
+    | 'health-check-firing'
+    | 'health-check-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

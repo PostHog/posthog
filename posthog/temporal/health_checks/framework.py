@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS
+
+if TYPE_CHECKING:
+    from posthog.models.health_issue import HealthIssue
+
+
+@dataclass(frozen=True)
+class AlertContent:
+    """User-facing description of a fired health-check alert.
+
+    Health checks override `HealthCheck.render_alert` to produce one of
+    these. The fields are embedded into `$health_check_issue_firing` and
+    `$health_check_issue_resolved` event properties, where HogFunction
+    templates pick them up as `event.properties.title`, etc.
+    """
+
+    title: str
+    summary: str
+    # Relative path inside the PostHog app (e.g. "/health/sdk-doctor").
+    # HogFunction templates concatenate this onto {project.url}.
+    link: str
 
 
 @dataclass(frozen=True)
@@ -67,3 +88,17 @@ class HealthCheck:
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         raise NotImplementedError
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        """Build the alert content surfaced to HogFunction destinations.
+
+        The default produces a generic title/summary keyed off `kind` and
+        `severity` with a link to /health. Concrete checks override this to
+        produce a human-readable message that names the affected resource.
+        """
+        return AlertContent(
+            title=cls.name,
+            summary=f"{cls.kind} ({issue.severity})",
+            link="/health",
+        )

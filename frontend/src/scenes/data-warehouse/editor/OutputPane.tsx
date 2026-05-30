@@ -19,7 +19,7 @@ import {
     IconShare,
     IconScreen,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -946,6 +946,24 @@ function InternalDataTableVisualization(
     )
 }
 
+const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+    if (!warnings || warnings.length === 0) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-sync-warnings">
+            <div className="font-semibold mb-1">
+                Some warehouse sources used by this query are out of date — results may not reflect current data
+            </div>
+            <ul className="list-disc pl-5 space-y-1">
+                {warnings.map((warning, index) => (
+                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>{warning.message}</li>
+                ))}
+            </ul>
+        </LemonBanner>
+    )
+}
+
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     const error = queryCancelled
         ? 'The query was cancelled'
@@ -1055,7 +1073,8 @@ const Content = ({
         }
 
         return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t overflow-auto">
+                <SyncWarningsBanner warnings={response?.warnings} />
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}
@@ -1110,6 +1129,7 @@ const Content = ({
     if (activeTab === OutputTab.Results) {
         return (
             <TabScroller data-attr="sql-editor-output-pane-results">
+                <SyncWarningsBanner warnings={response?.warnings} />
                 <DataGrid
                     className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
                     columns={columns}

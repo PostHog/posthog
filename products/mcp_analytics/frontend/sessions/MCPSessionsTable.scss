@@ -1,0 +1,21 @@
+.MCPSessionsTable {
+    // The list scrolls in the wrapping `max-h` / `overflow-y-auto` container. LemonTable nests
+    // several overflow containers (its own root plus base-ui's ScrollArea), each of which would
+    // otherwise capture a sticky <thead> and keep it from pinning to the scroll container. Make
+    // them transparent to sticky positioning so the header pins to the outer wrapper instead.
+    &.LemonTable,
+    .ScrollableShadows,
+    .ScrollableShadows__inner {
+        overflow: visible !important;
+    }
+
+    // Selector mirrors the base `.LemonTable__content > table > thead { position: relative }`
+    // rule and adds the `.MCPSessionsTable` class so it outranks it and the header can pin.
+    .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+
+        // Sit above the body rows (including the highlighted selected row) as they scroll under it.
+        z-index: 2;
+    }
+}

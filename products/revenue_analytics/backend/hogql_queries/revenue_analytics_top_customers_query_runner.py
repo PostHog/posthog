@@ -163,6 +163,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
                 query_type="revenue_analytics_top_customers_query",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
