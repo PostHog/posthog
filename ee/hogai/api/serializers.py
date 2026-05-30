@@ -1,3 +1,5 @@
+import re
+import uuid
 from typing import Any
 
 import pydantic
@@ -41,6 +43,123 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
+# attached_context boundary validation (01_CONTEXT § 4.4). Caps are conservative starting points;
+# the binding constraint is whatever pushes the wrapped block past ~4k tokens.
+ATTACHED_CONTEXT_MAX_ITEMS = 32
+ATTACHED_CONTEXT_MAX_TEXT_LENGTH = 4096
+
+# The 8 allowed attachment types. Seven entity types carry an id; "text" carries a value.
+ATTACHED_CONTEXT_ENTITY_TYPES = frozenset(
+    {"dashboard", "insight", "event", "action", "error_tracking_issue", "evaluation", "notebook"}
+)
+ATTACHED_CONTEXT_TYPES = ATTACHED_CONTEXT_ENTITY_TYPES | {"text"}
+
+# Insight short ids are short alphanumeric slugs; events/actions/notebooks use loose string/int ids.
+_SHORT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _is_int_like(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, str) and value.lstrip("-").isdigit()
+
+
+def _is_uuid_like(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+class AttachedContextSerializer(serializers.Serializer):
+    """A typed entity reference or free-text snippet attached to a message."""
+
+    # Entity refs are NOT existence-checked — a missing row surfaces naturally when the agent's read
+    # tool runs (01_CONTEXT § 4.4). Team-scope safety lives in the tools, which filter by team.
+
+    type = serializers.ChoiceField(choices=sorted(ATTACHED_CONTEXT_TYPES))
+    id = serializers.JSONField(required=False, allow_null=True)
+    name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=512)
+    value = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, max_length=ATTACHED_CONTEXT_MAX_TEXT_LENGTH
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        item_type = attrs["type"]
+        item_id = attrs.get("id")
+
+        if item_type == "text":
+            return attrs
+
+        if item_id is None:
+            raise serializers.ValidationError(f"`id` is required for attached_context type '{item_type}'.")
+
+        if not self._id_matches_type(item_type, item_id):
+            raise serializers.ValidationError(f"Invalid `id` shape for attached_context type '{item_type}'.")
+
+        return attrs
+
+    @staticmethod
+    def _id_matches_type(item_type: str, item_id: Any) -> bool:
+        if item_type == "dashboard":
+            return _is_int_like(item_id)
+        if item_type == "error_tracking_issue":
+            return _is_uuid_like(item_id)
+        if item_type == "insight":
+            return isinstance(item_id, str) and bool(_SHORT_ID_RE.match(item_id))
+        # event / action / evaluation / notebook accept either an int-like or short-string id.
+        return _is_int_like(item_id) or (isinstance(item_id, str) and bool(_SHORT_ID_RE.match(item_id)))
+
+
+# GET /log/ pagination contract (02_CORE § 4.6). Single-shot, capped read across all of a
+# sandbox conversation's Runs — defaults asc/chronological, caps at 5000.
+LOG_ENTRIES_MAX_LIMIT = 5000
+LOG_ENTRIES_DEFAULT_LIMIT = 5000
+
+
+class ConversationLogQuerySerializer(serializers.Serializer):
+    """Query params for the multi-Run sandbox history endpoint (02_CORE § 4.6)."""
+
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return entries strictly after this ISO8601 timestamp (chronological cursor).",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=LOG_ENTRIES_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=LOG_ENTRIES_MAX_LIMIT,
+        help_text="Maximum number of entries to return (default and cap 5000).",
+    )
+    order = serializers.ChoiceField(
+        required=False,
+        default="asc",
+        choices=["asc", "desc"],
+        help_text="Chronological order: 'asc' (default) or 'desc' (newest first, for previews).",
+    )
+
+
+class ConversationLogSerializer(serializers.Serializer):
+    """Response body for the multi-Run sandbox history endpoint (02_CORE § 4.6)."""
+
+    entries = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="ACP log entries concatenated across all of the conversation's Runs, in the requested order.",
+    )
+    has_more = serializers.BooleanField(
+        help_text="Whether the assembled buffer held more entries than were returned in this response.",
+    )
+    current_run_status = serializers.CharField(
+        allow_null=True,
+        help_text="Status of the most recent Run (last by created_at), or null when no Run exists yet.",
+    )
+
+
 class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
@@ -58,7 +177,11 @@ class ConversationSerializer(ConversationMinimalSerializer):
             "messages",
             "has_unsupported_content",
             "agent_mode",
+            "agent_runtime",
             "is_sandbox",
+            # Exposed read-only so the frontend can open the direct browser->cloud-agent SSE stream.
+            "sandbox_task_id",
+            "sandbox_run_id",
             "pending_approvals",
         ]
         read_only_fields = fields
@@ -70,6 +193,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+        # Sandbox conversations own their history in S3 ACP logs, fetched via GET /log/ (02_CORE § 4.7).
+        # The detail endpoint stays fast and never paginates S3 — it returns an empty messages array
+        # and lets the frontend assemble history from the log endpoint.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return []
+
         if conversation.messages_json is not None:
             return conversation.messages_json
 

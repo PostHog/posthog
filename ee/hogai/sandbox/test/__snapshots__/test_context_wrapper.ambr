@@ -1,0 +1,44 @@
+# serializer version: 1
+# name: TestContextWrapper.test_wrap_user_message_renders_block_0_empty
+  'Why did conversions drop?'
+# ---
+# name: TestContextWrapper.test_wrap_user_message_renders_block_1_one_of_each
+  '''
+  <posthog_context>
+  The user attached the following PostHog entities. Use the appropriate tools to retrieve their details only if relevant to the request.
+  - Dashboard #123 ("Marketing Funnel")
+  - Insight #abc-def ("Daily Signups")
+  - Event #pageview ("$pageview")
+  - Action #7 ("Signed up")
+  - Error tracking issue #019249ab-0000-7000-8000-000000000000 ("TypeError in checkout flow")
+  - Evaluation #42 ("Tone eval")
+  - Notebook #nb-1 ("Weekly review")
+  - Free text: "I think this regressed last Thursday"
+  </posthog_context>
+  
+  Why did conversions drop?
+  '''
+# ---
+# name: TestContextWrapper.test_wrap_user_message_renders_block_2_mixed_with_text
+  '''
+  <posthog_context>
+  The user attached the following PostHog entities. Use the appropriate tools to retrieve their details only if relevant to the request.
+  - Dashboard #123 ("Marketing Funnel")
+  - Free text: "Compare to last week"
+  - Insight #xyz ("Conversion by source")
+  </posthog_context>
+  
+  Why did conversions drop?
+  '''
+# ---
+# name: TestContextWrapper.test_wrap_user_message_renders_block_3_missing_name
+  '''
+  <posthog_context>
+  The user attached the following PostHog entities. Use the appropriate tools to retrieve their details only if relevant to the request.
+  - Dashboard #123
+  - Insight #abc
+  </posthog_context>
+  
+  Why did conversions drop?
+  '''
+# ---

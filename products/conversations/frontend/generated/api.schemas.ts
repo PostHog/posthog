@@ -164,6 +164,47 @@ export const AgentModeEnumApi = {
 } as const
 
 /**
+ * * `action` - action
+ * `dashboard` - dashboard
+ * `error_tracking_issue` - error_tracking_issue
+ * `evaluation` - evaluation
+ * `event` - event
+ * `insight` - insight
+ * `notebook` - notebook
+ * `text` - text
+ */
+export type AttachedContextTypeEnumApi = (typeof AttachedContextTypeEnumApi)[keyof typeof AttachedContextTypeEnumApi]
+
+export const AttachedContextTypeEnumApi = {
+    Action: 'action',
+    Dashboard: 'dashboard',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Evaluation: 'evaluation',
+    Event: 'event',
+    Insight: 'insight',
+    Notebook: 'notebook',
+    Text: 'text',
+} as const
+
+/**
+ * A typed entity reference or free-text snippet attached to a message.
+ */
+export interface AttachedContextApi {
+    type: AttachedContextTypeEnumApi
+    id?: unknown
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 4096
+     * @nullable
+     */
+    value?: string | null
+}
+
+/**
  * Serializer for appending a message to an existing conversation without triggering AI processing.
  */
 export interface MessageApi {
@@ -181,11 +222,24 @@ export interface MessageApi {
     agent_mode?: AgentModeEnumApi
     is_sandbox?: boolean
     resume_payload?: unknown
+    /** Typed entity references and free text attached to a sandbox message. */
+    attached_context?: AttachedContextApi[]
 }
 
 export type ConversationApiMessagesItem = { [key: string]: unknown }
 
 export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
+
+/**
+ * * `langgraph` - LangGraph
+ * `sandbox` - Sandbox
+ */
+export type AgentRuntimeEnumApi = (typeof AgentRuntimeEnumApi)[keyof typeof AgentRuntimeEnumApi]
+
+export const AgentRuntimeEnumApi = {
+    Langgraph: 'langgraph',
+    Sandbox: 'sandbox',
+} as const
 
 export interface ConversationApi {
     readonly id: string
@@ -220,7 +274,22 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    /** Runtime that serves this conversation. Stamped once at creation from the request's sandbox selection and never re-read on an existing row — a conversation lives its whole life on the runtime it was created with.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime: AgentRuntimeEnumApi
     readonly is_sandbox: boolean
+    /**
+     * Permanent link to Task for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_task_id: string | null
+    /**
+     * Permanent link to current TaskRun for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_run_id: string | null
     /** Return pending approval cards as structured data.
 
   Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -273,12 +342,42 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    /** Runtime that serves this conversation. Stamped once at creation from the request's sandbox selection and never re-read on an existing row — a conversation lives its whole life on the runtime it was created with.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime?: AgentRuntimeEnumApi
     readonly is_sandbox?: boolean
+    /**
+     * Permanent link to Task for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_task_id?: string | null
+    /**
+     * Permanent link to current TaskRun for sandbox conversations.
+     * @nullable
+     */
+    readonly sandbox_run_id?: string | null
     /** Return pending approval cards as structured data.
 
   Combines metadata from conversation.approval_decisions with payload from checkpoint
   interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
+}
+
+/**
+ * Response body for the multi-Run sandbox history endpoint (02_CORE § 4.6).
+ */
+export interface ConversationLogApi {
+    /** ACP log entries concatenated across all of the conversation's Runs, in the requested order. */
+    entries: unknown[]
+    /** Whether the assembled buffer held more entries than were returned in this response. */
+    has_more: boolean
+    /**
+     * Status of the most recent Run (last by created_at), or null when no Run exists yet.
+     * @nullable
+     */
+    current_run_status: string | null
 }
 
 /**
@@ -654,6 +753,35 @@ export type ConversationsListParams = {
      */
     offset?: number
 }
+
+export type ConversationsLogRetrieveParams = {
+    /**
+     * Only return entries strictly after this ISO8601 timestamp (chronological cursor).
+     */
+    after?: string
+    /**
+     * Maximum number of entries to return (default and cap 5000).
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
+    /**
+ * Chronological order: 'asc' (default) or 'desc' (newest first, for previews).
+
+* `asc` - asc
+* `desc` - desc
+ * @minLength 1
+ */
+    order?: ConversationsLogRetrieveOrder
+}
+
+export type ConversationsLogRetrieveOrder =
+    (typeof ConversationsLogRetrieveOrder)[keyof typeof ConversationsLogRetrieveOrder]
+
+export const ConversationsLogRetrieveOrder = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
 
 export type ConversationsViewsListParams = {
     /**

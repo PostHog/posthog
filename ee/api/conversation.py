@@ -50,12 +50,23 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
+from products.tasks.backend.models import TaskRun
+
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
+from ee.hogai.api.serializers import (
+    ATTACHED_CONTEXT_MAX_ITEMS,
+    AttachedContextSerializer,
+    ConversationLogQuerySerializer,
+    ConversationLogSerializer,
+    ConversationMinimalSerializer,
+    ConversationSerializer,
+)
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
-from ee.hogai.sandbox.executor import handle_sandbox_message
+from ee.hogai.sandbox.context_wrapper import AttachedContext
+from ee.hogai.sandbox.executor import cancel_sandbox_run, handle_sandbox_message
+from ee.hogai.sandbox.log_assembler import assemble_conversation_log
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
@@ -107,6 +118,12 @@ class MessageSerializer(MessageMinimalSerializer):
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     is_sandbox = serializers.BooleanField(required=False, default=False)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
+    attached_context = AttachedContextSerializer(
+        many=True,
+        required=False,
+        max_length=ATTACHED_CONTEXT_MAX_ITEMS,  # 32-item cap (01_CONTEXT § 4.4)
+        help_text="Typed entity references and free text attached to a sandbox message.",
+    )
 
     def validate(self, attrs):
         data = attrs
@@ -219,8 +236,9 @@ class ConversationViewSet(
     def safely_get_queryset(self, queryset):
         queryset = queryset.select_related("user").exclude(deleted=True)
 
-        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
-        if self.action != "retrieve":
+        # Single retrieval and history reads of a specific conversation are allowed for other users'
+        # conversations in the same team (if ID known) — same team-membership gate as `retrieve`.
+        if self.action not in ("retrieve", "log"):
             queryset = queryset.filter(user=self.request.user)
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
@@ -362,20 +380,34 @@ class ConversationViewSet(
             # Mark conversation as internal if created during an impersonated session (support agents)
             is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_research else Conversation.Type.ASSISTANT
+            # Stamp the runtime once, at create-time, from the request's explicit sandbox selection.
+            # A conversation lives its whole life on the runtime it was created with — never re-read on
+            # existing rows. No feature flag gates this; the request decides.
+            sandbox_requested = (
+                serializer.validated_data.get("is_sandbox", False)
+                or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+            )
+            agent_runtime = (
+                Conversation.AgentRuntime.SANDBOX if sandbox_requested else Conversation.AgentRuntime.LANGGRAPH
+            )
             conversation = Conversation.objects.create(
                 user=cast(User, request.user),
                 team=self.team,
                 id=conversation_id,
                 type=conversation_type,
                 is_internal=is_impersonated,
+                agent_runtime=agent_runtime,
             )
             is_new_conversation = True
 
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
+        # A conversation's runtime is fixed at create-time (agent_runtime). The payload flags are still
+        # honored so conversations created before agent_runtime existed keep routing correctly.
         is_sandbox = (
-            serializer.validated_data.get("is_sandbox", False)
+            conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+            or serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
         )
 
@@ -396,6 +428,9 @@ class ConversationViewSet(
         is_impersonated = is_impersonated_session(request)
 
         if is_sandbox and has_message:
+            attached_context = [
+                AttachedContext.model_validate(item) for item in serializer.validated_data.get("attached_context") or []
+            ]
             return handle_sandbox_message(
                 conversation=conversation,
                 conversation_id=str(conversation_id),
@@ -403,6 +438,7 @@ class ConversationViewSet(
                 user=cast(User, request.user),
                 team=self.team,
                 is_new_conversation=is_new_conversation,
+                attached_context=attached_context,
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
@@ -570,6 +606,11 @@ class ConversationViewSet(
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
 
+        # Sandbox runtime cancel proxies a `cancel` command to the live agent server (02_CORE § 5.4),
+        # a different mechanism than the LangGraph Temporal-workflow cancel below.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return self._cancel_sandbox(conversation)
+
         # IDLE is intentionally not short-circuited: during the handoff between the main
         # workflow completing and a queued workflow starting, the status is briefly IDLE
         # even though a queued Temporal workflow may be running.
@@ -587,6 +628,59 @@ class ConversationViewSet(
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _cancel_sandbox(self, conversation: Conversation) -> Response:
+        if conversation.sandbox_run_id is None:
+            return Response({"error": "No active sandbox run for this conversation"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+            task_run = TaskRun.objects.get(id=conversation.sandbox_run_id, team=self.team)
+        except TaskRun.DoesNotExist:
+            return Response({"error": "Sandbox run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        run_status = cancel_sandbox_run(task_run, cast(User, self.request.user))
+        return Response({"run_status": run_status}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        description=(
+            "Server-assembled multi-Run history for a sandbox conversation. Walks the conversation's "
+            "Task Runs chronologically and concatenates each Run's stored ACP log entries into a single "
+            "buffer. Sandbox runtime only — langgraph conversations have no ACP logs and return 400."
+        ),
+        parameters=[ConversationLogQuerySerializer],
+        responses={200: ConversationLogSerializer},
+    )
+    @action(detail=True, methods=["GET"], url_path="log")
+    def log(self, request: Request, *args, **kwargs) -> Response:
+        # get_object() applies the same team-membership gate as `retrieve` (history reads are allowed
+        # for any member of the conversation's team via safely_get_queryset + the mixin's team scoping)
+        # — no new IDOR surface.
+        conversation: Conversation = self.get_object()
+
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            return Response(
+                {"detail": "log endpoint is sandbox-runtime only; use GET /conversations/{id}/ for langgraph messages"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        query = ConversationLogQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        runs: list[TaskRun] = []
+        if conversation.sandbox_task_id is not None:
+            runs = list(
+                # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+                TaskRun.objects.filter(task_id=conversation.sandbox_task_id, team=self.team).order_by("created_at")
+            )
+
+        assembled = assemble_conversation_log(
+            runs,
+            after=query.validated_data.get("after"),
+            limit=query.validated_data["limit"],
+            order=query.validated_data["order"],
+        )
+        return Response(assembled)
 
     @extend_schema(
         description="Delete a conversation.",

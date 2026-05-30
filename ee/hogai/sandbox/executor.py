@@ -8,7 +8,9 @@ from typing import Any
 from django.conf import settings
 from django.http import StreamingHttpResponse
 
+import requests as http_requests
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from django_redis import get_redis_connection
 from pydantic import ValidationError as PydanticValidationError
@@ -16,16 +18,20 @@ from rest_framework import exceptions
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.common.client import sync_connect
 
+from products.tasks.backend.api import TaskRunViewSet
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from products.tasks.backend.temporal.client import execute_task_processing_workflow
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
+from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
+from ee.hogai.chat_agent.sandbox_prompt import build_posthog_ai_system_prompt
+from ee.hogai.sandbox.context_wrapper import AttachedContext, prune_repeated_entity_refs, wrap_user_message
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
 from ee.hogai.sandbox.types import (
     ACP_METHOD_SESSION_UPDATE,
@@ -37,13 +43,16 @@ from ee.hogai.sandbox.types import (
     is_turn_complete,
 )
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
 SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
 SANDBOX_STREAM_TTL = 3600  # seconds before the Redis stream key expires
+
+# Telemetry event name, mirroring the LangGraph path. The sandbox runtime adds the
+# `execution_type: "sandbox"` property to the same event (02_CORE § 10, BACKWARD_COMPAT #33).
+PROMPT_SENT_EVENT = "prompt sent"
 
 
 def handle_sandbox_message(
@@ -53,11 +62,10 @@ def handle_sandbox_message(
     user: User,
     team: Team,
     is_new_conversation: bool,
+    attached_context: list[AttachedContext] | None = None,
 ) -> StreamingHttpResponse:
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
-    if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
-        raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
-
+    attached_context = attached_context or []
     if is_new_conversation:
         conversation.title = content[:80]
         conversation.save(update_fields=["title"])
@@ -82,10 +90,20 @@ def handle_sandbox_message(
         except TaskRun.DoesNotExist:
             raise exceptions.ValidationError("Sandbox session no longer exists.")
 
+        # Every follow-up turn wraps + dedupes its content the same way the first turn does, then
+        # persists the full undeduped structured context as a raw-audit copy. `prior=[]` dedupes
+        # only within this batch — walking prior S3 user_message refs is deferred (02_CORE § 4 note).
+        wrapped_content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))
+        undeduped_context = [item.model_dump(exclude_none=True) for item in attached_context]
+
         if task_run.is_terminal:
+            # Terminal Run → create a NEW Run that resumes from the prior one. The new Run carries the
+            # wrapped follow-up as its pending message and replays the snapshot + system prompt.
             snapshot_ext_id = (task_run.state or {}).get("snapshot_external_id")
             if not snapshot_ext_id:
                 raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
+
+            system_prompt = asgi_async_to_sync(build_posthog_ai_system_prompt)(team, user)
 
             task = task_run.task
             new_run = task.create_run(
@@ -93,26 +111,41 @@ def handle_sandbox_message(
                 extra_state={
                     "snapshot_external_id": snapshot_ext_id,
                     "resume_from_run_id": str(task_run.id),
-                    "pending_user_message": content,
+                    "pending_user_message": wrapped_content,
+                    "initial_permission_mode": "default",
+                    "system_prompt": system_prompt,
+                    "attached_context": undeduped_context,
                 },
             )
             run_id = str(new_run.id)
 
+            # Narrow update_fields: only the run pointer moves; the task pointer is unchanged.
             conversation.sandbox_run_id = new_run.id
             conversation.save(update_fields=["sandbox_run_id"])
 
             set_sandbox_mapping(conversation_id, str(task.id), run_id)
 
+            # Force "full" MCP scopes (decision 10) — the workflow entrypoint defaults to "read_only",
+            # which would silently strip the agent's write tools on the resumed Run.
             execute_task_processing_workflow(
                 task_id=str(task.id),
                 run_id=run_id,
                 team_id=task.team_id,
                 user_id=user.pk,
                 create_pr=False,
+                posthog_mcp_scopes="full",
             )
 
             _seed_sandbox_stream(run_id)
             start_id = "0"
+
+            _emit_prompt_sent(
+                team=team,
+                user=user,
+                conversation_id=conversation_id,
+                attached_context=attached_context,
+                just_created_run=True,
+            )
 
             conv_data = json.dumps(ConversationMinimalSerializer(conversation).data)
             logger.info(
@@ -124,35 +157,44 @@ def handle_sandbox_message(
                 lambda: _sandbox_stream(conv_data, run_id, start_id, conversation_id, content, team_id=team.id)
             )
 
-        # Signal the Temporal workflow to send the follow-up message
+        # In-progress Run → queue a user_message follow-up via the existing async signal mechanism.
+        # This is ASYNC/QUEUED (returns {queued: true}); it does NOT synchronously proxy to the sandbox.
+        # The frontend watches the open stream for the agent's reply (02_CORE § 5.2). We reuse the Run.
+        _persist_run_attached_context(task_run, undeduped_context)
         try:
-            client = sync_connect()
-            handle = client.get_workflow_handle(task_run.workflow_id)
-
-            async def _send_signal():
-                await handle.signal(ProcessTaskWorkflow.send_followup_message, content)
-
-            asgi_async_to_sync(_send_signal)()
+            signal_task_followup_message(task_run.workflow_id, wrapped_content, [])
         except Exception as e:
             logger.warning(
                 "sandbox_followup_signal_failed",
                 run_id=run_id,
                 error=str(e),
             )
+
+        _emit_prompt_sent(
+            team=team,
+            user=user,
+            conversation_id=conversation_id,
+            attached_context=attached_context,
+            just_created_run=False,
+        )
     else:
-        # First message: create task + run
-        # TODO(@tatoalo): hardcoding repo for now, already built repo selection wiring
+        # First message: create task + run. No-Repository Mode — the sandbox runtime has no repo,
+        # no GitHub integration, and never opens a PR (04_PROMPTS § 2.3).
+        wrapped_content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))
+        system_prompt = asgi_async_to_sync(build_posthog_ai_system_prompt)(team, user)
+
         try:
             task = Task.create_and_run(
                 team=team,
                 title=content[:80],
-                description=content,
+                description=wrapped_content,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.pk,
-                repository="posthog/posthog",
+                repository=None,
                 create_pr=False,
                 mode="interactive",
-                start_workflow=True,
+                initial_permission_mode="default",
+                start_workflow=False,
             )
         except ValueError:
             raise exceptions.ValidationError("Failed to create sandbox task.")
@@ -162,6 +204,17 @@ def handle_sandbox_message(
             raise exceptions.ValidationError("Failed to create sandbox task run.")
         task_run = task_run_or_none
 
+        # Stash the composed system prompt and the full, undeduped structured context on the Run
+        # state before the workflow launches. RunState is extra="allow", so these well-known keys
+        # are non-breaking (01_CONTEXT § 4.1, § 4.5).
+        # Deliberate divergence: `description` carries the pruned (deduped) wrapped content sent to
+        # the agent, while `state["attached_context"]` keeps the full undeduped list as a raw-audit copy.
+        run_state = task_run.state or {}
+        run_state["system_prompt"] = system_prompt
+        run_state["attached_context"] = [item.model_dump(exclude_none=True) for item in attached_context]
+        task_run.state = run_state
+        task_run.save(update_fields=["state"])
+
         run_id = str(task_run.id)
         set_sandbox_mapping(conversation_id, str(task.id), run_id)
 
@@ -169,7 +222,26 @@ def handle_sandbox_message(
         conversation.sandbox_run_id = task_run.id
         conversation.save(update_fields=["sandbox_task_id", "sandbox_run_id"])
 
+        # Force "full" MCP scopes to preserve Task.create_and_run's default — the workflow
+        # entrypoint defaults to "read_only", which would silently strip the agent's write tools.
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            run_id=run_id,
+            team_id=task.team_id,
+            user_id=user.pk,
+            create_pr=False,
+            posthog_mcp_scopes="full",
+        )
+
         _seed_sandbox_stream(run_id)
+
+        _emit_prompt_sent(
+            team=team,
+            user=user,
+            conversation_id=conversation_id,
+            attached_context=attached_context,
+            just_created_run=True,
+        )
 
     conv_data = json.dumps(ConversationMinimalSerializer(conversation).data)
 
@@ -183,6 +255,100 @@ def handle_sandbox_message(
     return _make_streaming_response(
         lambda: _sandbox_stream(conv_data, run_id, start_id, conversation_id, content, team_id=team.id)
     )
+
+
+def _persist_run_attached_context(task_run: TaskRun, undeduped_context: list[dict[str, Any]]) -> None:
+    """Persist the full undeduped attached_context on an in-progress Run's state.
+
+    The signal carries only the wrapped content + artifact ids, so the structured context is
+    kept as a raw-audit copy on the Run state. The Run's Temporal workflow mutates ``state``
+    concurrently (e.g. activities writing ``sandbox_url``), so use the locked atomic merge
+    instead of an unlocked read-modify-write that would clobber keys written in parallel.
+    """
+    TaskRun.update_state_atomic(task_run.id, updates={"attached_context": undeduped_context})
+
+
+def _emit_prompt_sent(
+    *,
+    team: Team,
+    user: User,
+    conversation_id: str,
+    attached_context: list[AttachedContext],
+    just_created_run: bool,
+) -> None:
+    """Emit the PROMPT_SENT analytics event for a sandbox turn.
+
+    Runs in the synchronous HTTP request thread (not a Celery task), so direct
+    ``posthoganalytics.capture`` is correct here.
+    """
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event=PROMPT_SENT_EVENT,
+            properties={
+                "conversation_id": conversation_id,
+                "execution_type": "sandbox",
+                "agent_runtime": "sandbox",
+                "just_created_run": just_created_run,
+                "has_attached_context": bool(attached_context),
+                "attached_context_count": len(attached_context),
+            },
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning("sandbox_prompt_sent_capture_failed", conversation_id=conversation_id, error=str(e))
+
+
+def cancel_sandbox_run(task_run: TaskRun, user: User) -> str:
+    """Cancel a sandbox Run by proxying a ``cancel`` command to the live agent server.
+
+    Mirrors the non-``user_message`` branch of ``TaskRunViewSet.command`` (products/tasks
+    /backend/api.py): the cancel/permission/close commands proxy *synchronously* to the agent
+    server and require a live ``state.sandbox_url`` validated against the SSRF allowlist. Raises a
+    DRF ``ValidationError``/``APIException`` so the conversation cancel @action surfaces a useful
+    HTTP status. Returns the run status reported back by the agent server (typically ``cancelled``).
+    """
+    run_state = parse_run_state(task_run.state)
+
+    if not run_state.sandbox_url:
+        raise exceptions.ValidationError("No active sandbox for this task run.")
+
+    if not TaskRunViewSet._is_valid_sandbox_url(run_state.sandbox_url):
+        logger.warning("sandbox_cancel_blocked_invalid_url", run_id=str(task_run.id))
+        raise exceptions.ValidationError("Invalid sandbox URL.")
+
+    connection_token = create_sandbox_connection_token(
+        task_run=task_run,
+        user_id=user.pk,
+        distinct_id=str(user.distinct_id),
+    )
+
+    payload: dict[str, Any] = {"jsonrpc": "2.0", "method": "cancel", "params": {}}
+
+    try:
+        agent_response = TaskRunViewSet._proxy_command_to_agent_server(
+            sandbox_url=run_state.sandbox_url,
+            connection_token=connection_token,
+            sandbox_connect_token=run_state.sandbox_connect_token,
+            payload=payload,
+        )
+    except (http_requests.ConnectionError, http_requests.Timeout) as e:
+        logger.warning("sandbox_cancel_agent_unreachable", run_id=str(task_run.id), error=str(e))
+        raise exceptions.APIException("Agent server is not reachable.")
+    except Exception as e:
+        logger.exception("sandbox_cancel_proxy_failed", run_id=str(task_run.id), error=str(e))
+        raise exceptions.APIException("Failed to send cancel command to agent server.")
+
+    if not agent_response.ok:
+        logger.warning("sandbox_cancel_agent_rejected", run_id=str(task_run.id), status=agent_response.status_code)
+        raise exceptions.APIException("Agent server rejected the cancel command.")
+
+    try:
+        body = agent_response.json()
+    except Exception:
+        body = {}
+
+    return str((body or {}).get("status") or TaskRun.Status.CANCELLED.value)
 
 
 def _make_streaming_response(
