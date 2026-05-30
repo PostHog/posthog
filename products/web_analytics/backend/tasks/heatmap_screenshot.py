@@ -24,7 +24,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.security.url_validation import is_url_allowed, should_block_url
 from posthog.tasks.utils import CeleryQueue
 
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
@@ -338,11 +338,14 @@ def _build_browserless_screenshot_url() -> str | None:
     # Read settings at call time (not import) so override_settings works in tests.
     # Strip whitespace + any inline comment a bash-sourced .env left in the value.
     base_url = settings.HEATMAP_BROWSERLESS_URL.split("#", 1)[0].strip()
-    host = urlsplit(base_url).hostname if base_url else None
-    if not host:
+    parsed = urlsplit(base_url) if base_url else None
+    host = parsed.hostname if parsed else None
+    if not parsed or not host:
         return None
+    # Preserve a non-default port so self-hosted / local Browserless (e.g. wss://host:3000/chromium) works.
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
     params = {"token": settings.HEATMAP_BROWSERLESS_TOKEN, "timeout": str(settings.HEATMAP_BROWSERLESS_TIMEOUT_MS)}
-    return f"https://{host}/screenshot?{urlencode(params)}"
+    return f"https://{netloc}/screenshot?{urlencode(params)}"
 
 
 def _redact_browserless_url(url: str) -> str:
@@ -551,7 +554,11 @@ def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
         if isinstance(w, int) and 100 <= w <= 3000 and w not in seen:
             widths.append(w)
             seen.add(w)
-    return widths or [1024]
+    if not widths:
+        return [1024]
+    # Backstop the per-width render fan-out for heatmaps created before the serializer cap (or via the
+    # regenerate path), so one heatmap can't spawn an unbounded number of Browserless sessions.
+    return widths[:MAX_TARGET_WIDTHS]
 
 
 def _persist_snapshot(screenshot: SavedHeatmap, width: int, image_data: bytes) -> None:

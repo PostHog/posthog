@@ -8,6 +8,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     HEATMAP_BROWSERLESS_FLAG,
@@ -16,6 +17,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     _browserless_screenshot,
     _build_browserless_screenshot_url,
     _redact_browserless_url,
+    _resolve_widths,
     _sanitize_browserless_error,
     _use_browserless_for_screenshot,
     generate_heatmap_screenshot,
@@ -363,6 +365,19 @@ class TestHeatmapScreenshotTask(APIBaseTest):
     def test_use_browserless_false_when_url_unset(self) -> None:
         assert _use_browserless_for_screenshot(self._make_heatmap()) is False
 
+    def test_resolve_widths_caps_render_fan_out(self) -> None:
+        # A heatmap created before the serializer cap (or via regenerate) can carry an unbounded
+        # widths list; the worker must still bound the per-width render fan-out.
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=list(range(100, 100 + 5 * (MAX_TARGET_WIDTHS + 50), 5)),  # well over the cap
+            status=SavedHeatmap.Status.PROCESSING,
+        )
+        widths = _resolve_widths(heatmap)
+        assert len(widths) == MAX_TARGET_WIDTHS
+
     @override_settings(HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=True)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.posthoganalytics.feature_enabled")
     def test_use_browserless_true_in_debug_without_consulting_flag(self, mock_feature_enabled: MagicMock) -> None:
@@ -501,6 +516,17 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert url.startswith("https://production-sfo.browserless.io/screenshot?")
         assert "token=t" in url
         assert "timeout=180000" in url
+
+    @override_settings(
+        HEATMAP_BROWSERLESS_URL="wss://localhost:3000/chromium",
+        HEATMAP_BROWSERLESS_TOKEN="t",
+        HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
+    )
+    def test_build_screenshot_url_preserves_non_default_port(self) -> None:
+        # Self-hosted / local Browserless runs on a non-443 port; dropping it would post to the wrong host.
+        url = _build_browserless_screenshot_url()
+        assert url is not None
+        assert url.startswith("https://localhost:3000/screenshot?")
 
     @override_settings(
         HEATMAP_BROWSERLESS_URL="wss://production-sfo.browserless.io/chromium   # region nearest your worker",
