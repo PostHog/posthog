@@ -58,13 +58,15 @@ Write tools (require explicit user confirmation — these ship the visual change
 
 Approval call shape:
 
+- `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
 - `approve_all: true` — approves every `changed` and `new` snapshot in the run. Convenient when you've verified every diff is intended.
 - `snapshots: [{identifier, new_hash}]` — explicit list. `new_hash` is the `content_hash` of each snapshot's `current_artifact`. Prefer this when only some diffs are intended.
 - `commit_to_github: true` (default) — pushes the baseline-YAML update straight to the PR branch. Set false to record the approval without a commit.
 
-Toleration call shape:
+Toleration call shape — both fields are required:
 
-- `snapshot_id` — the UUID of the individual snapshot (from `visual-review-runs-snapshots-list`), not the run id.
+- `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
+- `snapshot_id` (required) — the UUID of the individual snapshot to tolerate (from `visual-review-runs-snapshots-list`). This identifies _which_ snapshot inside the run; it does not replace the run `id`.
 
 If approval fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and approve the newest one. A successful approval often kicks off a fresh CI run, which is normal.
 
