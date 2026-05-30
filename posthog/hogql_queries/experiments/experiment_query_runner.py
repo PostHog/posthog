@@ -38,6 +38,7 @@ from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
+from posthog.hogql_queries.experiments.experiment_query_context import ExperimentPrecomputationContext
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
@@ -333,13 +334,16 @@ class ExperimentQueryRunner(QueryRunner):
 
         should_precompute = self._should_precompute()
 
+        exposure_job_ids: list[str] | None = None
+        metric_events_job_ids: list[str] | None = None
+
         # Skip precomputation for data warehouse metrics because the precomputed table
         # doesn't include the join keys needed to link exposures to data warehouse tables
         if should_precompute and not self.is_data_warehouse_query:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
-                    builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                    exposure_job_ids = [str(job_id) for job_id in result.job_ids]
                     self._is_precomputed = True
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
@@ -369,7 +373,7 @@ class ExperimentQueryRunner(QueryRunner):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)
                     if metric_result.ready:
-                        builder.metric_events_preaggregation_job_ids = [str(job_id) for job_id in metric_result.job_ids]
+                        metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                     else:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
                 except Exception as e:
@@ -383,7 +387,12 @@ class ExperimentQueryRunner(QueryRunner):
                         },
                     )
 
-        return builder.build_query()
+        return builder.build_query(
+            precomputation_context=ExperimentPrecomputationContext(
+                exposure_job_ids=exposure_job_ids,
+                metric_events_job_ids=metric_events_job_ids,
+            )
+        )
 
     def _evaluate_experiment_query(
         self,
