@@ -229,17 +229,15 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     def test_mark_tolerated_permission_boundary(self, _name: str, scope: str | None, expected_status: int):
         run_id, snapshot_id = self._changed_snapshot_for_tolerate()
 
-        extra_headers = {}
         if scope is not None:
             key = self.create_personal_api_key_with_scopes([scope])
             self.client.logout()
-            extra_headers["HTTP_AUTHORIZATION"] = f"Bearer {key}"
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/tolerate/",
             {"snapshot_id": snapshot_id},
             format="json",
-            **extra_headers,
         )
 
         assert response.status_code == expected_status, response.json()
