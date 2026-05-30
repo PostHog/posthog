@@ -690,7 +690,9 @@ def main() -> int:
     try:
         if args.write_divergences:
             jsonl_file = open(args.write_divergences, "w")  # noqa: SIM115 — see finally
-        with collector.with_value(captured_stats.append):
+        # `collector` is typed `DynamicVariable[None]` in the Hypothesis stubs but
+        # accepts the engine's stats-callback at runtime; type stub is wrong.
+        with collector.with_value(captured_stats.append):  # type: ignore[arg-type]
             run()
     except Exception:
         traceback.print_exc()
@@ -714,7 +716,9 @@ def main() -> int:
     if captured_stats:
         print()
         print("=== Hypothesis statistics (event distribution + target scores) ===")
-        print(describe_statistics(captured_stats[0]))
+        # `describe_statistics` accepts a TypedDict but the engine hands us a plain
+        # dict; structurally identical at runtime, type stub is over-precise.
+        print(describe_statistics(captured_stats[0]))  # type: ignore[arg-type]
 
     # ---- rejection-parity: candidate accepted what the oracle rejected ----
     # The headline failure of the two-sided contract — a candidate that

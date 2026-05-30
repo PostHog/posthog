@@ -17,7 +17,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 /// Power of two so `(id) & (BITMAP_SIZE - 1)` is the index. 64KiB.
 pub const BITMAP_SIZE: usize = 1 << 16;

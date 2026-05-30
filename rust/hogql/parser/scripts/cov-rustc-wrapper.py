@@ -44,7 +44,6 @@ def main() -> None:
 
     if crate_name == TARGET_CRATE:
         os.execvp(args[0], args)
-        return  # unreachable
 
     filtered: list[str] = []
     i = 0
