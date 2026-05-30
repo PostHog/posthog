@@ -154,6 +154,10 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
+                        # hogli db commands used for test database setup
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/hogli/**'
+                        - hogli.yaml
 
             - name: Read ClickHouse versions from JSON
               id: read-versions

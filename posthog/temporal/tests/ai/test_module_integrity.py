@@ -26,6 +26,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "PostHogCodeSlackMentionWorkflow",
+            "PostHogCodeSlackMentionCommandWorkflow",
             "PostHogCodeSlackTerminateTaskWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
@@ -57,6 +58,8 @@ class TestAITemporalModuleIntegrity:
             "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
+            "handle_posthog_code_slack_mention_command_activity",
+            "resolve_posthog_code_slack_command_user_activity",
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
             "cascade_posthog_code_repository_activity",
@@ -242,6 +245,8 @@ class TestSignalsProductModuleIntegrity:
             "TeamSignalReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
+            "RunSignalsScoutWorkflow",
+            "SignalsScoutCoordinatorWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -292,6 +297,8 @@ class TestSignalsProductModuleIntegrity:
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
+            "fetch_enabled_signals_scout_runs_activity",
+            "run_signals_scout_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

@@ -927,6 +927,16 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'restores ? when toolbar param was the first hash query on a SPA route',
+                '#/login?__posthog_toolbar=code:abc,client_id:xyz&foo=bar',
+                '/#/login?foo=bar',
+            ],
+            [
+                'preserves trailing hash query when toolbar param was last',
+                '#/login?foo=bar&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/login?foo=bar',
+            ],
         ])('%s', (_label, hash, expectedUrl) => {
             jest.useFakeTimers()
             window.history.pushState({}, '', `/${hash}`)

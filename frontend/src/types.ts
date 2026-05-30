@@ -1715,6 +1715,7 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
+    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
@@ -4094,7 +4095,7 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {
@@ -4567,6 +4568,7 @@ export enum ExperimentConclusion {
 }
 
 export interface ExperimentHoldoutType {
+    /** @asType integer */
     id: number | null
     name: string
     description: string | null
@@ -4615,6 +4617,7 @@ export interface Experiment {
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
+        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4635,6 +4638,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        baseline_variant_key?: string
         bayesian?: {
             ci_level?: number
         }
@@ -5394,6 +5398,7 @@ export type APIScopeObject =
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
+    | 'signal_scout'
     | 'subscription'
     | 'survey'
     | 'task'
