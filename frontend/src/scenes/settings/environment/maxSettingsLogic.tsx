@@ -47,8 +47,14 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
         coreMemory: {
             __default: null as CoreMemory | null,
             loadCoreMemory: async (): Promise<CoreMemory | null> => {
-                const response = await api.coreMemory.list()
-                return response.results[0] || null
+                try {
+                    const response = await api.coreMemory.list()
+                    return response.results[0] || null
+                } catch {
+                    // Degrade gracefully: a transient 404 (e.g. stale bundle during a deploy) or
+                    // network error means "no memory yet" rather than an uncaught exception.
+                    return null
+                }
             },
             updateCoreMemory: async (data: CoreMemoryForm) => {
                 if (!values.coreMemory) {
