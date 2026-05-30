@@ -32479,6 +32479,69 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    /**
+     * * `allow_once` - allow_once
+    * `allow_always` - allow_always
+    * `reject` - reject
+    * `reject_with_feedback` - reject_with_feedback
+     */
+    export type PermissionOptionKindEnum = typeof PermissionOptionKindEnum[keyof typeof PermissionOptionKindEnum];
+
+
+    export const PermissionOptionKindEnum = {
+      AllowOnce: 'allow_once',
+      AllowAlways: 'allow_always',
+      Reject: 'reject',
+      RejectWithFeedback: 'reject_with_feedback',
+    } as const;
+
+    /**
+     * One ACP permission option offered alongside a sandbox permission_request.
+     */
+    export interface PermissionOption {
+      /**
+         * ACP option id sent back as the decision.
+         * @maxLength 200
+         */
+      optionId: string;
+      /**
+         * Human-readable option label.
+         * @maxLength 200
+         */
+      name?: string;
+      /** ACP option kind; drives the approval card affordance (mapping lands in UI-C).
+
+      * `allow_once` - allow_once
+      * `allow_always` - allow_always
+      * `reject` - reject
+      * `reject_with_feedback` - reject_with_feedback */
+      kind?: PermissionOptionKindEnum;
+    }
+
+    /**
+     * Resolve a sandbox-runtime permission_request by forwarding the chosen option to the agent server.
+     */
+    export interface PermissionResponse {
+      /**
+         * ACP request id from the permission_request notification.
+         * @maxLength 200
+         */
+      requestId: string;
+      /**
+         * The option the user selected.
+         * @maxLength 200
+         */
+      optionId: string;
+      /**
+         * Free-text feedback, only forwarded for reject_with_feedback options.
+         * @maxLength 40000
+         * @nullable
+         */
+      customInput?: string | null;
+      /** The options[] presented to the user; persisted on the conversation for audit. */
+      options?: PermissionOption[];
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];

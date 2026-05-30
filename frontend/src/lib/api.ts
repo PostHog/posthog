@@ -6496,6 +6496,24 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
+        /**
+         * Sandbox-runtime only: resolve a permission_request by forwarding the chosen ACP option to
+         * the agent server (synchronously proxied server-side via `permission_response`). Langgraph
+         * approvals resume via `stream` with a `resume_payload` instead — callers must branch on
+         * `agent_runtime` before calling this.
+         */
+        permission(
+            conversationId: string,
+            data: {
+                requestId: string
+                optionId: string
+                customInput?: string
+                options?: { optionId: string; name?: string; kind?: string }[]
+            }
+        ): Promise<Record<string, unknown>> {
+            return new ApiRequest().conversation(conversationId).withAction('permission').create({ data })
+        },
+
         list(): Promise<PaginatedResponse<Conversation>> {
             return new ApiRequest().conversations().get()
         },

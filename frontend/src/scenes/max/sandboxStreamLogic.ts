@@ -10,6 +10,7 @@ import { resolveToolKey } from './mcpToolRegistry'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import {
     AcpSessionUpdate,
+    PermissionOption,
     PermissionRequestRecord,
     RunStatus,
     SseStatus,
@@ -302,14 +303,19 @@ function ingestSessionUpdate(state: SandboxStreamState, update: AcpSessionUpdate
     }
 }
 
-function ingestToolCall(state: SandboxStreamState, update: AcpSessionUpdate, frameId: string): SandboxStreamState {
-    const toolCallId = update.toolCallId || frameId
-    const rawServerName = update._meta?.serverName ?? ''
-    const rawToolName = update._meta?.claudeCode?.toolName ?? update.title ?? 'unknown'
-    const input = update.rawInput ?? {}
+/**
+ * Build a `ToolInvocation` from a raw ACP `toolCall` object. Shared by the live `tool_call`
+ * session-update fold and the `permission_request` control frame — the latter carries the same
+ * `toolCall` shape so the approval card can show the exact input the user is being asked to approve.
+ */
+function buildToolInvocation(toolCall: AcpSessionUpdate, fallbackId: string): ToolInvocation {
+    const toolCallId = toolCall.toolCallId || fallbackId
+    const rawServerName = toolCall._meta?.serverName ?? ''
+    const rawToolName = toolCall._meta?.claudeCode?.toolName ?? toolCall.title ?? 'unknown'
+    const input = toolCall.rawInput ?? {}
     const { resolvedKey, innerToolName, innerInput } = resolveToolKey(rawServerName, rawToolName, input)
 
-    const invocation: ToolInvocation = {
+    return {
         toolCallId,
         rawServerName,
         rawToolName,
@@ -317,12 +323,17 @@ function ingestToolCall(state: SandboxStreamState, update: AcpSessionUpdate, fra
         resolvedKey,
         input,
         innerInput,
-        status: normalizeStatus(update.status),
-        title: update.title,
-        kind: update.kind,
-        locations: update.locations as ToolInvocationLocation[] | undefined,
-        contentBlocks: update.content ? [update.content] : [],
+        status: normalizeStatus(toolCall.status),
+        title: toolCall.title,
+        kind: toolCall.kind,
+        locations: toolCall.locations as ToolInvocationLocation[] | undefined,
+        contentBlocks: toolCall.content ? [toolCall.content] : [],
     }
+}
+
+function ingestToolCall(state: SandboxStreamState, update: AcpSessionUpdate, frameId: string): SandboxStreamState {
+    const invocation = buildToolInvocation(update, frameId)
+    const toolCallId = invocation.toolCallId
 
     const alreadyHasItem = state.threadItems.some(
         (item) => item.kind === 'tool_invocation' && item.toolCallId === toolCallId
@@ -362,6 +373,37 @@ function ingestToolCallUpdate(state: SandboxStreamState, update: AcpSessionUpdat
                   : existing.output,
     }
     return { ...state, toolInvocations: { ...state.toolInvocations, [toolCallId]: merged } }
+}
+
+/** Raw `permission_request` control frame as emitted on the cloud-agent SSE (02_CORE § 4.1). */
+interface PermissionRequestFrame {
+    type: 'permission_request'
+    requestId?: string
+    toolCall?: AcpSessionUpdate
+    options?: PermissionOption[]
+    title?: string
+    description?: string
+}
+
+/**
+ * Fold a raw `permission_request` SSE control frame into a `PermissionRequestRecord`. The frame
+ * carries the same `toolCall` shape as a `session/update tool_call`, so the approval card can show
+ * the exact input being approved. `options[]` ride through verbatim — the kind->affordance mapping
+ * lands in UI-C (03_RICH_UI § 5). Returns null if the frame lacks a request id (nothing to resolve).
+ */
+export function buildPermissionRequestRecord(frame: PermissionRequestFrame): PermissionRequestRecord | null {
+    if (!frame.requestId) {
+        return null
+    }
+    const rawToolCall = buildToolInvocation(frame.toolCall ?? {}, frame.requestId)
+    return {
+        requestId: frame.requestId,
+        toolCallId: rawToolCall.toolCallId,
+        options: frame.options ?? [],
+        title: frame.title ?? rawToolCall.title,
+        description: frame.description,
+        rawToolCall,
+    }
 }
 
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
@@ -407,6 +449,24 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 ingestFrame: (state, { entry, frameId }) => ingestAcpFrame(state, entry, frameId),
                 ingestHistory: (state, { entries }) =>
                     entries.reduce((acc, entry, index) => ingestAcpFrame(acc, entry, `log-${index}`), state),
+                // Append an ordered permission_request thread item so the renderer can place the
+                // approval card next to the tool call. Idempotent on requestId — a re-delivered
+                // frame (reconnect replay) doesn't append a second card.
+                ingestPermissionRequest: (state, { record }) => {
+                    const alreadyHasItem = state.threadItems.some(
+                        (item) => item.kind === 'permission_request' && item.requestId === record.requestId
+                    )
+                    if (alreadyHasItem) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        threadItems: [
+                            ...state.threadItems,
+                            { kind: 'permission_request', requestId: record.requestId },
+                        ],
+                    }
+                },
                 reset: () => EMPTY_STREAM_STATE,
             },
         ],
@@ -595,6 +655,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                                             abortController.abort()
                                             return
                                         }
+                                    }
+                                    continue
+                                }
+                                if (payload.type === 'permission_request') {
+                                    // The cloud-agent SSE hoists the ACP permission JSON-RPC request into a
+                                    // discrete control frame. Fold it into a PermissionRequestRecord and expose
+                                    // it via pendingPermissionRequest for maxThreadLogic to merge into the
+                                    // existing approval card (02_CORE § 5.5, 03_RICH_UI § 5).
+                                    const record = buildPermissionRequestRecord(
+                                        payload as unknown as PermissionRequestFrame
+                                    )
+                                    if (record) {
+                                        actions.ingestPermissionRequest(record)
                                     }
                                     continue
                                 }

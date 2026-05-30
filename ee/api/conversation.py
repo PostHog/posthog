@@ -65,7 +65,7 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.sandbox.context_wrapper import AttachedContext
-from ee.hogai.sandbox.executor import cancel_sandbox_run, handle_sandbox_message
+from ee.hogai.sandbox.executor import cancel_sandbox_run, handle_sandbox_message, send_permission_response
 from ee.hogai.sandbox.log_assembler import assemble_conversation_log
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
@@ -92,6 +92,39 @@ class MessageMinimalSerializer(serializers.Serializer):
     """Serializer for appending a message to an existing conversation without triggering AI processing."""
 
     content = serializers.CharField(required=True, max_length=10000)
+
+
+class PermissionOptionSerializer(serializers.Serializer):
+    """One ACP permission option offered alongside a sandbox permission_request."""
+
+    optionId = serializers.CharField(max_length=200, help_text="ACP option id sent back as the decision.")
+    name = serializers.CharField(max_length=200, required=False, help_text="Human-readable option label.")
+    kind = serializers.ChoiceField(
+        choices=["allow_once", "allow_always", "reject", "reject_with_feedback"],
+        required=False,
+        help_text="ACP option kind; drives the approval card affordance (mapping lands in UI-C).",
+    )
+
+
+class PermissionResponseSerializer(serializers.Serializer):
+    """Resolve a sandbox-runtime permission_request by forwarding the chosen option to the agent server."""
+
+    requestId = serializers.CharField(
+        required=True, max_length=200, help_text="ACP request id from the permission_request notification."
+    )
+    optionId = serializers.CharField(required=True, max_length=200, help_text="The option the user selected.")
+    customInput = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=40000,
+        help_text="Free-text feedback, only forwarded for reject_with_feedback options.",
+    )
+    options = PermissionOptionSerializer(
+        many=True,
+        required=False,
+        help_text="The options[] presented to the user; persisted on the conversation for audit.",
+    )
 
 
 def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
@@ -641,6 +674,94 @@ class ConversationViewSet(
 
         run_status = cancel_sandbox_run(task_run, cast(User, self.request.user))
         return Response({"run_status": run_status}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=PermissionResponseSerializer,
+        description=(
+            "Resolve a sandbox-runtime permission request. Forwards a `permission_response` command "
+            "synchronously to the live agent server (mirrors the cancel proxy) and persists the chosen "
+            "option plus the offered options[] on the conversation. Sandbox runtime only — langgraph "
+            "approvals resume via the create endpoint's resume_payload and return 400 here."
+        ),
+    )
+    @action(detail=True, methods=["POST"])
+    def permission(self, request: Request, *args, **kwargs) -> Response:
+        # get_object() applies the same team-membership + user gate as the other write actions
+        # (safely_get_queryset filters by user for non-retrieve actions) — no new IDOR surface.
+        conversation: Conversation = self.get_object()
+
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            return Response(
+                {"detail": "permission endpoint is sandbox-runtime only"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = PermissionResponseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request_id = serializer.validated_data["requestId"]
+        option_id = serializer.validated_data["optionId"]
+        custom_input = serializer.validated_data.get("customInput")
+        options = serializer.validated_data.get("options") or []
+
+        if conversation.sandbox_run_id is None:
+            return Response({"error": "No active sandbox run for this conversation"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+            task_run = TaskRun.objects.get(id=conversation.sandbox_run_id, team=self.team)
+        except TaskRun.DoesNotExist:
+            return Response({"error": "Sandbox run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        agent_body = send_permission_response(
+            task_run,
+            cast(User, self.request.user),
+            request_id=request_id,
+            option_id=option_id,
+            custom_input=custom_input,
+        )
+
+        self._persist_permission_decision(
+            conversation,
+            request_id=request_id,
+            option_id=option_id,
+            custom_input=custom_input,
+            options=options,
+        )
+
+        return Response(agent_body, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _persist_permission_decision(
+        conversation: Conversation,
+        *,
+        request_id: str,
+        option_id: str,
+        custom_input: str | None,
+        options: list[dict],
+    ) -> None:
+        """Record the resolved permission inside the existing approval_decisions JSONField.
+
+        Decision 11: the options[] live in approval_decisions keyed by request_id rather than a new
+        column, so no migration is needed. The langgraph approval-card schema (proposal_id keyed) is
+        unchanged; sandbox records are additive entries that carry options[] for the card to render.
+        """
+        # Prefer the chosen option's ACP kind to classify the decision; fall back to the optionId
+        # prefix for agents that don't echo a kind.
+        chosen_kind = next((o.get("kind") for o in options if o.get("optionId") == option_id), None)
+        is_reject = (chosen_kind or option_id).startswith("reject")
+
+        decisions = dict(conversation.approval_decisions or {})
+        decisions[request_id] = {
+            "decision_status": "rejected" if is_reject else "approved",
+            "tool_name": "sandbox_permission",
+            "request_id": request_id,
+            "option_id": option_id,
+            "custom_input": custom_input,
+            "options": options,
+            "runtime": "sandbox",
+        }
+        conversation.approval_decisions = decisions
+        conversation.save(update_fields=["approval_decisions", "updated_at"])
 
     @extend_schema(
         description=(

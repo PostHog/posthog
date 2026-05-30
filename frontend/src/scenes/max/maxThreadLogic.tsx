@@ -66,6 +66,7 @@ import {
 
 import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
+import { permissionRequestToPendingApproval, pickPermissionOptionId } from './approvalOperationUtils'
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
 import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
@@ -78,6 +79,7 @@ import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { PermissionOption, PermissionRequestRecord } from './types/sandboxStreamTypes'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -169,9 +171,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
             sceneLogic,
             ['sceneId'],
-            // Sandbox direct-SSE run lifecycle — read terminal status to gate the stream trigger.
+            // Sandbox direct-SSE run lifecycle — read terminal status to gate the stream trigger,
+            // and the pending permission request so the existing approval card can render it.
             sandboxStreamLogic({ conversationKey: `${conversationId}-${tabId}` }),
-            ['currentRunStatus as sandboxStreamRunStatus'],
+            [
+                'currentRunStatus as sandboxStreamRunStatus',
+                'pendingPermissionRequest as sandboxPendingPermissionRequest',
+            ],
             // Sandbox runtime only — flat per-message attachments (see posthogAiContextLogic).
             posthogAiContextLogic({ conversationKey: `${conversationId}-${tabId}` }),
             ['attachments as attachedContext', 'chipsForDisplay as attachedContextChips'],
@@ -306,6 +312,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }),
         addPendingApprovalData: (approval: PendingApproval) => ({ approval }),
         loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
+        // Sandbox-runtime approval resolution: forwards the chosen ACP option to the agent server via
+        // POST /permission/ (mirrors cancel). Distinct from the langgraph resume_payload path.
+        resolveSandboxPermission: (requestId: string, decision: 'approve' | 'reject', feedback?: string) => ({
+            requestId,
+            decision,
+            feedback,
+        }),
     }),
 
     reducers(({ props }) => ({
@@ -1420,6 +1433,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounted to show the resolved state. The alreadyResolved check in askMax
             // prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'approved')
+            // Sandbox runtime resolves by forwarding the chosen ACP option to the agent server, NOT by
+            // resuming a langgraph workflow. The langgraph resume_payload path below is untouched.
+            if (values.isSandboxRuntime) {
+                actions.resolveSandboxPermission(proposalId, 'approve')
+                return
+            }
             // Resume the conversation with the approval payload
             actions.streamConversation(
                 {
@@ -1441,6 +1460,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounted to show the resolved state with feedback. The alreadyResolved check
             // in askMax prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'rejected', feedback)
+            if (values.isSandboxRuntime) {
+                actions.resolveSandboxPermission(proposalId, 'reject', feedback)
+                return
+            }
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
@@ -1458,6 +1481,38 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 0,
                 false // Don't add to thread - no human message to show
             )
+        },
+        resolveSandboxPermission: async ({ requestId, decision, feedback }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+            // The offered options[] were stashed on the merged approval record's payload at ingest.
+            const approval = values.pendingApprovalsData[requestId]
+            const options = ((approval?.payload?.options as PermissionOption[] | undefined) ?? []) as PermissionOption[]
+            const optionId = pickPermissionOptionId(options, decision, !!feedback)
+            if (!optionId) {
+                lemonToast.error('Could not resolve the approval option. Please try again.')
+                return
+            }
+            try {
+                await api.conversations.permission(conversationId, {
+                    requestId,
+                    optionId,
+                    customInput: feedback,
+                    options,
+                })
+                posthog.capture('max conversation permission responded', {
+                    conversation_id: conversationId,
+                    request_id: requestId,
+                    option_id: optionId,
+                    execution_type: 'sandbox',
+                    agent_runtime: 'sandbox',
+                })
+            } catch (e) {
+                posthog.captureException(e)
+                lemonToast.error('Failed to send your approval decision. Please try again.')
+            }
         },
     })),
 
@@ -1977,6 +2032,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (enabled) {
                 actions.loadQueueData()
             }
+        },
+        // New ingest SOURCE only: a sandbox permission_request surfaced by sandboxStreamLogic is
+        // merged into the EXISTING pendingApprovalsData (keyed by tool_call_id via original_tool_call_id)
+        // and marked the active pending approval, so the unchanged DangerousOperationApprovalCard renders
+        // it. The card's resolve path routes to POST /permission/ for the sandbox runtime (02_CORE § 5.5).
+        sandboxPendingPermissionRequest: (record: PermissionRequestRecord | undefined) => {
+            if (!record) {
+                return
+            }
+            actions.addPendingApprovalData(permissionRequestToPendingApproval(record))
+            actions.setPendingApproval(record.requestId)
+            posthog.capture('max conversation permission requested', {
+                conversation_id: values.conversationId,
+                request_id: record.requestId,
+                tool_call_name: record.rawToolCall.resolvedKey || record.rawToolCall.rawToolName,
+                execution_type: 'sandbox',
+                agent_runtime: 'sandbox',
+            })
         },
     })),
 ])

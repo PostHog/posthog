@@ -96,6 +96,64 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
 
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
+/**
+ * Resolve a sandbox-runtime permission request. Forwards a `permission_response` command synchronously to the live agent server (mirrors the cancel proxy) and persists the chosen option plus the offered options[] on the conversation. Sandbox runtime only — langgraph approvals resume via the create endpoint's resume_payload and return 400 here.
+ */
+export const conversationsPermissionCreateBodyRequestIdMax = 200
+
+export const conversationsPermissionCreateBodyOptionIdMax = 200
+
+export const conversationsPermissionCreateBodyCustomInputMax = 40000
+
+export const conversationsPermissionCreateBodyOptionsItemOptionIdMax = 200
+
+export const conversationsPermissionCreateBodyOptionsItemNameMax = 200
+
+export const ConversationsPermissionCreateBody = /* @__PURE__ */ zod
+    .object({
+        requestId: zod
+            .string()
+            .max(conversationsPermissionCreateBodyRequestIdMax)
+            .describe('ACP request id from the permission_request notification.'),
+        optionId: zod
+            .string()
+            .max(conversationsPermissionCreateBodyOptionIdMax)
+            .describe('The option the user selected.'),
+        customInput: zod
+            .string()
+            .max(conversationsPermissionCreateBodyCustomInputMax)
+            .nullish()
+            .describe('Free-text feedback, only forwarded for reject_with_feedback options.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        optionId: zod
+                            .string()
+                            .max(conversationsPermissionCreateBodyOptionsItemOptionIdMax)
+                            .describe('ACP option id sent back as the decision.'),
+                        name: zod
+                            .string()
+                            .max(conversationsPermissionCreateBodyOptionsItemNameMax)
+                            .optional()
+                            .describe('Human-readable option label.'),
+                        kind: zod
+                            .enum(['allow_once', 'allow_always', 'reject', 'reject_with_feedback'])
+                            .describe(
+                                '\* `allow_once` - allow_once\n\* `allow_always` - allow_always\n\* `reject` - reject\n\* `reject_with_feedback` - reject_with_feedback'
+                            )
+                            .optional()
+                            .describe(
+                                'ACP option kind; drives the approval card affordance (mapping lands in UI-C).\n\n\* `allow_once` - allow_once\n\* `allow_always` - allow_always\n\* `reject` - reject\n\* `reject_with_feedback` - reject_with_feedback'
+                            ),
+                    })
+                    .describe('One ACP permission option offered alongside a sandbox permission_request.')
+            )
+            .optional()
+            .describe('The options[] presented to the user; persisted on the conversation for audit.'),
+    })
+    .describe('Resolve a sandbox-runtime permission_request by forwarding the chosen option to the agent server.')
+
 export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
