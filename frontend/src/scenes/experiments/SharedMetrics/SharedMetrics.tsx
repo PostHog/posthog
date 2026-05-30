@@ -186,7 +186,7 @@ export function SharedMetrics(): JSX.Element {
                     />
                     {count ? (
                         <span className="text-secondary whitespace-nowrap">
-                            {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(
+                            {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(
                                 count,
                                 'metric'
                             )}`}
