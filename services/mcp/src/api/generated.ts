@@ -22632,6 +22632,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
+    * `signals_scout` - Signals Scout
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22645,6 +22646,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
@@ -24752,6 +24754,7 @@ export namespace Schemas {
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
+    * `signals_scout` - Signals scout
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -24765,6 +24768,7 @@ export namespace Schemas {
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
@@ -24775,6 +24779,7 @@ export namespace Schemas {
     * `issue_created` - Issue created
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
+    * `cross_source_issue` - Cross source issue
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -24787,6 +24792,7 @@ export namespace Schemas {
       IssueCreated: 'issue_created',
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
+      CrossSourceIssue: 'cross_source_issue',
     } as const;
 
     export interface SignalSourceConfig {

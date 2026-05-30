@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
@@ -22,6 +23,7 @@ class SignalSourceConfig(UUIDModel):
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
         PGANALYZE = "pganalyze", "pganalyze"
+        SIGNALS_SCOUT = "signals_scout", "Signals scout"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -31,6 +33,7 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_CREATED = "issue_created", "Issue created"
         ISSUE_REOPENED = "issue_reopened", "Issue reopened"
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)
@@ -366,3 +369,157 @@ class SignalReportTask(UUIDModel):
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+
+
+# ── Signals scout (headless cross-source explorer) ──────────────────────────────
+#
+# Three tables back the v1 Signals scout:
+#   - SignalScoutConfig: per-team binding (one row per team).
+#   - SignalScoutRun:    bridge from a `tasks.TaskRun` to its scout-domain context.
+#                        Mirrors `SignalReportTask` (1:1 to TaskRun instead of N:1
+#                        to Task because scout runs are per-execution, not per-task).
+#                        Status, timing, error, chat-log all live on `TaskRun`;
+#                        findings live on emitted `Signal`/`SignalReport` rows.
+#   - SignalScratchpad:  working notes the scout reads in future runs.
+
+
+class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
+    """Per-team binding for the headless Signals scout. One row per team."""
+
+    # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
+    # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
+    # (admin changelist queryset, related-object access, prefetch_related) that must not
+    # filter by team. `default_manager_name` routes `_default_manager` / `_base_manager`
+    # there. Same pattern as ProductTeamModel — duplicated here because TeamScopedRootMixin
+    # doesn't bake it in (most callers don't need it).
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_config",
+    )
+    enabled = models.BooleanField(default=False)
+    # null = run all `signals-scout-*` skills the team has access to. A list narrows
+    # the set; the harness still intersects with what's available in PHS.
+    enabled_skill_names = ArrayField(
+        base_field=models.CharField(max_length=200),
+        null=True,
+        blank=True,
+        default=None,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name = "Signal scout config"
+        verbose_name_plural = "Signal scout configs"
+        default_manager_name = "all_teams"
+
+
+class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
+    """Bridge from a Tasks `TaskRun` to the scout skill that ran inside it.
+
+    Mirrors `SignalReportTask` (the bridge used by the SignalReport research flow):
+    a thin row that links a `tasks.TaskRun` to its scout-domain context. Status,
+    timing, error, and chat-log live on the `TaskRun`; emitted findings are
+    `Signal` / `SignalReport` rows created by `emit_signal`. This row carries only
+    the scout-specific fields that need to be queryable as real columns
+    (`skill_name` for the per-team running-check, `scout_config` for audit lineage).
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # 1:1 with the TaskRun the scout span ran inside. CASCADE: if the TaskRun is
+    # purged (data retention), the scout-side bridge row goes with it.
+    task_run = models.OneToOneField(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_run",
+    )
+    # Denormalised tenant boundary. Canonical via `task_run.task.team`, but kept
+    # on this row so per-team queries (e.g. running-check) avoid the join and the
+    # `TeamScopedRootMixin` fail-closed manager has a column to filter on.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_runs",
+    )
+    # SET_NULL so deleting a config row (e.g. recreating from scratch) doesn't
+    # destroy the run history we want for audit and dedupe.
+    scout_config = models.ForeignKey(
+        SignalScoutConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="runs",
+    )
+    skill_name = models.CharField(max_length=200)
+    skill_version = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout run"
+        verbose_name_plural = "Signal scout runs"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+        ]
+
+
+class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
+    """Narrow per-team memory surface for the Signals scout fleet — MCP-readable across agents.
+
+    Scratchpad entries are keyed prose notes the scout fleet writes during runs and
+    reads back on future runs (intra-fleet memory) — classifications, dedupe
+    fingerprints, learned team quirks the scout decided not to re-emit. The MCP
+    read surface is intentional product design: any agent (PostHog AI, ad-hoc
+    investigators, other scouts) can read what the scout fleet has learned about
+    a team.
+
+    Distinct in shape from PostHog AI's memory primitives (`CoreMemory`,
+    `AgentMemory`) — those are singleton-per-team blob or per-conversation
+    embedded snippets, neither of which fits the scout's per-key cross-agent
+    read pattern. Kept narrow to the scouts feature on purpose; not a shared
+    primitive.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scratchpads",
+    )
+    # Semantic key, scout-chosen. Unique per team.
+    key = models.CharField(max_length=300)
+    # Prose for prompt injection — the scout reads this verbatim.
+    content = models.TextField()
+    # The run that wrote this entry. SET_NULL so deleting a run row doesn't
+    # destroy the memory it left behind.
+    created_by_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scratchpads_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal scratchpad"
+        verbose_name_plural = "Signal scratchpads"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]

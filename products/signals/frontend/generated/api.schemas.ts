@@ -117,6 +117,7 @@ export interface PaginatedSignalReportListApi {
  * `conversations` - Conversations
  * `error_tracking` - Error tracking
  * `pganalyze` - pganalyze
+ * `signals_scout` - Signals scout
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -129,6 +130,7 @@ export const SourceProductEnumApi = {
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
     Pganalyze: 'pganalyze',
+    SignalsScout: 'signals_scout',
 } as const
 
 /**
@@ -139,6 +141,7 @@ export const SourceProductEnumApi = {
  * `issue_created` - Issue created
  * `issue_reopened` - Issue reopened
  * `issue_spiking` - Issue spiking
+ * `cross_source_issue` - Cross source issue
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -151,6 +154,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueCreated: 'issue_created',
     IssueReopened: 'issue_reopened',
     IssueSpiking: 'issue_spiking',
+    CrossSourceIssue: 'cross_source_issue',
 } as const
 
 export interface SignalSourceConfigApi {
