@@ -1,6 +1,7 @@
 import logging
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -410,6 +411,16 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
         null=True,
         blank=True,
         default=None,
+    )
+    # How many `signals-scout-*` skills to fan out per coordinator tick. Sampled
+    # without replacement from the team's candidate pool — N > available clamps
+    # to whatever the team has, N = 0 contributes no runs this tick (use this
+    # to soft-pause a team without flipping `enabled`). Default 1 preserves the
+    # original sample-of-one behavior. Cap at MAX_RUNS_PER_TICK so a single
+    # misconfigured team can't blow the global cap on its own.
+    runs_per_tick = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(0), MaxValueValidator(50)],
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

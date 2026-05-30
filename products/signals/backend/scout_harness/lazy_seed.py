@@ -25,7 +25,11 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-# Bundled subdirs (references / scripts) are walked recursively when seeding.
+# Bundled subdirs walked recursively. Kept in lockstep with `_ALLOWED_SUBDIRS` in
+# `products/posthog_ai/scripts/build_skills.py` — diverging here means a file format
+# `hogli build:skills` ignores would silently land in the team's `LLMSkillFile` rows
+# (or vice versa). The agentskills.io spec also defines `assets/`; if we ever want to
+# support binary attachments, add to both consumers in the same change.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # Mirror the per-skill contract limits enforced by the REST API at
 # `products/llm_analytics/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
@@ -54,7 +58,9 @@ class CanonicalSkill:
 
     `name` and `description` come from SKILL.md frontmatter. `body` is the markdown after the
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
-    `files` is the recursive content of `references/` and `scripts/` subdirs alongside SKILL.md.
+    The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
+    spec form. `files` is the recursive content of the `_ALLOWED_BUNDLE_SUBDIRS` directories
+    alongside SKILL.md.
     """
 
     name: str
@@ -105,9 +111,29 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
             f"Canonical skill name must start with '{SIGNALS_SCOUT_SKILL_PREFIX}': got {name!r} in {skill_file}"
         )
 
-    raw_allowed = frontmatter.get("allowed_tools", []) or []
+    # The agentskills.io spec uses `allowed-tools` (hyphen). We prefer the spec form, but accept
+    # the underscore form too — it predated the spec alignment in this codebase and is used by
+    # other PHS skills. Reject if both keys are set so a future divergence doesn't go unnoticed.
+    if "allowed-tools" in frontmatter and "allowed_tools" in frontmatter:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter has both 'allowed-tools' and 'allowed_tools'; pick one: {skill_file}"
+        )
+    # Branch on key presence rather than truthiness: a falsy-but-invalid value
+    # (`allowed-tools:` / null, `false`, `""`) must fail validation, not silently
+    # fall back to `[]` — which means "no narrowing" and would broaden tool access.
+    if "allowed-tools" in frontmatter:
+        raw_allowed = frontmatter["allowed-tools"]
+    elif "allowed_tools" in frontmatter:
+        raw_allowed = frontmatter["allowed_tools"]
+    else:
+        raw_allowed = []
     if not isinstance(raw_allowed, list) or not all(isinstance(t, str) for t in raw_allowed):
-        raise CanonicalSkillParseError(f"SKILL.md frontmatter 'allowed_tools' must be a list of strings: {skill_file}")
+        # Mention both accepted keys. The validator runs after we've merged the two forms
+        # above, so we can't tell which the author wrote — naming only the spec form would
+        # send authors using the underscore form looking for a key they didn't write.
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'allowed-tools'/'allowed_tools' must be a list of strings: {skill_file}"
+        )
 
     body = raw[match.end() :]
     # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed

@@ -72,9 +72,9 @@ class SignalReportAdmin(admin.ModelAdmin):
 
 @admin.register(SignalScoutConfig)
 class SignalScoutConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "team_link", "enabled", "created_at", "updated_at")
+    list_display = ("id", "team_link", "enabled", "runs_per_tick", "created_at", "updated_at")
     list_display_links = ("id",)
-    list_filter = ("enabled",)
+    list_filter = ("enabled", "runs_per_tick")
     search_fields = ("id", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by")
     readonly_fields = ("id", "created_at", "updated_at")
