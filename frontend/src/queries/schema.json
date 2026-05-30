@@ -3746,7 +3746,8 @@
                 "marketing_list_data_sources",
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
-                "marketing_suggest_utm_mappings"
+                "marketing_suggest_utm_mappings",
+                "summarize_replay_vision_summaries"
             ],
             "type": "string"
         },
