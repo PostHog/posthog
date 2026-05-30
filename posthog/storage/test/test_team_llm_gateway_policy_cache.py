@@ -281,3 +281,75 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
         mock_delay.assert_called_with(self.team.id)
         mock_clear.assert_called_once_with(old_token, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_simultaneous_enable_and_revoke_clears_cache_once(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Flipping both llm_gateway_enabled_at and llm_gateway_revoked_at in one
+        save must invalidate exactly once. The handler ORs the two change
+        signals; a future refactor that fires clear per field would double the
+        Redis traffic on every admin enable-after-revoke.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 30, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_deferred_enabled_at_load_still_clears_cache_on_flip(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        A Team fetched with llm_gateway_enabled_at deferred and then flipped
+        on must still invalidate the cache. post_init skips the snapshot to
+        avoid a lazy load; the pre_save fallback captures the old value from
+        the DB before the UPDATE runs.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        partial = Team.objects.only("id", "name").get(pk=self.team.pk)
+        partial.llm_gateway_enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
+        partial.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(partial, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_chained_enabled_at_flips_invalidate_each_save(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Two consecutive enabled_at writes on the same kept-alive instance must
+        invalidate twice. post_save re-snapshots the saved value so the second
+        save compares against t1 instead of seeing "unchanged" and skipping.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 29, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 30, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        self.assertEqual(mock_clear.call_count, 2)
