@@ -95,15 +95,18 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )) as CountedPaginatedResponse<SharedMetric>
                 },
-                loadNextSharedMetrics: async () => {
+                loadNextSharedMetrics: async (_, breakpoint) => {
                     const next = values.sharedMetricsResponse?.next
                     if (!next) {
                         return values.sharedMetricsResponse
                     }
+                    const baseResults = values.sharedMetricsResponse?.results ?? []
                     const response: CountedPaginatedResponse<SharedMetric> = await api.get(next)
+                    // Abort if a concurrent loadSharedMetrics (e.g. a new search) superseded this page request.
+                    breakpoint()
                     return {
                         ...response,
-                        results: [...(values.sharedMetricsResponse?.results ?? []), ...response.results],
+                        results: [...baseResults, ...response.results],
                     }
                 },
             },
