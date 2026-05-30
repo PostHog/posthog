@@ -291,9 +291,7 @@ class Reviewer:
                         # API-level failure (429, 500, 529) — the CLI reports
                         # is_error=True with subtype="success" and exits non-zero.
                         status = getattr(message, "api_error_status", None)
-                        raise RuntimeError(
-                            f"API error during review (HTTP {status or 'unknown'})"
-                        )
+                        raise RuntimeError(f"API error during review (HTTP {status or 'unknown'})")
                     if message.structured_output:
                         structured_output = message.structured_output
                         # Stamp the LLM verdict onto the trace properties
@@ -306,9 +304,7 @@ class Reviewer:
             # The SDK raises ProcessError when the CLI exits non-zero after
             # emitting a result with is_error=True. Surface a clear message
             # rather than the confusing "error result: success" text.
-            raise RuntimeError(
-                f"Claude CLI exited with error (exit code {e.exit_code}): {e}"
-            ) from e
+            raise RuntimeError(f"Claude CLI exited with error (exit code {e.exit_code}): {e}") from e
 
         diff_path.unlink(missing_ok=True)
 

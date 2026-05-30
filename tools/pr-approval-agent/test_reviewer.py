@@ -2,10 +2,9 @@
 
 import sys
 from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
-from pathlib import Path
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 # Provide real-enough stubs for claude_agent_sdk so we can test error paths
 # without the full SDK installed.
