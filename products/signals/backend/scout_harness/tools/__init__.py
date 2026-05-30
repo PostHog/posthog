@@ -12,6 +12,12 @@ from products.signals.backend.scout_harness.tools.emit import (
     InvalidEmitError,
     emit_finding,
 )
+from products.signals.backend.scout_harness.tools.profile import (
+    PROFILE_TTL,
+    ProjectProfile,
+    compute_project_profile,
+    get_project_profile,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUN_SEARCH_LIMIT,
     MAX_RUN_SEARCH_LIMIT,
@@ -36,11 +42,15 @@ __all__ = [
     "InvalidScratchpadError",
     "MAX_EVIDENCE_ENTRIES",
     "MAX_RUN_SEARCH_LIMIT",
+    "PROFILE_TTL",
+    "ProjectProfile",
     "ScratchpadEntry",
     "RunDetail",
     "RunSummary",
+    "compute_project_profile",
     "emit_finding",
     "forget",
+    "get_project_profile",
     "get_run",
     "remember",
     "search_scratchpad",

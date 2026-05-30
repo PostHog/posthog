@@ -18,7 +18,8 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
 
 # Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
@@ -354,3 +355,114 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
+class TestAgentHarnessProjectProfileAPI(APIBaseTest):
+    """The project profile is the scout's orientation surface — read once at run start.
+
+    The build path (per-section table scans + a ClickHouse aggregation, plus a row write)
+    is gated to the internal scout token: a session GET bypasses CSRF, so letting it build
+    on cache miss would make the rebuild CSRF-triggerable. These tests cover the read-only
+    contract for untrusted callers (cached-or-404, never a build) and the scout's lazy build.
+    """
+
+    def _list_url(self) -> str:
+        # The viewset exposes the singleton via an explicit `@action(url_path="current")`
+        # (not `list()`), so the route is /project_profile/current/. Generated TS clients
+        # call /current/; tests must match or the requests 404 and never exercise the view.
+        return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
+
+    def _seed_profile(self, *, team: Team | None = None) -> str:
+        """Persist a real, schema-valid profile via the build path so a later read hits the
+        cache, and return its profile_id. Building here is fine — the behavior under test is
+        that the *read* doesn't build, not that nothing ever builds.
+        """
+        return compute_project_profile(team=team or self.team).profile_id
+
+    # --- untrusted (session) callers: read-only, never build ---
+
+    def test_session_read_returns_404_when_no_profile_exists(self) -> None:
+        # A session GET bypasses CSRF, so it must not trigger an inline build. With no
+        # cached row the read-only caller gets a 404 rather than a freshly-built profile.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        # No row written as a side effect of the GET.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+
+    def test_session_read_returns_cached_profile(self) -> None:
+        seeded_id = self._seed_profile()
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["profile_id"] == seeded_id
+        assert {"profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
+        assert "inventory" in body["payload"]
+        # Read-only: no new row written.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_session_read_ignores_force_refresh(self) -> None:
+        # `force_refresh` is honored only for the internal scout token. A session caller
+        # passing it still gets the cached row — no rebuild, no second row.
+        seeded_id = self._seed_profile()
+        response = self.client.get(self._list_url(), {"force_refresh": "true"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["profile_id"] == seeded_id
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_session_read_does_not_leak_other_teams_profile(self) -> None:
+        # Another team in the same org has a profile; ours does not. A session GET must
+        # neither build ours nor surface theirs — it 404s.
+        other = Team.objects.create(organization=self.organization, name="Other")
+        self._seed_profile(team=other)
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- internal scout token: lazy-builds on miss ---
+
+    def test_scout_read_lazy_computes_a_profile_when_none_exists(self) -> None:
+        _authenticate_as_scout(self)
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Response shape carries the cache metadata + the inventory payload.
+        assert {"profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
+        assert "inventory" in body["payload"]
+        # And a row was persisted as a side effect of the scout's build.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_scout_read_returns_cached_profile_on_repeat_call(self) -> None:
+        _authenticate_as_scout(self)
+        first = self.client.get(self._list_url()).json()
+        second = self.client.get(self._list_url()).json()
+        assert first["profile_id"] == second["profile_id"]
+        # No second row written.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
+        _authenticate_as_scout(self)
+        response = self.client.get(self._list_url())
+        inventory = response.json()["payload"]["inventory"]
+        assert set(inventory.keys()) == {
+            "project_context",
+            "products_in_use",
+            "product_intents",
+            "integrations",
+            "external_data_sources",
+            "signal_source_configs",
+            "existing_inbox_reports",
+            "recent_activity",
+            "recent_dashboards",
+            "recent_surveys",
+            "recent_feature_flags",
+            "recent_experiments",
+            "recent_alerts",
+            "recent_hog_functions",
+            "recent_hog_flows",
+            "recent_notebooks",
+            "recent_cohorts",
+            "recent_actions",
+            "top_events",
+        }

@@ -528,3 +528,52 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
         ]
+
+
+class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
+    """Deterministic snapshot of "what's true about this project" — agent orientation surface.
+
+    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
+    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
+    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+
+    Profile is the *deterministic ground truth* about a project (computed from authoritative
+    tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
+    wrong, TTL'd). Profile feeds memory; memory does not update profile.
+    """
+
+    # See `SignalScoutConfig.all_teams` for the rationale on the unscoped sibling manager
+    # and `default_manager_name`.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_project_profiles",
+    )
+    computed_at = models.DateTimeField(auto_now_add=True)
+    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
+    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
+    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
+    expires_at = models.DateTimeField()
+    # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
+    # invalidate stale rows without a manual backfill.
+    source_version = models.CharField(max_length=40)
+    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
+    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # builder, read whole, and never field-queried — relational columns would buy no query
+    # benefit and a migration per section as coverage grows. Not schemaless, though:
+    # `build_inventory` returns a validated `Inventory` model (see
+    # `scout_harness/profile/schema.py`), so the jsonb is schema-backed on write.
+    payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "Signal project profile"
+        verbose_name_plural = "Signal project profiles"
+        default_manager_name = "all_teams"
+        indexes = [
+            # `get_project_profile` reads the newest non-expired row for a team — supports the
+            # ORDER BY computed_at DESC LIMIT 1 lookup pattern.
+            models.Index(fields=["team", "-computed_at"], name="signal_proj_profile_recent_idx"),
+        ]

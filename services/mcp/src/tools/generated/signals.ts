@@ -7,6 +7,7 @@ import {
     SignalsReportsRetrieveParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
+    SignalsScoutProjectProfileGetQueryParams,
     SignalsScoutRunsListQueryParams,
     SignalsScoutRunsRetrieveParams,
     SignalsScoutScratchpadForgetBody,
@@ -193,6 +194,27 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
     },
 })
 
+const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
+
+const signalsScoutProjectProfileGet = (): ToolBase<
+    typeof SignalsScoutProjectProfileGetSchema,
+    Schemas.ProjectProfile
+> => ({
+    name: 'signals-scout-project-profile-get',
+    schema: SignalsScoutProjectProfileGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutProjectProfileGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProjectProfile>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
+            query: {
+                force_refresh: params.force_refresh,
+            },
+        })
+        return result
+    },
+})
+
 const SignalsScoutRunsListSchema = SignalsScoutRunsListQueryParams
 
 const signalsScoutRunsList = (): ToolBase<
@@ -312,6 +334,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
+    'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,

@@ -19,6 +19,7 @@ import type {
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    ProjectProfileApi,
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
@@ -28,6 +29,7 @@ import type {
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
     SignalsReportsListParams,
+    SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
@@ -154,6 +156,40 @@ export const signalsReportsRetrieve = async (
     options?: RequestInit
 ): Promise<SignalReportApi> => {
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutProjectProfileGetUrl = (
+    projectId: string,
+    params?: SignalsScoutProjectProfileGetParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/project_profile/current/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/project_profile/current/`
+}
+
+/**
+ * Return the team's deterministic project profile. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * @summary Get the current project profile
+ */
+export const signalsScoutProjectProfileGet = async (
+    projectId: string,
+    params?: SignalsScoutProjectProfileGetParams,
+    options?: RequestInit
+): Promise<ProjectProfileApi> => {
+    return apiMutator<ProjectProfileApi>(getSignalsScoutProjectProfileGetUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

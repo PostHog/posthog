@@ -2,9 +2,9 @@
 
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
 (and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
-tools — `runs-list`, `runs-retrieve`, `emit-signal`, `scratchpad-search`,
-`scratchpad-remember`, and `scratchpad-forget` — over the standard PostHog MCP
-plumbing.
+tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
+`memory-create`, `memory-delete`, and `project-profile-get` — over the standard
+PostHog MCP plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/scratchpad from
@@ -39,13 +39,15 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalProjectProfile, SignalScoutRun
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
     EvidenceEntrySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
+    ProjectProfileQuerySerializer,
+    ProjectProfileSerializer,
     RememberRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
@@ -54,6 +56,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunSummarySerializer,
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -61,6 +64,31 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     remember,
     search_scratchpad,
 )
+
+
+def _caller_carries_scout_internal_scope(request: Request) -> bool:
+    """True only when the request authenticates with the sandbox-internal scout scope.
+
+    The profile build — whether a `force_refresh` rebuild or the lazy build on cache miss —
+    runs per-section table scans plus the ClickHouse top-events aggregation and writes a
+    row. Honoring either for any `signal_scout:read` PAK would let an attacker spam
+    expensive recomputes, and honoring either on a session-authenticated GET makes the
+    rebuild CSRF-triggerable (DRF exempts safe methods from CSRF). The headless scout's
+    sandbox OAuth token is the only caller that legitimately builds inline, and it's minted
+    with `signal_scout_internal:write` via `SCOUT_INTERNAL_SCOPES` — so gate the build on
+    that scope. Session and other non-token auth carry no API scopes and never pass, which
+    closes the CSRF path; untrusted read callers get the cached profile or a 404. `*`
+    (full-access consent) deliberately does not match: internal scopes are not reachable
+    via user-consented tokens.
+    """
+    authenticator = request.successful_authenticator
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = authenticator.personal_api_key.scopes or []
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scopes = (authenticator.access_token.scope or "").split()
+    else:
+        return False
+    return "signal_scout_internal:write" in scopes
 
 
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
@@ -361,3 +389,96 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         removed = forget(team_id=_canonical_team_id(self), key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
+
+
+class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Project profile — deterministic snapshot of \"what's true about this project\".
+
+    Singleton per team — there's no list, retrieve, or write surface. The agent calls
+    `current` right after reading its skill to orient on this team's product mix,
+    integrations, signal coverage, and existing inbox surface in one tool call instead of
+    burning 4-5 discovery calls. Lazy-recomputes on cache miss / TTL expiry / source-version
+    bump; the response is always either the latest cached profile or a freshly-built one.
+
+    Exposed as a `@action(detail=False, url_path="current")` rather than `list()` so the
+    OpenAPI spec — and every generated client downstream of it (`api.ts`, MCP tool
+    response shape, etc.) — types the response as a single `ProjectProfileApi` instead
+    of `ProjectProfileApi[]`. drf-spectacular and Orval treat the bare `list` action as
+    a paginated collection by URL convention even when `responses=ProjectProfileSerializer`
+    is set; routing through a named action breaks that convention without changing the
+    semantics.
+    """
+
+    serializer_class = ProjectProfileSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout"
+    # `.unscoped()` — see `SignalScoutRunViewSet` for the same module-load reasoning.
+    # The `current` action filters by team_id explicitly via `get_project_profile`.
+    queryset = SignalProjectProfile.objects.unscoped()
+    pagination_class = None
+
+    # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,
+    # which renders as `signals-scout-project-profile-list` in the MCP. The agent-facing
+    # tool is semantically a "get the current profile" (singleton), not a "list" — override
+    # the id so it matches the tool name in tools.yaml and the scout's bootstrap step.
+    @validated_request(
+        operation_id="signals_scout_project_profile_get",
+        query_serializer=ProjectProfileQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ProjectProfileSerializer,
+                description="The team's current project profile (cached, or freshly built for the internal scout token).",
+            ),
+            404: OpenApiResponse(
+                description=(
+                    "No profile has been built for this team yet, and the caller is not the internal scout "
+                    "token (which builds on cache miss). Public read callers never trigger a build."
+                ),
+            ),
+        },
+        summary="Get the current project profile",
+        description=(
+            "Return the team's deterministic project profile. For the internal scout token the response "
+            "reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); "
+            "`force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers "
+            "(session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been "
+            "built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's "
+            "product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="current",
+        url_name="current",
+        pagination_class=None,
+        # Without explicit `required_scopes`, `APIScopePermission` falls into the
+        # "no scopes declared" branch in `posthog/permissions.py:490` and rejects
+        # the request — the rejection message even reads "does not support
+        # personal API key access" regardless of whether the request was
+        # authenticated via PAK or OAuth, because that branch fires for both.
+        # `signal_scout:read` is the public, user-grantable read scope already
+        # used by `runs-list`, `runs-retrieve`, and `memory-list` on this surface.
+        required_scopes=["signal_scout:read"],
+    )
+    def current(self, request: Request, *args, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        caller_is_internal_scout = _caller_carries_scout_internal_scope(request)
+        # Both `force_refresh` and the lazy build-on-miss run the full inventory rebuild
+        # (per-section table scans + the ClickHouse top-events aggregation) and write a row,
+        # so both are gated to the internal scout token. A session-authenticated GET bypasses
+        # CSRF (safe method), so letting it build would make the rebuild CSRF-triggerable; a
+        # `signal_scout:read` PAK could likewise spam recomputes. Untrusted read callers get
+        # the newest cached profile, or a 404 if none exists — they never trigger a build. The
+        # scout's sandbox token carries `signal_scout_internal:write`, and the Phase-7 Temporal
+        # workflow builds out-of-band, so the build path stays covered.
+        force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
+        profile = get_project_profile(
+            team_id=_canonical_team_id(self),
+            force_refresh=force_refresh,
+            lazy_build=caller_is_internal_scout,
+        )
+        if profile is None:
+            raise exceptions.NotFound("No project profile has been built for this team yet.")
+        return Response(ProjectProfileSerializer(profile.as_dict()).data)
