@@ -36,8 +36,11 @@
         "lucide-react": "^0.577.0"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
         "@tailwindcss/vite": "^4.1.17",
         "@tanstack/react-table": "^8.21.3",
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
         "@vitejs/plugin-react": "^5.1.1",
         "vite": "^6.3.5",
         "vite-plugin-dts": "^4.5.4"

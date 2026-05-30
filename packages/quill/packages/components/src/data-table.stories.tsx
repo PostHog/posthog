@@ -58,7 +58,17 @@ export const Default: Story = {
     render: () => (
         <>
             <p className="mb-4 text-sm text-muted-foreground">
-                Built with <a className="text-primary underline" href="https://tanstack.com/table/latest/docs/framework/react/guides/getting-started" target="_blank">TanStack Table</a> and quill primitives.
+                Built with{' '}
+                {/* eslint-disable-next-line react/forbid-elements -- plain link in a storybook demo */}
+                <a
+                    className="text-primary underline"
+                    href="https://tanstack.com/table/latest/docs/framework/react/guides/getting-started"
+                    target="_blank"
+                    rel="noreferrer"
+                >
+                    TanStack Table
+                </a>{' '}
+                and quill primitives.
             </p>
             <DataTable columns={columns} data={people} className="max-w-2xl rounded-md border border-[var(--border)]" />
         </>
