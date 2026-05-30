@@ -79,6 +79,8 @@ import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { McpToolCallMessage } from './maxTypes'
+import { fallbackMcpToolEntry, lookupMcpToolRenderer } from './mcpToolRegistry'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
@@ -101,6 +103,7 @@ import {
     isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
+    isMcpToolCallMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
@@ -450,6 +453,7 @@ function Message({
             Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
         (isArtifactMessage(message) &&
             (isVisualizationArtifactContent(message.content) || isNotebookArtifactContent(message.content))) ||
+        isMcpToolCallMessage(message) ||
         isMultiVisualizationMessage(message)
 
     if (!rendersContent && !(isLastInGroup && message.status === 'error')) {
@@ -702,6 +706,14 @@ function Message({
                             )
                         }
                         return null
+                    } else if (isMcpToolCallMessage(message as unknown)) {
+                        // Sandbox runtime only: dispatch a tool call to its wired renderer, or fall
+                        // back to the generic card. Additive — LangGraph tool rendering is untouched.
+                        // `message` is a sandbox thread item (McpToolCallMessage), not a LangGraph
+                        // RootAssistantMessage, so narrow off the broadened guard input.
+                        const mcpMessage = message as unknown as McpToolCallMessage
+                        const entry = lookupMcpToolRenderer(mcpMessage.resolvedKey) ?? fallbackMcpToolEntry
+                        return <entry.Renderer key={key} message={mcpMessage} isLastInGroup={isLastInGroup} />
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
                     }

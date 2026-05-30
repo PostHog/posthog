@@ -6946,6 +6946,14 @@ export interface ConversationQueueResponse {
     max_queue_messages: number
 }
 
+/**
+ * Which runtime serves a conversation. Stamped server-side at conversation-create
+ * from the `posthog-ai-sandbox` feature flag. `langgraph` is the historical default;
+ * `sandbox` routes to the cloud-agent runtime. Frontend sandbox foundations gate on
+ * `agent_runtime === 'sandbox'`.
+ */
+export type AgentRuntime = 'langgraph' | 'sandbox'
+
 export interface Conversation {
     id: string
     user: UserBasicType
@@ -6956,6 +6964,7 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    agent_runtime?: AgentRuntime
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
