@@ -141,8 +141,9 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     # advisory lock, post-lock cache re-check, and prune must all key on the canonical
     # id too. `get_project_profile` already passes a canonical team; this guards the
     # direct / Phase-7 call path where an environment (child) team could be passed in.
-    if team.parent_team_id:
-        team = team.parent_team
+    parent_team = team.parent_team
+    if parent_team is not None:
+        team = parent_team
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])

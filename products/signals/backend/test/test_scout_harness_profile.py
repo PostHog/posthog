@@ -88,7 +88,7 @@ class TestProjectContext(BaseTest):
         assert result["product_description"] is None
 
     def test_filters_empty_app_urls(self) -> None:
-        self.team.app_urls = ["https://app.example.com", "", None]  # type: ignore[list-item]
+        self.team.app_urls = ["https://app.example.com", "", None]
         self.team.save()
         result = _project_context(self.team)
         assert result["app_urls"] == ["https://app.example.com"]
@@ -107,7 +107,7 @@ class TestProductsInUse(BaseTest):
 
     def test_handles_non_dict_field_gracefully(self) -> None:
         # Defensive: if the JSON field somehow holds a non-dict value, return [] rather than raise.
-        self.team.has_completed_onboarding_for = ["product_analytics"]  # type: ignore[assignment]
+        self.team.has_completed_onboarding_for = ["product_analytics"]
         self.team.save()
         assert _products_in_use(self.team) == []
 
