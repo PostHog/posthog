@@ -184,6 +184,19 @@ export class SegmentDestinationExecutorService {
                             }
                         }
 
+                        // Similar to the activities endpoint, we need to omit the id field if it's null or an empty string for the leads endpoint
+                        if (
+                            endpoint.endsWith('.pipedrive.com/api/v1/leads') &&
+                            jsonData &&
+                            typeof jsonData === 'object' &&
+                            'id' in jsonData
+                        ) {
+                            const { id, ...rest } = jsonData as any
+                            if (id === null || id === '') {
+                                jsonData = rest
+                            }
+                        }
+
                         body = JSON.stringify(jsonData)
                         headers['Content-Type'] = 'application/json'
                     } else if (options?.body && options.body instanceof URLSearchParams) {

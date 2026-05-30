@@ -567,13 +567,25 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         })),
                     ...Object.entries(destination.actions)
                         .filter(([key]) => !destination.presets?.some((preset) => preset.partnerAction === key))
-                        .map(([_, action]) => ({
+                        .map(([key, action]) => ({
                             name: action.title,
                             include_by_default: false,
                             filters: action.defaultSubscription
                                 ? translateFilters(action.defaultSubscription)
                                 : { events: [] },
-                            inputs_schema: action.fields ? translateInputsSchema(action.fields) : [],
+                            inputs_schema: [
+                                ...(action.fields ? translateInputsSchema(action.fields) : []),
+                                {
+                                    key: 'internal_partner_action',
+                                    label: 'Partner Action',
+                                    hidden: true,
+                                    type: 'string',
+                                    default: key,
+                                    description: 'The partner action to use',
+                                    required: true,
+                                    secret: false,
+                                },
+                            ],
                         })),
                 ],
             },
