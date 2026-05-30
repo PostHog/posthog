@@ -1939,7 +1939,7 @@ snapshots:
     filters-taxonomic-filter-headless--properties--dark:
         hash: v1.k794b7964.4ee695e5751c6f73e9742ab0cfeecf61b5adfe829cf3a0d49ab2877cae8b212f.jPN9l5TDgLRy9NzHenXHCU903UDg8-GdeGpf4PXt7aA
     filters-taxonomic-filter-headless--properties--light:
-        hash: v1.k794b7964.bd715b36b456df8730e934366a35faed4556dffa881456db1272e2804047a036.IH74-bf3miZ6nC3E0bqbzIb0km4fBh97_2XubTpcmns
+        hash: v1.k794b7964.7af6b884e5d826df422db99e4a99d2172f3316561a499dbe386ea098b1fc54a9.rti2DMpqC0WEtd_AtG838vQlgQMHfwjBAR4uLN_HnUk
     filters-taxonomic-filter-headless--suggested-filters-with-recents--dark:
         hash: v1.k794b7964.c3a6cd419610bc486261efa753816547f080f00c838bde0b8720cf12067b3b22.nxBtExiDfJ3USkhV9RY1VPU_U2dGyEYCMFbhvtOcuVs
     filters-taxonomic-filter-headless--suggested-filters-with-recents--light:
@@ -5990,6 +5990,38 @@ snapshots:
         hash: v1.k794b7964.5fd9cfd154dfac9e92c492b11d72f4b26f8f6c91b073d7b8c728ecbcb8f699e4.Y7xIgQfsOCcp9HiLZaExdWRFGE7WFst8c13z8uM8tME
     scenes-app-surveys-surveyresponsekeysreference--webhook--light:
         hash: v1.k794b7964.9b5c484a3a1bd7a09c266a1f164e3ed9eef3ffabbcd12253f0843b3f0b69a808.cc6Rai2vShlFJA_KypMbVcc1IIaVX0nTcZ29RPEEZjo
+    scenes-app-user-interviews-transcript-chat--assistant-and-interviewee--dark:
+        hash: v1.k794b7964.084b950f4b470d0061709a6a85c831da13309784821c2cf312b55fc3883868a0.JNwWroG3W7Lch3VlcXPjsNk_QDOHTbXyTHl9ytGr79E
+    scenes-app-user-interviews-transcript-chat--assistant-and-interviewee--light:
+        hash: v1.k794b7964.1a748d091961d06351e8c495289befa1bcd899426f3a6c9771d4d719c1c31764.wi6viN4eU0HDQNTw4Xy6Barng7ePp5PhwnjFBbfFoVY
+    scenes-app-user-interviews-transcript-chat--fallback-leading-prose--dark:
+        hash: v1.k794b7964.a4e38eec62022261c3cd416f47ea7d263a37883b459205bb6817ef3e41138817.RjCukgO8N4j4zE72JC-Yqaos2NXeVpjvc11FG-UGPfE
+    scenes-app-user-interviews-transcript-chat--fallback-leading-prose--light:
+        hash: v1.k794b7964.b809042acf99d7bf4adfce4b3186a7ffe94133dd5fc3a0d7e8e3cdfa919cb889.1RaWNsXQ5iuyJSgRW132FVlTp02kf6-9TYwYpA4smHc
+    scenes-app-user-interviews-transcript-chat--fallback-no-speaker-markers--dark:
+        hash: v1.k794b7964.5099e9a9e91ebfc7e069ca52524fcf9370e10f2ee892f2235176ecd1a429637d.owhccW87r03zCJN-b3NdiijL0oAp0TkUn0-cDNymRwU
+    scenes-app-user-interviews-transcript-chat--fallback-no-speaker-markers--light:
+        hash: v1.k794b7964.8664c56671cd5dc9fd9e7b235c9b787baea74a083b39f50ce3fc3e95a6bd29a8.KI-UnuB5FpP4x7_esYRZxeo7eLnA7PMiCaUDr9XV9cw
+    scenes-app-user-interviews-transcript-chat--identifier-only--dark:
+        hash: v1.k794b7964.cbe8de44e591e8f0c1bb34bb7b67171c7e73261a692203da1097e40f8da65c6b.-Fh1Xs0EiG6SxG5hpg_27JytJxG9cYRhjfiVLF09qCM
+    scenes-app-user-interviews-transcript-chat--identifier-only--light:
+        hash: v1.k794b7964.65d04eef2bc45e18a8b784282ab919c36b6e1a95917636a813e533c27ff11c40.Six8N1g_dQO_ALm07aAjheTlI8xcem8Xo8B3aSfJAX8
+    scenes-app-user-interviews-transcript-chat--inline-no-newlines--dark:
+        hash: v1.k794b7964.24e17e99ff7e9803668354820afed0ff792c2736090710bf58ab6241669e05b8.EF_CuQMwNgiHSqruknNf6dnVwKGQfAaqIke0EFEpaiY
+    scenes-app-user-interviews-transcript-chat--inline-no-newlines--light:
+        hash: v1.k794b7964.f6fd52089572235506900c1d33cbf47ce0dab419eb1dd767f64b0e30cc76de72.aURuiSlwcQMrPB-suC3XLDH98ucsJH6dJd-SvAok9JE
+    scenes-app-user-interviews-transcript-chat--known-person--dark:
+        hash: v1.k794b7964.919b0822b38cae6b1907568d0728d3e3cad94464fea90b90bf6d3875a59be9f5.5bqYUxtajmJEdM1_1wnTeP2GYli6QaH1d7Wknf-PoBk
+    scenes-app-user-interviews-transcript-chat--known-person--light:
+        hash: v1.k794b7964.ce9f352e02877fd32e992c32e26d970ede95561d1f7a146ac21873380f5f232d.wSLZ0twQIvUHTQQ9zGrVJKKQrz3kFohYfcfqZ1XP9lQ
+    scenes-app-user-interviews-transcript-chat--non-email-identifier--dark:
+        hash: v1.k794b7964.e1688d6d824d3d8cb78ac3c59f7a06cd36136238775d0de40ae10248e49348be.efKCsy7FskvtVXWW9E-JHbAFdIz7alyWw5TILuydVvg
+    scenes-app-user-interviews-transcript-chat--non-email-identifier--light:
+        hash: v1.k794b7964.6dc84a6aefe2eef457d4a3b1cc0d8a790c65c611bc95eb3f327414ba4ee1457c.5H8dVKoSxfH_H-HiHkWYygThHlPp2WD6B_wNHASrfYs
+    scenes-app-user-interviews-transcript-chat--speaker-keyword-in-body--dark:
+        hash: v1.k794b7964.eb9164b98022c22fdfc471cfcf1e07d6b748619cf5e1ba0a8b556dc4580afa2a.qdk1LJYlsSz34-0VTBskYZI0X1QEwvnS26gbZCgADlM
+    scenes-app-user-interviews-transcript-chat--speaker-keyword-in-body--light:
+        hash: v1.k794b7964.5d8746de3dd5d5b28a24b5e22671e46e95ce1b0fc250c4e64ac95a2b7a9acbbc.o8VKgTNssudZfeSYPC4ax6u-slSlybW82EYZRQO8S-4
     scenes-app-user-research-topics--search-no-results--dark:
         hash: v1.k794b7964.194b84216db3619fdf87c7b1e7fcb01c3006e9de717ee1a7f0a6586cd19e6430.hVr4aj9pbjvmrSYZzZqj0u5Y6htcodeHNOM44V6BEQM
     scenes-app-user-research-topics--search-no-results--light:
