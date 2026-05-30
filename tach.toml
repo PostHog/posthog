@@ -53,6 +53,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.business_knowledge",
     "products.user_interviews",
     "products.warehouse_sources",
 ]
