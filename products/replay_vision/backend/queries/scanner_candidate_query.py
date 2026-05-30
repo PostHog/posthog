@@ -1,14 +1,4 @@
-"""Find session recordings a Replay Vision scanner should observe since its watermark.
-
-A session is eligible when:
-  - It's had no activity in the last 35 minutes (settle window), AND
-  - Its end time is past the scanner's watermark.
-
-Filter compilation defers to `SessionRecordingListFromQuery` so the scanner's
-saved `RecordingsQuery` translates identically to what the recordings list does
-for the same filters — minus `date_from` / `date_to` (the schedule controls time,
-not the user).
-"""
+"""Find session recordings a scanner should observe: ended past the watermark and quiet for 35+ minutes."""
 
 import datetime as dt
 from dataclasses import dataclass
@@ -30,33 +20,20 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# 30-minute session-inactivity timeout + 5-minute settle buffer absorbs the
-# AggregatingMergeTree merge lag on `session_replay_events`.
+# 30-min inactivity timeout + 5-min merge-lag buffer.
 SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
-# Performance-only `date_from` on the inner query so ClickHouse can skip
-# historical partitions. Anchored to the SDK's hard 24-hour session-length cap
-# (posthog-js rotates `session_id` once `now - start_time > 24h`), so any
-# session whose end is past the watermark must have started within 24h before
-# it. The extra 2h is headroom for client clock skew, batching delay, and the
-# AggregatingMergeTree merge lag.
+# Partition prune anchored to the SDK's 24h session_id rotation + 2h headroom for skew and lag.
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
-# Sampling is stable per session via `cityHash64(session_id) % precision`.
 SAMPLE_RATE_PRECISION = 10_000
-
-# Per-fire candidate cap. Matches the master plan.
 DEFAULT_CANDIDATE_LIMIT = 5_000
-
-# A pathological filter must not be able to hang a scanner's schedule fire.
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 
 @dataclass(frozen=True)
 class CandidateSession:
     session_id: str
-    # `max(max_last_timestamp)` for the session — the schedule advances its
-    # watermark to `max(session_end)` of the returned batch.
     session_end: dt.datetime
 
 
@@ -83,17 +60,12 @@ class ScannerCandidateQuery:
 
         self._team = team
         self._last_swept_at = last_swept_at
-        # When the previous fire saturated the LIMIT, the schedule passes the
-        # last row's `session_id` so we can resume after it via keyset pagination
-        # without re-emitting anything and without skipping `session_end` ties.
         self._last_seen_session_id = last_seen_session_id
         self._sampling_rate = max(0.0, min(1.0, sampling_rate))
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
 
-        # The inner query handles all filter compilation. We control the time
-        # window via date_from (partition prune) — the schedule, not the user,
-        # owns the semantic watermark, applied in the outer WHERE.
+        # The schedule owns the time window, not the user.
         inner_query = query.model_copy(deep=True)
         inner_query.date_from = (last_swept_at - _PARTITION_LOOKBACK).isoformat()
         inner_query.date_to = None
@@ -101,8 +73,7 @@ class ScannerCandidateQuery:
         inner_query.offset = None
         inner_query.after = None
 
-        # Push sampling into the inner HAVING so un-sampled sessions are dropped
-        # before they're aggregated by the outer SELECT.
+        # Sampling in the inner HAVING drops un-sampled sessions before outer aggregation.
         extra_having: list[ast.Expr] = []
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
@@ -121,15 +92,12 @@ class ScannerCandidateQuery:
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
 
     def get_query(self) -> ast.SelectQuery:
-        # `_inner.get_query()` re-parses its BASE_QUERY on every call, so it's
-        # safe to mutate the returned AST in-place. We clear `order_by` because
-        # we apply our own chronological ordering in the outer SELECT.
+        # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
         inner = self._inner.get_query()
         inner.order_by = None
 
         where_exprs: list[ast.Expr] = [
             self._watermark_predicate(),
-            # No activity within the settle window.
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=["sessions", "end_time"]),
@@ -152,14 +120,12 @@ class ScannerCandidateQuery:
         )
 
     def _watermark_predicate(self) -> ast.Expr:
-        """Past the watermark, or resuming after a saturated batch via keyset pagination."""
         end_time = ast.Field(chain=["sessions", "end_time"])
         watermark = ast.Constant(value=self._last_swept_at)
         strict = ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=end_time, right=watermark)
         if self._last_seen_session_id is None:
             return strict
-        # `(end_time, session_id) > (last_swept_at, last_seen_session_id)` is
-        # lexicographic in ClickHouse — exactly the keyset semantic.
+        # Lexicographic tuple comparison gives keyset semantics for resuming past saturated batches.
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=ast.Tuple(exprs=[end_time, ast.Field(chain=["sessions", "session_id"])]),
@@ -167,12 +133,10 @@ class ScannerCandidateQuery:
         )
 
     def _sampling_predicate(self) -> ast.Expr | None:
-        """`cityHash64(session_id) % N < threshold` — stable per-session, applied in the inner HAVING."""
         if self._sampling_rate >= 1.0:
             return None
         threshold = max(0, int(self._sampling_rate * SAMPLE_RATE_PRECISION))
         if threshold <= 0:
-            # Sampling out everything — emit `false` so the query plan stays trivial.
             return ast.Constant(value=False)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,

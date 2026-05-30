@@ -19,18 +19,14 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     ScannerCandidateQuery,
 )
 
-# Pin tests to a known wall clock so `now - SETTLE_INTERVAL` is reproducible.
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# ---------------------------------------------------------------------------
 # Construction-time sanitization (no DB needed).
-# ---------------------------------------------------------------------------
 
 
 def _make_query(**kwargs) -> ScannerCandidateQuery:
-    """Build a ScannerCandidateQuery with sensible defaults — team can be a stub for AST-only tests."""
     return ScannerCandidateQuery(
         team=kwargs.pop("team", None),
         query=kwargs.pop("query", RecordingsQuery()),
@@ -91,23 +87,19 @@ def test_sampling_rate_clamped_on_construction(raw, expected_internal):
     "stripped_field, value", [("date_to", "-1d"), ("limit", 17), ("offset", 42), ("after", "abc123")]
 )
 def test_strips_schedule_controlled_inputs(stripped_field, value):
-    """User-supplied date_to / limit / offset / after must not bleed into the inner query."""
     raw_query = RecordingsQuery(**{stripped_field: value})
     q = _make_query(query=raw_query)
     assert getattr(q._inner._query, stripped_field) is None
 
 
 def test_inner_date_from_is_partition_prune_relative_to_watermark():
-    """date_from on the inner query is a partition prune anchored to the watermark, not the user's input."""
     last_swept_at = _NOW - dt.timedelta(hours=2)
     q = _make_query(query=RecordingsQuery(date_from="-30d"), last_swept_at=last_swept_at)
     assert q._inner._query.date_from is not None
     assert q._inner._query.date_from != "-30d"
 
 
-# ---------------------------------------------------------------------------
 # Sampling predicate (no DB).
-# ---------------------------------------------------------------------------
 
 
 def test_sampling_predicate_passthrough_at_full_rate():
@@ -134,15 +126,11 @@ def test_sampling_predicate_emits_modulo_compare_at_partial_rate():
     assert isinstance(city, ast.Call) and city.name == "cityHash64"
 
 
-# ---------------------------------------------------------------------------
 # Integration: actual ClickHouse query.
-# ---------------------------------------------------------------------------
 
 
 @freeze_time(_FROZEN_TIME)
 class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
-    """End-to-end: produce sessions, query, assert results."""
-
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -158,7 +146,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_returns_sessions_in_chronological_order_with_session_end(self, team) -> None:
-        # last activity ordered: B (oldest end) → A → C
         settle_bound = _NOW - SETTLE_INTERVAL
         self._produce(
             team.id, "sess-a", settle_bound - dt.timedelta(minutes=20), settle_bound - dt.timedelta(minutes=10)
@@ -173,16 +160,13 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
 
         assert [r.session_id for r in results] == ["sess-b", "sess-a", "sess-c"]
-        # session_end matches max_last_timestamp.
         assert results[0].session_end == settle_bound - dt.timedelta(minutes=30)
         assert results[2].session_end == settle_bound - dt.timedelta(minutes=5)
 
     @pytest.mark.django_db
     def test_watermark_excludes_sessions_ended_before_or_equal(self, team) -> None:
         last_swept_at = _NOW - dt.timedelta(hours=2)
-        # max_last_timestamp == last_swept_at → excluded (strict >).
         self._produce(team.id, "exactly-on-watermark", last_swept_at - dt.timedelta(minutes=10), last_swept_at)
-        # max_last_timestamp just after last_swept_at → included.
         self._produce(
             team.id,
             "just-after-watermark",
@@ -209,13 +193,12 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         session_ids = {r.session_id for r in results}
         assert "settled" in session_ids
-        assert "on-settle" in session_ids  # LtEq — inclusive on the bound.
+        assert "on-settle" in session_ids
+
         assert "still-settling" not in session_ids
 
     @pytest.mark.django_db
     def test_aggregates_multiple_rows_per_session(self, team) -> None:
-        # Three Kafka rows for one session — query must dedupe by session_id and
-        # return the most recent max_last_timestamp.
         first = _NOW - dt.timedelta(hours=2)
         for i, last in enumerate(
             [
@@ -284,7 +267,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_respects_candidate_limit(self, team) -> None:
-        # 10 sessions; LIMIT 3 returns the 3 earliest-ending (chronological ORDER BY).
         for i in range(10):
             self._produce(
                 team.id,
@@ -317,7 +299,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_routes_dollar_lib_event_property_to_having(self, team) -> None:
-        # `$lib` is special-cased into `snapshot_library` via having_predicates.
         self._produce(
             team.id,
             "web",
@@ -340,7 +321,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_honors_having_predicate_from_recordings_query(self, team) -> None:
-        # `active_seconds` lives only in HAVING; sub-30s should be excluded.
         self._produce(
             team.id,
             "long",
@@ -365,7 +345,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
-        # test_account_filters are exclusion-style — the operator selects out the unwanted accounts.
+        # test_account_filters are exclusion-style — the operator picks the accounts to drop.
         team.test_account_filters = [
             {
                 "key": "email",
@@ -401,13 +381,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_long_running_session_within_24h_cap_is_returned(self, team) -> None:
-        """Regression: the partition prune is anchored to the SDK's 24h `session_id` cap, not 6h.
-
-        A session that started ~10h before the watermark and ends just after it must
-        be returned — older long-running sessions are still common (e.g. background
-        tabs). If the partition prune were tighter than the SDK cap, these would be
-        silently dropped.
-        """
         last_swept_at = _NOW - dt.timedelta(hours=1)
         self._produce(
             team.id,
@@ -422,29 +395,21 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_straddling_session_keeps_full_aggregates(self, team) -> None:
-        """Regression: a session with rows on both sides of the watermark must aggregate the full session.
-
-        A row-level WHERE on `max_last_timestamp` would drop the pre-watermark rows
-        and the HAVING predicate (here: `active_seconds >= 30`) would wrongly fail.
-        With the watermark in HAVING and the WHERE bound on `min_first_timestamp`,
-        every row of the session is aggregated.
-        """
         last_swept_at = _NOW - dt.timedelta(hours=1)
-        # Three rows for the same session: one before watermark, two after.
-        # Each contributes 12 active seconds; total = 36s, > the 30s HAVING bound.
+        # Three rows totalling 36 active seconds — passes the 30s HAVING bound only if all rows are aggregated.
         for last_offset_minutes, ms in (
-            (75, 12_000),  # before watermark
-            (45, 12_000),  # after watermark, before settle
-            (40, 12_000),  # after watermark, before settle
+            (75, 12_000),
+            (45, 12_000),
+            (40, 12_000),
         ):
             self._produce(
                 team.id,
                 "straddler",
-                _NOW - dt.timedelta(minutes=80),  # constant first_timestamp
+                _NOW - dt.timedelta(minutes=80),
                 _NOW - dt.timedelta(minutes=last_offset_minutes),
                 active_milliseconds=ms,
             )
-        # Another session, fully post-watermark, with only 18s of activity → should fail HAVING.
+        # Control: only 18s of activity — should fail HAVING.
         self._produce(
             team.id,
             "post-watermark-short",
@@ -464,11 +429,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_session_still_settling_is_not_emitted(self, team) -> None:
-        """Regression: a session whose latest activity is still inside the settle window must be skipped,
-        even if it has older rows that fall outside it. A row-level settle filter would keep the older
-        rows and report the session as already-ended."""
         settle_bound = _NOW - SETTLE_INTERVAL
-        # Two rows: one well outside the settle window, one just inside it (so the session is still live).
+        # Two rows: one outside settle, one inside — session is still live.
         self._produce(
             team.id,
             "still-live",
@@ -488,7 +450,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_excludes_recordings_past_retention(self, team) -> None:
-        # 0-day retention puts expiry_time well before `now` → must be excluded.
         self._produce(
             team.id,
             "expired",
@@ -510,12 +471,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_keyset_resume_includes_ties_after_last_seen(self, team) -> None:
-        """When the previous batch saturated the LIMIT and the cutoff row had a tie,
-        the next sweep must pick up the tied sessions ranked after the last-seen id —
-        not silently skip them via strict `>`."""
         boundary = _NOW - dt.timedelta(hours=1)
-        # Three sessions all ending at the same microsecond. Simulates a saturated
-        # previous batch that ended at session_id="aaa".
         for sid in ("aaa", "bbb", "ccc"):
             self._produce(team.id, sid, boundary - dt.timedelta(minutes=10), boundary)
 
@@ -529,7 +485,6 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @pytest.mark.django_db
     def test_keyset_resume_still_includes_strictly_later_sessions(self, team) -> None:
-        """Keyset resume must not exclude sessions whose end is strictly past the watermark."""
         boundary = _NOW - dt.timedelta(hours=1)
         # Names ordered so the resumed id comes after the skipped one lexicographically.
         self._produce(team.id, "aaa-tied-skipped", boundary - dt.timedelta(minutes=10), boundary)
