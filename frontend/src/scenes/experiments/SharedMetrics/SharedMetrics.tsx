@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -36,9 +36,9 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, pagination, count, page } =
+    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page } =
         useValues(sharedMetricsLogic)
-    const { setSearchTerm, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
+    const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
 
     const startCount = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
@@ -201,9 +201,27 @@ export function SharedMetrics(): JSX.Element {
                 columns={columns}
                 dataSource={sharedMetrics}
                 loading={sharedMetricsLoading}
-                pagination={pagination}
                 emptyState={<div>You haven't created any shared metrics yet.</div>}
             />
+            {count > PAGE_SIZE ? (
+                <div className="flex items-center justify-end gap-1">
+                    <span className="text-secondary whitespace-nowrap">
+                        {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(count, 'metric')}`}
+                    </span>
+                    <LemonButton
+                        icon={<IconChevronLeft />}
+                        size="small"
+                        disabledReason={page <= 1 ? 'No previous page' : undefined}
+                        onClick={() => setPage(page - 1)}
+                    />
+                    <LemonButton
+                        icon={<IconChevronRight />}
+                        size="small"
+                        disabledReason={endCount >= count ? 'No next page' : undefined}
+                        onClick={() => setPage(page + 1)}
+                    />
+                </div>
+            ) : null}
         </div>
     )
 }

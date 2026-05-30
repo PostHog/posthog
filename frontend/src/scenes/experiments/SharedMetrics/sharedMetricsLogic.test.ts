@@ -1,4 +1,3 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -70,34 +69,8 @@ describe('sharedMetricsLogic', () => {
         expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('search=revenue'))
     })
 
-    it('pagination selector reflects current page and total count', async () => {
+    it('exposes current page and total count', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(logic).toMatchValues({
-            pagination: expect.objectContaining({
-                controlled: true,
-                pageSize: PAGE_SIZE,
-                currentPage: 1,
-                entryCount: 2,
-            }),
-        })
-    })
-
-    it('setPage and setSearchTerm push state to the URL', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setPage(2)
-        }).toFinishAllListeners()
-        expect(router.values.searchParams.page).toEqual(2)
-
-        await expectLogic(logic, () => {
-            logic.actions.setSearchTerm('revenue')
-        }).toFinishAllListeners()
-        expect(router.values.searchParams.search).toEqual('revenue')
-        expect(router.values.searchParams.page).toBeUndefined()
-    })
-
-    it('seeds page and search from the URL', async () => {
-        router.actions.push('/experiments/shared-metrics', { page: '3', search: 'beta' })
-        await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(logic).toMatchValues({ page: 3, searchTerm: 'beta' })
+        await expectLogic(logic).toMatchValues({ page: 1, count: 2 })
     })
 })

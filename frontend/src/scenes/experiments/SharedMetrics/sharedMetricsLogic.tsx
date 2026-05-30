@@ -1,11 +1,9 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -76,20 +74,6 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         ],
     })),
 
-    selectors(({ actions }) => ({
-        pagination: [
-            (s) => [s.page, s.count],
-            (page, count): PaginationManual => ({
-                controlled: true,
-                pageSize: PAGE_SIZE,
-                currentPage: page,
-                entryCount: count,
-                onForward: () => actions.setPage(page + 1),
-                onBackward: () => actions.setPage(page - 1),
-            }),
-        ],
-    })),
-
     listeners(({ actions, values }) => ({
         setPage: async () => {
             actions.loadSharedMetrics()
@@ -116,39 +100,6 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                 actions.loadSharedMetrics()
             } catch {
                 lemonToast.error('Failed to delete shared metric')
-            }
-        },
-    })),
-
-    actionToUrl(({ values }) => {
-        const buildUrl = (): [string, Record<string, string>] => {
-            const params: Record<string, string> = {}
-            if (values.page > 1) {
-                params.page = String(values.page)
-            }
-            if (values.searchTerm) {
-                params.search = values.searchTerm
-            }
-            return ['/experiments/shared-metrics', params]
-        }
-        return {
-            setPage: () => buildUrl(),
-            setSearchTerm: () => buildUrl(),
-        }
-    }),
-
-    urlToAction(({ actions, values }) => ({
-        '/experiments/shared-metrics': (_, searchParams) => {
-            const urlPage = parseInt(searchParams.page ?? '1') || 1
-            const urlSearch = searchParams.search ?? ''
-            const searchChanged = urlSearch !== values.searchTerm
-            if (searchChanged) {
-                // setSearchTerm resets page to 1, so apply it first then restore the URL's page below.
-                actions.setSearchTerm(urlSearch)
-            }
-            // After a search change the page is 1; set the URL page whenever it differs from the resulting page.
-            if (urlPage !== (searchChanged ? 1 : values.page)) {
-                actions.setPage(urlPage)
             }
         },
     })),
