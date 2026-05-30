@@ -65,7 +65,7 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.sandbox.context_wrapper import AttachedContext
-from ee.hogai.sandbox.executor import handle_sandbox_message
+from ee.hogai.sandbox.executor import cancel_sandbox_run, handle_sandbox_message
 from ee.hogai.sandbox.log_assembler import assemble_conversation_log
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
@@ -606,6 +606,11 @@ class ConversationViewSet(
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
 
+        # Sandbox runtime cancel proxies a `cancel` command to the live agent server (02_CORE § 5.4),
+        # a different mechanism than the LangGraph Temporal-workflow cancel below.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return self._cancel_sandbox(conversation)
+
         # IDLE is intentionally not short-circuited: during the handoff between the main
         # workflow completing and a queued workflow starting, the status is briefly IDLE
         # even though a queued Temporal workflow may be running.
@@ -623,6 +628,19 @@ class ConversationViewSet(
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _cancel_sandbox(self, conversation: Conversation) -> Response:
+        if conversation.sandbox_run_id is None:
+            return Response({"error": "No active sandbox run for this conversation"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+            task_run = TaskRun.objects.get(id=conversation.sandbox_run_id, team=self.team)
+        except TaskRun.DoesNotExist:
+            return Response({"error": "Sandbox run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        run_status = cancel_sandbox_run(task_run, cast(User, self.request.user))
+        return Response({"run_status": run_status}, status=status.HTTP_200_OK)
 
     @extend_schema(
         description=(
