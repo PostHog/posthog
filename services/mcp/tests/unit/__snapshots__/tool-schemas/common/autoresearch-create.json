@@ -45,11 +45,6 @@
             "minimum": -2147483648,
             "type": "number"
         },
-        "prediction_mode": {
-            "description": "'adoption': predict first-time occurrence (users who haven't done it yet). 'continuation': predict repeat occurrence.\n\n* `adoption` - Adoption\n* `continuation` - Continuation",
-            "enum": ["adoption", "continuation"],
-            "type": "string"
-        },
         "success_auc": {
             "anyOf": [
                 {
@@ -71,6 +66,12 @@
             "description": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'.",
             "maxLength": 255,
             "type": "string"
+        },
+        "training_lookback_days": {
+            "description": "How far back to look for training examples. Larger windows give more data but may include stale behavior. Default: 180.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
         },
         "training_population": {
             "additionalProperties": {},

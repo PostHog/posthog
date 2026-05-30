@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content_base64": {
+            "description": "File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this autoresearch training run.",
+            "type": "string"
+        },
+        "path": {
+            "description": "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', 'recipe.yml', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "pipeline_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "pipeline_id", "path", "content_base64"],
+    "type": "object"
+}

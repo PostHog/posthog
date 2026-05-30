@@ -11,15 +11,16 @@
         "inference_population": {
             "description": "Population filter for daily scoring. Defaults to training_population if not provided."
         },
-        "prediction_mode": {
-            "default": "adoption",
-            "description": "'adoption': predict first-time occurrence for users who haven't done it yet. 'continuation': predict repeat occurrence for users who have already done it.\n\n* `adoption` - Adoption\n* `continuation` - Continuation",
-            "enum": ["adoption", "continuation"],
-            "type": "string"
-        },
         "target_event": {
             "description": "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema.",
             "type": "string"
+        },
+        "training_lookback_days": {
+            "default": 180,
+            "description": "How far back to look for training examples. Default: 180.",
+            "maximum": 730,
+            "minimum": 7,
+            "type": "number"
         },
         "training_population": {
             "description": "Population filter for training examples. Use {} for all identified users."
