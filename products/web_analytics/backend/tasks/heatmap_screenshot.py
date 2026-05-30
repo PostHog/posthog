@@ -1,11 +1,11 @@
 import os
 import re
-import json
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.conf import settings
 
+import requests
 import structlog
 import posthoganalytics
 from celery import shared_task
@@ -293,33 +293,15 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
             raise
 
 
-def _build_browserless_cdp_url(width: int | None = None) -> str | None:
+def _build_browserless_screenshot_url() -> str | None:
     # Read settings at call time (not import) so override_settings works in tests.
-    # Strip whitespace + any inline comment a bash-sourced .env left in the value, else a `#` is
-    # parsed as a URL fragment and connect fails.
+    # Strip whitespace + any inline comment a bash-sourced .env left in the value.
     base_url = settings.HEATMAP_BROWSERLESS_URL.split("#", 1)[0].strip()
-    if not base_url:
+    host = urlsplit(base_url).hostname if base_url else None
+    if not host:
         return None
-
-    # Strict v2 connect rejects unknown params, so only append ones the WSS endpoint accepts.
     params = {"token": settings.HEATMAP_BROWSERLESS_TOKEN, "timeout": str(settings.HEATMAP_BROWSERLESS_TIMEOUT_MS)}
-    if settings.HEATMAP_BROWSERLESS_BLOCK_ADS:
-        params["blockAds"] = "true"
-    if settings.HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS:
-        params["blockConsentModals"] = "true"
-    if width is not None:
-        # Over CDP the per-context viewport is ignored; the rendered width is fixed by the launch
-        # window size, so each width launches with its own --window-size.
-        params["launch"] = json.dumps(
-            {"args": ["--force-device-scale-factor=1", f"--window-size={int(width)},800"]},
-            separators=(",", ":"),
-        )
-
-    parts = urlsplit(base_url)
-    # Preserve any query already on the base URL; our params win on key collisions.
-    merged = dict(parse_qsl(parts.query, keep_blank_values=True))
-    merged.update(params)
-    return urlunsplit(parts._replace(query=urlencode(merged)))
+    return f"https://{host}/screenshot?{urlencode(params)}"
 
 
 def _redact_browserless_url(url: str) -> str:
@@ -343,6 +325,47 @@ def _sanitize_browserless_error(message: str) -> str:
     if token:
         message = message.replace(token, "REDACTED")
     return _TOKEN_QS_RE.sub(r"\1REDACTED", message)
+
+
+def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> bytes:
+    # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
+    # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
+    body: dict[str, object] = {
+        "url": page_url,
+        "options": {"fullPage": True, "type": "jpeg", "quality": 70},
+        "viewport": {
+            "width": int(width),
+            "height": 800,
+            "deviceScaleFactor": 1,
+            "isMobile": width < 500,
+            "hasTouch": width < 500,
+        },
+        "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30_000},
+        "scrollPage": True,
+        "blockConsentModals": settings.HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS,
+        "bestAttempt": True,
+    }
+    if settings.HEATMAP_BROWSERLESS_BLOCK_ADS:
+        body["blockAds"] = True
+
+    timeout = (
+        settings.HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS / 1000,
+        settings.HEATMAP_BROWSERLESS_TIMEOUT_MS / 1000 + 30,
+    )
+    try:
+        response = requests.post(endpoint_url, json=body, timeout=timeout)
+    except Exception as e:
+        # The endpoint URL carries the token; scrub it before it reaches logs / SavedHeatmap.exception.
+        raise RuntimeError(
+            f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}: "
+            f"{_sanitize_browserless_error(str(e))}"
+        ) from None
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Browserless screenshot failed ({response.status_code}) for "
+            f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:500])}"
+        )
+    return response.content
 
 
 def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
@@ -371,20 +394,7 @@ def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
         return False
 
 
-def _connect_or_launch_browser(p: Playwright, use_browserless: bool, width: int | None = None) -> Browser:
-    # Cloud path connects to Browserless over CDP; `width` sets that connection's launch window size.
-    cdp_url = _build_browserless_cdp_url(width) if use_browserless else None
-    if cdp_url:
-        try:
-            return p.chromium.connect_over_cdp(cdp_url, timeout=settings.HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS)
-        except Exception as e:
-            # Playwright echoes the token-bearing URL into connect errors, which this task persists to
-            # SavedHeatmap.exception; re-raise scrubbed, with `from None` so the token can't leak via __context__.
-            raise RuntimeError(
-                f"Browserless connect failed for {_redact_browserless_url(cdp_url)}: "
-                f"{_sanitize_browserless_error(str(e))}"
-            ) from None
-
+def _launch_local_browser(p: Playwright) -> Browser:
     launch_args = [
         "--force-device-scale-factor=1",
         "--disable-dev-shm-usage",
@@ -400,7 +410,7 @@ def _connect_or_launch_browser(p: Playwright, use_browserless: bool, width: int 
     )
 
 
-def _render_width(browser: Browser, width: int, url: str, is_cloud: bool) -> bytes:
+def _render_width(browser: Browser, width: int, url: str) -> bytes:
     ctx = browser.new_context(
         viewport={"width": int(width), "height": 800},
         device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
@@ -416,10 +426,8 @@ def _render_width(browser: Browser, width: int, url: str, is_cloud: bool) -> byt
     )
     try:
         page = ctx.new_page()
-        # Local-only: the --no-sandbox Chromium is on our network, so per-request SSRF interception is
-        # load-bearing. The cloud browser is off-net, so egress containment is delegated to Browserless.
-        if not is_cloud:
-            _block_internal_requests(page)
+        # The local --no-sandbox Chromium is on our network, so per-request SSRF interception stays.
+        _block_internal_requests(page)
 
         # Start navigation and try to wait for DOM ready, but only up to 5s
         dom_ready = True
@@ -453,7 +461,7 @@ def _render_width(browser: Browser, width: int, url: str, is_cloud: bool) -> byt
 
 
 def _close_browser_quietly(browser: Browser) -> None:
-    # Closing a torn-down CDP connection can itself raise; swallow so it can't mask the render error.
+    # Closing an already-torn-down browser can itself raise; swallow so it can't mask the render error.
     try:
         browser.close()
     except Exception:
@@ -474,24 +482,22 @@ def _generate_screenshots(screenshot: SavedHeatmap, use_browserless: bool) -> in
     if not widths:
         widths = [1024]
 
-    # Persist AFTER the Playwright block: ORM calls inside `with sync_playwright()` raise
-    # SynchronousOnlyOperation (its greenlet/event-loop context).
     snapshot_bytes: list[tuple[int, bytes]] = []
-    with sync_playwright() as p:
-        if use_browserless:
-            # Each width opens its own connection so it can launch at its own window size, the only
-            # way to control rendered width over CDP (see _build_browserless_cdp_url).
-            for w in widths:
-                browser = _connect_or_launch_browser(p, use_browserless=True, width=w)
-                try:
-                    snapshot_bytes.append((w, _render_width(browser, w, screenshot.url, is_cloud=True)))
-                finally:
-                    _close_browser_quietly(browser)
-        else:
-            browser = _connect_or_launch_browser(p, use_browserless=False)
+    if use_browserless:
+        # REST /screenshot: one request per width (viewport.width sets the captured width).
+        endpoint_url = _build_browserless_screenshot_url()
+        if not endpoint_url:
+            raise RuntimeError("Browserless screenshot URL is not configured")
+        for w in widths:
+            snapshot_bytes.append((w, _browserless_screenshot(endpoint_url, screenshot.url, w)))
+    else:
+        # Local Chromium: one launch renders every width. ORM must run after the Playwright block —
+        # calls inside `with sync_playwright()` raise SynchronousOnlyOperation (its event-loop context).
+        with sync_playwright() as p:
+            browser = _launch_local_browser(p)
             try:
                 for w in widths:
-                    snapshot_bytes.append((w, _render_width(browser, w, screenshot.url, is_cloud=False)))
+                    snapshot_bytes.append((w, _render_width(browser, w, screenshot.url)))
             finally:
                 _close_browser_quietly(browser)
 
