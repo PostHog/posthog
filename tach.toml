@@ -506,6 +506,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.notebooks",
+    "products.product_analytics",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",

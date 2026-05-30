@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.insight import Insight
+from products.product_analytics.backend.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 
