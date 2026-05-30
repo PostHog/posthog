@@ -6497,6 +6497,23 @@ const api = {
         },
 
         /**
+         * Sandbox-runtime only: eagerly boot a sandbox before the user submits, so first-token latency
+         * drops on the next message (05_SANDBOX § 8). Idempotent — a second POST while warm is a no-op.
+         * Returns 204. Callers must branch on `agent_runtime` before calling.
+         */
+        prewarm(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('prewarm').create()
+        },
+
+        /**
+         * Sandbox-runtime only: cancel a still-warm (unused) sandbox Run for this conversation
+         * (05_SANDBOX § 8). No-op server-side when the conversation isn't warmed. Returns 204.
+         */
+        cancelPrewarm(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('prewarm').delete()
+        },
+
+        /**
          * Sandbox-runtime only: resolve a permission_request by forwarding the chosen ACP option to
          * the agent server (synchronously proxied server-side via `permission_response`). Langgraph
          * approvals resume via `stream` with a `resume_payload` instead — callers must branch on

@@ -258,6 +258,105 @@ def handle_sandbox_message(
     )
 
 
+def prewarm_sandbox_conversation(conversation: Conversation, user: User, team: Team) -> None:
+    """Eagerly boot a sandbox for a conversation before the user submits (05_SANDBOX § 8).
+
+    Idempotent: if the conversation already points at a non-terminal (warm or in-progress) Run, this
+    is a no-op. Otherwise it creates a Task (if the conversation has none yet) plus a WARM interactive
+    Run — same path as the first-message branch of :func:`handle_sandbox_message`, but with NO
+    ``pending_user_message`` and NO ``attached_context``. The warmed Run boots the sandbox, opens the
+    ACP session, and idles waiting for the first ``user_message`` follow-up, which arrives via the
+    in-progress branch on the next real submit.
+
+    Conversation/Task creation is wrapped in ``transaction.atomic`` so a second concurrent POST while
+    warming can't insert a duplicate Task/Run — the conversation row is locked with SELECT FOR UPDATE
+    and a concurrent writer that finds an already-warm Run reuses it. The workflow start is an
+    irreversible side effect, so it runs only on the writer path and only after the row commits.
+    """
+    with transaction.atomic():
+        # nosemgrep: idor-lookup-without-team (caller already gated the conversation by team via get_object)
+        locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
+
+        # Already warm/in-progress → idempotent no-op. A second POST while warm does nothing.
+        if locked.sandbox_run_id is not None:
+            existing = TaskRun.objects.filter(id=locked.sandbox_run_id, team=team).first()
+            if existing is not None and not existing.is_terminal:
+                return
+
+        system_prompt = asgi_async_to_sync(build_posthog_ai_system_prompt)(team, user)
+
+        if locked.sandbox_task_id is not None:
+            # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+            task = Task.objects.get(id=locked.sandbox_task_id, team=team)
+        else:
+            task = Task.objects.create(
+                team=team,
+                title=locked.title or "Sandbox chat",
+                description="",
+                # Provisioner routing — sandbox-runtime PostHog AI conversations (decision 11).
+                origin_product=Task.OriginProduct.POSTHOG_AI,
+                created_by=user,
+                repository=None,
+            )
+
+        # Warm Run: interactive mode, system prompt only, NO pending_user_message / attached_context.
+        warm_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "initial_permission_mode": "default",
+                "system_prompt": system_prompt,
+            },
+        )
+
+        update_fields = ["sandbox_run_id"]
+        conversation.sandbox_run_id = warm_run.id
+        if locked.sandbox_task_id is None:
+            conversation.sandbox_task_id = task.id
+            update_fields.append("sandbox_task_id")
+        conversation.save(update_fields=update_fields)
+
+    set_sandbox_mapping(str(conversation.id), str(task.id), str(warm_run.id))
+
+    # Force "full" MCP scopes (decision 10) — the workflow entrypoint defaults to "read_only", which
+    # would silently strip the agent's write tools once the warmed Run receives its first message.
+    # Started after commit so a rolled-back lock never leaves a live workflow on an orphaned Run.
+    execute_task_processing_workflow(
+        task_id=str(task.id),
+        run_id=str(warm_run.id),
+        team_id=task.team_id,
+        user_id=user.pk,
+        create_pr=False,
+        posthog_mcp_scopes="full",
+    )
+
+    _seed_sandbox_stream(str(warm_run.id))
+
+
+def cancel_sandbox_prewarm(conversation: Conversation, user: User, team: Team) -> str | None:
+    """Cancel a warmed-but-unused sandbox Run for a conversation (05_SANDBOX § 8 cancellation).
+
+    No-op (returns ``None``) when the conversation has no warm Run or its Run is already terminal —
+    i.e. the user submitted (the Run is now doing real work) or never warmed at all. Otherwise proxies
+    a ``cancel`` command to the live agent server via :func:`cancel_sandbox_run` and returns the run
+    status the agent reports back. The conversation can prewarm again later — a fresh Run.
+    """
+    if conversation.sandbox_run_id is None:
+        return None
+
+    # nosemgrep: idor-lookup-without-team (scoped to conversation.team, already gated by get_object)
+    task_run = TaskRun.objects.filter(id=conversation.sandbox_run_id, team=team).first()
+    if task_run is None or task_run.is_terminal:
+        return None
+
+    # A warm Run that is still booting has no sandbox_url yet — there is no agent server to proxy a
+    # cancel to. Treat DELETE as a clean no-op (cancel_sandbox_run would otherwise raise 400); the
+    # provisioner's idle timer reclaims the unused warm Run (05_SANDBOX § 8).
+    if not parse_run_state(task_run.state).sandbox_url:
+        return None
+
+    return cancel_sandbox_run(task_run, user)
+
+
 def _create_or_reuse_resume_run(
     *,
     conversation: Conversation,

@@ -57,6 +57,9 @@ class Task(DeletedMetaFields, models.Model):
         USER_CREATED = "user_created", "User Created"
         AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
+        # Sandbox-runtime PostHog AI conversations. Routes to the prewarm/interactive provisioner path
+        # rather than the repo-backed task flow.
+        POSTHOG_AI = "posthog_ai", "PostHog AI"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),

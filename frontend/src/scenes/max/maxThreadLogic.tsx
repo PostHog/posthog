@@ -100,6 +100,11 @@ export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
  */
 export const SANDBOX_RUN_HANDOFF_EVENT = 'sandbox_run'
 
+/** Debounce after the first non-whitespace keystroke before pre-warming a sandbox (05_SANDBOX § 8). */
+const PREWARM_DEBOUNCE_MS = 250
+/** Grace period after the input goes empty before tearing down a warmed-but-unused sandbox. */
+const PREWARM_EMPTY_CANCEL_MS = 5000
+
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
@@ -254,6 +259,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
+        // Sandbox pre-warming (05_SANDBOX § 8): eagerly boot the sandbox once the user starts typing,
+        // and tear it down if they abandon the input. Both are sandbox-runtime no-ops otherwise.
+        prewarmSandbox: true,
+        cancelSandboxPrewarm: true,
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         setIsSandboxMode: (isSandboxMode: boolean) => ({ isSandboxMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({
@@ -1141,6 +1150,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             const agentMode = values.agentMode
 
+            // A real submit consumes any warmed sandbox Run (it now does real work). Clear the prewarm
+            // tracking + timers so the empty-input cancel scheduled by the setQuestion('') below doesn't
+            // tear down the now-active Run (05_SANDBOX § 8).
+            cache.prewarmRequested = false
+            cache.prewarmScheduled = false
+            cache.disposables.dispose('prewarmDebounce')
+            cache.disposables.dispose('prewarmEmptyCancel')
+
             // Clear the question
             actions.setQuestion('')
             // Drop #panel=max:… options so reload doesn't re-run auto-send from the hash
@@ -1350,6 +1367,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.maybeStartSandboxStream()
         },
         selectCommand: ({ command }) => {
+            // Sandbox runtime: /init and /remember are no-ops (02_CORE § 8). LangGraph is unchanged.
+            if (values.isSandboxRuntime && command.unsupportedInSandbox) {
+                return
+            }
             if (command.arg) {
                 actions.setQuestion(command.name + ' ')
             } else {
@@ -1357,10 +1378,86 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         activateCommand: ({ command }) => {
+            // Sandbox runtime: /init and /remember are no-ops (02_CORE § 8). LangGraph is unchanged.
+            if (values.isSandboxRuntime && command.unsupportedInSandbox) {
+                return
+            }
             if (command.arg) {
                 actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
             } else {
                 actions.askMax(command.name)
+            }
+        },
+        // Sandbox pre-warm trigger (05_SANDBOX § 8): debounce 250ms on the FIRST non-whitespace
+        // keystroke (NOT on focus); cancel the warm Run if the input stays empty for >5s. Navigate-away
+        // unmounts the logic, which auto-disposes all timers and the warm Run is cleaned up by the
+        // sandbox idle timer server-side. LangGraph never reaches the sandbox branches below.
+        setQuestion: ({ question }) => {
+            if (!values.isSandboxRuntime) {
+                return
+            }
+            const hasContent = question.trim().length > 0
+            if (hasContent) {
+                // User is typing — drop any pending empty-cancel timer.
+                cache.disposables.dispose('prewarmEmptyCancel')
+                // Schedule the debounced prewarm exactly once per warm session (on the first
+                // non-whitespace keystroke). Subsequent keystrokes don't reset the timer.
+                if (!cache.prewarmScheduled && !cache.prewarmRequested) {
+                    cache.prewarmScheduled = true
+                    cache.disposables.add(() => {
+                        const timer = window.setTimeout(() => {
+                            cache.prewarmScheduled = false
+                            // Require the input to still be non-empty when the debounce fires.
+                            if (values.question.trim().length > 0) {
+                                actions.prewarmSandbox()
+                            }
+                        }, PREWARM_DEBOUNCE_MS)
+                        return () => clearTimeout(timer)
+                    }, 'prewarmDebounce')
+                }
+            } else {
+                // Input emptied: drop a not-yet-fired debounce, and if we've warmed, schedule a cancel
+                // after a grace period so a quick clear-and-retype doesn't tear the sandbox down.
+                cache.disposables.dispose('prewarmDebounce')
+                cache.prewarmScheduled = false
+                if (cache.prewarmRequested) {
+                    cache.disposables.add(() => {
+                        const timer = window.setTimeout(() => {
+                            if (values.question.trim().length === 0) {
+                                actions.cancelSandboxPrewarm()
+                            }
+                        }, PREWARM_EMPTY_CANCEL_MS)
+                        return () => clearTimeout(timer)
+                    }, 'prewarmEmptyCancel')
+                }
+            }
+        },
+        prewarmSandbox: async () => {
+            const conversationId = values.conversationId
+            if (!values.isSandboxRuntime || !conversationId || cache.prewarmRequested) {
+                return
+            }
+            cache.prewarmRequested = true
+            try {
+                await api.conversations.prewarm(conversationId)
+            } catch (e) {
+                // Pre-warming is a best-effort latency optimization; a failure just means the first
+                // message pays the full cold-boot cost. Allow a later retry.
+                cache.prewarmRequested = false
+                posthog.captureException(e)
+            }
+        },
+        cancelSandboxPrewarm: async () => {
+            const conversationId = values.conversationId
+            if (!values.isSandboxRuntime || !conversationId || !cache.prewarmRequested) {
+                return
+            }
+            cache.prewarmRequested = false
+            cache.disposables.dispose('prewarmEmptyCancel')
+            try {
+                await api.conversations.cancelPrewarm(conversationId)
+            } catch (e) {
+                posthog.captureException(e)
             }
         },
         processNotebookUpdate: async ({ notebookId, notebookContent }) => {
