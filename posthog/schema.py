@@ -4619,6 +4619,7 @@ class SignalSourceProduct(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     PGANALYZE = "pganalyze"
+    SIGNALS_SCOUT = "signals_scout"
 
 
 class SignalSourceType(StrEnum):
@@ -4632,6 +4633,76 @@ class SignalSourceType(StrEnum):
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
+    CROSS_SOURCE_ISSUE = "cross_source_issue"
+
+
+class SignalsScoutEvidenceEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entity_id: str | None = Field(
+        default=None,
+        description=("Optional entity id within that product, e.g. an issue id or session id."),
+    )
+    source_product: str = Field(
+        ...,
+        description=("The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'."),
+    )
+    summary: str = Field(..., description="One-line summary of the evidence the scout used.")
+
+
+class Severity(StrEnum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
+class TimeRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str
+    date_to: str
+
+
+class SignalsScoutSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence: float = Field(
+        ...,
+        description=("Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
+    )
+    dedupe_keys: list[str] | None = Field(
+        default=None,
+        description="Free-form short keys the harness can use for cross-run dedupe.",
+    )
+    evidence: list[SignalsScoutEvidenceEntry]
+    finding_id: str
+    hypothesis: str | None = None
+    mcp_trace_id: str | None = Field(
+        default=None,
+        description=("Trace id from the LLM analytics span for the scout run, when available."),
+    )
+    scout_run_id: str
+    severity: Severity | None = None
+    skill_name: str
+    skill_version: float
+    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
+
+
+class SignalsScoutSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalsScoutSignalExtra
+    source_id: str
+    source_product: Literal["signals_scout"] = "signals_scout"
+    source_type: Literal["cross_source_issue"] = "cross_source_issue"
+    weight: float
 
 
 class SimilarIssue(BaseModel):
@@ -8740,6 +8811,7 @@ class SignalInput(
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
+        | SignalsScoutSignalInput
     ]
 ):
     root: (
@@ -8753,6 +8825,7 @@ class SignalInput(
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
+        | SignalsScoutSignalInput
     )
 
 
