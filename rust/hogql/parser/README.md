@@ -368,6 +368,16 @@ The high-coverage Pareto front persists to a Hypothesis example database
 and is replayed first on the next run, so a long grind warm-starts from
 the best inputs found so far.
 
+If the `hogql_parser_rs` wheel was built with `--features coverage` (see the
+[Coverage-instrumented build](#coverage-instrumented-build-for-the-parser-parity-grind)
+section above), the diagnostic auto-detects it and adds a third `rust_edges`
+target label that counts edges hit by *this* parse in the rust parser but not
+yet in the cumulative `seen_edges` bitmap. That puts a real per-input
+edge-novelty signal into the Pareto front next to the two AST-shape proxies,
+which is the holy-grail coverage-guided fuzzing signal the AST proxies can
+only approximate. Production wheels do not expose the bitmap, so the
+diagnostic silently degrades to AST-only steering on a normal install.
+
 The same coverage-guided `target()` + `event()` + example-database wiring is
 shared by the pytest PBTs (`test_parser_grammar_pbt.py`,
 `test_parser_pbt.py`, `test_printer_pbt.py`) — see
@@ -485,6 +495,7 @@ A one-line map of every parser-parity tool, grouped by use:
 | Production safety net | `HogQLParserMode.CPP_WITH_RUST_*_SHADOW` in [`parser.py`](../../../posthog/hogql/parser.py) |
 | Offline audit with deeper steering | `RUN_PBT=1 hogli test posthog/hogql/test/test_parser_grammar_pbt.py` |
 | Adversarial / edge-case hunting | Agent (no tool — point an LLM at the grammar surface) |
+| Real Rust edge coverage as a `target()` signal | [Coverage-instrumented build](#coverage-instrumented-build-for-the-parser-parity-grind): `--features coverage` + `RUSTC_WRAPPER` |
 
 ## Rules of thumb for the parity loop
 
