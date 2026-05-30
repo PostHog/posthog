@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 
 from django.conf import settings
@@ -82,8 +83,8 @@ SearchKind = Literal["docs", "business-knowledge", *ENTITIES]  # type: ignore
 
 
 def _sanitize_for_system_reminder(text: str) -> str:
-    """Remove closing tags that could escape <system_reminder> framing."""
-    return text.replace("</system_reminder>", "&lt;/system_reminder&gt;")
+    """Neutralize system_reminder tags (opening/closing, attributes, whitespace, case-insensitive) to prevent framing spoofs."""
+    return re.sub(r"<(\s*/?\s*system_reminder\b[^>]*)>", r"&lt;\1&gt;", text, flags=re.IGNORECASE)
 
 
 class SearchToolArgs(BaseModel):
@@ -185,7 +186,7 @@ class SearchTool(MaxTool):
 
     async def _search_business_knowledge(self, query: str) -> str:
         results = await database_sync_to_async(search_knowledge)(self._team.id, query)
-        logger.info("bk_search_results", team_id=self._team.id, query=query[:100], result_count=len(results))
+        logger.info("bk_search_results", team_id=self._team.id, result_count=len(results))
         if not results:
             return BK_SEARCH_NO_RESULTS_TEMPLATE
 
