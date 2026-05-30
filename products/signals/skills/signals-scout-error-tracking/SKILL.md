@@ -11,7 +11,7 @@ compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
   signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
   scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  error-tracking + analytics tools (error-tracking-issues-list, error-tracking-issues-retrieve,
+  error-tracking + analytics tools (query-error-tracking-issues-list, query-error-tracking-issue,
   execute-sql, activity-log-list, inbox-reports-list).
 metadata:
   owner_team: signals
@@ -78,7 +78,7 @@ Patterns to watch — starting points, not a checklist.
 `recent_24h_count` and `recent_24h_users` both spike together. Usually a fresh
 regression — many users hitting it independently. Drill in:
 
-1. `error-tracking-issues-list` filtered to `status=active`, sort by `last_seen_at`.
+1. `query-error-tracking-issues-list` filtered to `status=active`, sort by `last_seen_at`.
 2. `execute-sql` against `events` with `event = '$exception' AND
 properties.$exception_issue_id = '<id>'` grouped by `toStartOfHour(timestamp)`.
 3. Look for the **one-occurrence-per-distinct-user** shape
@@ -94,7 +94,7 @@ thousands and the issue is fresh.
 
 #### Multi-fingerprint cluster
 
-Multiple fresh fingerprints (different `entity_id`s in `error-tracking-issues-list`)
+Multiple fresh fingerprints (different `entity_id`s in `query-error-tracking-issues-list`)
 appearing in the same time window with overlapping stack traces, modules, or call sites
 → likely shared root cause. Bundle them in one finding (single description, evidence
 list with all fingerprint ids, dedupe key per fingerprint).
@@ -102,7 +102,7 @@ list with all fingerprint ids, dedupe key per fingerprint).
 #### Status regression
 
 An issue with `status=resolved` that's now firing again. Filter
-`error-tracking-issues-list` to `status=active` and check `last_seen_at` against
+`query-error-tracking-issues-list` to `status=active` and check `last_seen_at` against
 `first_seen_at` — a large gap means old issue resurrected. High-confidence findings:
 the team explicitly closed them once.
 
@@ -174,9 +174,9 @@ When in doubt, write a memory entry instead of emitting.
 
 Direct calls (read-only):
 
-- `error-tracking-issues-list` — start here. Filter `status=active`, sort by
+- `query-error-tracking-issues-list` — start here. Filter `status=active`, sort by
   `last_seen_at` desc.
-- `error-tracking-issues-retrieve` — drill into one issue (frames, sample events,
+- `query-error-tracking-issue` — drill into one issue (frames, sample events,
   occurrence counts).
 - `execute-sql` against `events` — for hourly breakdowns, distinct-user counts,
   per-fingerprint correlation, time-window aggregations.

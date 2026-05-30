@@ -14,14 +14,14 @@ grade prose quality — that's on you.
 
 ## Recommended fields (use them; the inbox uses them)
 
-| Field          | Type            | When                                                             |
-| -------------- | --------------- | ---------------------------------------------------------------- |
-| `hypothesis`   | string          | Always — one-line root-cause hypothesis the finding tests.       |
-| `severity`     | `P0`-`P4`       | Always — informational; calibrates downstream review.            |
-| `dedupe_keys`  | list of strings | Always — see "Dedupe keys" below.                                |
-| `time_range`   | `{from, to}`    | When the finding has a clear window (burst, deploy, experiment). |
-| `finding_id`   | string          | Always — idempotency key; see "Finding ID" below.                |
-| `mcp_trace_id` | string          | When you used MCP queries you'd want a reviewer to replay.       |
+| Field          | Type                   | When                                                                 |
+| -------------- | ---------------------- | -------------------------------------------------------------------- |
+| `hypothesis`   | string                 | Always — one-line root-cause hypothesis the finding tests.           |
+| `severity`     | `P0`-`P4`              | Always — informational; calibrates downstream review.                |
+| `dedupe_keys`  | list of strings        | Always — see "Dedupe keys" below.                                    |
+| `time_range`   | `{date_from, date_to}` | When the finding has a clear window (burst, deploy, experiment).     |
+| `finding_id`   | string                 | Always — stable trace id (not a dedupe key); see "Finding ID" below. |
+| `mcp_trace_id` | string                 | When you used MCP queries you'd want a reviewer to replay.           |
 
 ## Description prose contract
 
@@ -114,8 +114,12 @@ Include 1-2 keys per finding. Multiple is fine when a finding spans entities.
 
 ## Finding ID
 
-`finding_id` is the idempotency key. Same id on a retry short-circuits the emit
-(no double-write). Format: `<topic>-<entity>-<date>` is a safe default.
+`finding_id` is a stable, human-readable trace id — it ties the emitted signal
+back to the run that produced it (stored in the signal's `source_id` metadata). It
+is **not** a dedupe key: `emit_signal` dedupes on its own generated `document_id`
+(and your `dedupe_keys`), never on `finding_id`. Re-calling emit with the same
+`finding_id` writes a _second_ signal — so never retry an emit that may already
+have succeeded. Format: `<topic>-<entity>-<date>` is a safe default.
 
 Examples:
 

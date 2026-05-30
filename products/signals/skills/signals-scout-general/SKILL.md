@@ -41,7 +41,7 @@ Three cheap reads cold-start a run:
 Pick what looks interesting and follow it. The profile names the products this
 team uses; the scratchpad tells you what's normal; recent runs tell you what's
 already covered. Validate hypotheses with concrete queries (`query-trends`,
-`query-funnel`, `error-tracking-issues-list`, `read-data-schema`,
+`query-funnel`, `query-error-tracking-issues-list`, `read-data-schema`,
 `inbox-reports-list`, `execute-sql`, etc.) before emitting.
 
 If a sibling specialist already covers a surface in depth (LLM analytics, logs,

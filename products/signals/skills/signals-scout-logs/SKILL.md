@@ -61,10 +61,12 @@ Patterns to watch — these are starting points, not a checklist.
 
 #### Volume burst
 
-`logs-count` over 24h is materially above the 7d-prior baseline (≥ 2x). Drill in with
-`logs-count-ranges` broken down by `severity` and `service` to localize. Common causes:
-a stuck retry loop logging at `info`, a feature deploy that bumped log verbosity, a
-misconfigured logger emitting at `debug` in prod.
+`logs-count` over 24h is materially above the 7d-prior baseline (≥ 2x). Localize by
+re-running `logs-count` (or `logs-count-ranges` for the time-bucketed shape) filtered
+by `severity` and by `service` — these tools count a filter, they don't group, so
+narrow with the filter and compare. Common causes: a stuck retry loop logging at
+`info`, a feature deploy that bumped log verbosity, a misconfigured logger emitting
+at `debug` in prod.
 
 Cross-source convergence: if `top_events` shows `$exception` flat over the same window,
 this is logs-exclusive — handled-but-real failures the application catches and logs but
@@ -98,21 +100,21 @@ fresh message text repeated thousands of times indicates a new code path firing 
 scale. Pull `logs-attributes-list` to see what structured fields the record carries
 (`error_code`, `module`, stack-frame fields).
 
-If the message references an exception, cross-check `error-tracking-issues-list` first
+If the message references an exception, cross-check `query-error-tracking-issues-list` first
 — if an issue already covers it, error tracking owns the finding.
 
 #### Trace-correlated burst
 
 Log records carrying `trace_id` correlating to slow or failing traces. When a
-`query-llm-traces-list` failure spike, an `error-tracking-issues-list` burst, and a
+`query-llm-traces-list` failure spike, an `query-error-tracking-issues-list` burst, and a
 `query-logs` burst all share the same trace ids — that's the cleanest cross-source
 convergence pattern logs enables.
 
 #### Alert without inbox coverage
 
-`logs-alerts-list` exposes the team's configured alerts. An alert with `state ∈
-{firing, triggered}` whose underlying condition isn't already in `inbox-reports-list`
-is a high-confidence finding — the team has the alert plumbing but not the inbox surface.
+`logs-alerts-list` exposes the team's configured alerts. An alert with `state =
+firing` whose underlying condition isn't already in `inbox-reports-list` is a
+high-confidence finding — the team has the alert plumbing but not the inbox surface.
 
 ### Save memory as you go
 
@@ -186,7 +188,7 @@ Direct calls (read-only):
 - `logs-attributes-list` / `logs-attribute-values-list` — discover the team's log shape.
 - `logs-alerts-list` / `logs-alerts-retrieve` — configured alerts and current state.
 - `inbox-reports-list` — verify a finding isn't already in the inbox.
-- `error-tracking-issues-list` — cross-check whether a log error already has an issue;
+- `query-error-tracking-issues-list` — cross-check whether a log error already has an issue;
   error tracking owns those findings.
 
 Harness-level:
