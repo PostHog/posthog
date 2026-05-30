@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -326,6 +327,18 @@ def _redact_browserless_url(url: str) -> str:
     return urlunsplit(parts._replace(netloc=netloc, query=safe_query))
 
 
+_TOKEN_QS_RE = re.compile(r"(token=)[^&\s\"']+")
+
+
+def _sanitize_browserless_error(message: str) -> str:
+    # Keep the real Playwright error reason for debugging, but scrub the token wherever it appears
+    # (the raw value, and any `token=...` in an echoed URL) before it reaches logs / the DB.
+    token = settings.HEATMAP_BROWSERLESS_TOKEN
+    if token:
+        message = message.replace(token, "REDACTED")
+    return _TOKEN_QS_RE.sub(r"\1REDACTED", message)
+
+
 def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
     # Browserless cloud is used only when it's configured AND enabled for this team. In local dev the
     # env var alone is the switch; in prod the flag gates per-team/org rollout. Fail closed to the
@@ -366,7 +379,8 @@ def _connect_or_launch_browser(p: Playwright, use_browserless: bool) -> Browser:
             # tracker — amplified by autoretry. Re-raise with the credential stripped and the original
             # context suppressed so the raw token can't leak via __context__.
             raise RuntimeError(
-                f"Browserless connect failed ({type(e).__name__}) for {_redact_browserless_url(cdp_url)}"
+                f"Browserless connect failed for {_redact_browserless_url(cdp_url)}: "
+                f"{_sanitize_browserless_error(str(e))}"
             ) from None
 
     launch_args = [

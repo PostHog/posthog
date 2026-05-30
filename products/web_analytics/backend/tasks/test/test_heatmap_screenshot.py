@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -12,6 +13,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     HEATMAP_BROWSERLESS_FLAG,
     _build_browserless_cdp_url,
     _redact_browserless_url,
+    _sanitize_browserless_error,
     _use_browserless_for_screenshot,
     generate_heatmap_screenshot,
 )
@@ -227,7 +229,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
         real_get_or_create = HeatmapSnapshot.objects.get_or_create
 
-        def recording_get_or_create(*args: object, **kwargs: object) -> object:
+        def recording_get_or_create(*args: Any, **kwargs: Any) -> Any:
             order.append("persist")
             return real_get_or_create(*args, **kwargs)
 
@@ -391,3 +393,12 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "token=REDACTED" in redacted
         # Non-sensitive params survive
         assert "timeout=1000" in redacted
+
+    @override_settings(HEATMAP_BROWSERLESS_TOKEN="supersecret")
+    def test_sanitize_browserless_error_scrubs_token_but_keeps_reason(self) -> None:
+        msg = "connectOverCDP: Unexpected server response: 401 at wss://host/chromium?token=supersecret&timeout=300000"
+        sanitized = _sanitize_browserless_error(msg)
+        assert "supersecret" not in sanitized
+        assert "token=REDACTED" in sanitized
+        # The real failure reason is preserved so the error is debuggable
+        assert "401" in sanitized
