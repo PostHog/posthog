@@ -1,7 +1,10 @@
+import { register } from 'prom-client'
+
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { logger } from '~/utils/logger'
 
 import { deleteKeysWithPrefix } from '../../cdp/_tests/redis'
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
@@ -90,6 +93,18 @@ describe('PerIssueGuardedRateLimiterService', () => {
         bucketSize: overrides.bucketSize ?? 100,
         refillRate: overrides.refillRate ?? 10,
     })
+
+    const outcomeCount = async (outcome: string): Promise<number> => {
+        const metrics = await register.getMetricsAsJSON()
+        const metric = metrics.find((m) => m.name === 'error_tracking_per_issue_guard_outcome_total')
+        return metric?.values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+    }
+
+    const buildWithPipelineResult = (result: unknown): PerIssueGuardedRateLimiterService =>
+        new PerIssueGuardedRateLimiterService(
+            { name: 'lua-fail', threshold: 1, windowTtlSeconds: 3600, cooldownTtlSeconds: 60, bucketTtlSeconds: 60 },
+            { useClient: jest.fn(), usePipeline: jest.fn().mockResolvedValue(result) } as unknown as RedisV2
+        )
 
     it('allows the first event with a new scopeKey and bumps the per-team window counter', async () => {
         const limiter = build('first-event')
@@ -290,9 +305,39 @@ describe('PerIssueGuardedRateLimiterService', () => {
             } as unknown as RedisV2
         )
 
+        const before = await outcomeCount('fail_open_redis')
         const res = await limiter.rateLimitGrouped([req(42, 'a'), req(42, 'b')])
         for (const [, r] of res) {
             expect(r).toEqual(expect.objectContaining({ isRateLimited: false }))
         }
+        expect((await outcomeCount('fail_open_redis')) - before).toBe(2)
+    })
+
+    it('warns and records fail_open_lua when a single Lua call errored', async () => {
+        const warnSpy = jest.spyOn(logger, 'warn')
+        const before = await outcomeCount('fail_open_lua')
+        const limiter = buildWithPipelineResult([[new Error('lua boom'), null]])
+
+        const res = await limiter.rateLimitGrouped([req(42, 'a')])
+
+        expect(res[0][1]).toEqual(expect.objectContaining({ isRateLimited: false }))
+        expect(warnSpy).toHaveBeenCalledTimes(1)
+        expect((await outcomeCount('fail_open_lua')) - before).toBe(1)
+    })
+
+    it.each([
+        ['wrong tuple size', [10]],
+        ['non-numeric values', ['x', 'y', 'z']],
+        ['null reply', null],
+    ])('warns and records fail_open_lua when the Lua reply is malformed (%s)', async (_label, value) => {
+        const warnSpy = jest.spyOn(logger, 'warn')
+        const before = await outcomeCount('fail_open_lua')
+        const limiter = buildWithPipelineResult([[null, value]])
+
+        const res = await limiter.rateLimitGrouped([req(42, 'a')])
+
+        expect(res[0][1]).toEqual(expect.objectContaining({ isRateLimited: false }))
+        expect(warnSpy).toHaveBeenCalledTimes(1)
+        expect((await outcomeCount('fail_open_lua')) - before).toBe(1)
     })
 })

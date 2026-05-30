@@ -2,6 +2,7 @@ import { Counter } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { KeyedRateLimit, KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
+import { logger } from '~/utils/logger'
 
 const guardOutcomeCounter = new Counter({
     name: 'error_tracking_per_issue_guard_outcome_total',
@@ -10,6 +11,9 @@ const guardOutcomeCounter = new Counter({
 })
 
 export type GuardedStatus = 'allowed' | 'limited' | 'tripped' | 'cooldown'
+
+/** `fail_open_redis`/`fail_open_lua` mark events allowed only by virtue of an error, so they can be alerted on. */
+export type GuardOutcome = GuardedStatus | 'fail_open_redis' | 'fail_open_lua'
 
 const STATUS_BY_CODE: GuardedStatus[] = ['allowed', 'limited', 'tripped', 'cooldown']
 
@@ -131,7 +135,7 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
             if (this.config.failOpen === false) {
                 throw new Error(`PerIssueGuardedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
             }
-            guardOutcomeCounter.inc({ outcome: 'allowed' }, requests.length)
+            guardOutcomeCounter.inc({ outcome: 'fail_open_redis' }, requests.length)
             const bucketSizeById = new Map(items.map((req) => [req.id, req.bucketSize]))
             return requests.map((req) => {
                 const bucketSize = bucketSizeById.get(req.id) ?? 0
@@ -141,20 +145,47 @@ export class PerIssueGuardedRateLimiterService implements KeyedRateLimiter {
 
         const budgetById = new Map<string, number>()
         const statusById = new Map<string, GuardedStatus>()
+        const failOpenLuaIds = new Set<string>()
         items.forEach((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             // Lua returns [tokensBefore, tokensAfter, statusCode]; we drop tokensAfter — it reflects
             // the summed cost, and we re-simulate per-input fan-out below.
+            const callError = tokenRes?.[0]
             const raw = tokenRes?.[1] as [unknown, unknown, unknown] | undefined
-            const [rawTokensBefore, , rawStatusCode] = raw ?? []
-            const tokensBefore = rawTokensBefore != null ? Number(rawTokensBefore) : req.bucketSize
-            const statusCode = rawStatusCode != null ? Number(rawStatusCode) : 0
+            const tokensBefore = Number(raw?.[0])
+            const statusCode = Number(raw?.[2])
+
+            if (
+                callError != null ||
+                !Array.isArray(raw) ||
+                raw.length < 3 ||
+                Number.isNaN(tokensBefore) ||
+                Number.isNaN(statusCode)
+            ) {
+                logger.warn('PerIssueGuardedRateLimiterService Lua call failed, failing open', {
+                    name: this.config.name,
+                    id: req.id,
+                    teamId: req.teamId,
+                    error: callError ?? undefined,
+                    raw,
+                })
+                failOpenLuaIds.add(req.id)
+                budgetById.set(req.id, req.bucketSize)
+                return
+            }
+
             const status = STATUS_BY_CODE[statusCode] ?? 'allowed'
             budgetById.set(req.id, tokensBefore)
             statusById.set(req.id, status)
         })
 
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
+            if (failOpenLuaIds.has(req.id)) {
+                guardOutcomeCounter.inc({ outcome: 'fail_open_lua' }, 1)
+                const bucketSize = budgetById.get(req.id) ?? 0
+                return [req.id, { tokensBefore: bucketSize, tokens: bucketSize, isRateLimited: false }]
+            }
+
             const status = statusById.get(req.id) ?? 'allowed'
             const tokensBefore = budgetById.get(req.id) ?? 0
             guardOutcomeCounter.inc({ outcome: status }, 1)
