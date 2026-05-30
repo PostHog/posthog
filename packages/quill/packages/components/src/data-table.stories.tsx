@@ -2,7 +2,18 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { type ColumnDef } from '@tanstack/react-table'
 import * as React from 'react'
 
-import { Badge } from '@posthog/quill-primitives'
+import { FolderPlus } from 'lucide-react'
+
+import {
+    Badge,
+    Button,
+    Empty as QuillEmpty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+} from '@posthog/quill-primitives'
 
 import { DataTable } from './data-table'
 
@@ -95,8 +106,35 @@ export const StickyHeader: Story = {
     ),
 }
 
+// Default empty state — minimal and generic.
 export const Empty: Story = {
     render: () => (
         <DataTable columns={columns} data={[]} className="max-w-2xl rounded-md border border-[var(--border)]" />
+    ),
+}
+
+// Override the empty slot with app-specific copy and actions.
+export const EmptyCustom: Story = {
+    render: () => (
+        <DataTable
+            columns={columns}
+            data={[]}
+            className="max-w-2xl rounded-md border border-[var(--border)]"
+            empty={
+                <QuillEmpty>
+                    <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                            <FolderPlus />
+                        </EmptyMedia>
+                        <EmptyTitle>No projects yet</EmptyTitle>
+                        <EmptyDescription>Get started by creating or importing a project.</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent className="flex-row justify-center gap-2">
+                        <Button variant="primary">Create project</Button>
+                        <Button variant="outline">Import</Button>
+                    </EmptyContent>
+                </QuillEmpty>
+            }
+        />
     ),
 }
