@@ -14,7 +14,7 @@ Things the migration intentionally drops or defers that we have to revisit befor
 
 Today `maxBillingContextLogic.tsx` resolves the org's subscription level, trial status, billing period, usage/limits, addons, and ships them as `MaxBillingContext` with every streaming request. Today's prompts (`ee/hogai/chat_agent/prompts/base.py`) reference billing-aware behavior — e.g. recommending upgrades, gating advice on plan, knowing when the user is near a quota.
 
-The new spec drops this on the grounds that "system data injection already happens in the MCP" — i.e. billing data should reach the agent via tools, not via a prompt slice. That's the right *direction*, but the MCP tool side does not yet exist.
+The new spec drops this on the grounds that "system data injection already happens in the MCP" — i.e. billing data should reach the agent via tools, not via a prompt slice. That's the right _direction_, but the MCP tool side does not yet exist.
 
 ### What needs to land before flip
 
@@ -55,13 +55,13 @@ That's the minimum viable cut. The richer story — agent-initiated awareness ("
 
 For each command, decide MCP tool + SDK slash command, **frontend-only**, or skipped:
 
-| Command | MCP tool | SDK slash command (`.claude/commands/posthog/*.md` baked into sandbox image) | Notes |
-|---|---|---|---|
-| `/init` | none | **Yes** — body expands to "Use the data tools to give me an overview of this project — top events, person properties, dashboards, group types, conventions." | Pure prompt expansion; uses existing `posthog-data` reads. No state writes since core memory is dropped. |
-| `/remember [text]` | **Blocked** on the core-memory backfill story | **Blocked** | Today: hidden from autocomplete for sandbox runtime. Returns when memory does. |
-| `/usage` | `posthog-billing.read_usage()` (intersects the billing-context backfill above) | **Yes** — body: "What's my PostHog AI credit usage this period?" | The MCP tool also unlocks agent-initiated awareness. Doubles as part of the billing TODO. |
-| `/feedback [text]` | **Skip — frontend-only flow.** | **No SDK command** | Existing `FeedbackPrompt.tsx` modal collects text + rating. `slash-commands.tsx` keeps intercepting the command client-side, opens the modal, never reaches the agent. No agent involvement required; no MCP tool needed for parity with today. Revisit if a "submit my complaint about X in chat" UX becomes interesting. |
-| `/ticket` | **Skip — frontend-only flow.** | **No SDK command** | Same as `/feedback` — `TicketPrompt.tsx` runs entirely in React. Today's gates (paid plan + idle conversation) stay in the frontend. |
+| Command            | MCP tool                                                                       | SDK slash command (`.claude/commands/posthog/*.md` baked into sandbox image)                                                                                 | Notes                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/init`            | none                                                                           | **Yes** — body expands to "Use the data tools to give me an overview of this project — top events, person properties, dashboards, group types, conventions." | Pure prompt expansion; uses existing `posthog-data` reads. No state writes since core memory is dropped.                                                                                                                                                                                                                   |
+| `/remember [text]` | **Blocked** on the core-memory backfill story                                  | **Blocked**                                                                                                                                                  | Today: hidden from autocomplete for sandbox runtime. Returns when memory does.                                                                                                                                                                                                                                             |
+| `/usage`           | `posthog-billing.read_usage()` (intersects the billing-context backfill above) | **Yes** — body: "What's my PostHog AI credit usage this period?"                                                                                             | The MCP tool also unlocks agent-initiated awareness. Doubles as part of the billing TODO.                                                                                                                                                                                                                                  |
+| `/feedback [text]` | **Skip — frontend-only flow.**                                                 | **No SDK command**                                                                                                                                           | Existing `FeedbackPrompt.tsx` modal collects text + rating. `slash-commands.tsx` keeps intercepting the command client-side, opens the modal, never reaches the agent. No agent involvement required; no MCP tool needed for parity with today. Revisit if a "submit my complaint about X in chat" UX becomes interesting. |
+| `/ticket`          | **Skip — frontend-only flow.**                                                 | **No SDK command**                                                                                                                                           | Same as `/feedback` — `TicketPrompt.tsx` runs entirely in React. Today's gates (paid plan + idle conversation) stay in the frontend.                                                                                                                                                                                       |
 
 ### Mechanism reminder
 
@@ -229,7 +229,7 @@ These tools manipulate `products/tasks/` Django models directly (not via MCP). T
 
 ### Misconception to debunk
 
-There is **no `posthog-code` MCP server**. PostHog Code is a *consumer* of the same single-exec `posthog` MCP server in `services/mcp/`, identified by the `x-posthog-mcp-consumer: posthog-code` header. The earlier spec drafts that mentioned a "`posthog-code` MCP server" were wrong; this TODO is the corrected disposition.
+There is **no `posthog-code` MCP server**. PostHog Code is a _consumer_ of the same single-exec `posthog` MCP server in `services/mcp/`, identified by the `x-posthog-mcp-consumer: posthog-code` header. The earlier spec drafts that mentioned a "`posthog-code` MCP server" were wrong; this TODO is the corrected disposition.
 
 ### What needs to land
 
