@@ -146,6 +146,7 @@ def _refresh_sandbox_mcp(
             token=access_token,
             team_id=task_run.team_id,
             user_id=task.created_by_id,
+            interaction_origin=(task_run.state or {}).get("interaction_origin"),
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs

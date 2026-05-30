@@ -51,6 +51,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     source_for_pipeline - use SimpleSource or ResumableSource instead.
     """
 
+    # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
+    # via their own override if a driver genuinely can't project columns).
+    supports_column_selection: bool = False
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -110,6 +114,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
+
+    def get_endpoint_permissions(self, config: ConfigType, team_id: int, endpoints: list[str]) -> dict[str, str | None]:
+        """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
+        return dict.fromkeys(endpoints)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""

@@ -1,6 +1,5 @@
 """Django models for mcp_analytics."""
 
-from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -78,17 +77,11 @@ class MCPAnalyticsSubmission(UUIDModel):
 
 
 class MCPSession(UUIDModel, TeamScopedRootMixin):
+    # On-demand intent store keyed by (team, session_id). The session list itself
+    # is aggregated on the fly from mcp_tool_call events (see logic.py); the
+    # backfill that once populated session_start/_end/duration/etc. is gone.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     session_id = models.CharField(max_length=64)
-
-    session_start = models.DateTimeField()
-    session_end = models.DateTimeField()
-    duration_seconds = models.IntegerField()
-
-    tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True)
-    tool_call_count = models.IntegerField(default=0)
-    distinct_id = models.CharField(max_length=400, blank=True, default="")
-    mcp_client_name = models.CharField(max_length=200, blank=True, default="")
     intent = models.TextField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -96,10 +89,7 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         db_table = "posthog_mcp_session"
-        ordering = ["-session_end"]
+        ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(fields=["team", "session_id"], name="unique_mcp_session"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "-session_end"]),
         ]

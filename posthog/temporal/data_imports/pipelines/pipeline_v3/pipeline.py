@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -149,6 +150,8 @@ class PipelineV3(Generic[ResumableData]):
             partition_format=partition_format,
             partition_mode=partition_mode,
             is_first_ever_sync=is_first_ever_sync,
+            workflow_id=current_workflow_id(),
+            workflow_run_id=current_workflow_run_id(),
         )
 
         self._resumable_source_manager = resumable_source_manager
@@ -181,6 +184,16 @@ class PipelineV3(Generic[ResumableData]):
 
         start_time = time.perf_counter()
         status = "success"
+
+        await self._logger.ainfo(
+            "V3 Pipeline: Extraction starting",
+            run_uuid=self._s3_batch_writer.get_run_uuid(),
+            sync_type=sync_type,
+            is_incremental=self._is_incremental,
+            is_resume=should_resume,
+            is_first_ever_sync=self._delta_table_helper.is_first_sync,
+            reset_pipeline=self._reset_pipeline,
+        )
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
@@ -259,6 +272,7 @@ class PipelineV3(Generic[ResumableData]):
             }
         except Exception:
             status = "error"
+            self._logger.exception("V3 Pipeline: Extraction failed")
             try:
                 self._s3_batch_writer.cleanup()
             except Exception:

@@ -13,7 +13,7 @@
 
 use serde_json::Value;
 
-use crate::emit;
+use crate::emit::{Emitter, JsonEmitter};
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, Token, TokenKind};
 
@@ -37,8 +37,17 @@ use template::parse_template_body;
 // Public entry points
 // ============================================================================
 
-pub fn parse_expr(src: &str, _is_internal: bool) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+pub fn parse_expr(src: &str, is_internal: bool) -> Result<Value, ParseError> {
+    parse_expr_with_emit(JsonEmitter, src, is_internal)
+}
+
+pub fn parse_expr_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+    is_internal: bool,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
+    p.suppress_pos = is_internal;
     // Bare-list lambda `IDENT (, IDENT)* -> body` is only valid at the
     // outermost expression level; inside an argument list each item parses
     // independently and the commas are separators. So we try it here
@@ -62,7 +71,14 @@ pub fn parse_expr(src: &str, _is_internal: bool) -> Result<Value, ParseError> {
 }
 
 pub fn parse_order_expr(src: &str) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+    parse_order_expr_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_order_expr_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     let exprs = p.parse_order_expr_list()?;
     // cpp's `parse_order_expr_json` entry point silently drops any
     // trailing tokens after the first OrderExpr — `a ASC extra` parses
@@ -79,7 +95,14 @@ pub fn parse_order_expr(src: &str) -> Result<Value, ParseError> {
 }
 
 pub fn parse_select(src: &str) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+    parse_select_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_select_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     // `select` rule top-level admits a bare HogQLX tag element as the
     // third alternative (alongside selectSetStmt / selectStmt). The tag
     // covers both standalone-`<Tag />` use and the `from <Tag />` shape
@@ -95,13 +118,27 @@ pub fn parse_select(src: &str) -> Result<Value, ParseError> {
 }
 
 pub fn parse_program(src: &str) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+    parse_program_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_program_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     let prog = p.parse_program()?;
     p.expect_eof()?;
     Ok(prog)
 }
 
 pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
+    parse_full_template_string_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
     // The Python wrapper `parse_string_template` prepends `F'` to the
     // template body before handing the source off to either backend
     // (see `posthog/hogql/parser.py::parse_string_template`). Strip
@@ -117,14 +154,26 @@ pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
     // `body_offset` and `body_end`. For the standalone entry point the
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
-    parse_template_body(src, body_offset, body_end)
+    let result = parse_template_body(&emit, src, body_offset, body_end)?;
+    // cpp positions the result by chunk count: a multi-chunk `concat(...)`
+    // gets the outer rule-ctx span `(0, src.len())`, while a single-chunk
+    // shortcut keeps the inner element's own span (the literal text or the
+    // substitution expr). `with_pos` is idempotent — it sets `(0, src.len())`
+    // on the position-less `concat` and is a no-op on the already-positioned
+    // single-chunk cases.
+    let start_pos = template::pos_in_source(&emit, src, 0);
+    let end_pos = template::pos_in_source(&emit, src, src.len());
+    Ok(emit.with_pos(result, start_pos, end_pos))
 }
 
 // ============================================================================
 // Parser core
 // ============================================================================
 
-pub(crate) struct Parser<'a> {
+/// Shared recursion-depth cap across the parser's three recursive-descent dimensions — expression nesting (`parse_expr_bp`), subquery / set nesting (`parse_select_set_stmt`), and Hog statement / block nesting (`parse_statement`). Mirrors ClickHouse's `max_parser_depth` default (1000) so deeply-nested input (`((((…))))`, `(select (select …))`, `{ { … } }`) surfaces a clean `ParseError` instead of stack-OOMing the worker before any parse error can fire. One shared counter (not one per dimension) bounds total live descent depth regardless of how the nesting is composed, and stays below the empirical host-stack overflow points (~2000 nested subqueries, ~8000 nested blocks).
+pub(crate) const MAX_RECURSION_DEPTH: u32 = 1000;
+
+pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     pub(crate) src: &'a str,
     pub(crate) lexer: Lexer<'a>,
     /// One-token-ahead cursor. We carry a second peek for the few
@@ -177,6 +226,20 @@ pub(crate) struct Parser<'a> {
     /// (SELECT 1 ARRAY JOIN 2)) OVER w` is accepted by cpp for
     /// exactly this reason. Saved/restored around the FILTER parse.
     pub(crate) suppress_array_join_checks: bool,
+    /// When set, the parser is inside a clause cpp grammar-parses but its
+    /// visitor never visits, so VISITOR-level rejections are downgraded to
+    /// "tolerate-and-throw-away": a `DATE`/`TIMESTAMP` string literal
+    /// (`visitColumnExprDate`) and a unit-less `INTERVAL <string>`
+    /// (`visitColumnExprIntervalString`) parse into a throwaway node instead
+    /// of fatally rejecting. Set around the always-discarded `selectSetStmt`
+    /// `orderByClause?`, a `{placeholder}` body's dropped LIMIT / OFFSET, and
+    /// the discarded select-level `sampleClause`. cpp visits none of those
+    /// subtrees, so the flag intentionally leaks into nested parses there
+    /// (`({x} order by date 'd')`, `{x} limit interval 'p'` accept). A KEPT
+    /// clause (a real SelectQuery's order by / limit, a table-level sample)
+    /// leaves the flag unset, so `select 1 order by date 'd'` still rejects on
+    /// both. Saved/restored at each set site.
+    pub(crate) suppress_unvisited_clause_checks: bool,
     /// When set, the Pratt postfix loop stops before folding a
     /// `(…)`-call onto its LHS if a `:=` follows the matching `)`.
     /// Set by the Hog-program statement parser while parsing a
@@ -223,6 +286,15 @@ pub(crate) struct Parser<'a> {
     /// directly and re-seeks the lexer, so peek1's transient invalid
     /// state is recoverable.
     pub(crate) hogqlx_text_lookahead_depth: u32,
+    /// One-shot flag set just before `parse_interval_expr` parses its value
+    /// expression and consumed at the top of `parse_primary`. When the value's
+    /// leading primary is itself an `INTERVAL`, cpp's ALL(*) reserves the
+    /// trailing unit keyword for the OUTER interval, so the nested interval is
+    /// parsed string-only (`INTERVAL '5 day'`) or as a Field / call — never the
+    /// unit-consuming `INTERVAL columnExpr interval` form. The take-on-read
+    /// semantics auto-reset across parens / call-args, so a parenthesised nested
+    /// interval (`interval (interval '5 day' month) second`) keeps its own unit.
+    pub(crate) interval_value_pending: bool,
     /// Sorted byte offsets of each line start in `src` (line 1 starts at 0,
     /// line N starts at `line_starts[N-1]`). Built once at construction;
     /// `pos(offset)` binary-searches for line / column. Used to emit cpp's
@@ -240,17 +312,33 @@ pub(crate) struct Parser<'a> {
     /// once at construction so the hot wrap_pos path stays O(log n) via the
     /// line-starts binary search.
     pub(crate) is_ascii_src: bool,
+    /// Live recursive-descent depth shared across expression / subquery / statement nesting; bumped on entry to each recursive entry point, decremented on exit. Enforces `MAX_RECURSION_DEPTH`.
+    pub(crate) recursion_depth: u32,
+    /// When set, every node is emitted position-less (`pos_obj` returns
+    /// `null`). Mirrors cpp's `is_internal` flag, which gates every
+    /// `addPositionInfo(json, ctx)` call: a synthetic fragment parsed with
+    /// `start=None` (e.g. an injected database `ExpressionField`) carries no
+    /// meaningful source spans, so cpp emits none and we must match.
+    pub(crate) suppress_pos: bool,
+    /// UTF-8 byte length of a leading BOM (3) or 0 if none. cpp's ANTLR
+    /// lexer treats a leading `U+FEFF` as zero-width: every emitted char
+    /// offset is reckoned from the char AFTER the BOM, so `let` at byte 3
+    /// gets char offset 0 (not 1). `pos_obj` subtracts this width past the
+    /// BOM so rust matches.
+    pub(crate) leading_bom_bytes: usize,
+    /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
+    pub(crate) emit: E,
 }
 
-impl<'a> Parser<'a> {
-    pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {
-        Self::with_pos(src, 0)
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
+    pub(crate) fn new_with_emit(src: &'a str, emit: E) -> Result<Self, ParseError> {
+        Self::with_pos_emit(src, 0, emit)
     }
 
     /// Construct a Parser whose lexer starts at the given byte offset.
     /// Used by the template-body splitter to parse a `{ … }` expression
     /// block without lexing the literal text on either side.
-    pub(crate) fn with_pos(src: &'a str, pos: usize) -> Result<Self, ParseError> {
+    pub(crate) fn with_pos_emit(src: &'a str, pos: usize, emit: E) -> Result<Self, ParseError> {
         let mut lexer = Lexer::with_pos(src, pos);
         let peek0 = lexer.next_token()?;
         let peek1 = lexer.next_token()?;
@@ -266,17 +354,33 @@ impl<'a> Parser<'a> {
             between_body_depth: 0,
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
+            suppress_unvisited_clause_checks: false,
             stop_postfix_call_before_colon_equals: false,
             stmt_rhs_recover_on_pratt_rhs_failure: false,
             limit_body_depth: 0,
             pivot_in_stop: None,
             hogqlx_text_lookahead_depth: 0,
+            interval_value_pending: false,
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
+            recursion_depth: 0,
+            suppress_pos: false,
+            leading_bom_bytes: if src.starts_with('\u{FEFF}') { 3 } else { 0 },
+            emit,
         })
     }
+}
 
+/// Test-only convenience: the JsonEmitter-bound `Parser::new(src)` form. Production code routes through `parse_<rule>_with_emit` (which uses `new_with_emit`) so this only has callers inside the `#[cfg(test)] mod tests` below.
+#[cfg(test)]
+impl<'a> Parser<'a, JsonEmitter> {
+    pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {
+        Self::new_with_emit(src, JsonEmitter)
+    }
+}
+
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn peek(&self) -> TokenKind {
         self.peek0.kind
     }
@@ -361,7 +465,8 @@ impl<'a> Parser<'a> {
             _ => "",
         };
         Err(self.err(format!(
-            "trailing tokens after expression: {:?}{extra}",
+            "trailing tokens after expression: '{}' ({:?}){extra}",
+            self.text(self.peek0),
             self.peek()
         )))
     }
@@ -381,24 +486,43 @@ impl<'a> Parser<'a> {
     /// ANTLR `getStartIndex()` / `getCharPositionInLine()` are
     /// character-based, so byte offsets need converting through `src`
     /// slicing for any source containing non-ASCII bytes.
-    pub(crate) fn pos_obj(&self, byte_offset: usize) -> Value {
+    pub(crate) fn pos_obj(&self, byte_offset: usize) -> E::Value {
+        // `is_internal` parses (cpp's term) emit no positions at all — every
+        // node stays at its dataclass `start`/`end` default. Returning `null`
+        // here is the single chokepoint: `with_pos` / `replace_pos` then leave
+        // the node bare (json `start:null` → None; py setattr of None is a
+        // no-op on the already-None default), matching cpp's `!is_internal`
+        // gate on `addPositionInfo`.
+        if self.suppress_pos {
+            return self.emit.null();
+        }
         let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
         // ASCII fast path: byte == char in every dimension. Avoid the
         // `byte_to_char_index` binary search and the line-slice chars
         // count entirely.
         if self.is_ascii_src {
-            return emit::position(line, byte_col, byte_offset);
+            return self.emit.position(line, byte_col, byte_offset);
         }
-        let char_offset = self.byte_to_char_index(byte_offset);
+        let mut char_offset = self.byte_to_char_index(byte_offset);
         // Column needs to be characters-in-line, not bytes-in-line. For
         // lines with multi-byte chars we count chars between the line
         // start and the offset.
-        let column = if byte_col == 0 {
+        let mut column = if byte_col == 0 {
             0
         } else {
             self.src[line_start_byte..byte_offset].chars().count() as u32
         };
-        emit::position(line, column, char_offset)
+        // cpp's ANTLR lexer treats a leading UTF-8 BOM (`U+FEFF`, 3 bytes / 1 char) as zero-width: every char offset
+        // it reports is reckoned from the char AFTER the BOM, and the BOM contributes no column on line 1. Mirror
+        // that here past the BOM byte boundary — without this, every offset is `+1` and a BOM-prefixed source
+        // diverges from cpp at every node.
+        if self.leading_bom_bytes > 0 && byte_offset >= self.leading_bom_bytes {
+            char_offset = char_offset.saturating_sub(1);
+            if line == 1 {
+                column = column.saturating_sub(1);
+            }
+        }
+        self.emit.position(line, column, char_offset)
     }
 
     /// Convert a byte offset into the source into a character (Unicode
@@ -430,30 +554,38 @@ impl<'a> Parser<'a> {
     /// `last_consumed_end` (the end of the last token consumed). The
     /// canonical wrap-on-return helper for every `parse_*` fn that emits
     /// an AST node.
-    pub(crate) fn wrap_pos(&self, value: Value, start: usize) -> Value {
+    pub(crate) fn wrap_pos(&self, value: E::Value, start: usize) -> E::Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(self.last_consumed_end);
-        emit::with_pos(value, s, e)
+        self.emit.with_pos(value, s, e)
     }
 
     /// Variant of [`Self::wrap_pos`] that takes an explicit end offset —
     /// used when the natural end of the node isn't `last_consumed_end`
     /// (e.g. composite chain re-tagged with the rightmost child's end).
-    pub(crate) fn wrap_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
+    pub(crate) fn wrap_pos_to(&self, value: E::Value, start: usize, end: usize) -> E::Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(end);
-        emit::with_pos(value, s, e)
+        self.emit.with_pos(value, s, e)
     }
 
-    /// Like [`Self::wrap_pos_to`] but overrides any existing `start` /
-    /// `end` on the node. Use when the inner expression's wrap missed
-    /// tokens that the outer grammar rule includes — e.g. cpp's
-    /// `ColumnExprColumnsReplace` ctx covers the outer parens but the
-    /// inner ColumnsExpr was wrapped at the `*` position only.
-    pub(crate) fn replace_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
-        let s = self.pos_obj(start);
-        let e = self.pos_obj(end);
-        emit::replace_pos(value, s, e)
+    /// Run `f` one level deeper in the shared recursion-depth counter, rejecting cleanly if it would exceed [`MAX_RECURSION_DEPTH`]. The counter is decremented on every exit path (the over-depth bail and any `?` inside `f`), so it tracks live descent depth. Wraps the recursive entry points whose mutual recursion is otherwise unbounded — `parse_select_set_stmt` (subquery / set nesting) and `parse_statement` (Hog block / statement nesting); `parse_expr_bp` does the equivalent inline.
+    pub(crate) fn with_recursion_guard<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > MAX_RECURSION_DEPTH {
+            self.recursion_depth -= 1;
+            return Err(ParseError::syntax(
+                "input too deeply nested",
+                self.peek0.start,
+                self.peek0.end,
+            ));
+        }
+        let result = f(self);
+        self.recursion_depth -= 1;
+        result
     }
 
     /// Snapshot the parser cursor + per-call context so a failed
@@ -553,7 +685,8 @@ impl<'a> Parser<'a> {
     /// is the bounded-backtrack analogue of ANTLR's adaptive LL
     /// prediction without the DFA cache. For our grammar's decision
     /// points the wasted work is bounded by the arm depth.
-    #[allow(dead_code, clippy::type_complexity)]
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
     pub(crate) fn try_alt_with_followup<T, F>(
         &mut self,
         alts: &[&dyn Fn(&mut Self) -> Result<T, ParseError>],
@@ -644,9 +777,9 @@ fn parse_hex_float_value(rest: &str) -> f64 {
 /// Emit a finite float as a numeric Constant, or `±Infinity` / `NaN`
 /// when the value isn't finite — mirrors cpp's `stod` result (and its
 /// `out_of_range` → `±Infinity` fallthrough).
-fn emit_float_constant(f: f64) -> Value {
+fn emit_float_constant<E: Emitter>(emit: &E, f: f64) -> E::Value {
     if !f.is_finite() {
-        return emit::constant_special_number(if f.is_nan() {
+        return emit.constant_special_number(if f.is_nan() {
             "NaN"
         } else if f > 0.0 {
             "Infinity"
@@ -654,14 +787,14 @@ fn emit_float_constant(f: f64) -> Value {
             "-Infinity"
         });
     }
-    emit::constant(
-        serde_json::Number::from_f64(f)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-    )
+    emit.constant(emit.float(f))
 }
 
-pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, ParseError> {
+pub(crate) fn parse_number_literal<E: Emitter>(
+    emit: &E,
+    src: &str,
+    negative: bool,
+) -> Result<E::Value, ParseError> {
     // Hex literal — `0x…`. Three cases:
     //   - Contains `p`/`P`: hex-float (`FLOATING_LITERAL` strict C99
     //     `HEX (DOT HEX*)? P [+-]? DEC+`). Parse to f64 — Rust's f64
@@ -673,7 +806,7 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
     if let Some(rest) = src.strip_prefix("0x").or_else(|| src.strip_prefix("0X")) {
         if rest.bytes().any(|b| b == b'p' || b == b'P') {
             let f = parse_hex_float_value(rest);
-            return Ok(emit_float_constant(if negative { -f } else { f }));
+            return Ok(emit_float_constant(emit, if negative { -f } else { f }));
         }
         let signed = if negative {
             format!("-{rest}")
@@ -681,14 +814,14 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
             rest.to_string()
         };
         match i64::from_str_radix(&signed, 16) {
-            Ok(n) => return Ok(emit::constant(Value::from(n))),
+            Ok(n) => return Ok(emit.constant(emit.int(n))),
             Err(_) => {
                 let lit = if negative {
                     format!("-{src}")
                 } else {
                     src.to_string()
                 };
-                return Ok(emit::constant_number_string(lit));
+                return Ok(emit.constant_number_string(lit));
             }
         }
     }
@@ -739,12 +872,12 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
             } else {
                 -(magnitude as i64)
             };
-            return Ok(emit::constant(Value::from(v)));
+            return Ok(emit.constant(emit.int(v)));
         }
         // Positive: `Value::from(u64)` emits the exact magnitude as a
         // JSON number — for magnitude > i64::MAX this preserves the
         // full unsigned value (cpp emits the same via Json::raw).
-        return Ok(emit::constant(Value::from(magnitude)));
+        return Ok(emit.constant(emit.uint(magnitude)));
     }
     // cpp 1.3.45's `VISIT(NumberLiteral)` parses integer text with
     // `stoll(text, nullptr, 10)` — base 10, NOT base-0 auto-detect.
@@ -756,7 +889,7 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
     let is_float = src.contains('.') || src.contains('e') || src.contains('E');
     if is_float {
         let f: f64 = src.parse().unwrap_or(0.0);
-        return Ok(emit_float_constant(if negative { -f } else { f }));
+        return Ok(emit_float_constant(emit, if negative { -f } else { f }));
     }
     // Integer. The signed text carries the sign so
     // `-9223372036854775808` (i64::MIN) parses exactly. A literal
@@ -768,8 +901,8 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
         src.to_string()
     };
     match signed.parse::<i64>() {
-        Ok(i) => Ok(emit::constant(Value::from(i))),
-        Err(_) => Ok(emit::constant_number_string(signed)),
+        Ok(i) => Ok(emit.constant(emit.int(i))),
+        Err(_) => Ok(emit.constant_number_string(signed)),
     }
 }
 
@@ -950,6 +1083,10 @@ pub(crate) fn kw_valid_as_identifier(kw: Kw) -> bool {
             | Kw::Try
             | Kw::Catch
             | Kw::Finally
+            // MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED (…)`; the grammar's `keyword` rule omits it, so it is never a valid identifier.
+            | Kw::Materialized
+            // WITHIN is a lexer keyword used only in the `within group (...)` clause; the grammar's `keyword` rule omits it, so it is never a valid identifier.
+            | Kw::Within
     )
 }
 
@@ -982,6 +1119,10 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
         // expression position).
         | Kw::Fn | Kw::Fun | Kw::Let | Kw::While
         | Kw::Throw | Kw::Try | Kw::Catch | Kw::Finally
+        // MATERIALIZED — keyword only in `WITH … AS MATERIALIZED (…)`, never a `keyword`-rule identifier.
+        | Kw::Materialized
+        // WITHIN — keyword only in the `within group (...)` clause, never a `keyword`-rule identifier.
+        | Kw::Within
     )
 }
 
@@ -992,35 +1133,40 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
 /// **appends** the outer CTEs after any existing inner CTEs — so if the
 /// inner already has `WITH a AS ...`, the outer's CTEs come *after* `a`
 /// in declaration order. Match that.
-pub(crate) fn inject_ctes_into_select(node: &mut Value, ctes: Vec<Value>) {
-    let mut cursor: &mut Value = node;
-    loop {
-        let Some(obj) = cursor.as_object_mut() else {
-            return;
-        };
-        match obj.get("node").and_then(Value::as_str) {
+pub(crate) fn inject_ctes_into_select<E: Emitter>(
+    emit: &E,
+    node: &mut E::Value,
+    ctes: Vec<E::Value>,
+) {
+    // Walk to the inner SelectQuery; the outer wrapper may be a
+    // SelectSetQuery that holds the SelectQuery in its
+    // `initial_select_query` slot. The walk uses owned recursion via
+    // get_field + set_field, mirroring chain_join's pattern (no
+    // mutable cursors into nested values for abstract E::Value).
+    fn walk<E: Emitter>(emit: &E, mut node: E::Value, ctes: Vec<E::Value>) -> E::Value {
+        match emit.node_kind(&node).as_deref() {
             Some("SelectQuery") => {
-                match obj.get_mut("ctes") {
-                    Some(existing) if existing.is_array() => {
-                        if let Some(arr) = existing.as_array_mut() {
-                            arr.extend(ctes);
-                        }
-                    }
-                    _ => {
-                        obj.insert("ctes".into(), Value::Array(ctes));
-                    }
-                }
-                return;
+                let existing = emit
+                    .get_field(&node, "ctes")
+                    .and_then(|v| emit.as_list(&v))
+                    .unwrap_or_default();
+                let mut combined = existing;
+                combined.extend(ctes);
+                emit.set_field(&mut node, "ctes", emit.list_value(combined));
+                node
             }
             Some("SelectSetQuery") => {
-                let Some(inner) = obj.get_mut("initial_select_query") else {
-                    return;
-                };
-                cursor = inner;
+                if let Some(inner) = emit.get_field(&node, "initial_select_query") {
+                    let updated = walk(emit, inner, ctes);
+                    emit.set_field(&mut node, "initial_select_query", updated);
+                }
+                node
             }
-            _ => return,
+            _ => node,
         }
     }
+    let owned = std::mem::replace(node, emit.null());
+    *node = walk(emit, owned, ctes);
 }
 
 /// Format a set operator from its base + modifier + by_name. Mirrors the
@@ -1049,26 +1195,27 @@ pub(crate) fn format_set_op(base: &str, modifier: Option<&str>, by_name: bool) -
 /// SELECT/SelectSetQuery node. When the target is a SelectSetQuery they
 /// land on the wrapper; for a single SelectQuery they merge into its
 /// existing fields. We pass through whatever shape we have.
-pub(crate) fn merge_select_decorators(mut node: Value, decorators: Vec<(String, Value)>) -> Value {
+pub(crate) fn merge_select_decorators<E: Emitter>(
+    emit: &E,
+    mut node: E::Value,
+    decorators: Vec<(String, E::Value)>,
+) -> E::Value {
     if decorators.is_empty() {
         return node;
     }
-    if let Some(obj) = node.as_object_mut() {
-        for (k, v) in decorators {
-            // Clobber pre-existing values on the inner SelectQuery —
-            // cpp's `VISIT(SelectSetStmt)` walks the inner select
-            // first, then the trailing `orderByClause` /
-            // `limitAndOffsetClauseOptional`, so later writes (the SET
-            // level) overwrite earlier ones (the inner STMT level).
-            // A `Value::Null` is a sentinel for "remove this key" —
-            // the SET-level visitor writes all four limit-related
-            // fields, clearing the inner's `offset` even when the
-            // outer clause has no OFFSET of its own.
-            if v.is_null() {
-                obj.remove(&k);
-            } else {
-                obj.insert(k, v);
-            }
+    for (k, v) in decorators {
+        // Clobber pre-existing values on the inner SelectQuery —
+        // cpp's `VISIT(SelectSetStmt)` walks the inner select first,
+        // then the trailing `orderByClause` / `limitAndOffsetClauseOptional`,
+        // so later writes (the SET level) overwrite earlier ones (the
+        // inner STMT level). A null value is a sentinel for "remove
+        // this key" — the SET-level visitor writes all four limit-related
+        // fields, clearing the inner's `offset` even when the outer
+        // clause has no OFFSET of its own.
+        if emit.is_null(&v) {
+            emit.remove_field(&mut node, &k);
+        } else {
+            emit.set_field(&mut node, &k, v);
         }
     }
     node
@@ -1077,38 +1224,38 @@ pub(crate) fn merge_select_decorators(mut node: Value, decorators: Vec<(String, 
 /// Build / extend a JoinExpr chain. `left` is the existing chain root; we
 /// walk down its `next_join` pointers and attach `right` (carrying its
 /// `join_type` + `constraint`) at the tail.
-pub(crate) fn chain_join(
-    mut left: Value,
-    mut right: Value,
+pub(crate) fn chain_join<E: Emitter>(
+    emit: &E,
+    left: E::Value,
+    mut right: E::Value,
     join_type: &str,
-    constraint: Option<Value>,
-) -> Value {
-    if let Some(obj) = right.as_object_mut() {
-        obj.insert("join_type".into(), Value::String(join_type.into()));
-        if let Some(c) = constraint {
-            obj.insert("constraint".into(), c);
-        }
+    constraint: Option<E::Value>,
+) -> E::Value {
+    let jt = emit.string(join_type);
+    emit.set_field(&mut right, "join_type", jt);
+    if let Some(c) = constraint {
+        emit.set_field(&mut right, "constraint", c);
     }
-    // Walk to the tail of `left`'s next_join chain.
-    {
-        let mut cursor: &mut Value = &mut left;
-        loop {
-            let next_exists = cursor
-                .as_object()
-                .and_then(|o| o.get("next_join"))
-                .map(|v| !v.is_null())
-                .unwrap_or(false);
-            if !next_exists {
-                break;
-            }
-            let obj = cursor.as_object_mut().unwrap();
-            cursor = obj.get_mut("next_join").unwrap();
+    // Walk to the tail of `left`'s next_join chain. With abstract
+    // E::Value we can't recurse with `&mut` cursors (no `as_object_mut`),
+    // so unwind via owned recursion: pop the existing next_join, recurse
+    // to append, then put it back.
+    fn append_at_tail<E: Emitter>(emit: &E, mut node: E::Value, new_tail: E::Value) -> E::Value {
+        let has_next = emit
+            .get_field(&node, "next_join")
+            .map(|v| !emit.is_null(&v))
+            .unwrap_or(false);
+        if !has_next {
+            emit.set_field(&mut node, "next_join", new_tail);
+            return node;
         }
-        if let Some(obj) = cursor.as_object_mut() {
-            obj.insert("next_join".into(), right);
-        }
+        // Move the existing next_join out, recurse with it, set it back.
+        let existing = emit.get_field(&node, "next_join").expect("just checked");
+        let updated = append_at_tail(emit, existing, new_tail);
+        emit.set_field(&mut node, "next_join", updated);
+        node
     }
-    left
+    append_at_tail(emit, left, right)
 }
 
 /// Map an INTERVAL unit name (e.g. "month") to the call name the C++

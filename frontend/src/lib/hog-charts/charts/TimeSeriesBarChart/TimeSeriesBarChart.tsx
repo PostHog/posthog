@@ -39,6 +39,8 @@ export interface TimeSeriesBarChartConfig {
     showCrosshair?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
+    /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
+    divergingStack?: boolean
 }
 
 export interface TimeSeriesBarChartProps<Meta = unknown> {
@@ -76,6 +78,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         barCornerRadius,
         showCrosshair,
         tooltip: tooltipConfig,
+        divergingStack,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -104,12 +107,15 @@ export function TimeSeriesBarChart<Meta = unknown>({
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
+        xAxisLabel: xAxis?.label,
+        yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
         barLayout,
         barCornerRadius,
         axisOrientation,
         showCrosshair,
         tooltip: tooltipConfig,
+        divergingStack,
     }
 
     return (

@@ -2,7 +2,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
-from posthog.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.tasks.auto_rollback_feature_flag import (
     calculate_rolling_average,

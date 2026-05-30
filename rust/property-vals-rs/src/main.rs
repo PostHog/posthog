@@ -6,9 +6,9 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
     config::Config,
-    fan_out::{fan_out, fan_out_group},
+    fan_out::{extract_tuple, fan_out, fan_out_group},
     producer::AggregatedProducer,
-    types::{Event, GroupIdentify},
+    types::{Event, GroupIdentify, PropertyValueMessage},
     worker::worker_loop,
 };
 use serve_metrics::setup_metrics_routes;
@@ -66,6 +66,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
+    let merger_handle = manager.register(
+        "merger-worker",
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(30))
+            .with_liveness_deadline(Duration::from_secs(60))
+            .with_stall_threshold(3),
+    );
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
@@ -78,6 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_consumer_group = %config.consumer.kafka_consumer_group,
         groups_topic = %config.groups_kafka_consumer_topic,
         groups_consumer_group = %config.groups_kafka_consumer_group,
+        intermediate_topic = %config.intermediate_topic,
+        merger_consumer_group = %config.merger_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
         "config loaded"
@@ -89,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let events_producer = AggregatedProducer::new(
         &config.kafka,
         events_handle.clone(),
-        config.output_topic.clone(),
+        config.intermediate_topic.clone(),
         produce_timeout,
     )
     .await?;
@@ -101,6 +110,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let groups_producer = AggregatedProducer::new(
         &config.kafka,
         groups_handle.clone(),
+        config.intermediate_topic.clone(),
+        produce_timeout,
+    )
+    .await?;
+
+    let mut merger_consumer_config = config.consumer.clone();
+    merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
+    merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
+    let merger_consumer = SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
+    let merger_producer = AggregatedProducer::new(
+        &config.kafka,
+        merger_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
     )
@@ -114,27 +135,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Subscribed to topic: {}",
         config.groups_kafka_consumer_topic
     );
+    info!("Subscribed to topic: {}", config.intermediate_topic);
 
     let shared_config = Arc::new(config.clone());
 
     let guard = manager.monitor_background();
+
+    let excluded_events = shared_config.excluded_property_keys.clone();
+    let excluded_groups = shared_config.excluded_property_keys.clone();
 
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
-        fan_out,
+        move |e: &Event| fan_out(e, &excluded_events),
+        "events",
+        0,
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),
         groups_consumer,
         groups_producer,
         groups_handle.clone(),
-        fan_out_group,
+        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
+        "groups",
+        0,
+    ));
+    tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
+        shared_config.clone(),
+        merger_consumer,
+        merger_producer,
+        merger_handle.clone(),
+        |m: &PropertyValueMessage| extract_tuple(m),
+        "merger",
+        shared_config.max_values_per_key,
     ));
     drop(events_handle);
     drop(groups_handle);
+    drop(merger_handle);
 
     let app = Router::new()
         .route("/", get(index))

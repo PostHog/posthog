@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -8,6 +9,8 @@ import {
     getRequiredFeatureFlags,
     getToolsForFeatures,
     type ToolDefinition,
+    ToolDefinitionSchema,
+    toolPassesFlagGate,
 } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
@@ -521,6 +524,45 @@ describe('Tool Filtering - AI Consent', () => {
     })
 })
 
+describe('Tool Filtering - Scoped Teams', () => {
+    // Tools whose `required_scopes` include an `organization:*` (or
+    // `organization_member:*`, etc.) scope can't be exercised with a
+    // project-scoped key — the backend 403s them. Hide from `tools/list` for
+    // sessions whose token carries `scoped_teams`, surface them otherwise.
+    it('hides tools requiring an org-scoped scope when scopedTeams is non-empty', () => {
+        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        expect(tools).not.toContain('roles-list') // organization:read
+        expect(tools).not.toContain('org-members-list') // organization_member:read
+        expect(tools).not.toContain('organizations-list') // organization:read
+        expect(tools).not.toContain('organization-get') // organization:read
+        expect(tools).not.toContain('projects-get') // organization:read
+    })
+
+    it('keeps project-scoped tools visible when scopedTeams is non-empty', () => {
+        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('feature-flag-get-all')
+    })
+
+    it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
+        const tools = getToolsForFeatures({ scopedTeams: [] })
+        expect(tools).toContain('roles-list')
+        expect(tools).toContain('organization-get')
+    })
+
+    it('keeps org-scope tools visible when scopedTeams is undefined', () => {
+        const tools = getToolsForFeatures({ scopedTeams: undefined })
+        expect(tools).toContain('roles-list')
+        expect(tools).toContain('organization-get')
+    })
+
+    it('combines scopedTeams with feature filtering', () => {
+        const tools = getToolsForFeatures({ features: ['workspace'], scopedTeams: [42] })
+        expect(tools).not.toContain('organizations-list')
+        expect(tools).not.toContain('organization-get')
+    })
+})
+
 describe('Tool Filtering - Read-Only Mode', () => {
     it('should only return read-only tools when readOnly is true', () => {
         const tools = getToolsForFeatures({ readOnly: true })
@@ -632,6 +674,19 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(withFlags).toEqual(withoutFlags)
     })
 
+    it('notebooks-collaboration flag flips the active notebook edit tool', () => {
+        // When the flag is OFF, the legacy non-streaming PATCH tool is exposed.
+        // When the flag is ON, it's hidden and the streaming collab edit tool
+        // takes its place. The model never sees both at once.
+        const off = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': false } })
+        expect(off).toContain('notebooks-partial-update')
+        expect(off).not.toContain('notebook-edit')
+
+        const on = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': true } })
+        expect(on).toContain('notebook-edit')
+        expect(on).not.toContain('notebooks-partial-update')
+    })
+
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         // Includes the gating flag for agent-feedback alongside the other gated tools.
@@ -644,40 +699,19 @@ describe('Tool Filtering - Feature Flags', () => {
                 'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
+                'notebooks-collaboration',
+                'replay-vision',
             ])
         )
-        expect(flags).toHaveLength(7)
+        expect(flags).toHaveLength(9)
     })
 
-    // Test the filtering logic with a direct unit test approach using
-    // a standalone implementation that mirrors getToolsForFeatures' logic
+    // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
+    // so we can cover variant / behavior / missing-flag matrices without
+    // having to register fake tools into the global tool registry.
     describe('feature flag filter predicate', () => {
-        function filterByFeatureFlags(
-            entries: [string, ToolDefinition][],
-            featureFlags?: Record<string, boolean>
-        ): string[] {
-            let filtered = entries
-
-            if (featureFlags) {
-                filtered = filtered.filter(([_, definition]) => {
-                    if (!definition.feature_flag) {
-                        return true
-                    }
-                    const flagValue = featureFlags[definition.feature_flag]
-                    const isOn = flagValue === true
-                    const behavior = definition.feature_flag_behavior ?? 'enable'
-                    return behavior === 'enable' ? isOn : !isOn
-                })
-            } else {
-                filtered = filtered.filter(([_, definition]) => {
-                    if (!definition.feature_flag) {
-                        return true
-                    }
-                    return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-                })
-            }
-
-            return filtered.map(([name]) => name)
+        function filterByFeatureFlags(entries: [string, ToolDefinition][], featureFlags?: EvaluatedFlags): string[] {
+            return entries.filter(([_, def]) => toolPassesFlagGate(def, featureFlags)).map(([name]) => name)
         }
 
         it('should include tools with feature_flag when flag is enabled', () => {
@@ -766,6 +800,100 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).not.toContain('new-tool-v2')
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
+        })
+
+        describe('feature_flag_variant matching', () => {
+            const variantToolEntries: [string, ToolDefinition][] = [
+                ['unrelated-tool', { ...baseDef }],
+                [
+                    'variant-gated-tool',
+                    {
+                        ...baseDef,
+                        feature_flag: 'promoted-product',
+                        feature_flag_variant: 'intent_plus',
+                    },
+                ],
+            ]
+
+            it('shows variant-gated tool only when the variant matches', () => {
+                const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': 'intent_plus' })
+                expect(tools).toContain('variant-gated-tool')
+                expect(tools).toContain('unrelated-tool')
+            })
+
+            it.each(['control_a', 'control_b', 'intent', false, true, undefined])(
+                'hides variant-gated tool when flag value is %p',
+                (flagValue) => {
+                    const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })
+                    expect(tools).not.toContain('variant-gated-tool')
+                    expect(tools).toContain('unrelated-tool')
+                }
+            )
+
+            it('hides variant-gated tool when featureFlags map is omitted entirely', () => {
+                const tools = filterByFeatureFlags(variantToolEntries)
+                expect(tools).not.toContain('variant-gated-tool')
+                expect(tools).toContain('unrelated-tool')
+            })
+
+            it('hides a hand-rolled misconfig tool with feature_flag_variant but no feature_flag', () => {
+                // The Zod `.refine` rejects this at parse time, but a developer
+                // can still construct one in code via cast — the runtime predicate
+                // must treat it as hidden, not ungated.
+                const misconfigEntries: [string, ToolDefinition][] = [
+                    ['orphan-variant', { ...baseDef, feature_flag_variant: 'intent_plus' }],
+                ]
+                expect(filterByFeatureFlags(misconfigEntries, { 'promoted-product': 'intent_plus' })).not.toContain(
+                    'orphan-variant'
+                )
+                expect(filterByFeatureFlags(misconfigEntries)).not.toContain('orphan-variant')
+            })
+        })
+
+        describe('feature_flag_variant schema validation', () => {
+            const baseFields = {
+                description: '',
+                category: 'platform_features',
+                feature: 'platform_features',
+                summary: '',
+                title: '',
+                required_scopes: [],
+                annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true },
+            }
+
+            it('rejects feature_flag_variant without feature_flag', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag_variant: 'intent_plus',
+                })
+                expect(result.success).toBe(false)
+                if (!result.success) {
+                    expect(result.error.issues[0]?.message).toMatch(/feature_flag_variant.*requires.*feature_flag/i)
+                    expect(result.error.issues[0]?.path).toEqual(['feature_flag_variant'])
+                }
+            })
+
+            it('accepts feature_flag_variant when feature_flag is also set', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag: 'promoted-product',
+                    feature_flag_variant: 'intent_plus',
+                })
+                expect(result.success).toBe(true)
+            })
+
+            it('accepts feature_flag alone (no variant)', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag: 'promoted-product',
+                })
+                expect(result.success).toBe(true)
+            })
+
+            it('accepts a definition with neither flag field set', () => {
+                const result = ToolDefinitionSchema.safeParse(baseFields)
+                expect(result.success).toBe(true)
+            })
         })
     })
 })

@@ -71,6 +71,7 @@ source_env_defaults() {
             export "$name=$value"
         fi
     done < "$1"
+    return 0
 }
 # .env.local: already in env if processed by op run, otherwise source directly
 if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; then

@@ -10,16 +10,30 @@ export const manifest: ProductManifest = {
     scenes: {
         ReplayVision: {
             name: 'Replay vision',
-            import: () => import('./frontend/replay_lenses/ReplayLensesScene'),
+            import: () => import('./frontend/replay_scanners/ReplayScannersScene'),
             projectBased: true,
             description:
-                'Configure named lenses that PostHog applies to completed session recordings. Results land as queryable events.',
+                'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
             iconType: 'replay_vision',
             layout: 'app-container',
         },
-        ReplayVisionLens: {
-            name: 'Replay vision lens',
-            import: () => import('./frontend/replay_lenses/ReplayLens'),
+        ReplayVisionScanner: {
+            name: 'Replay vision scanner',
+            import: () => import('./frontend/replay_scanners/ReplayScanner'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionTemplates: {
+            name: 'Replay vision templates',
+            import: () => import('./frontend/replay_scanners/ScannerTemplatesScene'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionObservation: {
+            name: 'Replay vision observation',
+            import: () => import('./frontend/observations/ReplayObservation'),
             projectBased: true,
             iconType: 'replay_vision',
             layout: 'app-container',
@@ -27,13 +41,17 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
-        '/replay-vision/:id': ['ReplayVisionLens', 'replayVision'],
+        '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
+        '/replay-vision/templates': ['ReplayVisionTemplates', 'replayVisionTemplates'],
+        '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {},
     urls: {
         replayVision:
-            /** @param id A UUID or 'new'. Omit for the lens list page. */
+            /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+        replayVisionTemplates: (): string => '/replay-vision/templates',
+        replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -52,7 +70,7 @@ export const manifest: ProductManifest = {
             tags: ['beta'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
             sceneKey: 'ReplayVision',
-            sceneKeys: ['ReplayVision', 'ReplayVisionLens'],
+            sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },
     ],
 }

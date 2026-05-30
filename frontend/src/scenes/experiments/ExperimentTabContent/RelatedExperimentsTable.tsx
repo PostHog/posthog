@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { LemonBanner, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -10,16 +8,19 @@ import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
-import type { Experiment, FeatureFlagType } from '~/types'
+import {
+    getExperimentStatus,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from '~/scenes/experiments/experimentsLogic'
+import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
+import { isLegacyExperiment } from '~/scenes/experiments/utils'
+import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
 
-import { getExperimentStatus, getShippedVariantKey, isSingleVariantShipped } from '../experimentsLogic'
-import { StatusTag } from '../ExperimentView/StatusTag'
-import { isLegacyExperiment } from '../utils'
-import { featureFlagRelatedExperimentsLogic } from './featureFlagRelatedExperimentsLogic'
-
 type RelatedExperimentsTableProps = {
-    featureFlag: FeatureFlagType
+    relatedExperiments: Experiment[]
+    relatedExperimentsLoading: boolean
     multipleExperimentsBannerMessage: React.ReactNode
 }
 
@@ -32,16 +33,10 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
 }
 
 export const RelatedExperimentsTable = ({
-    featureFlag,
+    relatedExperiments,
+    relatedExperimentsLoading,
     multipleExperimentsBannerMessage,
 }: RelatedExperimentsTableProps): JSX.Element | null => {
-    /**
-     * we only operate with existing feature flags, so id will never be null.
-     */
-    const { relatedExperiments, relatedExperimentsLoading } = useValues(
-        featureFlagRelatedExperimentsLogic({ featureFlagId: featureFlag.id! })
-    )
-
     return (
         <div className="space-y-6">
             <LemonBanner type="info">{multipleExperimentsBannerMessage}</LemonBanner>
