@@ -10,12 +10,12 @@ This spec sizes the PostHog AI sandbox accordingly and defines the Task-model to
 
 What actually runs inside a PostHog AI sandbox:
 
-| Process | Purpose | Resource character |
-|---|---|---|
-| `agent-server` (Node.js, ~80 MB resident) | Tapped ACP stream relay + HTTP listener for `/command/` and `/events/` | Idle most of the time; bursts on tool calls. CPU-light, memory-stable. |
-| Claude SDK / Codex (Node.js, ~150 MB resident) | The actual model client — token stream consumer, ACP request emitter | Idle while the model thinks; bursts when streaming tokens in / tool calls out. |
-| `SessionLogWriter` flush loop | Coalesces `agent_message_chunk` into `agent_message`, batches `POST /append_log/` calls | Tiny CPU, negligible memory. |
-| No git, no language toolchains, no package installs, no tests, no builds. | — | — |
+| Process                                                                   | Purpose                                                                                 | Resource character                                                             |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `agent-server` (Node.js, ~80 MB resident)                                 | Tapped ACP stream relay + HTTP listener for `/command/` and `/events/`                  | Idle most of the time; bursts on tool calls. CPU-light, memory-stable.         |
+| Claude SDK / Codex (Node.js, ~150 MB resident)                            | The actual model client — token stream consumer, ACP request emitter                    | Idle while the model thinks; bursts when streaming tokens in / tool calls out. |
+| `SessionLogWriter` flush loop                                             | Coalesces `agent_message_chunk` into `agent_message`, batches `POST /append_log/` calls | Tiny CPU, negligible memory.                                                   |
+| No git, no language toolchains, no package installs, no tests, no builds. | —                                                                                       | —                                                                              |
 
 Compared to PostHog Code's sandbox — which clones a repo (potentially gigabytes), runs `npm install` / `pip install` / `cargo build`, executes test suites, holds a working tree — the PostHog AI workload is roughly an order of magnitude lighter in both CPU and memory.
 
@@ -26,6 +26,7 @@ Compared to PostHog Code's sandbox — which clones a repo (potentially gigabyte
 **Memory:** 1 GB hard limit.
 
 Headroom calculation:
+
 - Node.js base × 2 processes: ~250 MB resident
 - Conversation context buffered locally before flush: peaks at ~50 MB even on a long chat
 - ACP frame buffers + `session-log-writer` queues: ~50 MB
@@ -47,18 +48,18 @@ The agent does **no** local data processing — no HogQL execution, no insight r
 
 PostHog AI's outbound dependencies are narrower than PostHog Code's:
 
-| Destination | Required for | Frequency |
-|---|---|---|
-| LLM gateway (`{region}.llm.posthog.com` or similar) | Model invocations | Every turn |
+| Destination                                         | Required for                                                         | Frequency                              |
+| --------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------- |
+| LLM gateway (`{region}.llm.posthog.com` or similar) | Model invocations                                                    | Every turn                             |
 | PostHog cloud REST (`{region}.posthog.com/api/...`) | `append_log/`, `set_output/`, `relay_message/`, MCP server endpoints | Every tool call + every assistant turn |
-| User-installed MCP server URLs | When a customer has installed third-party MCPs | Variable; only if installed |
-| Claude's hosted `WebSearch` tool's destinations | When the agent uses web search | Rare, model-decided |
+| User-installed MCP server URLs                      | When a customer has installed third-party MCPs                       | Variable; only if installed            |
+| Claude's hosted `WebSearch` tool's destinations     | When the agent uses web search                                       | Rare, model-decided                    |
 
 Doesn't need: GitHub, npm registry, PyPI, apt repos, Docker Hub, arbitrary public HTTP. Anything required for source compilation or dependency install is absent because there is no source compilation or dependency install inside the sandbox.
 
 **Recommended policy:** `network_access_level === "trusted"` (cloud spec § 2.7) — confirms that "trusted" includes the LLM gateway + posthog.com domains. If trusted doesn't cover the LLM gateway, use `"custom"` with the explicit allow list:
 
-```
+```text
 {region}.posthog.com
 {region}.llm.posthog.com
 <each user-installed MCP server hostname>
@@ -116,13 +117,13 @@ If the cloud-agent provisioner doesn't have per-`origin_product` idle policy tod
 
 What `02_CORE.md` § 2 already covers and what this spec adds:
 
-| Field on `Task` | Set by | Value for PostHog AI |
-|---|---|---|
+| Field on `Task`                                | Set by                 | Value for PostHog AI                                                      |
+| ---------------------------------------------- | ---------------------- | ------------------------------------------------------------------------- |
 | `origin_product` (existing — cloud spec § 2.3) | Adapter at Task-create | `"posthog_ai"` — **drives the constrained sandbox profile** per § 4 above |
-| `repository` | Adapter at Task-create | `null` — no repo (`04_PROMPTS.md` § 2.3) |
-| `github_integration` | Adapter at Task-create | `null` |
-| `internal` | Adapter at Task-create | `false` |
-| `signal_report` | Adapter at Task-create | `null` (PostHog AI is user-initiated, never signal-report-triggered) |
+| `repository`                                   | Adapter at Task-create | `null` — no repo (`04_PROMPTS.md` § 2.3)                                  |
+| `github_integration`                           | Adapter at Task-create | `null`                                                                    |
+| `internal`                                     | Adapter at Task-create | `false`                                                                   |
+| `signal_report`                                | Adapter at Task-create | `null` (PostHog AI is user-initiated, never signal-report-triggered)      |
 
 What needs to land in the cloud-agent provisioner (not in Django):
 
@@ -136,7 +137,7 @@ These changes live below the Django layer — they're cloud-provisioning rules, 
 
 ## 8. Pre-warming
 
-The cloud-agent spec has no native pre-warming. First-message latency is dominated by sandbox boot + agent-server `newSession()` initialization (model-side cache warm-up adds more on top). Pre-warming amortizes that cost by spinning the sandbox up *before* the user submits.
+The cloud-agent spec has no native pre-warming. First-message latency is dominated by sandbox boot + agent-server `newSession()` initialization (model-side cache warm-up adds more on top). Pre-warming amortizes that cost by spinning the sandbox up _before_ the user submits.
 
 ### 8.1 Per-conversation eager warm
 
@@ -152,7 +153,7 @@ When the user submits the message, the `POST /sandbox/` handler reads `conversat
 
 **Idle self-cancel inside the sandbox.** A warmed Run that never receives a `user_message` should self-terminate after a short interval (60 s recommendation). Today's idle timer (`05_SANDBOX.md` § 6) fires on `_posthog/turn_complete` with no follow-up — a warmed Run never reaches `turn_complete`, so the existing timer never fires. We need a separate "never-started" timer dimension. See open question 9 below.
 
-**Trigger refinement.** Debounce on first non-whitespace keystroke (200–300 ms), require the input to remain non-empty, *don't* prewarm on focus alone (users tab-switch repeatedly without typing — that's not a signal of intent).
+**Trigger refinement.** Debounce on first non-whitespace keystroke (200–300 ms), require the input to remain non-empty, _don't_ prewarm on focus alone (users tab-switch repeatedly without typing — that's not a signal of intent).
 
 ### 8.2 Wire shape
 
@@ -213,12 +214,12 @@ Tab close, network glitch, navigation away. The sandbox keeps running; logs keep
 
 A conversation that's been alive for a week, picked up and dropped repeatedly, accumulating (say) 8 Runs across idle timeouts overnight, two preemptions, and one OOM:
 
-| Conversation row state | Value |
-|---|---|
-| `sandbox_task` | Single Task created on the first message — same across all 8 Runs |
+| Conversation row state          | Value                                                                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `sandbox_task`                  | Single Task created on the first message — same across all 8 Runs                                                                   |
 | `current_sandbox_run` (derived) | Resolves to the 8th Run (`in_progress` if the user is active, `cancelled` if last idle-timed-out) — it's the latest by `created_at` |
-| `Task.runs` | All 8 Runs, ordered by `created_at` |
-| S3 NDJSON logs | 8 files, one per Run; the bootstrap reads all and concatenates per § 4.2 |
+| `Task.runs`                     | All 8 Runs, ordered by `created_at`                                                                                                 |
+| S3 NDJSON logs                  | 8 files, one per Run; the bootstrap reads all and concatenates per § 4.2                                                            |
 
 Each Run after the first carries `state.resume_from_run_id` linking to its predecessor — the chain is reconstructable from either `created_at` ordering or the resume-from pointer (both agree in healthy operation).
 
@@ -232,18 +233,18 @@ If a single conversation accumulates dozens of Runs and the bootstrap fetch beco
 
 ## 10. Open questions
 
-1. **Current PostHog Code sandbox sizing.** Need exact numbers before claiming "PostHog AI is 25–50%". *Owner: infra.*
-2. **Does the provisioner support per-`origin_product` profiles today?** If not, option (3) in § 4 (the `Task.sandbox_profile` field) becomes the carrying mechanism, even though (1) reads cleaner. *Owner: infra.*
-3. **Does `network_access_level: "trusted"` include the LLM gateway?** The existing `SandboxEnvironment.effective_domains` property (`products/tasks/backend/models.py:1218–1225`) returns the resolved domain list. Spot-check that the LLM gateway hostname is on it; if not, PostHog AI Runs need `"custom"` with the explicit list in § 3. *Owner: infra.*
-4. **Per-`origin_product` idle timeout.** Cloud-agent provisioner today probably ships one idle timeout for everyone. Need a new dimension or a per-Run override via `state.idle_timeout_seconds`. *Owner: infra.*
-5. **Memory ceiling validation.** 1 GB is a conservative ceiling based on observed Node.js footprint. Confirm with a load-test of a long conversation (50+ turns, large MCP responses) before pinning. If memory pressure shows up at 1 GB, bump to 1.5 GB and reassess. *Owner: AI.*
-6. **CPU ceiling validation.** Same — confirm 0.5 vCPU sustains streaming during the peak (large tool result + simultaneous next-turn agent_message_chunk). Bump to 1 vCPU if latency suffers. *Owner: AI.*
-7. **Cost projection.** With constrained sizing, what's the per-sandbox-hour cost? Compare to the LLM cost per chat — if compute is < 10% of LLM cost, further tightening doesn't matter for the unit economics. *Owner: finance + AI.*
-8. **Prewarm latency telemetry.** Once § 8 ships, measure: median time from `POST /prewarm/` to `_posthog/run_started`. If this exceeds the median typing time (i.e., users submit before the sandbox is ready), the prewarm signal needs to fire earlier or we need a different acceleration story. *Owner: AI.*
-9. **Never-started idle timer for warmed Runs.** § 8.1 needs an idle-cancel that fires when a Run reaches `in_progress` but no `user_message` arrives within ~60 s. Today's idle timer fires on `_posthog/turn_complete`, which a warmed Run never reaches. New dimension in the provisioner, or a per-Run `state.warm_only_timeout_seconds` override. *Owner: infra.*
-10. **Agent-server handles empty initial message.** Confirm `agent-server.ts:1077-1297` doesn't error when all four initial-message sources are empty (per § 8.4). If it does, propose `state.await_user_message: true`. *Owner: AI + agent-server.*
+1. **Current PostHog Code sandbox sizing.** Need exact numbers before claiming "PostHog AI is 25–50%". _Owner: infra._
+2. **Does the provisioner support per-`origin_product` profiles today?** If not, option (3) in § 4 (the `Task.sandbox_profile` field) becomes the carrying mechanism, even though (1) reads cleaner. _Owner: infra._
+3. **Does `network_access_level: "trusted"` include the LLM gateway?** The existing `SandboxEnvironment.effective_domains` property (`products/tasks/backend/models.py:1218–1225`) returns the resolved domain list. Spot-check that the LLM gateway hostname is on it; if not, PostHog AI Runs need `"custom"` with the explicit list in § 3. _Owner: infra._
+4. **Per-`origin_product` idle timeout.** Cloud-agent provisioner today probably ships one idle timeout for everyone. Need a new dimension or a per-Run override via `state.idle_timeout_seconds`. _Owner: infra._
+5. **Memory ceiling validation.** 1 GB is a conservative ceiling based on observed Node.js footprint. Confirm with a load-test of a long conversation (50+ turns, large MCP responses) before pinning. If memory pressure shows up at 1 GB, bump to 1.5 GB and reassess. _Owner: AI._
+6. **CPU ceiling validation.** Same — confirm 0.5 vCPU sustains streaming during the peak (large tool result + simultaneous next-turn agent*message_chunk). Bump to 1 vCPU if latency suffers. \_Owner: AI.*
+7. **Cost projection.** With constrained sizing, what's the per-sandbox-hour cost? Compare to the LLM cost per chat — if compute is < 10% of LLM cost, further tightening doesn't matter for the unit economics. _Owner: finance + AI._
+8. **Prewarm latency telemetry.** Once § 8 ships, measure: median time from `POST /prewarm/` to `_posthog/run_started`. If this exceeds the median typing time (i.e., users submit before the sandbox is ready), the prewarm signal needs to fire earlier or we need a different acceleration story. _Owner: AI._
+9. **Never-started idle timer for warmed Runs.** § 8.1 needs an idle-cancel that fires when a Run reaches `in_progress` but no `user_message` arrives within ~60 s. Today's idle timer fires on `_posthog/turn_complete`, which a warmed Run never reaches. New dimension in the provisioner, or a per-Run `state.warm_only_timeout_seconds` override. _Owner: infra._
+10. **Agent-server handles empty initial message.** Confirm `agent-server.ts:1077-1297` doesn't error when all four initial-message sources are empty (per § 8.4). If it does, propose `state.await_user_message: true`. _Owner: AI + agent-server._
 11. ~~**Conversation-message mirror Django-side.**~~ **Resolved**: sandbox-runtime conversations do **not** mirror messages Django-side. History lives in S3 ACP logs and is retrieved via the new `/log/` endpoint (`02_CORE.md` § 4.6) or the SSE bootstrap snapshot (`02_CORE.md` § 4.2). The detail endpoint's `messages` field is empty for sandbox conversations and populated only for LangGraph (`02_CORE.md` § 4.7). This leaves § 9.2 (S3 log loss) as a storage-layer concern — durability handled by S3 replication, not by application-layer mirroring.
-12. **S3 log retention / backup.** What's the durability story for the NDJSON logs? Single-bucket, no replication, or replicated cross-region? Affects § 9.2 likelihood. *Owner: infra.*
+12. **S3 log retention / backup.** What's the durability story for the NDJSON logs? Single-bucket, no replication, or replicated cross-region? Affects § 9.2 likelihood. _Owner: infra._
 
 ---
 

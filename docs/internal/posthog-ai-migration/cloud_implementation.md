@@ -14,7 +14,7 @@ The cloud-agent system spans three layers:
 2. **Desktop main-process `CloudTaskService`** — owns long-lived SSE connections, fans out typed events to the renderer over tRPC. **A web/mobile frontend can skip this entirely** — talk REST + SSE directly.
 3. **In-sandbox `agent-server`** — runs alongside the agent process (Claude Code / Codex) inside each cloud sandbox. JWT-authenticated. Bridges the agent's ACP protocol back to PostHog. Persists every notification into the run log via `append_log`.
 
-```
+```text
 ┌───────────────┐    REST + SSE + POST /command/         ┌──────────────────┐    ACP    ┌──────────────┐
 │  new client   │ ──────────────────────────────────────▶│ PostHog cloud    │ ◀───────▶ │ agent-server │
 │  (web/mobile) │ ◀──────────────────────────────────────│ (relay + DB +    │           │ in sandbox   │
@@ -367,7 +367,7 @@ Built by `buildCloudRunRequestBody` (`posthogClient.ts:187-254`). Every field op
 
 ### 5.1 Connect
 
-```
+```http
 GET /api/projects/{teamId}/tasks/{taskId}/runs/{runId}/stream/
 Accept: text/event-stream
 Authorization: Bearer <token>

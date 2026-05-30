@@ -12,24 +12,16 @@ A user message carries an optional list of typed attachments. The Django `POST /
 
 ```ts
 interface AttachedContext {
-    type:
-        | 'dashboard'
-        | 'insight'
-        | 'event'
-        | 'action'
-        | 'error_tracking_issue'
-        | 'evaluation'
-        | 'notebook'
-        | 'text'
-    id?: string | number   // entity types
-    name?: string          // optional human label for entity types
-    value?: string         // type === 'text'
+  type: 'dashboard' | 'insight' | 'event' | 'action' | 'error_tracking_issue' | 'evaluation' | 'notebook' | 'text'
+  id?: string | number // entity types
+  name?: string // optional human label for entity types
+  value?: string // type === 'text'
 }
 ```
 
 The wrapped message the agent sees:
 
-```
+```text
 <posthog_context>
 The user attached the following PostHog entities. Use the appropriate tools to retrieve their details only if relevant to the request.
 - Dashboard #123 ("Marketing Funnel")
@@ -45,36 +37,36 @@ That's the whole contract. No JSON, no schema the agent has to parse — the wra
 
 ### Why this works now
 
-| Old reason for pre-computation | Current state |
-|---|---|
-| Some entity types had no read tool — agent couldn't fetch | Every entity type listed above is covered by an MCP tool exposed by `posthog-data` / `posthog-notebook` (see `04_PROMPTS.md` § 5) |
-| Token cost of an extra round-trip per dashboard mattered | Tool-call round-trips are cheap relative to model latency; pre-loading every dashboard the user might mention is wasteful when most go unused |
-| The LangGraph node graph needed deterministic prompt assembly | The sandbox agent decides its own tool sequence — pre-fetching steals decisions from it |
+| Old reason for pre-computation                                | Current state                                                                                                                                 |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Some entity types had no read tool — agent couldn't fetch     | Every entity type listed above is covered by an MCP tool exposed by `posthog-data` / `posthog-notebook` (see `04_PROMPTS.md` § 5)             |
+| Token cost of an extra round-trip per dashboard mattered      | Tool-call round-trips are cheap relative to model latency; pre-loading every dashboard the user might mention is wasteful when most go unused |
+| The LangGraph node graph needed deterministic prompt assembly | The sandbox agent decides its own tool sequence — pre-fetching steals decisions from it                                                       |
 
 ---
 
 ## 2. What gets removed
 
-| Concept (in the old spec / old code) | Disposition |
-|---|---|
-| Pre-interpolated `MaxUIContext` payloads (dashboards-with-tiles, insights-with-query, events-with-properties) | **Gone.** Replaced by IDs the agent fetches via tools. |
-| `posthog-context` MCP server proposal | **Gone.** General data tools (`read_dashboard`, `read_insight`, ...) cover it. |
-| Static team-scope injection into `systemPrompt` (groups, billing, core memory) | **Gone.** Already accessible via MCP — no need to duplicate in the system prompt. |
-| Core memory (`/remember`, `ManageMemoriesTool`) | **Dropped entirely** for the new PostHog AI. Not migrated. |
-| Mid-Run context refresh (`set_config_option("posthog_active_context", …)`, `_posthog/refresh_session` for context updates) | **Gone.** Context is static per message. To change context, attach to the next message. |
-| Dynamic tool injection (`useMaxTool` registering scene-specific tools at mount time) | **Gone.** Only the static MCP tool set is available. If a scene needs to act on Max output, it does so reactively (subscribe to the new logic's outputs), not by registering a callback the agent invokes. |
-| Two-channel hybrid (static slice in `systemPrompt` + per-turn block) | **Collapsed.** Single channel: per-message `<posthog_context>` wrapper. |
-| `compiledContext` selector merging scene + manual contexts into a `MaxUIContext` object | Replaced by a flat `attachedContext: AttachedContext[]` reducer. No "compilation". |
-| `createMaxContextHelpers.dashboard(dashboard)` (takes the full Dashboard object and serializes) | Replaced by `attach({ type: 'dashboard', id, name })` — just IDs and labels. |
-| `maxBillingContextLogic` | **Delete.** Billing data, when needed, is exposed via the billing MCP tool. |
+| Concept (in the old spec / old code)                                                                                       | Disposition                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pre-interpolated `MaxUIContext` payloads (dashboards-with-tiles, insights-with-query, events-with-properties)              | **Gone.** Replaced by IDs the agent fetches via tools.                                                                                                                                                     |
+| `posthog-context` MCP server proposal                                                                                      | **Gone.** General data tools (`read_dashboard`, `read_insight`, ...) cover it.                                                                                                                             |
+| Static team-scope injection into `systemPrompt` (groups, billing, core memory)                                             | **Gone.** Already accessible via MCP — no need to duplicate in the system prompt.                                                                                                                          |
+| Core memory (`/remember`, `ManageMemoriesTool`)                                                                            | **Dropped entirely** for the new PostHog AI. Not migrated.                                                                                                                                                 |
+| Mid-Run context refresh (`set_config_option("posthog_active_context", …)`, `_posthog/refresh_session` for context updates) | **Gone.** Context is static per message. To change context, attach to the next message.                                                                                                                    |
+| Dynamic tool injection (`useMaxTool` registering scene-specific tools at mount time)                                       | **Gone.** Only the static MCP tool set is available. If a scene needs to act on Max output, it does so reactively (subscribe to the new logic's outputs), not by registering a callback the agent invokes. |
+| Two-channel hybrid (static slice in `systemPrompt` + per-turn block)                                                       | **Collapsed.** Single channel: per-message `<posthog_context>` wrapper.                                                                                                                                    |
+| `compiledContext` selector merging scene + manual contexts into a `MaxUIContext` object                                    | Replaced by a flat `attachedContext: AttachedContext[]` reducer. No "compilation".                                                                                                                         |
+| `createMaxContextHelpers.dashboard(dashboard)` (takes the full Dashboard object and serializes)                            | Replaced by `attach({ type: 'dashboard', id, name })` — just IDs and labels.                                                                                                                               |
+| `maxBillingContextLogic`                                                                                                   | **Delete.** Billing data, when needed, is exposed via the billing MCP tool.                                                                                                                                |
 
 ---
 
 ## 3. Frontend design
 
-> **Coexistence mode** (per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) #1, #2). The existing `maxContextLogic.ts` stays untouched for LangGraph users — its `maxContext` selector contract on the 3 scene logics is preserved verbatim. Sandbox context lives in a **new** sibling logic at `frontend/src/scenes/max/posthogAiContextLogic.ts`. The two coexist for the entire rollout. The simplification described in this section is the *end state* (post default-on); during the soak only the new file is added.
+> **Coexistence mode** (per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) #1, #2). The existing `maxContextLogic.ts` stays untouched for LangGraph users — its `maxContext` selector contract on the 3 scene logics is preserved verbatim. Sandbox context lives in a **new** sibling logic at `frontend/src/scenes/max/posthogAiContextLogic.ts`. The two coexist for the entire rollout. The simplification described in this section is the _end state_ (post default-on); during the soak only the new file is added.
 
-The new `posthogAiContextLogic.ts` holds **one flat `attachments` reducer** plus a thin scene-pull listener that *reads* the existing 3 scenes' `maxContext` selectors and **projects** their rich `MaxContextInput[]` items down to flat `AttachedContext[]` at consumption time. Zero scene-side edits — the scenes keep returning their existing rich shapes.
+The new `posthogAiContextLogic.ts` holds **one flat `attachments` reducer** plus a thin scene-pull listener that _reads_ the existing 3 scenes' `maxContext` selectors and **projects** their rich `MaxContextInput[]` items down to flat `AttachedContext[]` at consumption time. Zero scene-side edits — the scenes keep returning their existing rich shapes.
 
 Items added by the scene listener and items added by the user via TaxonomicFilter are **the same kind of thing** — there's no "source" attribute, no manual-vs-scene split, no separate persistence policy. The same entity arriving from both channels is one item.
 
@@ -82,15 +74,15 @@ Items added by the scene listener and items added by the user via TaxonomicFilte
 
 ```ts
 interface PostHogAiContextLogicValues {
-    attachments: AttachedContext[]
-    chipsForDisplay: { key: string; label: string; icon: ReactNode; onRemove: () => void }[]
+  attachments: AttachedContext[]
+  chipsForDisplay: { key: string; label: string; icon: ReactNode; onRemove: () => void }[]
 }
 
 interface PostHogAiContextLogicActions {
-    attach: (item: AttachedContext) => void   // dedup-add; called by scene sync AND TaxonomicFilter
-    detach: (key: string) => void             // key = `${type}:${id ?? value}`
-    clearAttachments: () => void              // convenience reset (e.g. on new conversation)
-    syncSceneAttachments: () => void          // router listener; calls attach() for each projected scene item
+  attach: (item: AttachedContext) => void // dedup-add; called by scene sync AND TaxonomicFilter
+  detach: (key: string) => void // key = `${type}:${id ?? value}`
+  clearAttachments: () => void // convenience reset (e.g. on new conversation)
+  syncSceneAttachments: () => void // router listener; calls attach() for each projected scene item
 }
 ```
 
@@ -104,8 +96,8 @@ The 3 scenes that expose `maxContext` today (dashboard, insight, project homepag
 // inside posthogAiContextLogic, syncSceneAttachments listener
 const sceneItems: MaxContextInput[] = activeSceneLogic.values.maxContext ?? []
 for (const item of sceneItems) {
-    const projected = projectToAttachedContext(item)
-    if (projected) actions.attach(projected)
+  const projected = projectToAttachedContext(item)
+  if (projected) actions.attach(projected)
 }
 ```
 
@@ -115,11 +107,11 @@ Today's selector (unchanged during the migration):
 
 ```ts
 maxContext: [
-    (s) => [s.dashboard],
-    (dashboard): MaxContextInput[] => {
-        if (!dashboard) return []
-        return [createMaxContextHelpers.dashboard(dashboard)]  // serializes nested tiles
-    },
+  (s) => [s.dashboard],
+  (dashboard): MaxContextInput[] => {
+    if (!dashboard) return []
+    return [createMaxContextHelpers.dashboard(dashboard)] // serializes nested tiles
+  },
 ]
 ```
 
@@ -128,10 +120,10 @@ The sandbox logic reads this and projects:
 ```ts
 // posthogAiContextLogic.ts — at consumption time
 function projectToAttachedContext(item: MaxContextInput): AttachedContext | null {
-    if (item.type === MaxContextType.DASHBOARD) {
-        return { type: 'dashboard', id: item.data.id, name: item.data.name }
-    }
-    // ... one branch per existing MaxContextType
+  if (item.type === MaxContextType.DASHBOARD) {
+    return { type: 'dashboard', id: item.data.id, name: item.data.name }
+  }
+  // ... one branch per existing MaxContextType
 }
 ```
 
@@ -154,7 +146,7 @@ The toggle is gated by a separate internal flag (e.g. `posthog-ai-sandbox-debug`
 
 ### 3.4 Lifecycle (sandbox runtime)
 
-- **On scene mount or scene change**: router listener calls `posthogAiContextLogic.syncSceneAttachments`, which projects every item in `activeSceneLogic.values.maxContext` and calls `attach()` for each. Already-attached items are no-ops (dedup on `(type, id ?? value)`). Items the user previously `detach`ed in *this scene* won't re-appear unless they navigate away and back — re-navigation is the explicit signal that the scene's contribution should re-assert.
+- **On scene mount or scene change**: router listener calls `posthogAiContextLogic.syncSceneAttachments`, which projects every item in `activeSceneLogic.values.maxContext` and calls `attach()` for each. Already-attached items are no-ops (dedup on `(type, id ?? value)`). Items the user previously `detach`ed in _this scene_ won't re-appear unless they navigate away and back — re-navigation is the explicit signal that the scene's contribution should re-assert.
 - **On user attach via TaxonomicFilter / @-mention**: same `attach(item)` dispatch — no separate manual reducer, no separate persistence policy.
 - **On user remove (X on chip)**: dispatches `detach(key)`. Sticks for the rest of the current scene view.
 - **On message send** (in `maxThreadLogic`, sandbox branch):
@@ -281,7 +273,7 @@ def prune_repeated_entity_refs(
     return out
 ```
 
-`_format_item` emits one line per attachment naming the entity type, ID, and (if present) human label. It does **not** name specific tool function signatures — naming is owned by `04_PROMPTS.md` § 5 — but the wrapper does name the tool *category* ("Use the appropriate tools..."). Tool descriptions on the MCP side carry the function signatures the agent reads.
+`_format_item` emits one line per attachment naming the entity type, ID, and (if present) human label. It does **not** name specific tool function signatures — naming is owned by `04_PROMPTS.md` § 5 — but the wrapper does name the tool _category_ ("Use the appropriate tools..."). Tool descriptions on the MCP side carry the function signatures the agent reads.
 
 Both functions are pure, side-effect-free, snapshot-testable. `wrap_user_message` skips emitting the block entirely when its input is empty — so when dedupe removes everything, the user's message is forwarded without any wrapper noise. Called from the `POST /sandbox/` handler at both first-message Run-create and follow-up `POST /command/` time (§ 4.2).
 
@@ -326,11 +318,11 @@ Ordered. Each step is a self-contained PR. **None of these steps modifies the ex
 
 ## 6. Cross-spec dependencies
 
-| Spec | Dependency |
-|---|---|
-| `02_CORE.md` | `POST /conversations/{id}/sandbox/` request body carries `attached_context` field for both first and follow-up messages. The handler calls `prune_repeated_entity_refs` then `wrap_user_message` before dispatching to the cloud-agent. The endpoint is non-streaming — frontend opens SSE directly against `/api/projects/{tid}/tasks/.../stream/` after the response returns. |
-| `03_RICH_UI.md` | Scene–agent interaction is one-directional: scenes contribute attachments via the existing `maxContext` selector and can subscribe to thread state read-only (`useValues(maxThreadLogic)`). No agent-side callbacks; `useMaxTool` / `MaxTool` are deleted (owned by `03`). |
-| `04_PROMPTS.md` | (a) Don't inject groups, billing, or core memory into `systemPrompt` — MCP tools handle it. (b) Tool naming used in `<posthog_context>` wrappers comes from § 5 of that spec — keep the wrapper template generic ("the appropriate tools") so renames don't break this. (c) Drop `ManageMemoriesTool` from the catalog (no core memory). |
+| Spec            | Dependency                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `02_CORE.md`    | `POST /conversations/{id}/sandbox/` request body carries `attached_context` field for both first and follow-up messages. The handler calls `prune_repeated_entity_refs` then `wrap_user_message` before dispatching to the cloud-agent. The endpoint is non-streaming — frontend opens SSE directly against `/api/projects/{tid}/tasks/.../stream/` after the response returns. |
+| `03_RICH_UI.md` | Scene–agent interaction is one-directional: scenes contribute attachments via the existing `maxContext` selector and can subscribe to thread state read-only (`useValues(maxThreadLogic)`). No agent-side callbacks; `useMaxTool` / `MaxTool` are deleted (owned by `03`).                                                                                                      |
+| `04_PROMPTS.md` | (a) Don't inject groups, billing, or core memory into `systemPrompt` — MCP tools handle it. (b) Tool naming used in `<posthog_context>` wrappers comes from § 5 of that spec — keep the wrapper template generic ("the appropriate tools") so renames don't break this. (c) Drop `ManageMemoriesTool` from the catalog (no core memory).                                        |
 
 ---
 
