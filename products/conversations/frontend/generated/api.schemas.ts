@@ -187,6 +187,17 @@ export type ConversationApiMessagesItem = { [key: string]: unknown }
 
 export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
 
+/**
+ * * `langgraph` - LangGraph
+ * `sandbox` - Sandbox
+ */
+export type AgentRuntimeEnumApi = (typeof AgentRuntimeEnumApi)[keyof typeof AgentRuntimeEnumApi]
+
+export const AgentRuntimeEnumApi = {
+    Langgraph: 'langgraph',
+    Sandbox: 'sandbox',
+} as const
+
 export interface ConversationApi {
     readonly id: string
     readonly status: ConversationStatusApi
@@ -220,6 +231,11 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    /** Runtime that serves this conversation. Stamped once at creation from the request's sandbox selection and never re-read on an existing row — a conversation lives its whole life on the runtime it was created with.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime: AgentRuntimeEnumApi
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
@@ -273,6 +289,11 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    /** Runtime that serves this conversation. Stamped once at creation from the request's sandbox selection and never re-read on an existing row — a conversation lives its whole life on the runtime it was created with.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime?: AgentRuntimeEnumApi
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 

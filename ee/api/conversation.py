@@ -362,20 +362,34 @@ class ConversationViewSet(
             # Mark conversation as internal if created during an impersonated session (support agents)
             is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_research else Conversation.Type.ASSISTANT
+            # Stamp the runtime once, at create-time, from the request's explicit sandbox selection.
+            # A conversation lives its whole life on the runtime it was created with — never re-read on
+            # existing rows. No feature flag gates this; the request decides.
+            sandbox_requested = (
+                serializer.validated_data.get("is_sandbox", False)
+                or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+            )
+            agent_runtime = (
+                Conversation.AgentRuntime.SANDBOX if sandbox_requested else Conversation.AgentRuntime.LANGGRAPH
+            )
             conversation = Conversation.objects.create(
                 user=cast(User, request.user),
                 team=self.team,
                 id=conversation_id,
                 type=conversation_type,
                 is_internal=is_impersonated,
+                agent_runtime=agent_runtime,
             )
             is_new_conversation = True
 
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
+        # A conversation's runtime is fixed at create-time (agent_runtime). The payload flags are still
+        # honored so conversations created before agent_runtime existed keep routing correctly.
         is_sandbox = (
-            serializer.validated_data.get("is_sandbox", False)
+            conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+            or serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
         )
 

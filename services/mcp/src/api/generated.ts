@@ -3830,6 +3830,18 @@ export namespace Schemas {
       UserInterview: 'user_interview',
     } as const;
 
+    /**
+     * * `langgraph` - LangGraph
+    * `sandbox` - Sandbox
+     */
+    export type AgentRuntimeEnum = typeof AgentRuntimeEnum[keyof typeof AgentRuntimeEnum];
+
+
+    export const AgentRuntimeEnum = {
+      Langgraph: 'langgraph',
+      Sandbox: 'sandbox',
+    } as const;
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -8276,6 +8288,11 @@ export namespace Schemas {
       readonly has_unsupported_content: boolean;
       /** @nullable */
       readonly agent_mode: string | null;
+      /** Runtime that serves this conversation. Stamped once at creation from the request's sandbox selection and never re-read on an existing row — a conversation lives its whole life on the runtime it was created with.
+
+      * `langgraph` - LangGraph
+      * `sandbox` - Sandbox */
+      readonly agent_runtime: AgentRuntimeEnum;
       readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
 
@@ -27113,6 +27130,11 @@ export namespace Schemas {
       readonly has_unsupported_content?: boolean;
       /** @nullable */
       readonly agent_mode?: string | null;
+      /** Runtime that serves this conversation. Stamped once at creation from the request's sandbox selection and never re-read on an existing row — a conversation lives its whole life on the runtime it was created with.
+
+      * `langgraph` - LangGraph
+      * `sandbox` - Sandbox */
+      readonly agent_runtime?: AgentRuntimeEnum;
       readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
 

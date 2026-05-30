@@ -1,6 +1,7 @@
 import string
 import secrets
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, models
 from django.utils import timezone
@@ -8,6 +9,9 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def generate_short_id():
@@ -38,6 +42,10 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         IDLE = "idle", "Idle"
         IN_PROGRESS = "in_progress", "In progress"
         CANCELING = "canceling", "Canceling"
+
+    class AgentRuntime(models.TextChoices):
+        LANGGRAPH = "langgraph", "LangGraph"
+        SANDBOX = "sandbox", "Sandbox"
 
     class Type(models.TextChoices):
         ASSISTANT = "assistant", "Assistant"
@@ -95,6 +103,33 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         blank=True,
         help_text="Permanent link to current TaskRun for sandbox conversations.",
     )
+    agent_runtime = models.CharField(
+        max_length=16,
+        choices=AgentRuntime.choices,
+        default=AgentRuntime.LANGGRAPH,
+        db_index=True,
+        help_text=(
+            "Runtime that serves this conversation. Stamped once at creation from the request's "
+            "sandbox selection and never re-read on an existing row — a conversation lives its "
+            "whole life on the runtime it was created with."
+        ),
+    )
+
+    @property
+    def current_run(self) -> "TaskRun | None":
+        """Latest TaskRun for a sandbox conversation, derived from sandbox_run_id.
+
+        Not a stored FK: a conversation accumulates one Run per terminal+resume cycle and
+        sandbox_run_id already tracks the most recent one, so derivation avoids a second
+        denormalized pointer that two concurrent tabs could race.
+        """
+        if not self.sandbox_run_id:
+            return None
+        # Deferred import keeps the ee <-> products/tasks boundary loose — it intentionally
+        # crosses via plain UUIDFields rather than a module-level FK/import.
+        from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+        return TaskRun.objects.filter(id=self.sandbox_run_id).first()
 
 
 class ConversationCheckpoint(UUIDTModel):

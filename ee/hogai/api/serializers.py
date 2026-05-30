@@ -58,6 +58,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
             "messages",
             "has_unsupported_content",
             "agent_mode",
+            "agent_runtime",
             "is_sandbox",
             "pending_approvals",
         ]

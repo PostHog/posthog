@@ -37,7 +37,6 @@ from ee.hogai.sandbox.types import (
     is_turn_complete,
 )
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -55,9 +54,6 @@ def handle_sandbox_message(
     is_new_conversation: bool,
 ) -> StreamingHttpResponse:
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
-    if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
-        raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
-
     if is_new_conversation:
         conversation.title = content[:80]
         conversation.save(update_fields=["title"])
