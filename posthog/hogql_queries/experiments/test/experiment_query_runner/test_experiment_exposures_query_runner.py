@@ -18,8 +18,8 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.experiments.backend.models.experiment import ExperimentHoldout
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(IN_UNIT_TESTING=True)
