@@ -84,36 +84,46 @@ sancov pass are compiled, and the diagnostic detects the absence via
 `hasattr(hogql_parser_rs, "cov_snapshot")` and silently skips the third
 steering label.
 
-The build invocation is:
+Cargo applies `RUSTFLAGS` globally to every crate it compiles, including
+dependency proc macros and build scripts, and those don't have our
+`__sanitizer_cov_trace_pc_guard*` callbacks linked in, so a naive
+`RUSTFLAGS=… maturin build --features coverage` segfaults the host build
+scripts on macOS (and fails to link on Linux). The fix is a small per-crate
+rustc wrapper that strips the sancov flags from every invocation except the
+one for `hogql_parser_rs`. That wrapper lives at
+[`scripts/cov-rustc-wrapper.py`](scripts/cov-rustc-wrapper.py):
 
 ```bash
+WRAPPER=$PWD/rust/hogql/parser/scripts/cov-rustc-wrapper.py
+
+# Build the instrumented wheel into a temp dir.
+RUSTC_WRAPPER="$WRAPPER" \
 RUSTFLAGS="-C passes=sancov-module \
            -C llvm-args=-sanitizer-coverage-level=3 \
            -C llvm-args=-sanitizer-coverage-trace-pc-guard" \
-maturin develop --release --manifest-path rust/hogql/parser/Cargo.toml \
-                --features coverage
+maturin build --release --manifest-path rust/hogql/parser/Cargo.toml \
+              --features coverage --out /tmp/cov-wheel
+
+# Install it into the active venv (in the same shell session — see the
+# `project_hogql_rust_parser_local_dev` memory note: the shared flox venv
+# prunes manually-installed wheels otherwise).
+VIRTUAL_ENV=$PWD/.flox/cache/venv uv pip install --reinstall --no-deps \
+    /tmp/cov-wheel/hogql_parser_rs-*.whl
+
+# Verify and run the diagnostic; rust_edges should appear in the stats.
+python -c "import hogql_parser_rs; print(hasattr(hogql_parser_rs, 'cov_snapshot'))"
+PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py --rule expr --n 300
 ```
 
-**Known build limitation.** `RUSTFLAGS=-C passes=sancov-module` is applied by
-cargo to *every* crate it compiles, including dependency proc macros and
-build scripts. Those don't have `__sanitizer_cov_trace_pc_guard*` linked in
-from `src/cov.rs`, so on macOS the host build scripts segfault at runtime
-when they call the unresolved callback (on Linux they typically fail to link
-outright). The fix is per-crate rustflags scoping, which cargo doesn't natively
-support; the common workarounds are:
+The grind's "Highest target scores" section will now show a `rust_edges` line
+alongside the existing `ast_depth` and `novel_kpaths`. The wrapper has been
+verified to work locally on macOS aarch64. On a normal install (no coverage
+build) the diagnostic just doesn't emit the third label; nothing else changes.
 
-+ Build in a Linux x86_64 CI environment with a small `RUSTC_WRAPPER` that
-  strips the sancov flags from build-script and dependency invocations (matches
-  what `cargo-fuzz` does internally).
-+ Or pre-build all deps once with default flags, then re-run cargo with the
-  sancov RUSTFLAGS for just the leaf crate by using `--target` overrides; this
-  is fragile because cargo invalidates fingerprints when rustflags change.
-
-Until the wrapper is set up the coverage variant is best produced in a
-dedicated CI job rather than locally. The wiring is already correct: once a
-build pipeline emits the instrumented wheel and installs it into the fuzz
-venv, the diagnostic picks up the third `rust_edges` target label automatically
-on its next run. See the `_RUST_COV` block at the top of `pbt_diagnostic.py`.
+If you want a production CI job to produce this wheel as a sidecar, mirror the
+above invocation in `.github/workflows/build-hogql-parser-rs-cov.yml` and
+publish it under a separate package name (e.g. `hogql_parser_rs_cov`) so
+production deploys can't accidentally pull the instrumented wheel.
 
 ## Publishing
 
