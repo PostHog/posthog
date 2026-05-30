@@ -1,9 +1,17 @@
 import { ComponentType } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconBug, IconDashboard, IconDatabase, IconGraph, IconRewindPlay, IconWrench } from '@posthog/icons'
 
 import { McpToolCallMessage } from './maxTypes'
+import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
+import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
+import { ExecuteSqlAdapter } from './messages/adapters/ExecuteSqlAdapter'
+import { ExecVerbAdapter } from './messages/adapters/ExecVerbAdapter'
 import { FallbackMcpToolRenderer } from './messages/adapters/FallbackMcpToolRenderer'
+import { QueryWrapperAdapter } from './messages/adapters/QueryWrapperAdapter'
+import { SearchSessionRecordingsAdapter } from './messages/adapters/SearchSessionRecordingsAdapter'
+import { SummarizeSessionsAdapter } from './messages/adapters/SummarizeSessionsAdapter'
+import { UpsertDashboardAdapter } from './messages/adapters/UpsertDashboardAdapter'
 
 /**
  * MCP tool registry for the sandbox (cloud-agent) runtime.
@@ -141,6 +149,67 @@ export const fallbackMcpToolEntry: McpToolRegistryEntry = {
     Renderer: FallbackMcpToolRenderer,
 }
 
-// Tool adapters register below at module load. Custom adapters land in follow-up PRs;
-// until then every tool resolves to `null` and renders via FallbackMcpToolRenderer.
-// e.g. mcpToolRegistry.register({ key: 'insight-create', displayName: 'Create insight', icon: ..., Renderer: ... })
+// Tool adapters register below at module load. Each adapter is a thin wrapper that extracts
+// props from the single-exec inner tool's rawInput/content/rawOutput and delegates to an
+// existing renderer, unchanged. Inner tool slugs are the real ones from
+// services/mcp/schema/tool-definitions-all.json — no dotted posthog-data.* names. Tools not
+// listed here resolve to `null` and render via FallbackMcpToolRenderer.
+
+function register(
+    key: string,
+    displayName: string,
+    icon: JSX.Element,
+    Renderer: ComponentType<McpToolRendererProps>
+): void {
+    mcpToolRegistry.register({ key, displayName, icon, Renderer })
+}
+
+// Insight tools (create/update/query) — saved vs ephemeral discriminated on artifact_id.
+for (const key of ['insight-create', 'insight-update', 'insight-query']) {
+    register(key, 'Insight', <IconGraph />, CreateInsightAdapter)
+}
+
+// execute-sql — HogQL result table when tabular, content[] text otherwise.
+register('execute-sql', 'Run SQL', <IconDatabase />, ExecuteSqlAdapter)
+
+// Typed query-wrapper tools (services/mcp/definitions/query-wrappers.yaml) — one adapter.
+for (const key of [
+    'query-trends',
+    'query-funnel',
+    'query-retention',
+    'query-stickiness',
+    'query-paths',
+    'query-lifecycle',
+    'query-trends-actors',
+    'query-lifecycle-actors',
+    'query-llm-trace',
+    'query-llm-traces-list',
+]) {
+    register(key, 'Query', <IconGraph />, QueryWrapperAdapter)
+}
+
+// Dashboard upsert — status line + "View dashboard" CTA.
+for (const key of ['dashboard-create', 'dashboard-update']) {
+    register(key, 'Dashboard', <IconDashboard />, UpsertDashboardAdapter)
+}
+
+// Session recordings search — RecordingsWidget inline.
+register('query-session-recordings-list', 'Search recordings', <IconRewindPlay />, SearchSessionRecordingsAdapter)
+
+// Session summarization — streaming progress + analysis CTA.
+register('session-recording-summarize', 'Summarize sessions', <IconRewindPlay />, SummarizeSessionsAdapter)
+
+// Error tracking — list widget + issue-detail card. One adapter for all three tools.
+for (const key of [
+    'query-error-tracking-issues-list',
+    'query-error-tracking-issue',
+    'query-error-tracking-issue-events',
+]) {
+    register(key, 'Error tracking', <IconBug />, ErrorTrackingAdapter)
+}
+
+// Single-exec discovery verbs (tools/search/info/schema) — one shared adapter. The malformed
+// `__posthog_exec_unknown__` key stays unregistered so it falls through to the fallback.
+for (const verb of ['tools', 'search', 'info', 'schema']) {
+    register(`__posthog_exec_${verb}__`, 'PostHog tools', <IconWrench />, ExecVerbAdapter)
+}
