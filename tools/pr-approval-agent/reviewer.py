@@ -12,7 +12,7 @@ import textwrap
 import subprocess
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk import ClaudeAgentOptions, ProcessError, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData
 
@@ -280,20 +280,35 @@ class Reviewer:
         props = posthog_kwargs.get("posthog_properties", {})
 
         structured_output = None
-        async for message in query(prompt=prompt, options=options, **posthog_kwargs):
-            if self.verbose:
-                print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
-            if isinstance(message, ResultMessage):
-                if message.subtype == "error_max_structured_output_retries":
-                    raise RuntimeError("Agent could not produce valid structured output after retries")
-                if message.structured_output:
-                    structured_output = message.structured_output
-                    # Stamp the LLM verdict onto the trace properties
-                    props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
-            elif isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, ToolUseBlock) and self.verbose:
-                        self._log_tool_call(block)
+        try:
+            async for message in query(prompt=prompt, options=options, **posthog_kwargs):
+                if self.verbose:
+                    print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
+                if isinstance(message, ResultMessage):
+                    if message.subtype == "error_max_structured_output_retries":
+                        raise RuntimeError("Agent could not produce valid structured output after retries")
+                    if message.is_error:
+                        # API-level failure (429, 500, 529) — the CLI reports
+                        # is_error=True with subtype="success" and exits non-zero.
+                        status = getattr(message, "api_error_status", None)
+                        raise RuntimeError(
+                            f"API error during review (HTTP {status or 'unknown'})"
+                        )
+                    if message.structured_output:
+                        structured_output = message.structured_output
+                        # Stamp the LLM verdict onto the trace properties
+                        props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
+                elif isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, ToolUseBlock) and self.verbose:
+                            self._log_tool_call(block)
+        except ProcessError as e:
+            # The SDK raises ProcessError when the CLI exits non-zero after
+            # emitting a result with is_error=True. Surface a clear message
+            # rather than the confusing "error result: success" text.
+            raise RuntimeError(
+                f"Claude CLI exited with error (exit code {e.exit_code}): {e}"
+            ) from e
 
         diff_path.unlink(missing_ok=True)
 
