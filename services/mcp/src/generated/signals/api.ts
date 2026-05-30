@@ -119,6 +119,8 @@ export const SignalsScoutEmitSignalParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const signalsScoutEmitSignalBodyDescriptionMax = 50000
+
 export const signalsScoutEmitSignalBodyWeightMin = 0
 export const signalsScoutEmitSignalBodyWeightMax = 1
 
@@ -129,7 +131,10 @@ export const signalsScoutEmitSignalBodyEvidenceMax = 20
 
 export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .object({
-        description: zod.string().describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
+        description: zod
+            .string()
+            .max(signalsScoutEmitSignalBodyDescriptionMax)
+            .describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
         weight: zod
             .number()
             .min(signalsScoutEmitSignalBodyWeightMin)
@@ -238,13 +243,18 @@ export const SignalsScoutScratchpadRememberParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutScratchpadRememberBodyKeyMax = 300
 
+export const signalsScoutScratchpadRememberBodyContentMax = 50000
+
 export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
-        content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
+        content: zod
+            .string()
+            .max(signalsScoutScratchpadRememberBodyContentMax)
+            .describe('Prose to write. Read verbatim into future prompts.'),
         run_id: zod
             .uuid()
             .nullish()

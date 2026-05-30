@@ -231,7 +231,10 @@ export interface TimeRangeApi {
  * Request body for `emit-finding`. Run attribution is taken from the URL path.
  */
 export interface EmitFindingRequestApi {
-    /** Canonical evidence-bundle prose. Becomes the signal's `description`. */
+    /**
+     * Canonical evidence-bundle prose. Becomes the signal's `description`.
+     * @maxLength 50000
+     */
     description: string
     /**
      * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
@@ -325,7 +328,10 @@ export interface RememberRequestApi {
      * @maxLength 300
      */
     key: string
-    /** Prose to write. Read verbatim into future prompts. */
+    /**
+     * Prose to write. Read verbatim into future prompts.
+     * @maxLength 50000
+     */
     content: string
     /**
      * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.

@@ -22,6 +22,8 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */
+export const signalsScoutEmitSignalBodyDescriptionMax = 50000
+
 export const signalsScoutEmitSignalBodyWeightMin = 0
 export const signalsScoutEmitSignalBodyWeightMax = 1
 
@@ -32,7 +34,10 @@ export const signalsScoutEmitSignalBodyEvidenceMax = 20
 
 export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .object({
-        description: zod.string().describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
+        description: zod
+            .string()
+            .max(signalsScoutEmitSignalBodyDescriptionMax)
+            .describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
         weight: zod
             .number()
             .min(signalsScoutEmitSignalBodyWeightMin)
@@ -106,13 +111,18 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
  */
 export const signalsScoutScratchpadRememberBodyKeyMax = 300
 
+export const signalsScoutScratchpadRememberBodyContentMax = 50000
+
 export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .object({
         key: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyKeyMax)
             .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
-        content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
+        content: zod
+            .string()
+            .max(signalsScoutScratchpadRememberBodyContentMax)
+            .describe('Prose to write. Read verbatim into future prompts.'),
         run_id: zod
             .uuid()
             .nullish()
