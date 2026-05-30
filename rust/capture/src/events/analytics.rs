@@ -319,9 +319,8 @@ pub async fn process_events(
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
     }
 
-    // Apply per-(token, distinct_id) global rate limiting -- skip person
-    // processing for high-volume distinct_ids and reroute AnalyticsMain events
-    // to overflow to spread the hot key across partitions.
+    // Per-(token, distinct_id) global rate limiting: skip person processing for
+    // hot distinct_ids and reroute AnalyticsMain events to overflow.
     if let Some(ref limiter) = global_rate_limiter {
         let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
         let mut limited_event_count: u64 = 0;
@@ -331,12 +330,8 @@ pub async fn process_events(
                     .to_cache_key();
             if limiter.is_limited(&cache_key, 1).await.is_some() {
                 event.metadata.skip_person_processing = true;
-                // Reroute to overflow via ForceLimited (null key + force-disable
-                // header at the sink). Gated to AnalyticsMain: the sink's
-                // AnalyticsHistorical arm never overflows, and only AnalyticsMain
-                // acts on overflow_reason. Leaving force_overflow untouched keeps
-                // stamp_overflow_reason (which runs next) free to evaluate the
-                // overflow limiter without the event_restriction short-circuit.
+                // Reroute the hot key to overflow. AnalyticsMain only: historical
+                // never overflows and only AnalyticsMain acts on overflow_reason.
                 if event.metadata.data_type == DataType::AnalyticsMain {
                     event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                 }
@@ -1563,15 +1558,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_overflow_stamp_global_rate_limiter_and_overflow_interplay() {
-        // Both limiters interact on AnalyticsMain events. The global RL now does
-        // two things on a (token, distinct_id) overage: sets
-        // skip_person_processing=true AND stamps overflow_reason=ForceLimited
-        // (rerouting the hot key to overflow). stamp_overflow_reason then runs:
-        // event[0] is within the overflow limiter's burst (NotLimited), so the
-        // global RL's ForceLimited stamp survives; event[1] exceeds burst=1 so
-        // the overflow limiter overwrites it with RateLimited{preserve_locality:
-        // true}. Either way both land on the overflow topic with the skip-person
-        // header. This pins the end-to-end metadata contract.
+        // Global RL stamps skip_person_processing + ForceLimited on both events;
+        // the overflow limiter (burst=1) then overwrites event[1] with
+        // RateLimited. Either way both reach overflow with the skip-person header.
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -1610,9 +1599,8 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
 
-        // event[0]: global RL fires (distinct_id limited) -> skip_person_processing
-        // AND overflow_reason=ForceLimited. The overflow limiter's first token is
-        // within burst (NotLimited), so the global RL's ForceLimited stamp stands.
+        // event[0]: global RL stamps skip_person_processing + ForceLimited; within
+        // the overflow limiter's burst, so the ForceLimited stamp survives.
         assert!(
             captured[0].metadata.skip_person_processing,
             "event[0]: global RL should set skip_person_processing"
@@ -1641,9 +1629,7 @@ mod tests {
     #[tokio::test]
     async fn global_rate_limit_reroutes_analytics_main_to_overflow() {
         // A globally rate-limited AnalyticsMain event is rerouted to overflow via
-        // ForceLimited even when no OverflowLimiter is configured -- the global RL
-        // loop stamps the reason directly and stamp_overflow_reason leaves it
-        // intact (no limiter to consult).
+        // ForceLimited even with no OverflowLimiter configured.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1687,9 +1673,7 @@ mod tests {
     #[tokio::test]
     async fn global_rate_limit_does_not_overflow_historical_events() {
         // Invariant: a globally rate-limited AnalyticsHistorical event gets person
-        // processing disabled but is NOT rerouted to overflow -- it stays on the
-        // historical lane (matches the sink's AnalyticsHistorical arm, which never
-        // overflows).
+        // processing disabled but is never rerouted to overflow.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
