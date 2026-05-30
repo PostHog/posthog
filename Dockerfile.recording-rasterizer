@@ -128,8 +128,8 @@ RUN npx --yes @puppeteer/browsers install chrome-headless-shell@148.0.7778.178 \
     --path /opt/chrome-headless-shell && \
     ln -s "$(find /opt/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" /usr/local/bin/chrome-headless-shell
 
-RUN groupadd -g 10001 posthog || groupmod -n posthog $(getent group 10001 | cut -d: -f1) && \
-    useradd -u 10001 -g posthog -m -d /home/posthog posthog || usermod -l posthog -d /home/posthog -g posthog $(getent passwd 10001 | cut -d: -f1) && \
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
     chown -R posthog:posthog /code
 USER posthog
 
