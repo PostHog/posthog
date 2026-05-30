@@ -151,15 +151,23 @@ async def arun_signals_scout(
         )
     except Exception:
         runtime_s = time.monotonic() - started
+        # A failure before the on_task_run_created hook fires means no row was persisted —
+        # don't hand callers a run_id that resolves to nothing.
+        row_persisted = await database_sync_to_async(_run_row_exists, thread_sensitive=False)(run_id)
         # Fail safe and silent: the TaskRun MultiTurnSession spans carries the error
         # context (status=FAILED, error_message, full chat log via LLMA). Nothing
         # additional to persist on the bridge row.
         logger.exception(
             "signals_scout: run failed",
-            extra={"team_id": team_id, "run_id": str(run_id), "skill_name": skill.name},
+            extra={
+                "team_id": team_id,
+                "run_id": str(run_id),
+                "skill_name": skill.name,
+                "row_persisted": row_persisted,
+            },
         )
         return RunResult(
-            run_id=str(run_id),
+            run_id=str(run_id) if row_persisted else None,
             task_run_id=None,
             status=TaskRun.Status.FAILED.value,
             last_message=None,
@@ -311,6 +319,10 @@ def _create_run_row(
         skill_name=skill.name,
         skill_version=skill.version,
     )
+
+
+def _run_row_exists(run_id: Any) -> bool:
+    return SignalScoutRun.objects.unscoped().filter(id=run_id).exists()
 
 
 def _finalize_run_summary(*, run_id: Any, summary: str) -> None:

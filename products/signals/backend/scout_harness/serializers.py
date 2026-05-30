@@ -12,6 +12,8 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
+from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+
 # --- Run history -----------------------------------------------------------
 
 
@@ -130,7 +132,10 @@ class RememberRequestSerializer(serializers.Serializer):
         max_length=300,
         help_text="Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
     )
-    content = serializers.CharField(help_text="Prose to write. Read verbatim into future prompts.")
+    content = serializers.CharField(
+        max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
+        help_text="Prose to write. Read verbatim into future prompts.",
+    )
     run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -152,6 +157,9 @@ class ForgetResponseSerializer(serializers.Serializer):
 
 
 # --- Emit -----------------------------------------------------------------
+
+# Bounds the emitted finding prose so it can't approach the Temporal activity payload ceiling.
+MAX_FINDING_DESCRIPTION_LENGTH = 50_000
 
 
 class EvidenceEntrySerializer(serializers.Serializer):
@@ -177,6 +185,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     """Request body for `emit-finding`. Run attribution is taken from the URL path."""
 
     description = serializers.CharField(
+        max_length=MAX_FINDING_DESCRIPTION_LENGTH,
         help_text="Canonical evidence-bundle prose. Becomes the signal's `description`.",
     )
     weight = serializers.FloatField(

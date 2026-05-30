@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.scout_harness.lazy_seed import (
+    CanonicalSkill,
     CanonicalSkillParseError,
     discover_canonical_skills,
     seed_canonical_skills,
@@ -259,3 +261,29 @@ class TestSeedCanonicalSkills(BaseTest):
         assert loaded.name == "signals-scout-general"
         assert loaded.version == 1
         assert "Signals scout" in loaded.body
+
+    def test_partial_failure_rolls_back_whole_seed_and_retries(self) -> None:
+        # A mid-loop failure must roll back every insert, so the next run retries the full set
+        # instead of getting wedged with a partial seed the "already seeded" guard treats as done.
+        fakes = (
+            CanonicalSkill("signals-scout-a", "d", "body", (), (), Path(".")),
+            CanonicalSkill("signals-scout-b", "d", "body", (), (), Path(".")),
+        )
+        real_create = LLMSkill.objects.create
+        seen = {"n": 0}
+
+        def flaky_create(**kwargs: object) -> LLMSkill:
+            seen["n"] += 1
+            if seen["n"] == 2:
+                raise RuntimeError("boom")
+            return real_create(**kwargs)
+
+        with patch("products.signals.backend.scout_harness.lazy_seed.discover_canonical_skills", return_value=fakes):
+            with patch.object(LLMSkill.objects, "create", side_effect=flaky_create):
+                with pytest.raises(RuntimeError):
+                    seed_canonical_skills(self.team)
+        assert not LLMSkill.objects.filter(team=self.team, name__startswith="signals-scout-").exists()
+
+        with patch("products.signals.backend.scout_harness.lazy_seed.discover_canonical_skills", return_value=fakes):
+            result = seed_canonical_skills(self.team)
+        assert set(result.created_skill_names) == {"signals-scout-a", "signals-scout-b"}

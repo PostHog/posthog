@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -91,12 +92,14 @@ class MultiTurnSession:
         if on_task_run_created is not None:
             try:
                 await on_task_run_created(task_run)
-            except Exception as e:
+            except (Exception, asyncio.CancelledError) as e:
                 # The TaskRun + sandbox workflow are already spawned. If the hook fails
                 # (e.g. the caller's bridge-row insert hits a transient DB error), tear the
                 # session down so we don't leak a running workflow/sandbox, then propagate.
-                # End as failed so the TaskRun status reflects the abort, not "completed".
-                await session.end(status="failed", error=str(e))
+                # CancelledError (BaseException, e.g. Temporal activity timeout) is caught too,
+                # else the run stays IN_PROGRESS forever. Shield so the failure signal still
+                # lands if the cancel re-fires mid-cleanup.
+                await asyncio.shield(session.end(status="failed", error=str(e)))
                 raise
         started_at = time.monotonic()
         try:
@@ -109,13 +112,13 @@ class MultiTurnSession:
                 time.monotonic() - started_at,
             )
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
-        except Exception as e:
+        except (Exception, asyncio.CancelledError) as e:
             # The session + sandbox workflow are already spawned, but `start()` is about to
             # raise so the caller never receives the session to run its own teardown. End it
-            # here so a first-turn poll/parse failure doesn't leak a running workflow/sandbox
-            # until its own timeout — mirrors the `on_task_run_created` failure path above.
-            # End as failed so the TaskRun status reflects the abort, not "completed".
-            await session.end(status="failed", error=str(e))
+            # here so a first-turn poll/parse failure (or a Temporal timeout, which raises
+            # CancelledError — a BaseException) doesn't leave the run wedged in IN_PROGRESS.
+            # Shield so the failure signal still lands if the cancel re-fires mid-cleanup.
+            await asyncio.shield(session.end(status="failed", error=str(e)))
             raise
         return session, parsed
 

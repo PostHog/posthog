@@ -34,7 +34,10 @@ from products.signals.backend.scout_harness.tools.emit import (
     emit_finding_sync,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
-from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_SEARCH_LIMIT
+from products.signals.backend.scout_harness.tools.scratchpad import (
+    MAX_SCRATCHPAD_CONTENT_LENGTH,
+    MAX_SCRATCHPAD_SEARCH_LIMIT,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -224,6 +227,11 @@ class TestRemember(BaseTest):
             remember(team_id=self.team.id, key="   ", content="x")
         with pytest.raises(InvalidScratchpadError):
             remember(team_id=self.team.id, key="k", content="")
+
+    def test_rejects_content_over_max_length(self) -> None:
+        remember(team_id=self.team.id, key="k", content="x" * MAX_SCRATCHPAD_CONTENT_LENGTH)
+        with pytest.raises(InvalidScratchpadError):
+            remember(team_id=self.team.id, key="k", content="x" * (MAX_SCRATCHPAD_CONTENT_LENGTH + 1))
 
     def test_links_to_creating_run(self) -> None:
         run = _create_run(self.team)

@@ -204,14 +204,15 @@ def seed_canonical_skills(team: Team) -> SeedResult:
         return SeedResult(created_skill_names=(), skipped_reason="no canonical signals-scout-* skills on disk")
 
     created: list[str] = []
-    for canonical in canonicals:
-        # Direct ORM path is intentional: there's no `create_skill_from_scratch_with_files`
-        # helper at the service layer — `create_skill_file` is per-file incremental on
-        # existing skills, `publish_skill_version` is new-version-of-existing. The
-        # universal contract limits (file count, body bytes, per-file bytes, path length)
-        # are enforced at parse time in `_parse_canonical_skill` to match the REST API.
-        try:
-            with transaction.atomic():
+    # Seed the full set in one transaction: a mid-loop failure rolls back every insert, so the
+    # next run retries the whole set instead of getting wedged with a partial seed the
+    # "already seeded" guard above would treat as complete.
+    # Direct ORM path is intentional: there's no `create_skill_from_scratch_with_files` helper at
+    # the service layer, and the universal contract limits are enforced at parse time in
+    # `_parse_canonical_skill` to match the REST API.
+    try:
+        with transaction.atomic():
+            for canonical in canonicals:
                 skill = LLMSkill.objects.create(
                     team=team,
                     name=canonical.name,
@@ -237,15 +238,14 @@ def seed_canonical_skills(team: Team) -> SeedResult:
                             for f in canonical.files
                         ]
                     )
-        except IntegrityError:
-            # A concurrent caller (e.g. two coordinator-spawned runs for the same team)
-            # raced us. The other writer's row stands; we move on.
-            logger.info(
-                "signals_scout: concurrent seed dropped, canonical skill already created",
-                extra={"team_id": team.id, "skill_name": canonical.name},
-            )
-            continue
-        created.append(canonical.name)
+                created.append(canonical.name)
+    except IntegrityError:
+        # A concurrent caller seeded this team first; their atomic stands, ours rolls back.
+        logger.info(
+            "signals_scout: concurrent seed dropped, canonical skills already created",
+            extra={"team_id": team.id},
+        )
+        return SeedResult(created_skill_names=(), skipped_reason="concurrent seed won")
 
     if created:
         logger.info(

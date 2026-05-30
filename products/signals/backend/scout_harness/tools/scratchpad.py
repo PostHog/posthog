@@ -26,6 +26,10 @@ MAX_SCRATCHPAD_SEARCH_LIMIT = 100
 # get a clean error before hitting the DB.
 MAX_SCRATCHPAD_KEY_LENGTH = 300
 
+# `content` is an unbounded TextField read verbatim into future-run prompts — cap it so a
+# runaway write can't bloat the scratchpad or a later prompt. Generous for prose.
+MAX_SCRATCHPAD_CONTENT_LENGTH = 50_000
+
 
 class InvalidScratchpadError(ValueError):
     """The agent tried to write a memory with invalid shape (empty key, oversized, etc)."""
@@ -122,6 +126,10 @@ def _validate_key_content(key: str, content: str) -> None:
         raise InvalidScratchpadError(f"memory key length {len(key)} exceeds max {MAX_SCRATCHPAD_KEY_LENGTH}")
     if not content or not content.strip():
         raise InvalidScratchpadError("memory content must be non-empty")
+    if len(content) > MAX_SCRATCHPAD_CONTENT_LENGTH:
+        raise InvalidScratchpadError(
+            f"memory content length {len(content)} exceeds max {MAX_SCRATCHPAD_CONTENT_LENGTH}"
+        )
 
 
 def _clamp_search_limit(limit: int) -> int:
