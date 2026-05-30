@@ -595,7 +595,7 @@ function initInstrumentation(
     })
 }
 
-function classifyFetchError(error: unknown): string {
+export function classifyFetchError(error: unknown): string {
     if (error instanceof DOMException && error.name === 'AbortError') {
         return 'timeout'
     }

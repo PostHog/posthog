@@ -4,7 +4,8 @@ import { loaders } from 'kea-loaders'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { classifyFetchError, toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment } from '~/toolbar/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
@@ -20,8 +21,20 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
-                    const response = await toolbarFetch('/api/projects/@current/web_experiments/')
-                    const results = await response.json()
+                    let response: Response
+                    let results: { results?: WebExperiment[] }
+                    try {
+                        response = await toolbarFetch('/api/projects/@current/web_experiments/')
+                        results = await response.json()
+                    } catch (error) {
+                        // Transport-level failures (offline, DNS, CORS, ad-blocker, host page navigating
+                        // away mid-request) reject with "TypeError: Failed to fetch". Resolve to an empty
+                        // list instead of letting it bubble up as an uncaught exception.
+                        captureToolbarException(error, 'get_experiments', {
+                            error_type: classifyFetchError(error),
+                        })
+                        return []
+                    }
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()

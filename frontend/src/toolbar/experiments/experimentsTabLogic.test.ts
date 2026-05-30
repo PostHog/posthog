@@ -337,6 +337,24 @@ describe('experimentsTabLogic', () => {
         })
     })
 
+    describe('loading experiments', () => {
+        const savedFetch = global.fetch
+
+        afterEach(() => {
+            global.fetch = savedFetch
+        })
+
+        it('resolves to an empty list when the fetch rejects at the transport level', async () => {
+            global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            await expectLogic(theExperimentsLogic, () => {
+                theExperimentsLogic.actions.getExperiments()
+            })
+                .toDispatchActions(['getExperiments', 'getExperimentsSuccess'])
+                .toMatchValues({ allExperiments: [] })
+        })
+    })
+
     describe('editing experiments', () => {
         it('can edit an existing experiment', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
