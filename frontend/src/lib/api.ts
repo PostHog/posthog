@@ -14,6 +14,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { SignalNode } from 'scenes/debug/signals/types'
 import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import { ConversationLog } from 'scenes/max/types/sandboxStreamTypes'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
@@ -6495,12 +6496,47 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
+        /**
+         * Sandbox-runtime only: resolve a permission_request by forwarding the chosen ACP option to
+         * the agent server (synchronously proxied server-side via `permission_response`). Langgraph
+         * approvals resume via `stream` with a `resume_payload` instead — callers must branch on
+         * `agent_runtime` before calling this.
+         */
+        permission(
+            conversationId: string,
+            data: {
+                requestId: string
+                optionId: string
+                customInput?: string
+                options?: { optionId: string; name?: string; kind?: string }[]
+            }
+        ): Promise<Record<string, unknown>> {
+            return new ApiRequest().conversation(conversationId).withAction('permission').create({ data })
+        },
+
         list(): Promise<PaginatedResponse<Conversation>> {
             return new ApiRequest().conversations().get()
         },
 
         get(conversationId: string): Promise<ConversationDetail> {
             return new ApiRequest().conversation(conversationId).get()
+        },
+
+        /**
+         * Sandbox-runtime only: server-assembled multi-Run ACP history (the I2.4 `GET /log/`
+         * endpoint). Walks the conversation's Task Runs and concatenates each Run's stored ACP
+         * log entries into one chronological buffer. Langgraph conversations have no ACP logs and
+         * return 400 — callers must branch on `agent_runtime` before calling this.
+         */
+        log(
+            conversationId: string,
+            params?: { after?: string; limit?: number; order?: 'asc' | 'desc' }
+        ): Promise<ConversationLog> {
+            return new ApiRequest()
+                .conversation(conversationId)
+                .withAction('log')
+                .withQueryString(params ?? {})
+                .get()
         },
 
         appendMessage(conversationId: string, content: string): Promise<{ id: string }> {

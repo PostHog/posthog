@@ -381,6 +381,68 @@ export interface ConversationLogApi {
 }
 
 /**
+ * * `allow_once` - allow_once
+ * `allow_always` - allow_always
+ * `reject` - reject
+ * `reject_with_feedback` - reject_with_feedback
+ */
+export type PermissionOptionKindEnumApi = (typeof PermissionOptionKindEnumApi)[keyof typeof PermissionOptionKindEnumApi]
+
+export const PermissionOptionKindEnumApi = {
+    AllowOnce: 'allow_once',
+    AllowAlways: 'allow_always',
+    Reject: 'reject',
+    RejectWithFeedback: 'reject_with_feedback',
+} as const
+
+/**
+ * One ACP permission option offered alongside a sandbox permission_request.
+ */
+export interface PermissionOptionApi {
+    /**
+     * ACP option id sent back as the decision.
+     * @maxLength 200
+     */
+    optionId: string
+    /**
+     * Human-readable option label.
+     * @maxLength 200
+     */
+    name?: string
+    /** ACP option kind; drives the approval card affordance (mapping lands in UI-C).
+
+  * `allow_once` - allow_once
+  * `allow_always` - allow_always
+  * `reject` - reject
+  * `reject_with_feedback` - reject_with_feedback */
+    kind?: PermissionOptionKindEnumApi
+}
+
+/**
+ * Resolve a sandbox-runtime permission_request by forwarding the chosen option to the agent server.
+ */
+export interface PermissionResponseApi {
+    /**
+     * ACP request id from the permission_request notification.
+     * @maxLength 200
+     */
+    requestId: string
+    /**
+     * The option the user selected.
+     * @maxLength 200
+     */
+    optionId: string
+    /**
+     * Free-text feedback, only forwarded for reject_with_feedback options.
+     * @maxLength 40000
+     * @nullable
+     */
+    customInput?: string | null
+    /** The options[] presented to the user; persisted on the conversation for audit. */
+    options?: PermissionOptionApi[]
+}
+
+/**
  * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
  */
 export type TicketViewApiFilters = { [key: string]: unknown }

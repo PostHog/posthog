@@ -31,6 +31,7 @@ import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { sandboxStreamLogic } from './sandboxStreamLogic'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
@@ -834,6 +835,105 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('sandbox history-load', () => {
+        const SANDBOX_STREAM_KEY = `${MOCK_CONVERSATION_ID}-test`
+        const originalFetch = global.fetch
+
+        function sandboxConversation(status: ConversationStatus, overrides: Partial<Conversation> = {}): Conversation {
+            return {
+                ...MOCK_CONVERSATION,
+                status,
+                agent_runtime: 'sandbox',
+                sandbox_task_id: 'task-1',
+                sandbox_run_id: 'run-1',
+                ...overrides,
+            }
+        }
+
+        function historyFrame(text: string): Record<string, unknown> {
+            return {
+                type: 'notification',
+                notification: {
+                    jsonrpc: '2.0',
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message', content: { type: 'text', text } } },
+                },
+            }
+        }
+
+        beforeEach(() => {
+            // The SSE-open path does a real fetch against /stream/; stub it so it never actually
+            // connects — we only assert it was reached via the stream's sseStatus transition.
+            global.fetch = jest.fn(() => new Promise<Response>(() => {})) as typeof fetch
+        })
+
+        afterEach(() => {
+            global.fetch = originalFetch
+        })
+
+        // setConversation fires the async maybeStartSandboxStream listener itself (which sets the
+        // run-id idempotency guard before awaiting /log/), so re-invoking it would no-op. Instead,
+        // set the conversation and flush a few macrotasks so the async /log/ fetch + ingest + SSE
+        // open settle. We assert against the connected sandboxStreamLogic's observable state rather
+        // than spying on the aliased action (kea captures the connected action ref at mount time).
+        async function runHistoryLoad(conversation: Conversation): Promise<void> {
+            logic.actions.setConversation(conversation)
+            for (let i = 0; i < 5; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            }
+        }
+
+        it('fetches /log/, dispatches ingestHistory, then opens SSE for a non-terminal run', async () => {
+            const logSpy = jest.spyOn(api.conversations, 'log').mockResolvedValue({
+                entries: [historyFrame('Replayed') as any],
+                has_more: false,
+                current_run_status: 'in_progress',
+            })
+            const streamLogic = sandboxStreamLogic({ conversationKey: SANDBOX_STREAM_KEY })
+
+            await runHistoryLoad(sandboxConversation(ConversationStatus.InProgress))
+
+            expect(logSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+            // The replayed /log/ history folded into the stream and seeded its dedup state.
+            expect(streamLogic.values.threadItems).toEqual([
+                { kind: 'assistant_message', id: 'log-0', text: 'Replayed', complete: true },
+            ])
+            expect(streamLogic.values.stream.ingestedEntryHashes).toHaveLength(1)
+            // Non-terminal current_run_status -> the live SSE opened (status left 'connecting').
+            expect(streamLogic.values.sseStatus).toBe('connecting')
+        })
+
+        it('replays history but does NOT open SSE for a terminal run (read-only view)', async () => {
+            jest.spyOn(api.conversations, 'log').mockResolvedValue({
+                entries: [historyFrame('Done') as any],
+                has_more: false,
+                current_run_status: 'completed',
+            })
+            const streamLogic = sandboxStreamLogic({ conversationKey: SANDBOX_STREAM_KEY })
+
+            await runHistoryLoad(sandboxConversation(ConversationStatus.Idle))
+
+            // History replayed...
+            expect(streamLogic.values.threadItems).toEqual([
+                { kind: 'assistant_message', id: 'log-0', text: 'Done', complete: true },
+            ])
+            // ...but the terminal run is a read-only view — the SSE never opened.
+            expect(streamLogic.values.sseStatus).toBe('idle')
+        })
+
+        it('never touches the sandbox /log/ endpoint for a langgraph conversation', async () => {
+            const logSpy = jest.spyOn(api.conversations, 'log')
+
+            await runHistoryLoad({
+                ...MOCK_CONVERSATION,
+                status: ConversationStatus.InProgress,
+                agent_runtime: 'langgraph',
+            })
+
+            expect(logSpy).not.toHaveBeenCalled()
         })
     })
 

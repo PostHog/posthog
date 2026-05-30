@@ -66,6 +66,7 @@ import {
 
 import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
+import { permissionRequestToPendingApproval, pickPermissionOptionId } from './approvalOperationUtils'
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
 import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
@@ -78,6 +79,7 @@ import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { PermissionOption, PermissionRequestRecord } from './types/sandboxStreamTypes'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -169,9 +171,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
             sceneLogic,
             ['sceneId'],
-            // Sandbox direct-SSE run lifecycle — read terminal status to gate the stream trigger.
+            // Sandbox direct-SSE run lifecycle — read terminal status to gate the stream trigger,
+            // and the pending permission request so the existing approval card can render it.
             sandboxStreamLogic({ conversationKey: `${conversationId}-${tabId}` }),
-            ['currentRunStatus as sandboxStreamRunStatus'],
+            [
+                'currentRunStatus as sandboxStreamRunStatus',
+                'pendingPermissionRequest as sandboxPendingPermissionRequest',
+            ],
             // Sandbox runtime only — flat per-message attachments (see posthogAiContextLogic).
             posthogAiContextLogic({ conversationKey: `${conversationId}-${tabId}` }),
             ['attachments as attachedContext', 'chipsForDisplay as attachedContextChips'],
@@ -195,7 +201,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['syncSceneAttachments', 'clearAttachments'],
             // Sandbox runtime owns its own direct SSE connection — maxThreadLogic only hands off.
             sandboxStreamLogic({ conversationKey: `${conversationId}-${tabId}` }),
-            ['openSseForRun as openSandboxStream', 'closeSse as closeSandboxStream', 'reset as resetSandboxStream'],
+            [
+                'openSseForRun as openSandboxStream',
+                'closeSse as closeSandboxStream',
+                'reset as resetSandboxStream',
+                // History-load seam: replay assembled /log/ history into the stream's dedup state
+                // before the live SSE opens, so live frames dedup against the replayed history.
+                'ingestHistory as ingestSandboxHistory',
+            ],
         ],
     })),
 
@@ -299,6 +312,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }),
         addPendingApprovalData: (approval: PendingApproval) => ({ approval }),
         loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
+        // Sandbox-runtime approval resolution: forwards the chosen ACP option to the agent server via
+        // POST /permission/ (mirrors cancel). Distinct from the langgraph resume_payload path.
+        resolveSandboxPermission: (requestId: string, decision: 'approve' | 'reject', feedback?: string) => ({
+            requestId,
+            decision,
+            feedback,
+        }),
     }),
 
     reducers(({ props }) => ({
@@ -1202,10 +1222,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
 
-        maybeStartSandboxStream: () => {
+        maybeStartSandboxStream: async () => {
             // Direct-SSE sandbox runtime (DECISION 3): the cloud-agent run is named by the
-            // conversation object, not by a Django relay frame. Open the stream only for a
-            // sandbox conversation whose backing run is still active (non-terminal).
+            // conversation object, not by a Django relay frame. History-load branch — replay the
+            // assembled multi-Run ACP history (GET /log/, the I2.4 endpoint) into sandboxStreamLogic
+            // via ingestHistory so the dedup hashes are seeded, THEN open the direct SSE only when
+            // the run is still non-terminal. The langgraph path never reaches here (isSandboxRuntime
+            // gate) — it reads detail.messages directly and is untouched.
             const conversation = values.conversation
             if (!values.isSandboxRuntime || !conversation) {
                 return
@@ -1215,18 +1238,35 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (!taskId || !runId) {
                 return
             }
-            // The conversation status mirrors the backing run's lifecycle; a terminal run is read-only.
-            const runActive = conversation.status === ConversationStatus.InProgress
-            const runStatusTerminal = isTerminalRunStatus(values.sandboxStreamRunStatus)
-            if (!runActive || runStatusTerminal) {
-                return
-            }
-            // Idempotent: re-opening the same run resets resume state needlessly. A new run id
-            // (terminal-then-resume swap) does re-open — openSseForRun disposes the old stream.
+            // Idempotent: re-running history-load for the same run replays nothing new (the entries
+            // dedup) and re-opening the same SSE resets resume state needlessly. A new run id
+            // (terminal-then-resume swap) does proceed — openSseForRun disposes the old stream.
             if (cache.lastSandboxRunId === runId) {
                 return
             }
             cache.lastSandboxRunId = runId
+
+            // Replay the persisted cross-Run history first. The /log/ entries seed the dedup hashes,
+            // so the live SSE — which replays historical frames since the Run started — content-dedups
+            // against them (SSE/Redis ids aren't comparable to S3-log ids; see serializeEntryForDedup).
+            let currentRunStatus = values.sandboxStreamRunStatus
+            try {
+                const history = await api.conversations.log(conversation.id)
+                if (history.entries.length > 0) {
+                    actions.ingestSandboxHistory(history.entries)
+                }
+                currentRunStatus = history.current_run_status ?? currentRunStatus
+            } catch (e) {
+                // History assembly is best-effort: if /log/ fails we still try to open the live SSE
+                // for an active run rather than leaving the user with a dead view.
+                posthog.captureException(e)
+            }
+
+            // Open the live SSE ONLY if the backing run is non-terminal. A terminal run is a
+            // read-only history view — the replayed /log/ entries are the whole story.
+            if (isTerminalRunStatus(currentRunStatus)) {
+                return
+            }
             actions.openSandboxStream({ taskId, runId })
         },
 
@@ -1393,6 +1433,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounted to show the resolved state. The alreadyResolved check in askMax
             // prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'approved')
+            // Sandbox runtime resolves by forwarding the chosen ACP option to the agent server, NOT by
+            // resuming a langgraph workflow. The langgraph resume_payload path below is untouched.
+            if (values.isSandboxRuntime) {
+                actions.resolveSandboxPermission(proposalId, 'approve')
+                return
+            }
             // Resume the conversation with the approval payload
             actions.streamConversation(
                 {
@@ -1414,6 +1460,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounted to show the resolved state with feedback. The alreadyResolved check
             // in askMax prevents auto-rejection for resolved approvals.
             actions.setResolvedApprovalStatus(proposalId, 'rejected', feedback)
+            if (values.isSandboxRuntime) {
+                actions.resolveSandboxPermission(proposalId, 'reject', feedback)
+                return
+            }
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
@@ -1431,6 +1481,38 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 0,
                 false // Don't add to thread - no human message to show
             )
+        },
+        resolveSandboxPermission: async ({ requestId, decision, feedback }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+            // The offered options[] were stashed on the merged approval record's payload at ingest.
+            const approval = values.pendingApprovalsData[requestId]
+            const options = ((approval?.payload?.options as PermissionOption[] | undefined) ?? []) as PermissionOption[]
+            const optionId = pickPermissionOptionId(options, decision, !!feedback)
+            if (!optionId) {
+                lemonToast.error('Could not resolve the approval option. Please try again.')
+                return
+            }
+            try {
+                await api.conversations.permission(conversationId, {
+                    requestId,
+                    optionId,
+                    customInput: feedback,
+                    options,
+                })
+                posthog.capture('max conversation permission responded', {
+                    conversation_id: conversationId,
+                    request_id: requestId,
+                    option_id: optionId,
+                    execution_type: 'sandbox',
+                    agent_runtime: 'sandbox',
+                })
+            } catch (e) {
+                posthog.captureException(e)
+                lemonToast.error('Failed to send your approval decision. Please try again.')
+            }
         },
     })),
 
@@ -1950,6 +2032,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (enabled) {
                 actions.loadQueueData()
             }
+        },
+        // New ingest SOURCE only: a sandbox permission_request surfaced by sandboxStreamLogic is
+        // merged into the EXISTING pendingApprovalsData (keyed by tool_call_id via original_tool_call_id)
+        // and marked the active pending approval, so the unchanged DangerousOperationApprovalCard renders
+        // it. The card's resolve path routes to POST /permission/ for the sandbox runtime (02_CORE § 5.5).
+        sandboxPendingPermissionRequest: (record: PermissionRequestRecord | undefined) => {
+            if (!record) {
+                return
+            }
+            actions.addPendingApprovalData(permissionRequestToPendingApproval(record))
+            actions.setPendingApproval(record.requestId)
+            posthog.capture('max conversation permission requested', {
+                conversation_id: values.conversationId,
+                request_id: record.requestId,
+                tool_call_name: record.rawToolCall.resolvedKey || record.rawToolCall.rawToolName,
+                execution_type: 'sandbox',
+                agent_runtime: 'sandbox',
+            })
         },
     })),
 ])

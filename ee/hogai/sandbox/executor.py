@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.http import StreamingHttpResponse
 
 import requests as http_requests
@@ -50,8 +51,17 @@ logger = structlog.get_logger(__name__)
 SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
 SANDBOX_STREAM_TTL = 3600  # seconds before the Redis stream key expires
 
-# Telemetry event name, mirroring the LangGraph path. The sandbox runtime adds the
-# `execution_type: "sandbox"` property to the same event (02_CORE § 10, BACKWARD_COMPAT #33).
+# Telemetry: fires when a sandbox turn's message is sent (first or follow-up). The sandbox
+# runtime carries an `execution_type: "sandbox"` property on this event (02_CORE § 10) so the
+# existing LLM-analytics dashboards keep matching on the event name.
+#
+# Name reconciliation (02_CORE § 10, I2.5 → I2.7): the LangGraph path has NO canonical
+# "prompt sent" event to reuse — its analytics emit at *turn completion* via
+# `_report_conversation_state("chat with ai", ...)` (ee/hogai/chat_agent/runner.py), with
+# prompt/output/is_new_conversation fields. That is a different lifecycle point (after the turn,
+# not at send) and a different shape, so reusing its name would misrepresent the event. We keep
+# the dedicated "prompt sent" name for the at-send sandbox signal and document the divergence
+# here rather than collapsing two semantically distinct events into one.
 PROMPT_SENT_EVENT = "prompt sent"
 
 
@@ -99,42 +109,33 @@ def handle_sandbox_message(
         if task_run.is_terminal:
             # Terminal Run → create a NEW Run that resumes from the prior one. The new Run carries the
             # wrapped follow-up as its pending message and replays the snapshot + system prompt.
+            #
+            # RACE: `Task.create_run` is NOT idempotent — every call unconditionally inserts a fresh
+            # TaskRun row (products/tasks/backend/models.py), with no dedup on `resume_from_run_id`.
+            # Two tabs that both observe the same terminal run would each create a distinct resume Run
+            # and start two workflows. Serialize on the Conversation row with SELECT FOR UPDATE so the
+            # second writer blocks until the first commits, then sees the already-created resume Run and
+            # reuses it instead of duplicating (02_CORE § 12).
             snapshot_ext_id = (task_run.state or {}).get("snapshot_external_id")
             if not snapshot_ext_id:
                 raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
 
             system_prompt = asgi_async_to_sync(build_posthog_ai_system_prompt)(team, user)
-
             task = task_run.task
-            new_run = task.create_run(
-                mode="interactive",
-                extra_state={
-                    "snapshot_external_id": snapshot_ext_id,
-                    "resume_from_run_id": str(task_run.id),
-                    "pending_user_message": wrapped_content,
-                    "initial_permission_mode": "default",
-                    "system_prompt": system_prompt,
-                    "attached_context": undeduped_context,
-                },
+
+            new_run = _create_or_reuse_resume_run(
+                conversation=conversation,
+                terminal_run=task_run,
+                task=task,
+                team=team,
+                user=user,
+                snapshot_ext_id=snapshot_ext_id,
+                wrapped_content=wrapped_content,
+                system_prompt=system_prompt,
+                undeduped_context=undeduped_context,
             )
             run_id = str(new_run.id)
-
-            # Narrow update_fields: only the run pointer moves; the task pointer is unchanged.
-            conversation.sandbox_run_id = new_run.id
-            conversation.save(update_fields=["sandbox_run_id"])
-
             set_sandbox_mapping(conversation_id, str(task.id), run_id)
-
-            # Force "full" MCP scopes (decision 10) — the workflow entrypoint defaults to "read_only",
-            # which would silently strip the agent's write tools on the resumed Run.
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=run_id,
-                team_id=task.team_id,
-                user_id=user.pk,
-                create_pr=False,
-                posthog_mcp_scopes="full",
-            )
 
             _seed_sandbox_stream(run_id)
             start_id = "0"
@@ -257,6 +258,71 @@ def handle_sandbox_message(
     )
 
 
+def _create_or_reuse_resume_run(
+    *,
+    conversation: Conversation,
+    terminal_run: TaskRun,
+    task: Task,
+    team: Team,
+    user: User,
+    snapshot_ext_id: str,
+    wrapped_content: str,
+    system_prompt: str,
+    undeduped_context: list[dict[str, Any]],
+) -> TaskRun:
+    """Atomically create the resume Run for a terminal-then-resume follow-up, or reuse a concurrent one.
+
+    Serializes concurrent two-tab follow-ups by locking the Conversation row with SELECT FOR UPDATE.
+    The first writer creates the resume Run, re-points the Conversation, and starts the workflow. A
+    second writer — blocked until the first commits — re-reads the Conversation under the lock and, if
+    it now points at a *different, non-terminal* Run, reuses that Run instead of inserting a duplicate
+    (and never starts a second workflow). ``Task.create_run`` is non-idempotent, so this lock is the
+    only thing preventing duplicate resume Runs (02_CORE § 12).
+
+    The workflow start is an irreversible side effect, so it runs only on the writer path and only
+    after the row is committed — never inside the lock and never on the reuse path.
+    """
+    with transaction.atomic():
+        # nosemgrep: idor-lookup-without-team (caller already gated the conversation by team via get_object)
+        locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
+
+        current_run_id = locked.sandbox_run_id
+        if current_run_id is not None and current_run_id != terminal_run.id:
+            existing = TaskRun.objects.filter(id=current_run_id, team=team).first()
+            if existing is not None and not existing.is_terminal:
+                # Another tab already created (and started) the resume Run while we waited on the lock.
+                conversation.sandbox_run_id = existing.id
+                return existing
+
+        new_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "snapshot_external_id": snapshot_ext_id,
+                "resume_from_run_id": str(terminal_run.id),
+                "pending_user_message": wrapped_content,
+                "initial_permission_mode": "default",
+                "system_prompt": system_prompt,
+                "attached_context": undeduped_context,
+            },
+        )
+        # Narrow update_fields: only the run pointer moves; the task pointer is unchanged.
+        conversation.sandbox_run_id = new_run.id
+        conversation.save(update_fields=["sandbox_run_id"])
+
+    # Force "full" MCP scopes (decision 10) — the workflow entrypoint defaults to "read_only",
+    # which would silently strip the agent's write tools on the resumed Run. Started after commit so a
+    # rolled-back lock never leaves a live workflow pointing at an orphaned Run.
+    execute_task_processing_workflow(
+        task_id=str(task.id),
+        run_id=str(new_run.id),
+        team_id=task.team_id,
+        user_id=user.pk,
+        create_pr=False,
+        posthog_mcp_scopes="full",
+    )
+    return new_run
+
+
 def _persist_run_attached_context(task_run: TaskRun, undeduped_context: list[dict[str, Any]]) -> None:
     """Persist the full undeduped attached_context on an in-progress Run's state.
 
@@ -349,6 +415,72 @@ def cancel_sandbox_run(task_run: TaskRun, user: User) -> str:
         body = {}
 
     return str((body or {}).get("status") or TaskRun.Status.CANCELLED.value)
+
+
+def send_permission_response(
+    task_run: TaskRun,
+    user: User,
+    *,
+    request_id: str,
+    option_id: str,
+    custom_input: str | None = None,
+) -> dict[str, Any]:
+    """Forward a ``permission_response`` command to the live agent server, synchronously.
+
+    Mirrors :func:`cancel_sandbox_run` and the non-``user_message`` branch of
+    ``TaskRunViewSet.command`` (products/tasks/backend/api.py): the cancel/permission/close commands
+    proxy *synchronously* to the agent server and require a live ``state.sandbox_url`` validated
+    against the SSRF allowlist. ``requestId``/``optionId`` are forwarded under ``params`` (the
+    agent-server's ``permission_response`` shape, 02_CORE § 5.5); ``customInput`` rides along only
+    when the user picked a ``reject_with_feedback`` option. Raises a DRF
+    ``ValidationError``/``APIException`` so the ``permission`` @action surfaces a useful HTTP status.
+    Returns the agent server's JSON body (echoed back to the browser).
+    """
+    run_state = parse_run_state(task_run.state)
+
+    if not run_state.sandbox_url:
+        raise exceptions.ValidationError("No active sandbox for this task run.")
+
+    if not TaskRunViewSet._is_valid_sandbox_url(run_state.sandbox_url):
+        logger.warning("sandbox_permission_blocked_invalid_url", run_id=str(task_run.id))
+        raise exceptions.ValidationError("Invalid sandbox URL.")
+
+    connection_token = create_sandbox_connection_token(
+        task_run=task_run,
+        user_id=user.pk,
+        distinct_id=str(user.distinct_id),
+    )
+
+    params: dict[str, Any] = {"requestId": request_id, "optionId": option_id}
+    if custom_input:
+        params["customInput"] = custom_input
+
+    payload: dict[str, Any] = {"jsonrpc": "2.0", "method": "permission_response", "params": params}
+
+    try:
+        agent_response = TaskRunViewSet._proxy_command_to_agent_server(
+            sandbox_url=run_state.sandbox_url,
+            connection_token=connection_token,
+            sandbox_connect_token=run_state.sandbox_connect_token,
+            payload=payload,
+        )
+    except (http_requests.ConnectionError, http_requests.Timeout) as e:
+        logger.warning("sandbox_permission_agent_unreachable", run_id=str(task_run.id), error=str(e))
+        raise exceptions.APIException("Agent server is not reachable.")
+    except Exception as e:
+        logger.exception("sandbox_permission_proxy_failed", run_id=str(task_run.id), error=str(e))
+        raise exceptions.APIException("Failed to send permission response to agent server.")
+
+    if not agent_response.ok:
+        logger.warning("sandbox_permission_agent_rejected", run_id=str(task_run.id), status=agent_response.status_code)
+        raise exceptions.APIException("Agent server rejected the permission response.")
+
+    try:
+        body = agent_response.json()
+    except Exception:
+        body = {}
+
+    return body or {}
 
 
 def _make_streaming_response(

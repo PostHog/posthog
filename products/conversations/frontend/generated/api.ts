@@ -26,6 +26,7 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    PermissionResponseApi,
     SuggestReplyResponseApi,
     TicketApi,
     TicketViewApi,
@@ -204,6 +205,27 @@ export const conversationsLogRetrieve = async (
     return apiMutator<ConversationLogApi>(getConversationsLogRetrieveUrl(projectId, conversation, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsPermissionCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/permission/`
+}
+
+/**
+ * Resolve a sandbox-runtime permission request. Forwards a `permission_response` command synchronously to the live agent server (mirrors the cancel proxy) and persists the chosen option plus the offered options[] on the conversation. Sandbox runtime only — langgraph approvals resume via the create endpoint's resume_payload and return 400 here.
+ */
+export const conversationsPermissionCreate = async (
+    projectId: string,
+    conversation: string,
+    permissionResponseApi: PermissionResponseApi,
+    options?: RequestInit
+): Promise<ConversationApi> => {
+    return apiMutator<ConversationApi>(getConversationsPermissionCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(permissionResponseApi),
     })
 }
 
