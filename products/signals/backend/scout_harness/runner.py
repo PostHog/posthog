@@ -153,7 +153,9 @@ async def arun_signals_scout(
         runtime_s = time.monotonic() - started
         # A failure before the on_task_run_created hook fires means no row was persisted —
         # don't hand callers a run_id that resolves to nothing.
-        row_persisted = await database_sync_to_async(_run_row_exists, thread_sensitive=False)(run_id)
+        row_persisted = await database_sync_to_async(_run_row_exists, thread_sensitive=False)(
+            run_id, team.parent_team_id or team.id
+        )
         # Fail safe and silent: the TaskRun MultiTurnSession spans carries the error
         # context (status=FAILED, error_message, full chat log via LLMA). Nothing
         # additional to persist on the bridge row.
@@ -259,6 +261,7 @@ async def _spawn_and_run(
         # carries the error context.
         await database_sync_to_async(_finalize_run_summary, thread_sensitive=False)(
             run_id=run_id,
+            team_id=team.parent_team_id or team.id,
             summary=result.summary,
         )
         return result.summary, str(session.task_run.id)
@@ -321,14 +324,14 @@ def _create_run_row(
     )
 
 
-def _run_row_exists(run_id: Any) -> bool:
-    return SignalScoutRun.objects.unscoped().filter(id=run_id).exists()
+def _run_row_exists(run_id: Any, team_id: int) -> bool:
+    return SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).exists()
 
 
-def _finalize_run_summary(*, run_id: Any, summary: str) -> None:
+def _finalize_run_summary(*, run_id: Any, team_id: int, summary: str) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
     # by the agent's close-out, and `update()` skips the full model refresh.
-    SignalScoutRun.objects.unscoped().filter(id=run_id).update(summary=summary)
+    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(summary=summary)
 
 
 def _step_name(skill: LoadedSkill) -> str:
