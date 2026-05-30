@@ -35,12 +35,14 @@ class TestLLMGatewayPolicyProjection(BaseTest):
         )
         self.assertEqual(
             set(LLM_GATEWAY_POLICY_FIELDS),
-            {"id", "api_token", "llm_gateway_revoked_at"},
+            {"id", "api_token", "llm_gateway_enabled_at", "llm_gateway_revoked_at"},
         )
 
     def test_populated_team_round_trips_through_json(self):
+        enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
         revoked_at = datetime(2026, 5, 20, 12, 34, 56, tzinfo=UTC)
 
+        self.team.llm_gateway_enabled_at = enabled_at
         self.team.llm_gateway_revoked_at = revoked_at
         self.team.save()
 
@@ -48,22 +50,25 @@ class TestLLMGatewayPolicyProjection(BaseTest):
 
         self.assertEqual(policy["id"], self.team.id)
         self.assertEqual(policy["api_token"], self.team.api_token)
-        # Datetime must be ISO8601 so the Go service can parse it from JSON.
+        # Datetimes must be ISO8601 so the Go service can parse them from JSON.
+        self.assertEqual(policy["llm_gateway_enabled_at"], enabled_at.isoformat())
         self.assertEqual(policy["llm_gateway_revoked_at"], revoked_at.isoformat())
 
         rehydrated = json.loads(json.dumps(policy))
         self.assertEqual(rehydrated, policy)
 
-    def test_unset_team_serializes_to_null_revoked_at(self):
+    def test_unset_team_serializes_to_null_enabled_and_revoked(self):
         """
-        A team that has never been revoked projects a null revoked_at, not a
-        default, so the schema migration needs no backfill. The gateway treats
-        null as active.
+        A team that has never been enrolled or revoked projects null for both,
+        so the schema migration needs no backfill. The gateway reads null
+        enabled_at as not enrolled (default-deny) and null revoked_at as not
+        revoked.
         """
         policy = _serialize_team_to_llm_gateway_policy(self.team)
 
         self.assertEqual(policy["id"], self.team.id)
         self.assertEqual(policy["api_token"], self.team.api_token)
+        self.assertIsNone(policy["llm_gateway_enabled_at"])
         self.assertIsNone(policy["llm_gateway_revoked_at"])
 
 
@@ -75,6 +80,7 @@ class TestLLMGatewayPolicyCacheOps(BaseTest):
         mock_payload: dict[str, Any] = {
             "id": self.team.id,
             "api_token": self.team.api_token,
+            "llm_gateway_enabled_at": None,
             "llm_gateway_revoked_at": None,
         }
         mock_hypercache.get_from_cache.return_value = mock_payload
@@ -196,6 +202,29 @@ class TestLLMGatewayPolicySignals(BaseTest):
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         self.team.llm_gateway_revoked_at = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_setting_enabled_at_clears_current_token_cache_on_commit(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Setting llm_gateway_enabled_at must invalidate synchronously for the
+        same reason as the revoke path: until the async task runs, the
+        gateway would keep treating the team as not-enrolled and 401 every
+        request even after admin flips them on.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
