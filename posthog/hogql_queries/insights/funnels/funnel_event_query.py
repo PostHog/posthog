@@ -28,6 +28,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (
@@ -244,6 +245,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
             )
 
+        tag_contains_user_hogql()
         select: list[ast.Expr] = [
             ast.Alias(
                 alias="timestamp",
@@ -558,6 +560,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # Aggregating by HogQL
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
+            tag_contains_user_hogql()
             aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
         if isinstance(aggregation_target, str):

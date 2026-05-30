@@ -335,6 +335,7 @@
     'insight',
     'team',
     'text',
+    'widget',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
@@ -579,6 +580,7 @@
     'sort_tiles_by_layout',
     'team_id',
     'text_id',
+    'widget_id',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_EarlyAccessFeature
@@ -761,7 +763,6 @@
     'rollback_conditions',
     'rollout_percentage',
     'scheduled_changes_dispatcher',
-    'super_conditions',
     'surveys_internal_response_sampling_flag',
     'surveys_internal_targeting_flag',
     'surveys_linked_flag',

@@ -12,8 +12,6 @@ from parameterized import parameterized
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.file_system.user_product_list import UserProductList
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     _fetch_product_intents,
@@ -30,7 +28,9 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class TestProductIntent(BaseTest):

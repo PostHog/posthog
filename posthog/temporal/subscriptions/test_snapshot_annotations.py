@@ -9,8 +9,10 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.api.annotation_context import resolve_snapshot_date_range
-from posthog.models import Annotation, Insight
+from posthog.models import Annotation
 from posthog.temporal.subscriptions.snapshot_activities import _load_annotations_section
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _snap_with_range(date_from: str | None, date_to: str | None) -> dict:

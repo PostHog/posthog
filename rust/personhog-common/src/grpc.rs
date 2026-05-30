@@ -23,10 +23,19 @@ use tower::{Layer, Service};
 /// Header name for client identification in gRPC metadata.
 const CLIENT_NAME_HEADER: &str = "x-client-name";
 
+/// Header name for caller-tag attribution in gRPC metadata.
+/// Identifies the code path / feature area within a service that
+/// triggered the request (e.g., "api/feature-flags", "celery/cohort-calculation").
+const CALLER_TAG_HEADER: &str = "x-caller-tag";
+
 tokio::task_local! {
     /// Per-request client name, set by `GrpcMetricsLayer` and readable
     /// anywhere in the request's async call chain via `current_client_name()`.
     pub static CLIENT_NAME: Arc<str>;
+
+    /// Per-request caller tag, set by `GrpcMetricsLayer` and readable
+    /// anywhere in the request's async call chain via `current_caller_tag()`.
+    pub static CALLER_TAG: Arc<str>;
 }
 
 /// Get the current client name from the task-local, or `"unknown"` if not set.
@@ -38,15 +47,49 @@ pub fn current_client_name() -> Arc<str> {
         .unwrap_or_else(|_| Arc::from("unknown"))
 }
 
-/// Extract the client name from HTTP headers, defaulting to `"unknown"`.
-fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
+/// Get the current caller tag from the task-local, or `"unknown"` if not set.
+pub fn current_caller_tag() -> Arc<str> {
+    CALLER_TAG
+        .try_with(|t| t.clone())
+        .unwrap_or_else(|_| Arc::from("unknown"))
+}
+
+const MAX_HEADER_TAG_LEN: usize = 128;
+
+fn is_safe_tag_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | ':' | '.')
+}
+
+fn sanitize_header_tag(raw: &str) -> &str {
+    let s = if raw.len() > MAX_HEADER_TAG_LEN {
+        &raw[..MAX_HEADER_TAG_LEN]
+    } else {
+        raw
+    };
+    if s.chars().all(is_safe_tag_char) {
+        s
+    } else {
+        "unknown"
+    }
+}
+
+fn extract_sanitized_header<B>(request: &Request<B>, header: &str) -> Arc<str> {
     request
         .headers()
-        .get(CLIENT_NAME_HEADER)
+        .get(header)
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
+        .map(sanitize_header_tag)
         .unwrap_or("unknown")
         .into()
+}
+
+fn extract_client_name<B>(request: &Request<B>) -> Arc<str> {
+    extract_sanitized_header(request, CLIENT_NAME_HEADER)
+}
+
+fn extract_caller_tag<B>(request: &Request<B>) -> Arc<str> {
+    extract_sanitized_header(request, CALLER_TAG_HEADER)
 }
 
 // ============================================================
@@ -199,6 +242,12 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 /// histogram quantiles.
 pub const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
+/// Response header set by [`AsyncGzipLayer`] with the total gzip layer
+/// overhead in milliseconds (body collection + compression). The router
+/// subtracts this alongside `PROCESSING_TIME_HEADER` to isolate true
+/// network RTT.
+pub const GZIP_OVERHEAD_HEADER: &str = "x-gzip-overhead-ms";
+
 /// Tower layer that instruments gRPC requests with timing and concurrency metrics.
 ///
 /// Records:
@@ -257,15 +306,19 @@ where
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
         let method = extract_grpc_method(request.uri().path());
         let client = extract_client_name(&request);
+        let caller_tag = extract_caller_tag(&request);
         gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
             .increment(1.0);
 
         let start = Instant::now();
-        // Call inner inside the scope so any synchronous work in call() sees CLIENT_NAME.
-        let inner = CLIENT_NAME.sync_scope(client.clone(), || self.inner.call(request));
+        // Call inner inside both scopes so any synchronous work in call()
+        // sees CLIENT_NAME and CALLER_TAG.
+        let inner = CLIENT_NAME.sync_scope(client.clone(), || {
+            CALLER_TAG.sync_scope(caller_tag.clone(), || self.inner.call(request))
+        });
 
         GrpcMetricsFuture {
-            inner: CLIENT_NAME.scope(client.clone(), inner),
+            inner: CLIENT_NAME.scope(client.clone(), CALLER_TAG.scope(caller_tag, inner)),
             method,
             client,
             start,
@@ -276,14 +329,14 @@ where
 
 /// Future returned by [`GrpcMetricsService`].
 ///
-/// Wraps the inner service future with task-local client name propagation
-/// and records request metrics (counter, histogram, in-flight gauge) on
-/// completion or cancellation. Lives inline in the caller's async state
-/// machine — no heap allocation or dynamic dispatch.
+/// Wraps the inner service future with task-local client name and caller tag
+/// propagation, and records request metrics (counter, histogram, in-flight
+/// gauge) on completion or cancellation. Lives inline in the caller's async
+/// state machine — no heap allocation or dynamic dispatch.
 #[pin_project(PinnedDrop)]
 pub struct GrpcMetricsFuture<F> {
     #[pin]
-    inner: TaskLocalFuture<Arc<str>, F>,
+    inner: TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, F>>,
     method: String,
     client: Arc<str>,
     start: Instant,
@@ -638,5 +691,95 @@ mod tests {
         assert_eq!(extract_grpc_method("/a.b.c/Method"), "Method");
         assert_eq!(extract_grpc_method("/"), "unknown");
         assert_eq!(extract_grpc_method(""), "unknown");
+    }
+
+    #[test]
+    fn extract_caller_tag_from_headers() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", "api/feature-flags")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "api/feature-flags");
+    }
+
+    #[test]
+    fn extract_caller_tag_defaults_to_unknown() {
+        let req = Request::builder().uri("/pkg.Svc/Method").body(()).unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "unknown");
+    }
+
+    #[test]
+    fn extract_caller_tag_treats_empty_as_unknown() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", "")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "unknown");
+    }
+
+    #[test]
+    fn current_caller_tag_defaults_outside_scope() {
+        assert_eq!(&*current_caller_tag(), "unknown");
+    }
+
+    #[test]
+    fn extract_caller_tag_truncates_long_value() {
+        let long_tag = "a".repeat(200);
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", &long_tag)
+            .body(())
+            .unwrap();
+        assert_eq!(extract_caller_tag(&req).len(), MAX_HEADER_TAG_LEN);
+    }
+
+    #[test]
+    fn extract_caller_tag_rejects_unsafe_chars() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-caller-tag", "bad tag with spaces!")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_caller_tag(&req), "unknown");
+    }
+
+    #[test]
+    fn extract_client_name_truncates_long_value() {
+        let long_name = "b".repeat(200);
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-client-name", &long_name)
+            .body(())
+            .unwrap();
+        assert_eq!(extract_client_name(&req).len(), MAX_HEADER_TAG_LEN);
+    }
+
+    #[test]
+    fn extract_client_name_rejects_unsafe_chars() {
+        let req = Request::builder()
+            .uri("/pkg.Svc/Method")
+            .header("x-client-name", "bad name!")
+            .body(())
+            .unwrap();
+        assert_eq!(&*extract_client_name(&req), "unknown");
+    }
+
+    #[test]
+    fn sanitize_allows_valid_tag_chars() {
+        assert_eq!(
+            sanitize_header_tag("api/feature-flags"),
+            "api/feature-flags"
+        );
+        assert_eq!(
+            sanitize_header_tag("celery/calculate_cohort_ch"),
+            "celery/calculate_cohort_ch"
+        );
+        assert_eq!(
+            sanitize_header_tag("posthog-django-web"),
+            "posthog-django-web"
+        );
+        assert_eq!(sanitize_header_tag("some:tag.v1"), "some:tag.v1");
     }
 }

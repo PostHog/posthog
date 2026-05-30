@@ -46,13 +46,7 @@ from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
-from .hog_flow import HogFlow
-from .hog_functions import HogFunction
-from .hog_function_template import HogFunctionTemplate
 from .health_issue import HealthIssue
-from .insight import Insight, InsightViewed
-from .insight_caching_state import InsightCachingState
-from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .integration_repository_cache import IntegrationRepositoryCacheEntry
@@ -67,7 +61,6 @@ from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
-from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
@@ -152,15 +145,8 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HealthIssue",
-    "HogFlow",
-    "HogFunction",
-    "HogFunctionTemplate",
     "LLMPrompt",
     "HostDefinition",
-    "Insight",
-    "InsightCachingState",
-    "InsightVariable",
-    "InsightViewed",
     "InstanceSetting",
     "Integration",
     "IntegrationRepositoryCacheEntry",
@@ -188,11 +174,6 @@ __all__ = [
     "ProjectSecretAPIKey",
     "PersonOverride",
     "PersonOverrideMapping",
-    "Plugin",
-    "PluginAttachment",
-    "PluginConfig",
-    "PluginLogEntry",
-    "PluginSourceFile",
     "ProductIntent",
     "Project",
     "Property",

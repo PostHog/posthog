@@ -166,6 +166,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamDefaultEvaluationContext",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         "TeamJsSnippetConfig",
@@ -326,6 +327,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
+        "SlackSettings",  # via Integration
     }
 
     team_scoped: set[str] = set()

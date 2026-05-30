@@ -4,6 +4,7 @@ Business logic for Wizard sessions.
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
+from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
 from products.wizard.backend.models import WizardSession
 
@@ -37,7 +38,9 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             "error": params.error,
         },
     )
-    return _to_dto(instance), created
+    dto = _to_dto(instance)
+    publish_session_update(dto)
+    return dto, created
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
@@ -45,12 +48,11 @@ def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
     return _to_dto(instance) if instance else None
 
 
-def get_latest_session(team_id: int, workflow_id: str, skill_id: str) -> WizardSessionDTO | None:
-    instance = (
-        WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id, skill_id=skill_id)
-        .order_by("-started_at")
-        .first()
-    )
+def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = None) -> WizardSessionDTO | None:
+    qs = WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id)
+    if skill_id:
+        qs = qs.filter(skill_id=skill_id)
+    instance = qs.order_by("-started_at").first()
     return _to_dto(instance) if instance else None
 
 

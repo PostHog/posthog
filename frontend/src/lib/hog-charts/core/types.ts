@@ -100,6 +100,9 @@ export interface PointClickData<Meta = unknown> {
     label: string
     /** Values from all visible series at this x-axis index, for cross-series comparisons. */
     crossSeriesData: { series: Series<Meta>; value: number }[]
+    /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
+     *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
+    cursor: { x: number; y: number } | null
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -111,8 +114,11 @@ export interface TooltipContext<Meta = unknown> {
     /** One entry per visible series with its value and color at this index. `fraction` is set
      *  for radial charts (share of total) so renderers don't need to look the slice back up. */
     seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
-    /** Pixel position (relative to the chart container) for anchoring the tooltip. */
-    position: { x: number; y: number }
+    /** Pixel position (relative to the chart container) for anchoring the tooltip.
+     *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
+     *  populate it with the band width so {@link Tooltip} can anchor at the band edge
+     *  rather than the band center. Point-style charts (lines, scatter) leave it unset. */
+    position: { x: number; y: number; width?: number }
     /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
     hoverPosition: { x: number; y: number } | null
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
@@ -180,6 +186,8 @@ export interface ChartConfig {
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
      *  on layout context so overlays can default to a percent formatter. */
     isPercent?: boolean
+    /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
+    animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
      *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
      *  Should be referentially stable — pass a module-level constant rather than an inline object. */
@@ -210,6 +218,19 @@ export interface BarChartConfig extends ChartConfig {
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack
      *  below the zero baseline (positives above). Default `false` clamps negatives to 0. */
     divergingStack?: boolean
+    /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while
+     *  gridlines still span the full width — useful for few-category funnel-style charts. */
+    maxBandRange?: number
+    /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half
+     *  this value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+    bandPadding?: number
+    /** Drop shadow under each bar so it reads as layered over a `barTrack`. */
+    barShadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush
+     *  into an unreadable strip, the chart expands its container height so each row has at
+     *  least this much vertical space (label height + breathing room). Defaults to `24`.
+     *  Pass `0` to opt out. */
+    minBandSize?: number
 }
 
 export interface LineChartConfig extends ChartConfig {
@@ -234,7 +255,15 @@ export interface ChartDrawArgs {
     hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
+    /** Hover-fade progress (0..1). Apply as `ctx.globalAlpha` around highlight rendering. */
+    hoverProgress: number
+    /** Restart the hover-fade at progress 0; returns the new value to use this frame.
+     *  Call when the chart type detects a visible-state change at the same hoverIndex. */
+    resetHoverFade: () => number
 }
+
+/** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */
+export type DrawHoverResult = boolean
 
 /** Resolves the y-value for a series at a given data index. Used by interaction/tooltip layer. */
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
@@ -271,6 +300,10 @@ export interface ChartScales {
     /** Per-axis y scales keyed by axis id. Present when dual axes are active.
      *  When absent, all series use `y` / `yTicks`. */
     yAxes?: Record<string, YAxisScale>
+    /** Optional horizontal data-extent at a label — bar charts populate this with the
+     *  band width so {@link TooltipContext.position.width} carries it through to the
+     *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
+    extent?: (label: string) => number | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
      *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.

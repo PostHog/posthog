@@ -33,6 +33,16 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                 <Field name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
                 </Field>
+                <Field name="scanner_config.emits_embeddings">
+                    {({ value, onChange }) => (
+                        <LemonSwitch
+                            label="Emit embeddings to enable free-text search"
+                            checked={!!value}
+                            onChange={onChange}
+                            bordered
+                        />
+                    )}
+                </Field>
             </div>
         )
     }
@@ -73,7 +83,20 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             <div>
                                 <div className="text-sm font-medium">Allow multiple tags per session</div>
                                 <div className="text-xs text-muted">
-                                    When off, the model picks exactly one tag. When on, it can pick zero or more.
+                                    Otherwise the model picks exactly one tag from your vocabulary.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </Field>
+                <Field name="scanner_config.allow_freeform_tags">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch checked={!!value} onChange={onChange} />
+                            <div>
+                                <div className="text-sm font-medium">Allow freeform tags</div>
+                                <div className="text-xs text-muted">
+                                    Lets the model emit tags outside your tag vocabulary.
                                 </div>
                             </div>
                         </div>
@@ -129,17 +152,6 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                     }}
                 </Field>
             </div>
-        )
-    }
-
-    if (scanner.scanner_type === 'indexer') {
-        return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Focus on the user's actions and goals. Ignore loading screens and animation noise."
-                    minRows={6}
-                />
-            </Field>
         )
     }
 

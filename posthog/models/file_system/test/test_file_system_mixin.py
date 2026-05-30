@@ -1,11 +1,13 @@
 from django.test import TestCase
 
-from posthog.models import FileSystem, Insight, Organization, Team, User
+from posthog.models import FileSystem, Organization, Team, User
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestFileSystemSyncMixin(TestCase):
@@ -195,3 +197,69 @@ class TestFileSystemSyncMixin(TestCase):
         assert FileSystem.objects.filter(id=fs_entry_id).exists() is False, (
             "Existing entries for internal notebooks should be deleted"
         )
+
+    def test_file_system_delete_clears_view_logs(self):
+        """
+        When a FileSystem row is removed (e.g. because the underlying insight was soft-deleted),
+        the matching FileSystemViewLog rows must also disappear so the Recents sidebar can't
+        surface a dead reference.
+        """
+        insight = Insight.objects.create(team=self.team, name="My Insight", saved=True, created_by=self.user)
+        fs_entry = FileSystem.objects.get(team=self.team, type="insight", ref=insight.short_id)
+        FileSystemViewLog.objects.create(team=self.team, user=self.user, type="insight", ref=insight.short_id)
+        self.assertEqual(FileSystemViewLog.objects.count(), 1)
+
+        # Soft-deleting the insight runs the post_save signal, which removes the FileSystem entry
+        insight.deleted = True
+        insight.save()
+
+        assert not FileSystem.objects.filter(id=fs_entry.id).exists()
+        self.assertEqual(FileSystemViewLog.objects.count(), 0)
+
+    def test_file_system_view_logs_survive_when_legacy_null_shortcut_row_remains(self):
+        """
+        Legacy FileSystem rows can have shortcut=NULL (the field is nullable and the Recents
+        query treats NULL as canonical). Deleting one canonical row while another canonical
+        row with shortcut=NULL still exists must not clear the view logs.
+        """
+        insight = Insight.objects.create(team=self.team, name="My Insight", saved=True, created_by=self.user)
+        FileSystemViewLog.objects.create(team=self.team, user=self.user, type="insight", ref=insight.short_id)
+
+        legacy_row = FileSystem.objects.create(
+            team=self.team,
+            path=f"Legacy/{insight.name}",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            href=f"/insights/{insight.short_id}",
+            shortcut=None,
+            created_by=self.user,
+        )
+
+        canonical = FileSystem.objects.get(team=self.team, type="insight", ref=insight.short_id, shortcut=False)
+        canonical.delete()
+
+        assert FileSystem.objects.filter(id=legacy_row.id).exists()
+        self.assertEqual(FileSystemViewLog.objects.count(), 1)
+
+    def test_file_system_view_logs_survive_shortcut_deletion(self):
+        """
+        Shortcuts share (type, ref) with their canonical file. Deleting a shortcut must not
+        clear view logs — they should follow the canonical row's lifecycle.
+        """
+        insight = Insight.objects.create(team=self.team, name="My Insight", saved=True, created_by=self.user)
+        FileSystemViewLog.objects.create(team=self.team, user=self.user, type="insight", ref=insight.short_id)
+
+        shortcut = FileSystem.objects.create(
+            team=self.team,
+            path=f"Shortcuts/{insight.name}",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            href=f"/insights/{insight.short_id}",
+            shortcut=True,
+            created_by=self.user,
+        )
+        shortcut.delete()
+
+        self.assertEqual(FileSystemViewLog.objects.count(), 1)
