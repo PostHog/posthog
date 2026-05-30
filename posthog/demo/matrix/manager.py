@@ -31,6 +31,9 @@ from .models import SimEvent, SimPerson
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
     MASTER_TEAM_ID = 0
+    # Upper bound on how many times we retry creating a demo user with a fresh +N email suffix
+    # when collisions are detected (both up-front and on INSERT race losses).
+    MAX_EMAIL_DISAMBIGUATION_ATTEMPTS = 1000
 
     matrix: Matrix
     use_pre_save: bool
@@ -56,56 +59,93 @@ class MatrixManager:
         is_staff: bool = False,
         email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
     ) -> tuple[Organization, Team, User]:
-        """If there's an email collision in signup in the demo environment, we treat it as a login."""
-        existing_user: User | None = User.objects.filter(email=email).first()
-        if existing_user is None or email_collision_handling == "disambiguate":
-            if existing_user is not None:
-                print(f"User {email} already exists, trying to find a unique email...")
-                original_user, domain = email.split("@")
-                for i in range(1, 1000):
-                    email = f"{original_user}+{i}@{domain}"
-                    if User.objects.filter(email=email).exists():
-                        continue
-                    break
-                else:
-                    raise exceptions.ValidationError(
-                        f"Cannot find a unique email for {original_user}@{domain} - unbelievable!"
-                    )
-                print(f"Collision resolved, using {email} for our demo user!")
+        """If there's an email collision in signup in the demo environment, we treat it as a login.
 
-            if self.print_steps:
-                print(f"Creating demo organization, project, and user...")
-            organization_kwargs: dict[str, Any] = {"name": organization_name}
-            if settings.DEMO:
-                organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
-            with transaction.atomic():
-                organization = Organization.objects.create(**organization_kwargs)
-                new_user = User.objects.create_and_join(
-                    organization,
-                    email,
-                    password,
-                    first_name,
-                    OrganizationMembership.Level.ADMIN,
-                    is_staff=is_staff,
-                    theme_mode="system",
-                    role_at_organization="engineering",
-                )
-                team = self.create_team(organization)
-            self.run_on_team(team, new_user)
-            return (organization, team, new_user)
-        elif existing_user.is_staff:
-            raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
+        The DB's unique constraint on User.email is the source of truth — the pre-check is only a
+        fast path. Collisions raised at INSERT time (e.g. a concurrent ``generate_demo_data`` run
+        or a previous partial run claiming the email between check and insert) are caught and
+        either retried with a fresh ``+N`` suffix or treated as a login.
+        """
+        existing_user: User | None = User.objects.filter(email=email).first()
+        if existing_user is not None and email_collision_handling == "log_in":
+            return self._return_existing_account(existing_user, email=email, is_staff=is_staff)
+
+        candidate_email = email
+        if existing_user is not None:  # disambiguate
+            print(f"User {email} already exists, trying to find a unique email...")
+            candidate_email = self._find_unused_disambiguated_email(email)
+            print(f"Collision resolved, using {candidate_email} for our demo user!")
+
+        if self.print_steps:
+            print("Creating demo organization, project, and user...")
+        organization_kwargs: dict[str, Any] = {"name": organization_name}
+        if settings.DEMO:
+            organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
+
+        for _ in range(self.MAX_EMAIL_DISAMBIGUATION_ATTEMPTS):
+            try:
+                # A fresh atomic block per attempt - once an IntegrityError aborts the outer
+                # transaction, the block must be re-entered before any further DB work.
+                with transaction.atomic():
+                    organization = Organization.objects.create(**organization_kwargs)
+                    new_user = User.objects.create_and_join(
+                        organization,
+                        candidate_email,
+                        password,
+                        first_name,
+                        OrganizationMembership.Level.ADMIN,
+                        is_staff=is_staff,
+                        theme_mode="system",
+                        role_at_organization="engineering",
+                    )
+                    team = self.create_team(organization)
+                break
+            except IntegrityError:
+                # A concurrent run (or a previous partial run) claimed this email between the
+                # pre-check and the INSERT. The DB constraint is authoritative, so resolve by
+                # either logging in to the now-existing account or trying another +N suffix.
+                if email_collision_handling == "log_in":
+                    race_winner = User.objects.filter(email=candidate_email).first()
+                    if race_winner is None:
+                        raise  # IntegrityError was on something other than email - propagate
+                    return self._return_existing_account(race_winner, email=candidate_email, is_staff=is_staff)
+                print(f"Email {candidate_email} was claimed concurrently, picking another...")
+                candidate_email = self._find_unused_disambiguated_email(email)
         else:
-            assert existing_user.organization is not None
-            assert existing_user.team is not None
-            if self.print_steps:
-                print(f"Found existing account for {email}.")
-            if is_staff and not existing_user.is_staff:
-                # Make sure the user is marked as staff - this is for users who signed up normally before
-                # and now are logging in securely as a PostHog team member
-                existing_user.is_staff = True
-                existing_user.save()
-            return (existing_user.organization, existing_user.team, existing_user)
+            raise exceptions.ValidationError(
+                f"Could not create a demo account for {email} after "
+                f"{self.MAX_EMAIL_DISAMBIGUATION_ATTEMPTS} attempts - unbelievable!"
+            )
+
+        self.run_on_team(team, new_user)
+        return (organization, team, new_user)
+
+    @classmethod
+    def _find_unused_disambiguated_email(cls, seed_email: str) -> str:
+        original_user, domain = seed_email.split("@")
+        for i in range(1, cls.MAX_EMAIL_DISAMBIGUATION_ATTEMPTS):
+            candidate = f"{original_user}+{i}@{domain}"
+            if not User.objects.filter(email=candidate).exists():
+                return candidate
+        raise exceptions.ValidationError(
+            f"Cannot find a unique email for {original_user}@{domain} - unbelievable!"
+        )
+
+    def _return_existing_account(
+        self, existing_user: User, *, email: str, is_staff: bool
+    ) -> tuple[Organization, Team, User]:
+        if existing_user.is_staff:
+            raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
+        assert existing_user.organization is not None
+        assert existing_user.team is not None
+        if self.print_steps:
+            print(f"Found existing account for {email}.")
+        if is_staff and not existing_user.is_staff:
+            # Mark the user as staff - this is for users who signed up normally before
+            # and now are logging in securely as a PostHog team member.
+            existing_user.is_staff = True
+            existing_user.save()
+        return (existing_user.organization, existing_user.team, existing_user)
 
     def reset_master(self):
         if self.matrix.is_complete is None:
