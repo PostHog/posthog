@@ -25,11 +25,11 @@ The LangGraph runtime continues to use this surface unchanged for users without 
 
 The rest of this document describes the **end state**. The work splits into three iterations, each a ship-able vertical behind the `posthog-ai-sandbox` flag. Section headers downstream carry `[I1]` / `[I2]` / `[I3]` tags; ambiguity is resolved by this table.
 
-| Iteration | Goal | Sections in scope | Out of scope |
-|---|---|---|---|
-| **I1 — vertical slice ("hello world")** | One user message → streamed response, end-to-end through the sandbox path (`POST /sandbox/` → frontend opens SSE directly against cloud-agent). Internal devs only. | § 2, § 3, § 4 (first-message branch of `POST /sandbox/`), § 4.1 (consume cloud-agent wire format), § 4.5, § 5.1, § 6.1–6.3 (SSE-owning logic + skeleton dispatch), § 7.1, § 7.3, partial § 11 | Multi-turn within a Run, resume across Runs, history retrieval for existing conversations, approvals, slash command gating, reconnect/backoff, pre-warming. Tool rendering = text-only placeholder; full registry runs in parallel via `03_RICH_UI.md` after I1 unblocks the wire format. |
-| **I2 — sustained conversations** | Multi-turn, resume after terminal, reopening old conversations, reconnect resilience. | § 4 (follow-up branches), § 4.2 (multi-Run history via `GET /log/`), § 4.3 (frontend reconnect), § 4.4 (frontend error mapping), § 4.6 (`GET /log/` endpoint), § 4.7, § 5.2, § 5.3, § 5.4, § 6 (terminal-status + error handling), § 7.2, § 9, § 10 | Approvals, slash command gating, race-handling for terminal-then-resume, pre-warming. |
-| **I3 — production-ready** | Approvals, slash command UX, race-hardening, pre-warming integration. | § 5.5, § 6 (`permission_request` ingest in `sandboxStreamLogic`), § 8, § 12 (race handling: cloud-agent dup-create idempotency + `SELECT FOR UPDATE` in `POST /sandbox/` if needed), integration with `05_SANDBOX.md` § 8 pre-warming | — |
+| Iteration                               | Goal                                                                                                                                                                | Sections in scope                                                                                                                                                                                                                                   | Out of scope                                                                                                                                                                                                                                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **I1 — vertical slice ("hello world")** | One user message → streamed response, end-to-end through the sandbox path (`POST /sandbox/` → frontend opens SSE directly against cloud-agent). Internal devs only. | § 2, § 3, § 4 (first-message branch of `POST /sandbox/`), § 4.1 (consume cloud-agent wire format), § 4.5, § 5.1, § 6.1–6.3 (SSE-owning logic + skeleton dispatch), § 7.1, § 7.3, partial § 11                                                       | Multi-turn within a Run, resume across Runs, history retrieval for existing conversations, approvals, slash command gating, reconnect/backoff, pre-warming. Tool rendering = text-only placeholder; full registry runs in parallel via `03_RICH_UI.md` after I1 unblocks the wire format. |
+| **I2 — sustained conversations**        | Multi-turn, resume after terminal, reopening old conversations, reconnect resilience.                                                                               | § 4 (follow-up branches), § 4.2 (multi-Run history via `GET /log/`), § 4.3 (frontend reconnect), § 4.4 (frontend error mapping), § 4.6 (`GET /log/` endpoint), § 4.7, § 5.2, § 5.3, § 5.4, § 6 (terminal-status + error handling), § 7.2, § 9, § 10 | Approvals, slash command gating, race-handling for terminal-then-resume, pre-warming.                                                                                                                                                                                                     |
+| **I3 — production-ready**               | Approvals, slash command UX, race-hardening, pre-warming integration.                                                                                               | § 5.5, § 6 (`permission_request` ingest in `sandboxStreamLogic`), § 8, § 12 (race handling: cloud-agent dup-create idempotency + `SELECT FOR UPDATE` in `POST /sandbox/` if needed), integration with `05_SANDBOX.md` § 8 pre-warming               | —                                                                                                                                                                                                                                                                                         |
 
 Each iteration ships independently behind the same `posthog-ai-sandbox` flag. I1 unlocks internal smoke testing. I2 unlocks sustained dogfooding. I3 unlocks broader internal release.
 
@@ -68,7 +68,9 @@ Following the [`django-migrations`](https://docs.posthog.com/handbook/engineerin
 The conversation row gains a single foreign key into the cloud-agent Task model (`products/tasks/backend/models.py::Task`). The Task lives in the same Postgres database as `Conversation`, so a real FK is correct — referential integrity, cascade control, and ORM ergonomics all matter.
 
 ```python
-sandbox_task = models.ForeignKey(
+# Real FK to the cloud-agent Task. Column is `task_id` — distinct from the
+# deprecated `sandbox_task_id` UUID column, which is left in place untouched.
+task = models.ForeignKey(
     "tasks.Task",
     null=True,
     blank=True,
@@ -80,34 +82,34 @@ sandbox_task = models.ForeignKey(
 # Current Run is derived, not stored. The Task's reverse relation gives every
 # Run; the latest by created_at is the active one.
 @property
-def current_sandbox_run(self) -> Optional["TaskRun"]:
-    if not self.sandbox_task_id:
+def current_run(self) -> Optional["TaskRun"]:
+    if not self.task_id:
         return None
-    return self.sandbox_task.runs.order_by("-created_at").first()
+    return self.task.runs.order_by("-created_at").first()
 ```
 
-`on_delete=SET_NULL` is deliberate. Conversations are user-facing artifacts; if the backing Task row is ever cleaned up (admin action, retention policy, future cleanup tooling), the conversation should survive with a nulled pointer rather than vanish. Conversations with `sandbox_task = NULL` on a non-LangGraph row are surfaced as "history only" — readable from the persisted ACP log but unable to accept new turns. `CASCADE` would silently delete user-visible history.
+`on_delete=SET_NULL` is deliberate. Conversations are user-facing artifacts; if the backing Task row is ever cleaned up (admin action, retention policy, future cleanup tooling), the conversation should survive with a nulled pointer rather than vanish. Conversations with `task = NULL` on a non-LangGraph row are surfaced as "history only" — readable from the persisted ACP log but unable to accept new turns. `CASCADE` would silently delete user-visible history.
 
-**Why derived `current_sandbox_run`, not a stored FK.** A conversation can accumulate many Runs over its life (one per terminal+resume cycle — see § 5.3 and `05_SANDBOX.md` § 9). All Runs share the same `Task`; the latest by `created_at` is by definition the one that next user messages target. Storing a second FK to "the current Run" would denormalise this fact and create a consistency hazard — two concurrent tabs both creating successor Runs after a terminal predecessor would race the `Conversation.sandbox_run` update; whichever transaction commits second wins, but in the wrong direction. Derivation closes that hole: `ORDER BY created_at DESC LIMIT 1` always picks the most recent Run deterministically, regardless of update ordering. The query cost is one indexed lookup — negligible.
+**Why derived `current_run`, not a stored FK.** A conversation can accumulate many Runs over its life (one per terminal+resume cycle — see § 5.3 and `05_SANDBOX.md` § 9). All Runs share the same `Task`; the latest by `created_at` is by definition the one that next user messages target. Storing a second FK to "the current Run" would denormalise this fact and create a consistency hazard — two concurrent tabs both creating successor Runs after a terminal predecessor would race the stored-current-Run update; whichever transaction commits second wins, but in the wrong direction. Derivation closes that hole: `ORDER BY created_at DESC LIMIT 1` always picks the most recent Run deterministically, regardless of update ordering. The query cost is one indexed lookup — negligible.
 
-The on-disk consequence is that we delete (or never write) the `sandbox_run_id` UUID column, and we **do not reuse** the existing `sandbox_task_id` UUID column either. Both UUID columns from the partial `executor.py` Redis flow are deprecated and dropped outright; the new `sandbox_task` FK is a fresh column.
+**Legacy columns are deprecated, not dropped.** The existing `sandbox_task_id` and `sandbox_run_id` UUID columns from the partial `executor.py` Redis flow are **deprecated** — nothing reads or writes them on the new path — but they are **left in the schema untouched**. The new FK is a fresh `task` column (`task_id`); it does not reuse or rename either legacy column. We don't drop them: keeping them avoids a destructive migration on a column that other in-flight branches or tooling might still reference, and the cost of two dead nullable UUID columns is negligible. They can be removed later in a dedicated cleanup migration once we've confirmed nothing references them.
 
-Migration plan (single migration, no in-place rename):
+Migration plan (single migration, additive only):
 
-1. Add the new `sandbox_task` FK column (nullable, default NULL).
-2. Drop the legacy `sandbox_task_id` UUID column.
-3. Drop the legacy `sandbox_run_id` UUID column.
+1. Add the new `task` FK column (nullable, default NULL).
+2. Leave `sandbox_task_id` and `sandbox_run_id` in place — no drop, no backfill, no rename.
 
-Both legacy columns are dropped without backfill — the Redis-relay flow they were attached to never shipped beyond internal experimentation, so there's no production data to preserve. Any caller that still references them gets a `column does not exist` error at PR time, surfaced by the typechecker and the integration tests. Cleaner than a `SeparateDatabaseAndState` rename — no risk of two columns transiently coexisting, no `db_column` indirection, no follow-up migration to clean up.
+Marking the legacy columns deprecated rather than dropping them keeps the migration purely additive — no `SeparateDatabaseAndState`, no destructive `ALTER`, no risk to any caller that still references them. New code simply ignores them; a follow-up cleanup migration can drop them once they're confirmed dead.
 
-The [`django-migrations`](https://docs.posthog.com/handbook/engineering/django-migrations) skill governs the migration shape; dropping nullable columns is safe in a single transaction on Postgres.
+The [`django-migrations`](https://docs.posthog.com/handbook/engineering/django-migrations) skill governs the migration shape; adding a nullable FK column is a safe, single-transaction `ADD COLUMN` on Postgres.
 
 Semantics for sandbox-runtime conversations:
 
-| Field          | When set                                            | When updated                                                          |
-| -------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
-| `sandbox_task` | First message of the conversation creates the Task. | Never. One Task per conversation for its whole life.                  |
-| `current_sandbox_run` (property) | Returns `None` until the first Run is created. Resolves to the latest Run by `created_at` afterwards. | Auto-updates whenever a new Run is inserted on the Task. |
+| Field                                            | When set                                                                                              | When updated                                                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `task`                                           | First message of the conversation creates the Task.                                                   | Never. One Task per conversation for its whole life.                                                            |
+| `current_run` (property)                         | Returns `None` until the first Run is created. Resolves to the latest Run by `created_at` afterwards. | Auto-updates whenever a new Run is inserted on the Task.                                                        |
+| `sandbox_task_id`, `sandbox_run_id` (deprecated) | —                                                                                                     | Never written by the new path; retained only for backward compatibility until a cleanup migration removes them. |
 
 The Task carries the agent-server lifecycle; Runs carry per-session bookkeeping. The conversation row only needs to know the Task — the current Run falls out of the data.
 
@@ -196,11 +198,11 @@ The handler:
 2. Compute `prior_seen = collect_seen_entity_refs(conversation)` by walking prior `_posthog/user_message` log entries (one S3 read; cached per request).
 3. `deduped = prune_repeated_entity_refs(attached_context, prior_seen)`; `wrapped = wrap_user_message(content, deduped)` ([`01_CONTEXT.md`](./01_CONTEXT.md) § 4.3).
 4. Branch:
-   - **First message in the conversation** (`conversation.sandbox_task` is NULL):
+   - **First message in the conversation** (`conversation.task` is NULL):
      - Build system prompt via `build_posthog_ai_system_prompt(...)` ([`04_PROMPTS.md`](./04_PROMPTS.md) § 6).
      - `POST /api/projects/{tid}/tasks/` to create the Task (no repository, no GitHub integration — [`04_PROMPTS.md`](./04_PROMPTS.md) § 2.3).
      - `POST /api/projects/{tid}/tasks/{taskId}/run/` with `pending_user_message: wrapped`, `state.attached_context: attached_context` (full undeduped list), `state.initial_permission_mode: "default"`, `state.systemPrompt: ...`.
-     - Persist `conversation.sandbox_task = task`. `current_sandbox_run` falls out of the Task's reverse relation.
+     - Persist `conversation.task = task`. `current_run` falls out of the Task's reverse relation.
      - Set `just_created_run: true` in the response.
    - **Follow-up, current Run in-progress** (`run.status in {queued, in_progress}`):
      - `POST /api/projects/{tid}/tasks/{taskId}/runs/{runId}/command/` with `{"jsonrpc":"2.0","method":"user_message","params":{"content": wrapped, "_meta": {"attached_context": [...]}}}`.
@@ -233,17 +235,17 @@ event: error
 data: { "errorTitle": "...", "errorMessage": "...", "retryable": true }
 ```
 
-| `data.type` (on default `message`) | Frontend handler                                                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| `notification`                     | `sandboxStreamLogic.ingestAcpFrame` (§ 6.3)                                               |
+| `data.type` (on default `message`) | Frontend handler                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| `notification`                     | `sandboxStreamLogic.ingestAcpFrame` (§ 6.3)                                                |
 | `permission_request`               | `sandboxStreamLogic.ingestPermissionRequest` + surface to `DangerousOperationApprovalCard` |
 | `task_run_state`                   | `sandboxStreamLogic.handleTerminalStatus` — drives Idle/Error transition                   |
-| `keepalive`                        | Ignored                                                                                   |
+| `keepalive`                        | Ignored                                                                                    |
 
-| Named `event:` | Frontend handler                            |
-| -------------- | ------------------------------------------- |
-| `error`        | `sandboxStreamLogic.handleStreamError`      |
-| `keepalive`    | Ignored                                     |
+| Named `event:` | Frontend handler                       |
+| -------------- | -------------------------------------- |
+| `error`        | `sandboxStreamLogic.handleStreamError` |
+| `keepalive`    | Ignored                                |
 
 **`trace_id` propagation.** The agent-server does not thread inbound `_meta.trace_id` from `POST /command/` calls onto outbound notifications (verified in `Twig/packages/agent/src/adapters/claude/claude-agent.ts:1593-1605`). The frontend doesn't need it stamped — it issued the POST and already knows the `trace_id` it should associate with the open SSE for the current Run. Correlation, not stamping.
 
@@ -251,7 +253,7 @@ data: { "errorTitle": "...", "errorMessage": "...", "retryable": true }
 
 The frontend `sandboxStreamLogic` is now responsible for assembling history when a conversation re-opens. The pattern mirrors `Twig/apps/code/src/main/services/cloud-task/service.ts:440-556` for the single-Run case and adds the multi-Run chain via the server-side `/log/` endpoint (§ 4.6):
 
-1. On conversation open with `conversation.sandbox_task != NULL`:
+1. On conversation open with `conversation.task != NULL`:
    - `GET /api/environments/{tid}/conversations/{id}/log/` returns the assembled chronological `StoredLogEntry[]` across all Runs on the Task, plus `current_run_status`. One round-trip; no multi-Run walk in the client.
    - Feed each entry through `ingestAcpFrame`. Same reducer code path as live events.
 2. If `current_run_status` is non-terminal, open SSE against `/api/projects/{tid}/tasks/{taskId}/runs/{currentRunId}/stream/` with `?start=latest`. Apply content-dedup against entries we already ingested from `/log/` (cloud spec § 9.4 — Redis-stream IDs aren't comparable to S3-log IDs). Same `Twig/.../service.ts` dedup strategy.
@@ -264,7 +266,7 @@ Constants (frontend-side; mirrored from PostHog Code):
 ```ts
 const MAX_SSE_RECONNECT_ATTEMPTS = 5
 const SSE_RECONNECT_BASE_DELAY_MS = 2_000
-const SSE_RECONNECT_MAX_DELAY_MS  = 30_000
+const SSE_RECONNECT_MAX_DELAY_MS = 30_000
 ```
 
 ### 4.3 Reconnect / backoff — frontend-owned [I2]
@@ -293,7 +295,7 @@ Cloud-agent emits some of these as `event: error` frames (per cloud spec § 5.6)
 
 ### 4.5 Module layout [I1 scaffold]
 
-```
+```text
 posthog/ee/hogai/sandbox/
     __init__.py
     types.py                ← existing
@@ -345,14 +347,16 @@ Response:
 Implementation (`log_assembler.py`):
 
 1. Enumerate the Task's Runs in chronological order:
+
    ```python
    runs = list(
        TaskRun.objects
-       .filter(task_id=conversation.sandbox_task_id)
+       .filter(task_id=conversation.task_id)
        .order_by("created_at")
        .values("id", "status", "created_at")
    )
    ```
+
 2. For each Run, paginate `GET /api/projects/{tid}/tasks/{taskId}/runs/{runId}/session_logs/?limit=5000` until `X-Has-More: false`. Concatenate into a single chronological `StoredLogEntry[]`.
 3. Return the buffer + `current_run_status` (the last Run's status).
 
@@ -366,10 +370,10 @@ Implementation (`log_assembler.py`):
 
 `GET /api/environments/{tid}/conversations/{conversationId}/` (existing endpoint, no path change).
 
-| Runtime | `messages` field |
-|---|---|
-| `langgraph` | Populated from the Django-side `ConversationMessage` table (today's behavior — unchanged). |
-| `sandbox` | **Empty array** (or absent). Sandbox conversations don't persist messages Django-side; history lives in S3 ACP logs and is fetched via § 4.6 or assembled via stream-bootstrap § 4.2. |
+| Runtime     | `messages` field                                                                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `langgraph` | Populated from the Django-side `ConversationMessage` table (today's behavior — unchanged).                                                                                            |
+| `sandbox`   | **Empty array** (or absent). Sandbox conversations don't persist messages Django-side; history lives in S3 ACP logs and is fetched via § 4.6 or assembled via stream-bootstrap § 4.2. |
 
 This split is intentional. Mirroring sandbox messages Django-side was considered (see `05_SANDBOX.md` open question #11) and rejected for the migration: it would double storage, and a `messages` field that's authoritative for one runtime but stale for the other is a worse contract than one that's empty for the runtime that owns its messages elsewhere. The detail endpoint stays fast — it doesn't paginate S3 — and metadata-only payloads remain cheap.
 
@@ -379,20 +383,20 @@ Frontend `maxLogic` loads history accordingly:
 const detail = await api.conversations.detail(conversationId)
 
 if (detail.agent_runtime === 'langgraph') {
-    // existing path — messages came back populated in the detail response
-    setThread(detail.messages)
+  // existing path — messages came back populated in the detail response
+  setThread(detail.messages)
 } else {
-    // sandbox — REST call to assemble from S3 ACP logs
-    const { entries, current_run_status } = await api.conversations.log(conversationId)
-    entries.forEach((entry) => sandboxStreamLogic.actions.ingestAcpFrame(entry))
-    // If still in_progress / queued, open SSE directly against the cloud-agent stream;
-    // if terminal, this is a read-only view.
-    if (!isTerminal(current_run_status) && detail.sandbox_task) {
-        sandboxStreamLogic.actions.openSseForRun({
-            taskId: detail.sandbox_task.id,
-            runId: detail.sandbox_task.current_run_id,
-        })
-    }
+  // sandbox — REST call to assemble from S3 ACP logs
+  const { entries, current_run_status } = await api.conversations.log(conversationId)
+  entries.forEach((entry) => sandboxStreamLogic.actions.ingestAcpFrame(entry))
+  // If still in_progress / queued, open SSE directly against the cloud-agent stream;
+  // if terminal, this is a read-only view.
+  if (!isTerminal(current_run_status) && detail.task) {
+    sandboxStreamLogic.actions.openSseForRun({
+      taskId: detail.task.id,
+      runId: detail.task.current_run_id,
+    })
+  }
 }
 ```
 
@@ -404,7 +408,7 @@ The frontend opens SSE against `/api/projects/{tid}/tasks/{taskId}/runs/{runId}/
 
 ### 5.1 First message in a conversation [I1]
 
-```
+```text
 client            Django (POST /sandbox/)            cloud-agent REST          cloud-agent SSE
   │                       │                                  │                          │
   ├── POST /sandbox/ ────▶│                                  │                          │
@@ -425,7 +429,7 @@ client            Django (POST /sandbox/)            cloud-agent REST          c
   │                       ◀── { run_id, status: queued } ───┤                          │
   │                       │                                  │                          │
   │                       ├── UPDATE conversation            │                          │
-  │                       │   sandbox_task                   │                          │
+  │                       │   task                           │                          │
   │                       │                                  │                          │
   ◀── 200 { task_id,      ┤                                  │                          │
   │       run_id,         │                                  │                          │
@@ -442,7 +446,7 @@ client            Django (POST /sandbox/)            cloud-agent REST          c
 
 ### 5.2 Follow-up message (in-progress Run) [I2]
 
-```
+```text
   ├── POST /sandbox/ ────▶│                                  │                          │
   │   { content, ... }    │                                  │                          │
   │                       │                                  │                          │
@@ -463,9 +467,9 @@ client            Django (POST /sandbox/)            cloud-agent REST          c
 
 ### 5.3 Follow-up message (terminal Run → new Run) [I2]
 
-```
+```text
   ├── POST /sandbox/ ────▶│                                  │                          │
-  │                       │   current_sandbox_run.status     │                          │
+  │                       │   current_run.status             │                          │
   │                       │   ∈ {completed, failed, cancelled}                          │
   │                       │                                  │                          │
   │                       ├── POST /tasks/{id}/run/ ────────▶│                          │
@@ -475,7 +479,7 @@ client            Django (POST /sandbox/)            cloud-agent REST          c
   │                       │     pending_user_message }       │                          │
   │                       ◀── { run_id: new, status: queued }┤                          │
   │                       │                                  │                          │
-  ◀── 200 { task_id,      ┤  (new Run; current_sandbox_run                              │
+  ◀── 200 { task_id,      ┤  (new Run; current_run                                       │
   │       run_id: new,    │   resolves to it via the Task)                              │
   │       just_created:1 }│                                  │                          │
   │                                                          │                          │
@@ -569,8 +573,8 @@ interface SandboxStreamLogicActions {
   // Frame ingestion (called both by the SSE listener and by /log/ replay)
   ingestAcpFrame: (entry: StoredLogEntry) => void
   ingestPermissionRequest: (record: PermissionRequestRecord) => void
-  handleTerminalStatus: (status: { status, errorMessage? }) => void
-  handleStreamError: (envelope: { errorTitle, errorMessage, retryable }) => void
+  handleTerminalStatus: (status: { status; errorMessage? }) => void
+  handleStreamError: (envelope: { errorTitle; errorMessage; retryable }) => void
   // Reset
   reset: () => void // called when conversation changes
 }
@@ -603,7 +607,7 @@ This dispatch is a pure function over the previous state — easily unit-testabl
 
 ### 6.5 Where it lives
 
-```
+```text
 frontend/src/scenes/max/
     sandboxStreamLogic.ts            ← new
     sandboxStreamLogicType.ts        ← generated
@@ -630,14 +634,11 @@ The existing logic gains a runtime branch in two places. **No existing handler i
 async function sendMessage({ content, trace_id }) {
   if (conversation.agent_runtime === 'sandbox') {
     // POST /sandbox/ — non-streaming routing endpoint
-    const { task_id, run_id, run_status, just_created_run } = await api.conversations.sandbox(
-      conversation.id,
-      {
-        content,
-        trace_id,
-        attached_context: posthogAiContextLogic.values.attachments,
-      }
-    )
+    const { task_id, run_id, run_status, just_created_run } = await api.conversations.sandbox(conversation.id, {
+      content,
+      trace_id,
+      attached_context: posthogAiContextLogic.values.attachments,
+    })
 
     // Hand off to sandboxStreamLogic — it owns the SSE connection
     sandboxStreamLogic.actions.openSseForRun({
@@ -707,15 +708,15 @@ Existing analytics events fire from the same code paths as today. The sandbox pa
 
 **Sandbox-path event inventory** (PR I2.8 must emit all of these with parity to today's LangGraph emission):
 
-| Event name | Fires when | Fields | Emitted from |
-|---|---|---|---|
-| `PROMPT_SENT` | User submits a message (first or follow-up) | `conversation_id`, `trace_id`, `execution_type: 'sandbox'`, `agent_runtime: 'sandbox'`, `has_attached_context`, `attached_context_count` | `message_view.py` after successful Run-create / `POST /command/` |
-| `TASK_RUN_STARTED` | Cloud-agent emits `_posthog/run_started` (new — replaces nothing on LangGraph side) | `conversation_id`, `trace_id`, `run_id`, `task_id`, `execution_type: 'sandbox'`, `cold_start: bool` (true unless pre-warmed) | `sandboxStreamLogic` on first `_posthog/run_started` frame |
-| `TASK_RUN_CANCELLED` | User clicks cancel | `conversation_id`, `trace_id`, `run_id`, `execution_type: 'sandbox'`, `cancel_source: 'user' \| 'sandbox_idle'` | `POST /cancel/` handler |
-| `TASK_RUN_TERMINATED` | Cloud-agent emits `task_run_state` with terminal status | `conversation_id`, `trace_id`, `run_id`, `status` (∈ completed/failed/cancelled), `error_message?`, `execution_type: 'sandbox'`, `duration_ms` (from `_posthog/run_started`) | `sandboxStreamLogic.handleTerminalStatus` |
-| `PERMISSION_REQUESTED` | Cloud-agent surfaces `permission_request` | `conversation_id`, `trace_id`, `request_id`, `tool_call_name`, `execution_type: 'sandbox'` | `sandboxStreamLogic.ingestPermissionRequest` |
-| `PERMISSION_RESPONDED` | User clicks an option on `DangerousOperationApprovalCard` | `conversation_id`, `trace_id`, `request_id`, `option_id`, `execution_type: 'sandbox'` | `POST /permission/` handler |
-| `TOOL_CALL_COMPLETED` | Optional — captures per-tool timing and outcome | `conversation_id`, `trace_id`, `tool_call_id`, `tool_qualified_name`, `status`, `duration_ms`, `execution_type: 'sandbox'` | `sandboxStreamLogic` on `tool_call_update` with terminal status |
+| Event name             | Fires when                                                                          | Fields                                                                                                                                                                       | Emitted from                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `PROMPT_SENT`          | User submits a message (first or follow-up)                                         | `conversation_id`, `trace_id`, `execution_type: 'sandbox'`, `agent_runtime: 'sandbox'`, `has_attached_context`, `attached_context_count`                                     | `message_view.py` after successful Run-create / `POST /command/` |
+| `TASK_RUN_STARTED`     | Cloud-agent emits `_posthog/run_started` (new — replaces nothing on LangGraph side) | `conversation_id`, `trace_id`, `run_id`, `task_id`, `execution_type: 'sandbox'`, `cold_start: bool` (true unless pre-warmed)                                                 | `sandboxStreamLogic` on first `_posthog/run_started` frame       |
+| `TASK_RUN_CANCELLED`   | User clicks cancel                                                                  | `conversation_id`, `trace_id`, `run_id`, `execution_type: 'sandbox'`, `cancel_source: 'user' \| 'sandbox_idle'`                                                              | `POST /cancel/` handler                                          |
+| `TASK_RUN_TERMINATED`  | Cloud-agent emits `task_run_state` with terminal status                             | `conversation_id`, `trace_id`, `run_id`, `status` (∈ completed/failed/cancelled), `error_message?`, `execution_type: 'sandbox'`, `duration_ms` (from `_posthog/run_started`) | `sandboxStreamLogic.handleTerminalStatus`                        |
+| `PERMISSION_REQUESTED` | Cloud-agent surfaces `permission_request`                                           | `conversation_id`, `trace_id`, `request_id`, `tool_call_name`, `execution_type: 'sandbox'`                                                                                   | `sandboxStreamLogic.ingestPermissionRequest`                     |
+| `PERMISSION_RESPONDED` | User clicks an option on `DangerousOperationApprovalCard`                           | `conversation_id`, `trace_id`, `request_id`, `option_id`, `execution_type: 'sandbox'`                                                                                        | `POST /permission/` handler                                      |
+| `TOOL_CALL_COMPLETED`  | Optional — captures per-tool timing and outcome                                     | `conversation_id`, `trace_id`, `tool_call_id`, `tool_qualified_name`, `status`, `duration_ms`, `execution_type: 'sandbox'`                                                   | `sandboxStreamLogic` on `tool_call_update` with terminal status  |
 
 LangGraph fires equivalents for the first six rows (without `execution_type` today); confirm parity by side-by-side comparison before flipping the default-on flag.
 
@@ -731,7 +732,7 @@ PRs are bundled by coherent slice — each ships a useful surface together rathe
 
 ### Iteration 1 — vertical slice (~3 PRs)
 
-1. **Model migration.** Add `agent_runtime` column with default `'langgraph'`. Add fresh `sandbox_task` FK against `tasks.Task` per § 2.2. Drop the legacy `sandbox_task_id` and `sandbox_run_id` UUID columns outright — both were tied to the unshipped Redis-relay flow, no backfill needed. Single migration, no `SeparateDatabaseAndState` rename. Standalone; nothing reads the new column yet.
+1. **Model migration.** Add `agent_runtime` column with default `'langgraph'`. Add fresh `task` FK against `tasks.Task` per § 2.2. Leave the legacy `sandbox_task_id` and `sandbox_run_id` UUID columns in place, deprecated — nothing on the new path reads or writes them; a later cleanup migration can drop them once they're confirmed dead. Single additive migration, no `SeparateDatabaseAndState` rename. Standalone; nothing reads the new column yet.
 2. **Backend sandbox foundations.** Six related files in `ee/hogai/sandbox/`, ship as one PR: `context_wrapper.py` (per [`01_CONTEXT.md`](./01_CONTEXT.md) § 4.3) · `system_prompt.py` (per [`04_PROMPTS.md`](./04_PROMPTS.md) § 6) · `posthog_api.py` (typed HTTP client: POST `/tasks/`, POST `/tasks/{id}/run/`, POST `/runs/{id}/command/`, GET `/runs/{id}/`, GET `/runs/{id}/session_logs/`; sandbox JWT) · `message_view.py` first-message branch only (fresh-conversation fast path; returns `{task_id, run_id, trace_id, run_status, just_created_run: true}`) · view registration for `POST /api/environments/{tid}/conversations/{id}/sandbox/` · `executor.py` confirmation (grep callers; if unused, no-op or strip — see § 12 #1). All six are coupled by shared types; reviewing them together is faster than sequentially.
 3. **Frontend sandbox foundations.** Six related surfaces in `frontend/src/scenes/max/`, ship as one PR: `posthogAiContextLogic.ts` (per [`01_CONTEXT.md`](./01_CONTEXT.md) § 3) · `sandboxStreamLogic.ts` skeleton (owns `EventSource` against `/api/projects/{tid}/tasks/{taskId}/runs/{runId}/stream/`, basic `data.type === 'notification'` dispatch, no reconnect/dedup yet) · `mcpToolRegistry.tsx` skeleton + `FallbackMcpToolRenderer.tsx` (per [`03_RICH_UI.md`](./03_RICH_UI.md) §§ 2–3) · `Context.tsx` runtime branch · `maxThreadLogic.sendMessage` runtime branch (POST `/sandbox/` → `sandboxStreamLogic.openSseForRun`) · `Thread.tsx` runtime branch to read `sandboxStreamLogic.values.threadItems`. Fixture-driven unit tests for `sandboxStreamLogic`.
 
@@ -774,7 +775,7 @@ Wins: no Django SSE relay (no long-lived workers tied up); wire format = cloud-a
 
 **Resolved decisions:**
 
-- **#2 (model migration shape) — drop UUIDs, fresh FK.** No in-place rename, no `SeparateDatabaseAndState`. The legacy `sandbox_task_id` / `sandbox_run_id` UUID columns are dropped outright in the migration that adds the new `sandbox_task` FK. Spec'd in § 2.2.
+- **#2 (model migration shape) — deprecate legacy UUIDs, add fresh FK.** No in-place rename, no `SeparateDatabaseAndState`. The migration adds the new `task` FK and leaves the legacy `sandbox_task_id` / `sandbox_run_id` UUID columns in place as deprecated (no read/write on the new path); a follow-up cleanup migration drops them once confirmed dead. Spec'd in § 2.2.
 - **#3 — Bootstrap fast path for fresh conversations.** Take it. The `POST /sandbox/` response carries `just_created_run: true`; frontend skips `GET /log/` and goes straight to SSE. Spec'd inline in § 4.2.
 - **#4 — `_meta.trace_id` propagation.** Verified in Twig — `claude-agent.ts:1593-1605` (`broadcastUserMessage`) builds `user_message_chunk` notifications without `_meta`. **With the Option B pivot the question becomes moot:** the frontend issues `POST /sandbox/`, knows the `trace_id` it sent, and correlates incoming SSE frames with it locally. No server-side stamping, no `{ runId → traceId }` map.
 - **#5 — Event-name convention.** Mirror PostHog Code exactly: default SSE `event: message` carries all data envelopes (discriminated by `data.type`); only `error` and `keepalive` are named events. Spec'd in § 4.1.
