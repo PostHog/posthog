@@ -24,8 +24,15 @@ export function SharedMetricModal({
     experiment: Experiment
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, context, compatibleSharedMetrics, searchTerm, canLoadMore, sharedMetricsResponseLoading } =
-        useValues(sharedMetricModalLogic)
+    const {
+        isModalOpen,
+        context,
+        compatibleSharedMetrics,
+        searchTerm,
+        canLoadMore,
+        sharedMetricsResponseLoading,
+        hasAnyCompatibleSharedMetrics,
+    } = useValues(sharedMetricModalLogic)
     const { closeSharedMetricModal, setSearchTerm, loadNextSharedMetrics } = useActions(sharedMetricModalLogic)
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
     const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
@@ -93,7 +100,7 @@ export function SharedMetricModal({
             }
         >
             <div className="deprecated-space-y-2">
-                {compatibleSharedMetrics.length > 0 ? (
+                {hasAnyCompatibleSharedMetrics ? (
                     <>
                         {experiment.saved_metrics.length > 0 && (
                             <LemonBanner type="info">
@@ -150,6 +157,8 @@ export function SharedMetricModal({
                         </div>
                         <LemonTable
                             dataSource={compatibleSharedMetrics}
+                            loading={sharedMetricsResponseLoading}
+                            emptyState={<div>No shared metrics match your search.</div>}
                             columns={[
                                 {
                                     title: '',

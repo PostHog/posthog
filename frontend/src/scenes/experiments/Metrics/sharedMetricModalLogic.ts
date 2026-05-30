@@ -30,6 +30,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         closeSharedMetricModal: true,
         setSharedMetric: (sharedMetric: SharedMetric) => ({ sharedMetric }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setHasAnyCompatibleSharedMetrics: (hasAny: boolean) => ({ hasAny }),
     }),
 
     reducers({
@@ -67,6 +68,15 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
                 openSharedMetricModal: () => '',
                 closeSharedMetricModal: () => '',
+            },
+        ],
+        // Whether the experiment has any compatible shared metrics at all, captured from the
+        // unfiltered (empty-search) load — so a search returning zero does not flip it to false.
+        hasAnyCompatibleSharedMetrics: [
+            false,
+            {
+                setHasAnyCompatibleSharedMetrics: (_, { hasAny }) => hasAny,
+                openSharedMetricModal: () => false,
             },
         ],
     }),
@@ -111,13 +121,19 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         openSharedMetricModal: () => {
             actions.loadSharedMetrics()
         },
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadSharedMetrics()
+        },
+        loadSharedMetricsSuccess: () => {
+            // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
+            if (!values.searchTerm) {
+                actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
+            }
         },
     })),
 ])

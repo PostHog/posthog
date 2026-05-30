@@ -24,6 +24,9 @@ describe('sharedMetricModalLogic', () => {
                 '/api/projects/:team_id/experiment_saved_metrics': (req) => {
                     const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
                     const search = req.url.searchParams.get('search') ?? ''
+                    if (search === 'nomatch') {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
                     if (offset === 0) {
                         return [
                             200,
@@ -93,5 +96,38 @@ describe('sharedMetricModalLogic', () => {
         await expectLogic(logic).toMatchValues({
             compatibleSharedMetrics: [expect.objectContaining({ id: 1 })],
         })
+    })
+
+    it('tracks hasAnyCompatibleSharedMetrics from the unfiltered baseline, not the current search', async () => {
+        // initial unfiltered load establishes that compatible metrics exist
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ hasAnyCompatibleSharedMetrics: true })
+
+        // a search that returns zero must NOT flip the baseline to false
+        await expectLogic(logic, () => {
+            logic.actions.setSearchTerm('nomatch')
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({
+            compatibleSharedMetrics: [],
+            hasAnyCompatibleSharedMetrics: true,
+        })
+    })
+
+    it('hasAnyCompatibleSharedMetrics is false when the unfiltered load has no compatible metrics', async () => {
+        // mount with a fresh mock where the baseline genuinely has none
+        useMocks({
+            get: {
+                '/api/projects/:team_id/experiment_saved_metrics': () => [
+                    200,
+                    { count: 0, next: null, previous: null, results: [] },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadSharedMetrics()
+        }).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ hasAnyCompatibleSharedMetrics: false })
     })
 })
