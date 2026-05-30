@@ -109,7 +109,7 @@
        plus small-caps tracking. Applied at the cell so every header — text,
        right-aligned, or an interactive button — gets it consistently. */
     .quill-table__head {
-        height: 2.25rem;
+        height: 2.05rem;
         padding-inline: 0.75rem;
         font-size: var(--text-xxs, 0.625rem);
         font-weight: 500;
@@ -152,12 +152,19 @@
         color: var(--muted-foreground);
     }
 
-    /* Interactive header: the whole label is a button. A negative inline margin
-       pulls the button's padding back so its label aligns with plain headers and
-       its hover background bleeds into the cell padding without shifting layout.
-       Non-interactive headers omit the button, so their width is unaffected. */
+    /* Interactive header: the whole label is a button. It inherits the head's
+       label typography (uppercase, tracked, muted, xxs) so it matches plain
+       headers instead of rendering at the button's own font; utilities in JSX
+       still override (e.g. the selected-sort colour). The negative inline margin
+       aligns the label with plain headers and lets the hover background bleed
+       into the cell padding without shifting layout. */
     .quill-table__head > [data-slot='button'] {
         margin-inline: -0.5rem;
+        font-size: inherit;
+        font-weight: inherit;
+        color: inherit;
+        text-transform: inherit;
+        letter-spacing: inherit;
     }
 
     /* =========================================================================

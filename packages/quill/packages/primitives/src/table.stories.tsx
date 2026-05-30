@@ -323,11 +323,7 @@ export const InteractiveHeaders: Story = {
                     <TableHead className="w-10">#</TableHead>
                     {(['Name', 'Email', 'Role'] as const).map((label) => (
                         <TableHead key={label}>
-                            <Button
-                                size="sm"
-                                className="gap-1.5 font-medium text-[var(--muted-foreground)]"
-                                aria-label={`Sort by ${label}`}
-                            >
+                            <Button size="sm" className="gap-1.5" aria-label={`Sort by ${label}`}>
                                 {label}
                                 <ChevronsUpDown className="size-2.5" />
                             </Button>
