@@ -16,6 +16,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -531,8 +532,8 @@ class TestRecentActivity(BaseTest):
         assert [row["edits"] for row in result["by_scope"]] == [3, 1]
 
     def test_distinct_user_count_and_last_edit_per_scope(self) -> None:
-        u1 = self._create_user("u1@example.com")
-        u2 = self._create_user("u2@example.com")
+        u1 = self._make_user("u1@example.com")
+        u2 = self._make_user("u2@example.com")
         # Two users, three edits — `users` should be 2, not 3.
         first = self._log(scope="Experiment", user=u1)
         ActivityLog.objects.filter(id=first.id).update(created_at=timezone.now() - timedelta(days=2))
@@ -581,9 +582,7 @@ class TestRecentActivity(BaseTest):
         result = _recent_activity(self.team)
         assert result == {"window_days": RECENT_ACTIVITY_WINDOW_DAYS, "by_scope": []}
 
-    def _create_user(self, email: str):
-        from posthog.models.user import User
-
+    def _make_user(self, email: str) -> User:
         return User.objects.create(email=email, distinct_id=email)
 
 
