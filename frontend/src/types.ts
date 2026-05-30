@@ -1715,6 +1715,7 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
+    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
