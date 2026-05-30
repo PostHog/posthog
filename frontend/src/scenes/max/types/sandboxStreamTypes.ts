@@ -100,6 +100,18 @@ export interface StoredLogEntry {
     }
 }
 
+/**
+ * Response body of `GET /conversations/{id}/log/` (the I2.4 multi-Run history endpoint).
+ * `entries` are replayed through `sandboxStreamLogic.ingestHistory` to seed dedup hashes
+ * before the live SSE opens; `current_run_status` gates whether the SSE opens at all
+ * (non-terminal) or the conversation is a read-only history view (terminal).
+ */
+export interface ConversationLog {
+    entries: StoredLogEntry[]
+    has_more: boolean
+    current_run_status: RunStatus | null
+}
+
 /** Shape of `params.update` on an ACP `session/update` notification. */
 export interface AcpSessionUpdate {
     sessionUpdate?: string

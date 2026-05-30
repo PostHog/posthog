@@ -50,8 +50,17 @@ logger = structlog.get_logger(__name__)
 SANDBOX_TURN_IDLE_TIMEOUT = 60  # seconds of silence before ending the per-turn stream (safety fallback)
 SANDBOX_STREAM_TTL = 3600  # seconds before the Redis stream key expires
 
-# Telemetry event name, mirroring the LangGraph path. The sandbox runtime adds the
-# `execution_type: "sandbox"` property to the same event (02_CORE § 10, BACKWARD_COMPAT #33).
+# Telemetry: fires when a sandbox turn's message is sent (first or follow-up). The sandbox
+# runtime carries an `execution_type: "sandbox"` property on this event (02_CORE § 10) so the
+# existing LLM-analytics dashboards keep matching on the event name.
+#
+# Name reconciliation (02_CORE § 10, I2.5 → I2.7): the LangGraph path has NO canonical
+# "prompt sent" event to reuse — its analytics emit at *turn completion* via
+# `_report_conversation_state("chat with ai", ...)` (ee/hogai/chat_agent/runner.py), with
+# prompt/output/is_new_conversation fields. That is a different lifecycle point (after the turn,
+# not at send) and a different shape, so reusing its name would misrepresent the event. We keep
+# the dedicated "prompt sent" name for the at-send sandbox signal and document the divergence
+# here rather than collapsing two semantically distinct events into one.
 PROMPT_SENT_EVENT = "prompt sent"
 
 

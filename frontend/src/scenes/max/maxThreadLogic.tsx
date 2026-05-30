@@ -195,7 +195,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['syncSceneAttachments', 'clearAttachments'],
             // Sandbox runtime owns its own direct SSE connection — maxThreadLogic only hands off.
             sandboxStreamLogic({ conversationKey: `${conversationId}-${tabId}` }),
-            ['openSseForRun as openSandboxStream', 'closeSse as closeSandboxStream', 'reset as resetSandboxStream'],
+            [
+                'openSseForRun as openSandboxStream',
+                'closeSse as closeSandboxStream',
+                'reset as resetSandboxStream',
+                // History-load seam: replay assembled /log/ history into the stream's dedup state
+                // before the live SSE opens, so live frames dedup against the replayed history.
+                'ingestHistory as ingestSandboxHistory',
+            ],
         ],
     })),
 
@@ -1202,10 +1209,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
 
-        maybeStartSandboxStream: () => {
+        maybeStartSandboxStream: async () => {
             // Direct-SSE sandbox runtime (DECISION 3): the cloud-agent run is named by the
-            // conversation object, not by a Django relay frame. Open the stream only for a
-            // sandbox conversation whose backing run is still active (non-terminal).
+            // conversation object, not by a Django relay frame. History-load branch — replay the
+            // assembled multi-Run ACP history (GET /log/, the I2.4 endpoint) into sandboxStreamLogic
+            // via ingestHistory so the dedup hashes are seeded, THEN open the direct SSE only when
+            // the run is still non-terminal. The langgraph path never reaches here (isSandboxRuntime
+            // gate) — it reads detail.messages directly and is untouched.
             const conversation = values.conversation
             if (!values.isSandboxRuntime || !conversation) {
                 return
@@ -1215,18 +1225,35 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (!taskId || !runId) {
                 return
             }
-            // The conversation status mirrors the backing run's lifecycle; a terminal run is read-only.
-            const runActive = conversation.status === ConversationStatus.InProgress
-            const runStatusTerminal = isTerminalRunStatus(values.sandboxStreamRunStatus)
-            if (!runActive || runStatusTerminal) {
-                return
-            }
-            // Idempotent: re-opening the same run resets resume state needlessly. A new run id
-            // (terminal-then-resume swap) does re-open — openSseForRun disposes the old stream.
+            // Idempotent: re-running history-load for the same run replays nothing new (the entries
+            // dedup) and re-opening the same SSE resets resume state needlessly. A new run id
+            // (terminal-then-resume swap) does proceed — openSseForRun disposes the old stream.
             if (cache.lastSandboxRunId === runId) {
                 return
             }
             cache.lastSandboxRunId = runId
+
+            // Replay the persisted cross-Run history first. The /log/ entries seed the dedup hashes,
+            // so the live SSE — which replays historical frames since the Run started — content-dedups
+            // against them (SSE/Redis ids aren't comparable to S3-log ids; see serializeEntryForDedup).
+            let currentRunStatus = values.sandboxStreamRunStatus
+            try {
+                const history = await api.conversations.log(conversation.id)
+                if (history.entries.length > 0) {
+                    actions.ingestSandboxHistory(history.entries)
+                }
+                currentRunStatus = history.current_run_status ?? currentRunStatus
+            } catch (e) {
+                // History assembly is best-effort: if /log/ fails we still try to open the live SSE
+                // for an active run rather than leaving the user with a dead view.
+                posthog.captureException(e)
+            }
+
+            // Open the live SSE ONLY if the backing run is non-terminal. A terminal run is a
+            // read-only history view — the replayed /log/ entries are the whole story.
+            if (isTerminalRunStatus(currentRunStatus)) {
+                return
+            }
             actions.openSandboxStream({ taskId, runId })
         },
 

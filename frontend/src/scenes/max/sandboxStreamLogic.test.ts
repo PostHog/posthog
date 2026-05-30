@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import { ReadableStream as NodeReadableStream } from 'stream/web'
 
 import { initKeaTests } from '~/test/init'
@@ -6,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { resolveToolKey } from './mcpToolRegistry'
 import {
     computeBackoffDelay,
+    conversationIdFromKey,
     EMPTY_STREAM_STATE,
     ingestAcpFrame,
     isTerminalRunStatus,
@@ -278,6 +280,83 @@ describe('sandboxStreamLogic', () => {
             }
             expect(serializeEntryForDedup(a)).toBe(serializeEntryForDedup(b))
         })
+    })
+
+    describe('conversationIdFromKey', () => {
+        it.each([
+            ['019-abc-def-ghi-jkl-sidepanel', '019-abc-def-ghi-jkl'],
+            ['11111111-2222-3333-4444-555555555555-scene', '11111111-2222-3333-4444-555555555555'],
+            ['11111111-2222-3333-4444-555555555555-tab-7', '11111111-2222-3333-4444-555555555555'],
+        ])('%s -> %s', (conversationKey, expected) => {
+            expect(conversationIdFromKey(conversationKey)).toBe(expected)
+        })
+    })
+
+    describe('ingestHistory — /log/ replay seeds dedup hashes', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('replays history into thread state and dedups a subsequent identical live frame', async () => {
+            const historyFrame = sessionUpdate({
+                sessionUpdate: 'agent_message',
+                content: { type: 'text', text: 'From history' },
+            })
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-history' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestHistory([historyFrame])
+            }).toMatchValues({
+                threadItems: [{ kind: 'assistant_message', id: 'log-0', text: 'From history', complete: true }],
+            })
+            // The history frame seeded a dedup hash.
+            expect(logic.values.stream.ingestedEntryHashes).toHaveLength(1)
+
+            // A live SSE frame with identical content (different frame id) dedups against history.
+            logic.actions.ingestFrame(historyFrame, 'stream-9')
+            expect(logic.values.threadItems).toHaveLength(1)
+            expect(logic.values.stream.ingestedEntryHashes).toHaveLength(1)
+            logic.unmount()
+        })
+    })
+
+    describe('handleTerminalStatus — telemetry parity', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+        })
+
+        it.each<[RunStatus, string]>([
+            ['completed', 'success'],
+            ['failed', 'failure'],
+            ['cancelled', 'cancelled'],
+        ])(
+            'emits the existing turn-completed event with execution_type sandbox on %s',
+            (terminalStatus, expectedStatus) => {
+                const logic = sandboxStreamLogic({ conversationKey: '11111111-2222-3333-4444-555555555555-scene' })
+                logic.mount()
+                // openSseForRun retains the run ref the telemetry references.
+                logic.actions.openSseForRun({ taskId: 'task-9', runId: 'run-9' })
+                logic.actions.handleTerminalStatus(terminalStatus)
+
+                expect(captureSpy).toHaveBeenCalledWith('max conversation turn completed', {
+                    status: expectedStatus,
+                    conversation_id: '11111111-2222-3333-4444-555555555555',
+                    run_id: 'run-9',
+                    task_id: 'task-9',
+                    execution_type: 'sandbox',
+                    agent_runtime: 'sandbox',
+                })
+                logic.unmount()
+            }
+        )
     })
 
     describe('openSseForRun listener — direct stream', () => {

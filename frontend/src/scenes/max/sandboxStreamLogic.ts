@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -115,6 +116,14 @@ function flattenKeys(value: unknown, acc: Record<string, true> = {}): Record<str
 export interface SandboxStreamLogicProps {
     /** Threads its key so per-conversation stream state stays isolated. */
     conversationKey: string
+}
+
+/**
+ * Recover the conversation UUID from the `${conversationId}-${tabId}` logic key for telemetry.
+ * The conversation id is a 5-segment UUID, so the first five dash-delimited segments are it.
+ */
+export function conversationIdFromKey(conversationKey: string): string {
+    return conversationKey.split('-').slice(0, 5).join('-')
 }
 
 export interface SandboxStreamState {
@@ -373,12 +382,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         /** Fold one ACP frame into stream state. Dispatched by the live SSE listener (this PR). */
         ingestFrame: (entry: StoredLogEntry, frameId: string) => ({ entry, frameId }),
         /**
-         * The /log-replay seam consumed by I2.7 (history-load). Folds a batch of replayed /log/
-         * history into stream state and records each frame's dedup hash so the subsequent live SSE
-         * doesn't double-count an entry it already replayed. NOT dispatched in this PR — there is no
-         * /log/ data source wired yet; I2.7 fetches the history (api.tasks.runs.getLogs) and dispatches
-         * this. Kept here because the dedup machinery (serializeEntryForDedup / ingestedEntryHashes)
-         * it feeds is exercised by the live path today.
+         * The /log-replay seam (history-load). Folds a batch of replayed /log/ history into stream
+         * state and records each frame's dedup hash so the subsequent live SSE doesn't double-count
+         * an entry it already replayed. Wired by maxThreadLogic on history-load: a reopened sandbox
+         * conversation fetches the assembled history (api.conversations.log) and dispatches this
+         * before opening the direct SSE, so live frames content-dedup against the replayed history
+         * (SSE/Redis ids aren't comparable to S3-log ids — see serializeEntryForDedup).
          */
         ingestHistory: (entries: StoredLogEntry[]) => ({ entries }),
         ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
@@ -462,6 +471,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => undefined,
             },
         ],
+        // The task/run currently backing this stream — retained from openSseForRun so the
+        // turn-completed telemetry on terminal can name the run that finished (DECISION 3: the
+        // frontend correlates locally; no server-side trace_id stamping).
+        activeRunRef: [
+            undefined as { taskId: string; runId: string } | undefined,
+            {
+                openSseForRun: (_, { taskId, runId }) => ({ taskId, runId }),
+                reset: () => undefined,
+            },
+        ],
     }),
 
     selectors({
@@ -474,7 +493,25 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         isRunTerminal: [(s) => [s.currentRunStatus], (status): boolean => isTerminalRunStatus(status)],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
+        // Telemetry parity: the direct-SSE sandbox path bypasses maxThreadLogic's streamConversation
+        // turn lifecycle, so the canonical 'max conversation turn completed' event has to fire from
+        // here when the backing run reaches a terminal state. It's the EXISTING langgraph event with
+        // an added `execution_type: 'sandbox'` property — no new event type — so LLM-analytics
+        // dashboards that filter on the event name keep matching (02_CORE § 10). The frontend
+        // correlates locally; there is no server-side trace_id stamping (DECISION 3).
+        handleTerminalStatus: ({ status }) => {
+            const runRef = values.activeRunRef
+            posthog.capture('max conversation turn completed', {
+                // Match the langgraph 'max conversation turn completed' vocabulary so failure dashboards segment identically.
+                status: status === 'completed' ? 'success' : status === 'failed' ? 'failure' : status,
+                conversation_id: conversationIdFromKey(props.conversationKey),
+                run_id: runRef?.runId,
+                task_id: runRef?.taskId,
+                execution_type: 'sandbox',
+                agent_runtime: 'sandbox',
+            })
+        },
         openSseForRun: ({ taskId, runId }) => {
             // Tear down any previous stream + pending reconnect first — same key replaces them.
             // Terminal-then-resume swap: a new run's openSseForRun disposes the old run's stream.
