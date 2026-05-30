@@ -67,24 +67,38 @@ export function permissionRequestToPendingApproval(record: PermissionRequestReco
             input: tool.innerInput ?? tool.input,
             tool_call_id: record.toolCallId,
             request_id: record.requestId,
+            // Whether the card may offer an "Always allow" affordance (03_RICH_UI §5.2 — only when
+            // the request carries remember:true). Read by DangerousOperationApprovalCard's sandbox variant.
+            remember: record.remember === true,
         },
         original_tool_call_id: record.toolCallId,
     }
 }
 
 /**
- * Resolve the ACP `optionId` for a binary approve/reject decision against the offered `options[]`.
- * The existing card only exposes approve/reject (+ optional feedback); the full kind->affordance
- * mapping lands in UI-C (03_RICH_UI § 5). Until then, bridge: approve picks the first allow option,
- * reject prefers `reject_with_feedback` when feedback is present, else the first reject option.
+ * Resolve the ACP `optionId` for an approve/reject decision against the offered `options[]`,
+ * implementing the option-kind mapping from 03_RICH_UI §5.2:
+ *
+ * - approve + `remember` -> the `allow_always` option ("Always allow"), falling back to `allow_once`.
+ * - approve -> the `allow_once` option ("Approve"), falling back to `allow_always`.
+ * - reject + feedback -> the `reject_with_feedback` option ("Decline with feedback…").
+ * - reject -> the `reject` option ("Decline"), falling back to `reject_with_feedback`.
+ *
  * Returns null when no matching option exists so the caller can no-op rather than send a bad id.
  */
 export function pickPermissionOptionId(
     options: PermissionOption[],
     decision: 'approve' | 'reject',
-    hasFeedback: boolean
+    hasFeedback: boolean,
+    remember?: boolean
 ): string | null {
     if (decision === 'approve') {
+        if (remember) {
+            const always = options.find((o) => o.kind === 'allow_always')
+            if (always) {
+                return always.optionId
+            }
+        }
         const allow = options.find((o) => o.kind === 'allow_once') ?? options.find((o) => o.kind === 'allow_always')
         return allow?.optionId ?? null
     }

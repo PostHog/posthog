@@ -1512,6 +1512,116 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('sandbox slash command gating', () => {
+        const initCommand = {
+            name: SlashCommandName.SlashInit,
+            description: 'Test command',
+            icon: React.createElement('div'),
+            unsupportedInSandbox: true,
+        }
+
+        function makeSandbox(): void {
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, agent_runtime: 'sandbox' })
+        }
+
+        it('activateCommand is a no-op for unsupported command on sandbox runtime', () => {
+            makeSandbox()
+            expect(logic.values.isSandboxRuntime).toBe(true)
+            const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
+            const setQuestionSpy = jest.spyOn(logic.actions, 'setQuestion')
+
+            logic.actions.activateCommand(initCommand)
+
+            expect(askMaxSpy).not.toHaveBeenCalled()
+            expect(setQuestionSpy).not.toHaveBeenCalled()
+        })
+
+        it('selectCommand is a no-op for unsupported command on sandbox runtime', () => {
+            makeSandbox()
+            const setQuestionSpy = jest.spyOn(logic.actions, 'setQuestion')
+
+            logic.actions.selectCommand(initCommand)
+
+            expect(setQuestionSpy).not.toHaveBeenCalled()
+        })
+
+        it('langgraph runtime still activates the same command', () => {
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, agent_runtime: 'langgraph' })
+            expect(logic.values.isSandboxRuntime).toBe(false)
+            const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
+
+            logic.actions.activateCommand(initCommand)
+
+            expect(askMaxSpy).toHaveBeenCalledWith('/init')
+        })
+    })
+
+    describe('sandbox pre-warming', () => {
+        let prewarmSpy: jest.SpyInstance
+        let cancelPrewarmSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            prewarmSpy = jest.spyOn(api.conversations, 'prewarm').mockResolvedValue()
+            cancelPrewarmSpy = jest.spyOn(api.conversations, 'cancelPrewarm').mockResolvedValue()
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, agent_runtime: 'sandbox' })
+        })
+
+        afterEach(() => {
+            jest.runOnlyPendingTimers()
+            jest.useRealTimers()
+        })
+
+        it('prewarms after debounce on first non-whitespace keystroke', () => {
+            logic.actions.setQuestion('h')
+            // Not yet — debounce hasn't elapsed.
+            expect(prewarmSpy).not.toHaveBeenCalled()
+            jest.advanceTimersByTime(300)
+            expect(prewarmSpy).toHaveBeenCalledTimes(1)
+            expect(prewarmSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+        })
+
+        it('does not prewarm for whitespace-only input', () => {
+            logic.actions.setQuestion('   ')
+            jest.advanceTimersByTime(300)
+            expect(prewarmSpy).not.toHaveBeenCalled()
+        })
+
+        it('does not prewarm on langgraph runtime', () => {
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, agent_runtime: 'langgraph' })
+            logic.actions.setQuestion('hello')
+            jest.advanceTimersByTime(300)
+            expect(prewarmSpy).not.toHaveBeenCalled()
+        })
+
+        it('cancels the warm Run after the input stays empty past the grace period', async () => {
+            logic.actions.setQuestion('hello')
+            jest.advanceTimersByTime(300)
+            await Promise.resolve()
+            expect(prewarmSpy).toHaveBeenCalledTimes(1)
+
+            logic.actions.setQuestion('')
+            // Within the grace period — no cancel yet.
+            jest.advanceTimersByTime(4000)
+            expect(cancelPrewarmSpy).not.toHaveBeenCalled()
+            jest.advanceTimersByTime(1500)
+            expect(cancelPrewarmSpy).toHaveBeenCalledTimes(1)
+            expect(cancelPrewarmSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+        })
+
+        it('does not cancel when the input is refilled within the grace period', async () => {
+            logic.actions.setQuestion('hello')
+            jest.advanceTimersByTime(300)
+            await Promise.resolve()
+
+            logic.actions.setQuestion('')
+            jest.advanceTimersByTime(2000)
+            logic.actions.setQuestion('hello again')
+            jest.advanceTimersByTime(5000)
+            expect(cancelPrewarmSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('assistant update event handling', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })

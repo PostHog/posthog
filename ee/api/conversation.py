@@ -65,7 +65,13 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.sandbox.context_wrapper import AttachedContext
-from ee.hogai.sandbox.executor import cancel_sandbox_run, handle_sandbox_message, send_permission_response
+from ee.hogai.sandbox.executor import (
+    cancel_sandbox_prewarm,
+    cancel_sandbox_run,
+    handle_sandbox_message,
+    prewarm_sandbox_conversation,
+    send_permission_response,
+)
 from ee.hogai.sandbox.log_assembler import assemble_conversation_log
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
@@ -802,6 +808,36 @@ class ConversationViewSet(
             order=query.validated_data["order"],
         )
         return Response(assembled)
+
+    @extend_schema(
+        description=(
+            "Pre-warm or cancel a sandbox for this conversation (05_SANDBOX § 8). POST eagerly boots a "
+            "sandbox via a warm interactive Run (no pending message) so first-token latency drops on the "
+            "next submit; idempotent — a second POST while warm is a no-op. DELETE cancels a still-warm "
+            "Run; a no-op when the conversation is not warmed. Sandbox runtime only — langgraph returns 400."
+        ),
+        request=None,
+        responses={204: None},
+    )
+    @action(detail=True, methods=["POST", "DELETE"])
+    def prewarm(self, request: Request, *args, **kwargs) -> Response:
+        # get_object() applies the same team-membership + user gate as the other write actions — no new
+        # IDOR surface (safely_get_queryset filters by user for non-retrieve actions).
+        conversation: Conversation = self.get_object()
+
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            return Response(
+                {"detail": "prewarm endpoint is sandbox-runtime only"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            cancel_sandbox_prewarm(conversation, user, self.team)
+        else:
+            prewarm_sandbox_conversation(conversation, user, self.team)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         description="Delete a conversation.",

@@ -1,39 +1,9 @@
-import { IconCheck, IconWarning, IconWrench, IconX } from '@posthog/icons'
-import { LemonCollapse, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconWarning, IconWrench } from '@posthog/icons'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { ToolCardHeader } from '../../components/ToolCardHeader'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
-import { ToolInvocationStatus } from '../../types/sandboxStreamTypes'
 import { MessageTemplate } from '../MessageTemplate'
-
-function statusBadge(status: ToolInvocationStatus): JSX.Element {
-    switch (status) {
-        case 'completed':
-            return (
-                <LemonTag type="success" icon={<IconCheck />} size="small">
-                    Completed
-                </LemonTag>
-            )
-        case 'failed':
-            return (
-                <LemonTag type="danger" icon={<IconX />} size="small">
-                    Failed
-                </LemonTag>
-            )
-        case 'in_progress':
-            return (
-                <LemonTag type="primary" size="small">
-                    <Spinner className="mr-1" />
-                    Running
-                </LemonTag>
-            )
-        default:
-            return (
-                <LemonTag type="muted" size="small">
-                    Pending
-                </LemonTag>
-            )
-    }
-}
 
 function prettyJson(value: unknown): string {
     try {
@@ -103,11 +73,11 @@ export function FallbackMcpToolRenderer({ message }: McpToolRendererProps): JSX.
     return (
         <MessageTemplate type="ai">
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5">
-                    <IconWrench className="text-lg text-secondary flex-shrink-0" />
-                    <span className="font-medium truncate min-w-0 flex-1">{headerLabel}</span>
-                    {statusBadge(message.status)}
-                </div>
+                <ToolCardHeader
+                    status={message.status}
+                    icon={<IconWrench className="text-secondary" />}
+                    label={headerLabel}
+                />
                 {errorMessage && (
                     <div className="flex items-start gap-1.5 text-danger">
                         <IconWarning className="text-lg flex-shrink-0" />

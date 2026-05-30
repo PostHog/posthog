@@ -383,6 +383,8 @@ interface PermissionRequestFrame {
     options?: PermissionOption[]
     title?: string
     description?: string
+    /** When true the request supports an `allow_always` ("always allow") decision (03_RICH_UI §5.2). */
+    remember?: boolean
 }
 
 /**
@@ -403,6 +405,7 @@ export function buildPermissionRequestRecord(frame: PermissionRequestFrame): Per
         title: frame.title ?? rawToolCall.title,
         description: frame.description,
         rawToolCall,
+        remember: frame.remember === true,
     }
 }
 
@@ -549,6 +552,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         runStarted: [(s) => [s.stream], (stream): boolean => stream.runStarted],
         turnComplete: [(s) => [s.stream], (stream): boolean => stream.turnComplete],
         currentProgress: [(s) => [s.stream], (stream): string | undefined => stream.currentProgress],
+        /** Latest ACP `current_mode_update.currentModeId` — drives the mode badge (UI-C, 02_CORE §4). */
+        currentMode: [(s) => [s.stream], (stream): string | undefined => stream.currentMode],
         /** Terminal once the backing run finished (drives idle/read-only in maxThreadLogic). */
         isRunTerminal: [(s) => [s.currentRunStatus], (status): boolean => isTerminalRunStatus(status)],
     }),
