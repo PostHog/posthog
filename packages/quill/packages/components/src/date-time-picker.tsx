@@ -19,7 +19,7 @@ import {
 import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { Day, useCalendar } from './use-calendar'
@@ -51,6 +51,22 @@ const MONTH_NAMES = [
     'November',
     'December',
 ]
+
+// Tailwind `lg` breakpoint — matches the `lg:` classes that switch this picker
+// between a single calendar and the side-by-side dual-calendar layout.
+const LG_QUERY = '(min-width: 64rem)'
+
+function useMediaQuery(query: string): boolean {
+    const [matches, setMatches] = React.useState(false)
+    React.useEffect(() => {
+        const mql = window.matchMedia(query)
+        const update = (): void => setMatches(mql.matches)
+        update()
+        mql.addEventListener('change', update)
+        return () => mql.removeEventListener('change', update)
+    }, [query])
+    return matches
+}
 
 export interface DateTimeValue {
     start: Date
@@ -231,7 +247,7 @@ function Calendar({
             <div className="flex justify-center items-center py-1 gap-1">
                 <Button
                     variant="default"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={handlePrev}
                     disabled={disablePrev}
                     aria-label="Previous month"
@@ -250,16 +266,18 @@ function Calendar({
                         </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                        {monthOptions.map(({ key, year, month }) => (
-                            <SelectItem key={key} value={key} disabled={key === siblingKey}>
-                                {MONTH_NAMES[month]} {year}
-                            </SelectItem>
-                        ))}
+                        <SelectGroup>
+                            {monthOptions.map(({ key, year, month }) => (
+                                <SelectItem key={key} value={key} disabled={key === siblingKey}>
+                                    {MONTH_NAMES[month]} {year}
+                                </SelectItem>
+                            ))}
+                        </SelectGroup>
                     </SelectContent>
                 </Select>
                 <Button
                     variant="default"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={handleNext}
                     disabled={disableNext}
                     aria-label="Next month"
@@ -467,6 +485,10 @@ export function DateTimePicker({
 }: DateTimePickerProps): React.ReactElement {
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
+    // The second calendar only renders at `lg`; below it (and in compact) there's
+    // a single calendar, so the "can't pick the sibling's month" constraint shouldn't apply.
+    const isLargeScreen = useMediaQuery(LG_QUERY)
+    const twoCalendars = !compact && isLargeScreen
     const [start, setStart] = React.useState<Date>(value.start)
     const [end, setEnd] = React.useState<Date>(value.end)
     const [range, setRange] = React.useState<DateTimeRange>(value.range)
@@ -502,6 +524,21 @@ export function DateTimePicker({
         setRange(CUSTOM_RANGE)
     }
 
+    // Move the visible calendar(s) so an edited date stays in view. With two
+    // calendars, start drives the left and end the right; with one, the single
+    // (right) calendar follows whichever edge changed.
+    const revealStart = (date: Date): void => {
+        const month = new Date(getYear(date), getMonth(date), 1)
+        if (twoCalendars) {
+            setLeftViewing(month)
+        } else {
+            setRightViewing(month)
+        }
+    }
+    const revealEnd = (date: Date): void => {
+        setRightViewing(new Date(getYear(date), getMonth(date), 1))
+    }
+
     const handleStartChange = (next: Date): void => {
         if (start.getTime() === next.getTime()) {
             return
@@ -511,8 +548,10 @@ export function DateTimePicker({
         if (next.getTime() > end.getTime()) {
             setStart(end)
             setEnd(next)
+            revealEnd(next)
         } else {
             setStart(next)
+            revealStart(next)
         }
     }
 
@@ -525,8 +564,10 @@ export function DateTimePicker({
         if (next.getTime() < start.getTime()) {
             setEnd(start)
             setStart(next)
+            revealStart(next)
         } else {
             setEnd(next)
+            revealEnd(next)
         }
     }
 
@@ -536,6 +577,7 @@ export function DateTimePicker({
             setStart(now)
         }
         setEnd(now)
+        revealEnd(now)
     }
 
     const handleQuickRange = (next: DateTimeRange): void => {
@@ -647,7 +689,7 @@ export function DateTimePicker({
                                 maxDate={maxDate}
                                 onSelect={handleSelect}
                                 onViewChange={setRightViewing}
-                                siblingViewing={compact ? undefined : leftViewing}
+                                siblingViewing={twoCalendars ? leftViewing : undefined}
                                 weekStartsOn={weekStartsOn}
                             />
                         </div>
