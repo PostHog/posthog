@@ -1,1 +1,1 @@
-0022_add_signal_scout_models
+0023_signalscoutrun_summary

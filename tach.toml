@@ -496,6 +496,7 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.ai_observability",
     "products.data_warehouse",
     "products.error_tracking",
     "products.tasks", "products.warehouse_sources",
