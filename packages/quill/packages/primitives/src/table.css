@@ -100,11 +100,18 @@
     /* =========================================================================
        Head / body / footer rows
        ========================================================================= */
+
+    /* Uppercase "label" header treatment: the quill Label look (500 weight, muted)
+       plus small-caps tracking. Applied at the cell so every header — text,
+       right-aligned, or an interactive button — gets it consistently. */
     .quill-table__head {
         height: 2.25rem;
         padding-inline: 0.75rem;
+        font-size: var(--text-xxs, 0.625rem);
         font-weight: 500;
         color: var(--muted-foreground);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
         white-space: nowrap;
         background-color: var(--background);
         border-bottom: 1px solid var(--border);
