@@ -311,7 +311,7 @@ export const StickyNonFirstColumn: Story = {
     ),
 } satisfies Story
 
-// Interactive headers: the whole label is a quill ghost Button (label + sort
+// Interactive headers: the whole label is a quill Button (label + sort
 // icon) with normal button hover — the seam for sorting, column menus, etc. The
 // button aligns with plain headers and doesn't shift layout; the non-interactive
 // "#" header stays plain text.
@@ -349,7 +349,7 @@ export const InteractiveHeaders: Story = {
     ),
 } satisfies Story
 
-// Shared dummy actions menu — a ghost ellipsis Button that opens a quill
+// Shared dummy actions menu — an ellipsis Button that opens a quill
 // DropdownMenu. Used by both the cell- and row-action stories.
 function ActionsMenu({ label }: { label: string }): React.ReactElement {
     return (
