@@ -9,17 +9,27 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EmitFindingRequestApi,
+    EmitFindingResponseApi,
+    ForgetRequestApi,
+    ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    RememberRequestApi,
+    ScratchpadEntryApi,
     SignalReportApi,
+    SignalScoutRunDetailApi,
+    SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
     SignalsReportsListParams,
+    SignalsScoutRunsListParams,
+    SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -146,6 +156,151 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsScoutRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/`
+}
+
+/**
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
+ * @summary Search recent agent runs
+ */
+export const signalsScoutRunsList = async (
+    projectId: string,
+    params?: SignalsScoutRunsListParams,
+    options?: RequestInit
+): Promise<SignalScoutRunSummaryApi[]> => {
+    return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${id}/`
+}
+
+/**
+ * Return the full `SignalScoutRun` row. Status, timing, and error flow from the linked `tasks.TaskRun`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * @summary Get a run by ID
+ */
+export const signalsScoutRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutRunDetailApi> => {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${id}/emit-signal/`
+}
+
+/**
+ * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
+ * @summary Emit a finding for a run
+ */
+export const signalsScoutEmitSignal = async (
+    projectId: string,
+    id: string,
+    emitFindingRequestApi: EmitFindingRequestApi,
+    options?: RequestInit
+): Promise<EmitFindingResponseApi> => {
+    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/scratchpad/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/scratchpad/`
+}
+
+/**
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
+ * @summary Search the scout scratchpad
+ */
+export const signalsScoutScratchpadSearch = async (
+    projectId: string,
+    params?: SignalsScoutScratchpadSearchParams,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi[]> => {
+    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadSearchUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/`
+}
+
+/**
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
+ * @summary Remember a scratchpad entry
+ */
+export const signalsScoutScratchpadRemember = async (
+    projectId: string,
+    rememberRequestApi: RememberRequestApi,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi> => {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadRememberUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadForgetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/forget/`
+}
+
+/**
+ * Delete an entry by key. Returns `deleted=false` if no row matched.
+ * @summary Forget a scratchpad entry by key
+ */
+export const signalsScoutScratchpadForget = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadForgetUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
     })
 }
 

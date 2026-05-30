@@ -109,6 +109,254 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
+
+Status and timestamps flow from the linked `tasks.TaskRun`.
+ */
+export interface SignalScoutRunSummaryApi {
+    /** UUID of the bridge row. */
+    run_id: string
+    /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+    skill_name: string
+    /** Skill version snapshotted at run start. */
+    skill_version: number
+    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
+    status: string
+    /** ISO-8601 timestamp the TaskRun was created. */
+    started_at: string
+    /**
+     * ISO-8601 timestamp the TaskRun completed; null while still running.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * UUID of the Tasks `Task` the scout span ran inside.
+     * @nullable
+     */
+    task_id?: string | null
+    /**
+     * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
+     * @nullable
+     */
+    task_run_id?: string | null
+    /**
+     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
+     * @nullable
+     */
+    task_url?: string | null
+    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+    summary: string
+}
+
+/**
+ * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
+today; kept distinct so future detail-only extensions (linked Signal rows,
+LLMA token-cost join) can land here without bloating the list response.
+ */
+export interface SignalScoutRunDetailApi {
+    /** UUID of the bridge row. */
+    run_id: string
+    /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+    skill_name: string
+    /** Skill version snapshotted at run start. */
+    skill_version: number
+    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
+    status: string
+    /** ISO-8601 timestamp the TaskRun was created. */
+    started_at: string
+    /**
+     * ISO-8601 timestamp the TaskRun completed; null while still running.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * UUID of the Tasks `Task` the scout span ran inside.
+     * @nullable
+     */
+    task_id?: string | null
+    /**
+     * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
+     * @nullable
+     */
+    task_run_id?: string | null
+    /**
+     * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
+     * @nullable
+     */
+    task_url?: string | null
+    /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+    summary: string
+}
+
+/**
+ * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
+ */
+export interface EvidenceEntryApi {
+    /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
+    source_product: string
+    /** One-sentence prose about why this evidence supports the finding. */
+    summary: string
+    /**
+     * Optional ID of the cited entity (issue id, recording id, log query id).
+     * @nullable
+     */
+    entity_id?: string | null
+}
+
+/**
+ * * `P0` - P0
+ * `P1` - P1
+ * `P2` - P2
+ * `P3` - P3
+ * `P4` - P4
+ */
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
+
+export const AutonomyPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export interface TimeRangeApi {
+    /** ISO-8601 inclusive lower bound for the finding's window. */
+    date_from: string
+    /** ISO-8601 inclusive upper bound for the finding's window. */
+    date_to: string
+}
+
+/**
+ * Request body for `emit-finding`. Run attribution is taken from the URL path.
+ */
+export interface EmitFindingRequestApi {
+    /**
+     * Canonical evidence-bundle prose. Becomes the signal's `description`.
+     * @maxLength 50000
+     */
+    description: string
+    /**
+     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+     * @minimum 0
+     * @maximum 1
+     */
+    weight: number
+    /**
+     * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence: number
+    /**
+     * Citations supporting the finding. Capped at 20 entries.
+     * @maxItems 20
+     */
+    evidence: EvidenceEntryApi[]
+    /**
+     * Optional one-line hypothesis the finding tests.
+     * @nullable
+     */
+    hypothesis?: string | null
+    /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    severity?: AutonomyPriorityEnumApi | null
+    /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
+    dedupe_keys?: string[]
+    /** Optional time window the finding refers to. */
+    time_range?: TimeRangeApi | null
+    /**
+     * Optional MCP trace id for cross-system debugging.
+     * @nullable
+     */
+    mcp_trace_id?: string | null
+    /**
+     * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+     * @nullable
+     */
+    finding_id?: string | null
+}
+
+export interface EmitFindingResponseApi {
+    /** Stable id for the finding (echoed back from request, or generated). */
+    finding_id: string
+    /** Whether `emit_signal` was actually fired. */
+    emitted: boolean
+    /**
+     * `ai_processing_not_approved` | `source_disabled` | null when emitted normally.
+     * @nullable
+     */
+    skipped_reason: string | null
+}
+
+/**
+ * `SignalScratchpad` projection used by `search-memory` and `remember`.
+ */
+export interface ScratchpadEntryApi {
+    /** Agent-chosen semantic key, unique per team. */
+    key: string
+    /** Prose content for prompt injection. */
+    content: string
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 last-write timestamp.
+     * @nullable
+     */
+    updated_at: string | null
+    /**
+     * Run that wrote this entry, or null if human-authored.
+     * @nullable
+     */
+    created_by_run_id: string | null
+}
+
+/**
+ * Request body for `remember`.
+ */
+export interface RememberRequestApi {
+    /**
+     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+     * @maxLength 300
+     */
+    key: string
+    /**
+     * Prose to write. Read verbatim into future prompts.
+     * @maxLength 50000
+     */
+    content: string
+    /**
+     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+     * @nullable
+     */
+    run_id?: string | null
+}
+
+/**
+ * Request body for `forget`.
+ */
+export interface ForgetRequestApi {
+    /**
+     * Memory key to delete.
+     * @maxLength 300
+     */
+    key: string
+}
+
+export interface ForgetResponseApi {
+    /** Whether a row was actually removed (false if the key didn't exist). */
+    deleted: boolean
+}
+
+/**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
  * `github` - GitHub
@@ -198,23 +446,6 @@ export interface _UserApi {
     readonly email: string
 }
 
-/**
- * * `P0` - P0
- * `P1` - P1
- * `P2` - P2
- * `P3` - P3
- * `P4` - P4
- */
-export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
-
-export const AutonomyPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
-
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
 export const BlankEnumApi = {
@@ -288,6 +519,41 @@ export type SignalsReportsListParams = {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string
+}
+
+export type SignalsScoutRunsListParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     */
+    date_to?: string
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
+     */
+    text?: string
+}
+
+export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     */
+    text?: string
 }
 
 export type SignalsSourceConfigsListParams = {

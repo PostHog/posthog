@@ -464,6 +464,11 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     )
     skill_name = models.CharField(max_length=200)
     skill_version = models.IntegerField()
+    # One-paragraph close-out the scout writes at end-of-run via `SignalScoutRunSummary`.
+    # Searchable via ILIKE on the list endpoint — the dedupe path for runs that didn't
+    # emit any findings (and so left no `Signal` row to query against). Empty default
+    # so historical rows and mid-run reads return a string, not NULL.
+    summary = models.TextField(blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
