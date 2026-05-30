@@ -25,7 +25,6 @@ from hypothesis import strategies as st
 from posthog.hogql.test._grammar_token_strategies import (
     binary_literal_token,
     decimal_literal_token,
-    escape_char_common_token,
     floating_literal_token,
     full_string_escape_trigger_token,
     full_string_text_token,

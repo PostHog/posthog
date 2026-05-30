@@ -803,7 +803,11 @@ _ESCAPE_HATCH_NAMES: dict[str, str] = {
     "STRING_TEXT": "string_text_token",
     "FULL_STRING_TEXT": "full_string_text_token",
     "HOGQLX_TEXT_TEXT": "hogqlx_text_token",
-    "ESCAPE_CHAR_COMMON": "escape_char_common_token",
+    # ESCAPE_CHAR_COMMON is a lexer-internal subrule of STRING_TEXT /
+    # FULL_STRING_TEXT, never referenced by parser rules directly, so no
+    # escape-hatch is needed. (`escape_char_common_token` still lives in
+    # `_grammar_token_strategies.py` for manual use if a future grammar edit
+    # adds a parser-level reference.)
 }
 
 
@@ -909,7 +913,6 @@ from hypothesis import strategies as st
 from posthog.hogql.test._grammar_token_strategies import (
     binary_literal_token,
     decimal_literal_token,
-    escape_char_common_token,
     floating_literal_token,
     full_string_escape_trigger_token,
     full_string_text_token,
