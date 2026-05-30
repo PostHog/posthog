@@ -340,24 +340,19 @@ tools:
             synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training run object with
             status, iteration_count, and best_holdout_score. After training completes, call autoresearch-score-create to
             run inference and emit prediction events. You can optionally override the iteration_budget for this run.
-    autoresearch-training-runs-artifacts-upload-create:
-        operation: autoresearch_training_runs_artifacts_upload_create
+    autoresearch-training-runs-artifacts-delete-create:
+        operation: autoresearch_training_runs_artifacts_delete_create
         enabled: true
         scopes:
             - autoresearch:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
+        title: Delete an artifact bundle file
+        description: |
+            Remove one file from a training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
         mcp_version: 2
-        title: Upload an artifact bundle file
-        description: >
-            Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in
-            content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, recipe.yml,
-            or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author
-            train.py and predict.py (standalone sklearn scripts), features.sql (HogQL with the {anchors}/{lookback_days}
-            contract), and recipe.yml (informational metadata), then upload each here. Do NOT use set_output or curl —
-            the bundle you upload is what inference runs in a sandbox.
     autoresearch-training-runs-artifacts-get-create:
         operation: autoresearch_training_runs_artifacts_get_create
         enabled: true
@@ -385,19 +380,24 @@ tools:
         description: >
             List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql,
             recipe.yml, and any eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.
-    autoresearch-training-runs-artifacts-delete-create:
-        operation: autoresearch_training_runs_artifacts_delete_create
+    autoresearch-training-runs-artifacts-upload-create:
+        operation: autoresearch_training_runs_artifacts_upload_create
         enabled: true
         scopes:
             - autoresearch:write
         annotations:
             readOnly: false
-            destructive: true
+            destructive: false
             idempotent: true
-        mcp_version: 2
-        title: Delete an artifact bundle file
+        title: Upload an artifact bundle file
         description: >
-            Remove one file from a training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
+            Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in
+            content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, recipe.yml,
+            or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author
+            train.py and predict.py (standalone sklearn scripts), features.sql (HogQL with the {anchors}/{lookback_days}
+            contract), and recipe.yml (informational metadata), then upload each here. Do NOT use set_output or curl —
+            the bundle you upload is what inference runs in a sandbox.
+        mcp_version: 2
     autoresearch-training-runs-complete-create:
         operation: autoresearch_training_runs_complete_create
         enabled: true
