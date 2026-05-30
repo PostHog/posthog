@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
 
 SummaryLength = Literal["short", "medium", "long"]
 
@@ -64,6 +64,7 @@ class SummarizerOutput(SummarizerLlmResponse, frozen=True):
     """Persisted output: facet fields default to empty so flag-off summarizers round-trip cleanly."""
 
     scanner_type: Literal[ScannerType.SUMMARIZER] = ScannerType.SUMMARIZER
+    summary_segments: list[Segment] = Field(default_factory=list)
     intent: str = ""
     outcome: str = ""
     friction_points: list[str] = Field(default_factory=list)
