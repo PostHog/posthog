@@ -8,7 +8,6 @@ wrappers. v1 only targets Coder workspaces as the remote endpoint.
 from __future__ import annotations
 
 import json
-import shlex
 import shutil
 import hashlib
 import platform
@@ -26,12 +25,22 @@ _RELEASE_URL_TEMPLATE = (
     "https://github.com/mutagen-io/mutagen/releases/download/v{version}/mutagen_{os}_{arch}_v{version}.tar.gz"
 )
 
+# Pinned SHA256 of each release tarball, from the v0.18.1 `SHA256SUMS` asset.
+# The download is unverified TLS-only without this, so a MITM or tampered
+# release could execute arbitrary code on the engineer's machine on every sync.
+# Bump these in lockstep with `_MUTAGEN_VERSION`.
+_MUTAGEN_SHA256 = {
+    ("darwin", "amd64"): "7d06f7d8fcfe90bc7e55cc834a2f2f20c2e0af9ea9bc35911fc4341ad56a9bbf",
+    ("darwin", "arm64"): "6f810416d9e5fc4fd5e18431146f8b3c5a2056ba5a24f76c1e66da86eb3257e2",
+    ("linux", "amd64"): "7735286c778cc438418209f24d03a64f3a0151c8065ef0fe079cfaf093af6f8f",
+    ("linux", "arm64"): "bcba735aebf8cbc11da9b3742118a665599ac697fa06bc5751cac8dcd540db8a",
+}
 
-def _mutagen_release_url(version: str = _MUTAGEN_VERSION) -> str:
-    """Build the GitHub release tarball URL for the current platform.
 
-    Mutagen's release naming is ``mutagen_{os}_{arch}_v{version}.tar.gz``
-    where ``os`` is ``darwin``/``linux`` and ``arch`` is ``amd64``/``arm64``.
+def _mutagen_platform() -> tuple[str, str]:
+    """Map the host to mutagen's ``(os, arch)`` release naming, or fail if unsupported.
+
+    ``os`` is ``darwin``/``linux`` and ``arch`` is ``amd64``/``arm64``.
     Verified against the v0.18.1 release on GitHub.
     """
     system = platform.system().lower()
@@ -40,12 +49,15 @@ def _mutagen_release_url(version: str = _MUTAGEN_VERSION) -> str:
 
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
-        arch = "amd64"
-    elif machine in ("arm64", "aarch64"):
-        arch = "arm64"
-    else:
-        _fail(f"Unsupported CPU arch for mutagen install: {machine}. hogli devbox:sync supports amd64 and arm64 only.")
+        return system, "amd64"
+    if machine in ("arm64", "aarch64"):
+        return system, "arm64"
+    _fail(f"Unsupported CPU arch for mutagen install: {machine}. hogli devbox:sync supports amd64 and arm64 only.")
 
+
+def _mutagen_release_url(version: str = _MUTAGEN_VERSION) -> str:
+    """Build the GitHub release tarball URL for the current platform."""
+    system, arch = _mutagen_platform()
     return _RELEASE_URL_TEMPLATE.format(version=version, os=system, arch=arch)
 
 
@@ -89,32 +101,57 @@ def get_installed_mutagen_version() -> str | None:
 def _install_mutagen(*, verbose: bool = False) -> None:
     """Install mutagen into ``~/.hogli/bin`` from the official GitHub release.
 
-    Extracts both ``mutagen`` and ``mutagen-agents.tar.gz`` from the tarball
-    into the managed directory. The agents archive is unpacked lazily by
-    mutagen on first sync to ``~/.mutagen-agents/`` -- we just have to ship
-    it next to the binary.
+    Downloads the release tarball, verifies it against the pinned SHA256, then
+    extracts both ``mutagen`` and ``mutagen-agents.tar.gz`` into the managed
+    directory. Verification happens before extraction so a tampered or MITMed
+    tarball never reaches disk as an executable. The agents archive is unpacked
+    lazily by mutagen on first sync to ``~/.mutagen-agents/`` -- we just have to
+    ship it next to the binary.
     """
+    system, arch = _mutagen_platform()
+    expected_sha = _MUTAGEN_SHA256.get((system, arch))
+    if expected_sha is None:
+        _fail(f"No pinned mutagen checksum for {system}/{arch}; refusing to install an unverified binary.")
+
     url = _mutagen_release_url()
     click.echo(f"Installing mutagen CLI v{_MUTAGEN_VERSION}...")
 
     _MANAGED_MUTAGEN_DIR.mkdir(parents=True, exist_ok=True)
-    # `set -o pipefail` so a curl failure fails the pipeline; otherwise `tar`
-    # extracts an empty stream and we silently "install" nothing. Invoke via
-    # `bash` because `/bin/sh` is `dash` on Debian/Ubuntu and rejects `-o pipefail`.
-    cmd = (
-        f"set -o pipefail; curl -fsSL {shlex.quote(url)} | "
-        f"tar -xz -C {shlex.quote(str(_MANAGED_MUTAGEN_DIR))} mutagen mutagen-agents.tar.gz"
-    )
-    result = subprocess.run(["bash", "-c", cmd], text=True, capture_output=not verbose)
+    tarball = _MANAGED_MUTAGEN_DIR / f"mutagen_{system}_{arch}_v{_MUTAGEN_VERSION}.tar.gz"
+
+    # Run curl and tar directly (no shell): the inputs aren't user-controlled,
+    # but argv avoids any quoting/injection surface and needs no pipefail dance.
+    download = ["curl", "-fsSL", "-o", str(tarball), url]
+    result = subprocess.run(download, text=True, capture_output=not verbose)
     if result.returncode != 0:
         if not verbose:
             click.echo(result.stdout or "")
             click.echo(result.stderr or "", err=True)
-        _fail(f"Mutagen CLI installation failed.\nTry manually: {cmd}")
+        tarball.unlink(missing_ok=True)
+        _fail(f"Mutagen download failed.\nTry manually: {' '.join(download)}")
+
+    actual_sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+    if actual_sha != expected_sha:
+        tarball.unlink(missing_ok=True)
+        _fail(
+            f"Mutagen tarball checksum mismatch for {system}/{arch}.\n"
+            f"  expected {expected_sha}\n"
+            f"  got      {actual_sha}\n"
+            "Refusing to install a tampered or corrupt binary."
+        )
+
+    extract = ["tar", "-xz", "-C", str(_MANAGED_MUTAGEN_DIR), "-f", str(tarball), "mutagen", "mutagen-agents.tar.gz"]
+    result = subprocess.run(extract, text=True, capture_output=not verbose)
+    tarball.unlink(missing_ok=True)
+    if result.returncode != 0:
+        if not verbose:
+            click.echo(result.stdout or "")
+            click.echo(result.stderr or "", err=True)
+        _fail(f"Mutagen extraction failed.\nTry manually: {' '.join(extract)}")
 
     managed = _MANAGED_MUTAGEN_DIR / "mutagen"
     if not managed.is_file():
-        _fail(f"Mutagen install reported success but {managed} is missing.\nTry manually: {cmd}")
+        _fail(f"Mutagen install reported success but {managed} is missing.")
 
 
 def ensure_mutagen_installed(*, verbose: bool = False) -> None:

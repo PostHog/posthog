@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import errno
+import hashlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -3219,39 +3220,102 @@ class TestMutagenReleaseUrl:
 class TestMutagenInstall:
     """Test the install + version-pinning flow for the managed mutagen binary."""
 
-    def test_install_downloads_and_extracts(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def _pin_platform(self, monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
+        """Force a supported platform and pin its checksum to ``payload``'s hash."""
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(
+            devbox_mutagen, "_MUTAGEN_SHA256", {("linux", "amd64"): hashlib.sha256(payload).hexdigest()}
+        )
+
+    def test_install_verifies_checksum_then_extracts(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         managed = tmp_path / "bin"
         monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", managed)
-        monkeypatch.setattr(devbox_mutagen, "_mutagen_release_url", lambda *a, **kw: "https://example/mutagen.tar.gz")
+        payload = b"fake-mutagen-tarball"
+        self._pin_platform(monkeypatch, payload)
 
-        captured: list[str] = []
+        calls: list[list[str]] = []
 
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            captured.extend(args)
-            managed.mkdir(parents=True, exist_ok=True)
-            (managed / "mutagen").touch()
+            calls.append(args)
+            if args[0] == "curl":
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(payload)
+            elif args[0] == "tar":
+                (managed / "mutagen").touch()
             return subprocess.CompletedProcess(args, 0, "", "")
 
         monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
 
         devbox_mutagen._install_mutagen()
 
-        full_cmd = " ".join(captured)
-        assert "set -o pipefail" in full_cmd
-        assert "curl -fsSL https://example/mutagen.tar.gz" in full_cmd
-        assert f"tar -xz -C {managed}" in full_cmd
-        assert "mutagen mutagen-agents.tar.gz" in full_cmd
+        # curl downloads first, tar extracts only after the checksum passes.
+        assert [c[0] for c in calls] == ["curl", "tar"]
+        assert "mutagen" in calls[1] and "mutagen-agents.tar.gz" in calls[1]
+        assert (managed / "mutagen").is_file()
+        # the downloaded tarball is cleaned up after extraction.
+        assert not list(managed.glob("*.tar.gz"))
+
+    def test_install_aborts_on_checksum_mismatch(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        managed = tmp_path / "bin"
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", managed)
+        self._pin_platform(monkeypatch, b"expected")
+
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            if args[0] == "curl":
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"tampered")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
+
+        with pytest.raises(SystemExit):
+            devbox_mutagen._install_mutagen()
+
+        # tar must never run on an unverified tarball, and nothing is left on disk.
+        assert [c[0] for c in calls] == ["curl"]
+        assert not (managed / "mutagen").exists()
+        assert not list(managed.glob("*.tar.gz"))
+
+    def test_install_fails_when_no_pinned_checksum(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", tmp_path / "bin")
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(devbox_mutagen, "_MUTAGEN_SHA256", {})
+
+        ran: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_mutagen.subprocess,
+            "run",
+            lambda args, **kw: ran.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+        )
+
+        with pytest.raises(SystemExit):
+            devbox_mutagen._install_mutagen()
+        assert ran == []  # bail before any download
 
     def test_install_fails_when_binary_missing_after_install(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", tmp_path / "bin")
-        monkeypatch.setattr(devbox_mutagen, "_mutagen_release_url", lambda *a, **kw: "https://example/mutagen.tar.gz")
-        monkeypatch.setattr(
-            devbox_mutagen.subprocess,
-            "run",
-            lambda args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""),
-        )
+        managed = tmp_path / "bin"
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", managed)
+        payload = b"valid-tarball"
+        self._pin_platform(monkeypatch, payload)
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if args[0] == "curl":
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(payload)
+            # tar reports success but extracts nothing.
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
 
         with pytest.raises(SystemExit):
             devbox_mutagen._install_mutagen()
