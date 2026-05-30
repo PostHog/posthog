@@ -243,3 +243,38 @@ message, session_id? })` tool, sessions exposed as MCP
       `@posthog/ui/focus` (navigate the read panel to whatever the
       agent is working on) and `@posthog/ui/toast`. User can toggle
       "Follow the agent" off without losing the agent's narration.
+
+- [ ] **Agent "goal" on the spec — an out-of-band anchor for
+      self-improvement.** Add a new field to `AgentSpec` (the zod
+      schema in `services/agent-shared/src/spec/spec.ts`, mirrored
+      into `products/agent_stack/backend/spec_schema.py`) that
+      captures the author's statement of what the agent is _for_ —
+      its intended purpose and success criteria. The twist: this
+      goal is **not** something the agent necessarily sees when it
+      runs. By default it is not injected into the runtime system
+      prompt, so the live agent can't optimize against it or get it
+      gamed mid-session — it stays an author-owned description of
+      reality that lives above any single revision. Where it earns
+      its keep is the self-healing loop (see
+      [`self-healing-agents.md`](self-healing-agents.md)): when a
+      tool proposes a revision (prompt / skill / tool-config edits),
+      the goal is treated as an invariant the proposal must respect.
+      The replay judge grades candidate revisions against it, and a
+      proposal that would drift the agent away from its stated goal
+      is rejected rather than landed as a draft. The goal is the
+      fixed point that keeps automated self-improvement from
+      wandering off into locally-optimal-but-wrong behavior. Open
+      design questions: (a) shape — a single prose statement, or a
+      structured `{ goal, non_goals, constraints }` (explicit
+      anti-goals the agent must never pursue are arguably the most
+      useful half); (b) field placement — top-level `spec.goal` vs a
+      richer `spec.intent` block; (c) runtime visibility — strictly
+      hidden by default vs an author opt-in to also surface it in the
+      system prompt (the framework-prompt seam from
+      [`framework-system-prompt.md`](framework-system-prompt.md) is
+      where it would slot in); (d) how the judge consumes it — seed
+      the grading rubric, or a hard pass/fail gate before the
+      at-least-as-well comparison; (e) governance — does editing the
+      goal itself require its own revision + approval, since it's the
+      thing every future self-improvement is measured against.
+      Promote to its own plan when picked up.
