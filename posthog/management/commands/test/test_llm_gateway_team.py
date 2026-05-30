@@ -6,6 +6,8 @@ from posthog.test.base import BaseTest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from parameterized import parameterized
+
 
 class TestLLMGatewayTeamCommand(BaseTest):
     def _run(self, *args: str) -> str:
@@ -26,13 +28,15 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.assertIsNotNone(self.team.llm_gateway_enabled_at)
         self.assertIn(self.team.api_token, out)
 
-    def test_enable_is_idempotent(self) -> None:
-        # Pre-enable the team; second call must be a no-op and not overwrite the timestamp.
-        self.team.llm_gateway_enabled_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+    @parameterized.expand([("enable", "llm_gateway_enabled_at"), ("revoke", "llm_gateway_revoked_at")])
+    def test_set_action_is_idempotent(self, action: str, field: str) -> None:
+        # Pre-set the field; second call must be a no-op and not overwrite the timestamp.
+        original = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+        setattr(self.team, field, original)
         self.team.save()
-        out = self._run("enable", str(self.team.id))
+        out = self._run(action, str(self.team.id))
         self.team.refresh_from_db()
-        self.assertEqual(self.team.llm_gateway_enabled_at, datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC))
+        self.assertEqual(getattr(self.team, field), original)
         self.assertIn("no-op", out)
 
     def test_revoke_sets_revoked_at(self) -> None:
@@ -41,52 +45,58 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.assertIsNotNone(self.team.llm_gateway_revoked_at)
         self.assertIn("revoke ok", out)
 
-    def test_revoke_is_idempotent(self) -> None:
-        self.team.llm_gateway_revoked_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+    @parameterized.expand(
+        [
+            ("unenable", "llm_gateway_enabled_at"),
+            ("unrevoke", "llm_gateway_revoked_at"),
+        ]
+    )
+    def test_clear_action_clears_field(self, action: str, field: str) -> None:
+        setattr(self.team, field, datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC))
         self.team.save()
-        out = self._run("revoke", str(self.team.id))
+        out = self._run(action, str(self.team.id))
         self.team.refresh_from_db()
-        self.assertEqual(self.team.llm_gateway_revoked_at, datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC))
+        self.assertIsNone(getattr(self.team, field))
+        self.assertIn(f"{action} ok", out)
+
+    @parameterized.expand(
+        [
+            ("unenable", "llm_gateway_enabled_at"),
+            ("unrevoke", "llm_gateway_revoked_at"),
+        ]
+    )
+    def test_clear_action_on_already_null_is_noop(self, action: str, field: str) -> None:
+        self.assertIsNone(getattr(self.team, field))
+        out = self._run(action, str(self.team.id))
         self.assertIn("no-op", out)
 
-    def test_unrevoke_clears_revoked_at(self) -> None:
-        self.team.llm_gateway_revoked_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
-        self.team.save()
-        out = self._run("unrevoke", str(self.team.id))
-        self.team.refresh_from_db()
-        self.assertIsNone(self.team.llm_gateway_revoked_at)
-        self.assertIn("unrevoke ok", out)
-
-    def test_unrevoke_on_already_active_is_noop(self) -> None:
-        self.assertIsNone(self.team.llm_gateway_revoked_at)
-        out = self._run("unrevoke", str(self.team.id))
-        self.assertIn("no-op", out)
-
-    def test_status_admit_when_enabled_and_not_revoked(self) -> None:
-        self.team.llm_gateway_enabled_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
-        self.team.save()
-        out = self._run("status", str(self.team.id))
-        self.assertIn("state=admit", out)
-
-    def test_status_deny_when_unenrolled(self) -> None:
-        out = self._run("status", str(self.team.id))
-        self.assertIn("state=deny", out)
-
-    def test_status_deny_when_revoked(self) -> None:
-        self.team.llm_gateway_enabled_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
-        self.team.llm_gateway_revoked_at = datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC)
+    @parameterized.expand(
+        [
+            ("admit_when_enabled_and_not_revoked", datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC), None, "state=admit"),
+            ("deny_when_unenrolled", None, None, "state=deny"),
+            (
+                "deny_when_revoked",
+                datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC),
+                datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC),
+                "state=deny",
+            ),
+            ("deny_when_only_revoked_without_enabled", None, datetime(2026, 5, 2, 12, 0, 0, tzinfo=UTC), "state=deny"),
+        ]
+    )
+    def test_status(self, _name: str, enabled_at, revoked_at, expected_marker: str) -> None:
+        self.team.llm_gateway_enabled_at = enabled_at
+        self.team.llm_gateway_revoked_at = revoked_at
         self.team.save()
         out = self._run("status", str(self.team.id))
-        self.assertIn("state=deny", out)
+        self.assertIn(expected_marker, out)
 
-    def test_unknown_team_id_raises(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_team_id", "999999999"),
+            ("unknown_api_token", "phc_does_not_exist"),
+            ("garbage_arg", "not-an-id-or-token"),
+        ]
+    )
+    def test_resolve_failure_raises(self, _name: str, arg: str) -> None:
         with self.assertRaises(CommandError):
-            self._run("enable", "999999999")
-
-    def test_unknown_api_token_raises(self) -> None:
-        with self.assertRaises(CommandError):
-            self._run("enable", "phc_does_not_exist")
-
-    def test_garbage_team_arg_raises(self) -> None:
-        with self.assertRaises(CommandError):
-            self._run("enable", "not-an-id-or-token")
+            self._run("enable", arg)

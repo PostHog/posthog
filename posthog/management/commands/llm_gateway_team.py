@@ -4,6 +4,7 @@ Inspect or flip a team's llm-gateway admission state.
 Usage:
     python manage.py llm_gateway_team enable 42
     python manage.py llm_gateway_team enable phc_demo
+    python manage.py llm_gateway_team unenable 42
     python manage.py llm_gateway_team revoke 42
     python manage.py llm_gateway_team unrevoke 42
     python manage.py llm_gateway_team status 42
@@ -20,20 +21,23 @@ from django.utils import timezone
 
 from posthog.models.team.team import Team
 
+_VERBS = (
+    ("enable", "set llm_gateway_enabled_at to now (idempotent: no-op if already set)"),
+    ("unenable", "clear llm_gateway_enabled_at (no-op if already null)"),
+    ("revoke", "set llm_gateway_revoked_at to now (idempotent: no-op if already set)"),
+    ("unrevoke", "clear llm_gateway_revoked_at (no-op if already null)"),
+    ("status", "print the team's current admission state"),
+)
+
 
 class Command(BaseCommand):
     help = "Inspect or flip a team's llm-gateway admission state (enabled_at, revoked_at)."
 
     def add_arguments(self, parser: Any) -> None:
         sub = parser.add_subparsers(dest="action", required=True, metavar="action")
-        for verb, desc in (
-            ("enable", "set llm_gateway_enabled_at to now (idempotent: no-op if already set)"),
-            ("revoke", "set llm_gateway_revoked_at to now (idempotent: no-op if already set)"),
-            ("unrevoke", "clear llm_gateway_revoked_at (no-op if already null)"),
-            ("status", "print the team's current admission state"),
-        ):
+        for verb, desc in _VERBS:
             p = sub.add_parser(verb, help=desc)
-            p.add_argument("team", help="team id (integer) or api_token (phc_...)")
+            p.add_argument("team", help="team id (integer) or api_token")
 
     def handle(self, *args: Any, **opts: Any) -> None:
         team = _resolve_team(opts["team"])
@@ -56,15 +60,16 @@ class Command(BaseCommand):
 
 
 def _resolve_team(arg: str) -> Team:
-    if arg.startswith("phc_"):
+    # Try integer first so api_tokens that happen to be all-digit don't get
+    # mis-routed; otherwise treat as an api_token regardless of prefix
+    # (production tokens are phc_-prefixed but BaseTest fixtures aren't).
+    try:
+        team_id = int(arg)
+    except ValueError:
         try:
             return Team.objects.get(api_token=arg)
         except Team.DoesNotExist:
             raise CommandError(f"no team with api_token={arg!r}")
-    try:
-        team_id = int(arg)
-    except ValueError as e:
-        raise CommandError(f"expected integer team_id or phc_ token, got {arg!r}") from e
     try:
         return Team.objects.get(id=team_id)
     except Team.DoesNotExist:
@@ -78,6 +83,11 @@ def _apply(team: Team, action: str) -> bool:
         if team.llm_gateway_enabled_at is not None:
             return False
         team.llm_gateway_enabled_at = now
+        return True
+    if action == "unenable":
+        if team.llm_gateway_enabled_at is None:
+            return False
+        team.llm_gateway_enabled_at = None
         return True
     if action == "revoke":
         if team.llm_gateway_revoked_at is not None:
