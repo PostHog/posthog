@@ -55,6 +55,21 @@ Magnitude check (do this before classifying):
     * the triggered value is in the single digits, or
     * the triggered value is within ~50% of recent typical buckets, or
     * the framing is "highest in window" but the runner-up is close behind.
+- Account for time-of-day and day-of-week seasonality before calling a
+  drop or spike anomalous. Human-driven metrics (creates, signups, edits,
+  posts) routinely dip on evenings and weekends. The right baseline is
+  same-hour, same-weekday history — not the all-hours or all-days mean.
+  If you find yourself comparing an evening bucket against a "typical
+  daytime baseline", or a weekend bucket against weekday volume, stop and
+  pull the like-for-like baseline first. A value that looks low against
+  the all-hours mean can be perfectly normal for that hour-of-day.
+- Be suspicious of a "cliff" framing that pivots on an unusually high
+  *prior* bucket. A return to a normal level after a one-off spike is not
+  the same as a step-change below baseline. Anchor the comparison on the
+  post-drop level vs. the seasonally-matched baseline, not on the gap
+  between the spike and what came after. If the trailing buckets sit
+  inside the typical range for their hour-of-day and day-of-week, the
+  "cliff" is the spike reverting to mean, not a regression.
 - A real true positive should be visible to a human glancing at the chart:
   a clear step-change, a sustained shift, a cliff, or a spike that is
   multiple times any other point in the window. If you have to squint, it
