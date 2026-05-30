@@ -103,6 +103,10 @@ export interface PointClickData<Meta = unknown> {
     /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
      *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
     cursor: { x: number; y: number } | null
+    /** True when the click landed in the empty `track` region past the filled bar rather than on a
+     *  segment — funnel charts route this to the drop-off remainder. Only set when a track is drawn;
+     *  `series`/`dataIndex` still reference the clicked band. */
+    inTrack?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -209,14 +213,16 @@ export interface TooltipConfig {
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
 export interface BarsConfig {
-    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
-     *  segment. Defaults to 0 (square). */
+    /** Corner radius in px for the rounded end(s) of a bar. Defaults to 0 (square). */
     cornerRadius?: number
-    /** Draw a faint hatched track behind each bar, spanning the full plot height — for
-     *  funnel-style charts where every bar is a share of a whole. Only honored when
-     *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
-     *  semantics don't apply when bars share a band). Defaults to `false`. */
-    track?: boolean
+    /** How `cornerRadius` applies to a stack. `cap` (default) rounds only the topmost segment's far
+     *  end; `pill` rounds the whole stack both ends, resolved per band (funnel-style — a 100% single
+     *  segment still rounds both); `none` forces square corners regardless of `cornerRadius`. */
+    rounding?: 'cap' | 'pill' | 'none'
+    /** Track behind each bar spanning the full value axis, for "share of a whole" charts. `true`
+     *  uses a default colour, `{ color }` overrides it. Grouped draws a per-series tinted+hatched
+     *  track per sub-band slot; stacked/percent draws one neutral track per band. Defaults to none. */
+    track?: boolean | { color?: string }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero

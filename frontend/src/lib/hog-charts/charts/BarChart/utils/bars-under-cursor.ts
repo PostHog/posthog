@@ -10,6 +10,46 @@ export function isStackedLayout(layout: BarLayout): boolean {
     return layout !== 'grouped'
 }
 
+export interface StackEdges {
+    topKeyAtIndex: Map<string, (string | null)[]>
+    bottomKeyAtIndex: Map<string, (string | null)[]>
+}
+
+export function computeStackEdges(
+    series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>[],
+    indexCount: number
+): StackEdges {
+    const topKeyAtIndex = new Map<string, (string | null)[]>()
+    const bottomKeyAtIndex = new Map<string, (string | null)[]>()
+    const arrFor = (m: Map<string, (string | null)[]>, axisId: string): (string | null)[] => {
+        let arr = m.get(axisId)
+        if (!arr) {
+            arr = new Array(indexCount).fill(null)
+            m.set(axisId, arr)
+        }
+        return arr
+    }
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const topArr = arrFor(topKeyAtIndex, axisId)
+        const bottomArr = arrFor(bottomKeyAtIndex, axisId)
+        for (let i = 0; i < indexCount; i++) {
+            const v = s.data[i]
+            if (typeof v !== 'number' || !isFinite(v) || v === 0) {
+                continue
+            }
+            topArr[i] = s.key
+            if (bottomArr[i] == null) {
+                bottomArr[i] = s.key
+            }
+        }
+    }
+    return { topKeyAtIndex, bottomKeyAtIndex }
+}
+
 /** Grouped-layout hit-test that ignores the value axis so a cursor above (or below) a bar still
  *  selects the bar whose band-slot it lines up with. Matches chart.js's `mode: 'point', axis: 'x'`
  *  behaviour — without this, hovering above a short bar in a grouped pair would fail every
@@ -55,6 +95,8 @@ export interface BarsAtCursorArgs {
     isHorizontal: boolean
     stackedData?: Map<string, StackedBand>
     topStackedKeyByAxis: Map<string, string>
+    stackEdges?: StackEdges
+    roundStackBaseline?: boolean
 }
 
 export interface BarAtCursor<S> {
@@ -68,7 +110,8 @@ export interface BarAtCursor<S> {
 export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
-    const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis, stackEdges } =
+        args
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -76,6 +119,13 @@ export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 
         const stackedBand = stackedData?.get(s.key)
         const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
         const isTopOfStack = topStackedKeyByAxis.get(axisId) === s.key
+        let capRounded: boolean | undefined
+        let baseRounded: boolean | undefined
+        if (stackEdges && isStackedLayout(layout)) {
+            capRounded = stackEdges.topKeyAtIndex.get(axisId)?.[dataIndex] === s.key
+            baseRounded =
+                args.roundStackBaseline === true && stackEdges.bottomKeyAtIndex.get(axisId)?.[dataIndex] === s.key
+        }
         const bar = computeBarAtIndex({
             series: s as unknown as Series,
             label,
@@ -85,6 +135,8 @@ export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 
             isHorizontal,
             stackedBand,
             isTopOfStack,
+            capRounded,
+            baseRounded,
         })
         if (bar) {
             yield { series: s, bar }

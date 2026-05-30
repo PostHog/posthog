@@ -5,6 +5,7 @@ import { dimensions } from '../../../testing/jsdom'
 import {
     barContainsPoint,
     barContainsPointOnBandAxis,
+    computeStackEdges,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
 } from './bars-under-cursor'
@@ -96,6 +97,41 @@ describe('barContainsPoint', () => {
                 })
             ).toBe(false)
         })
+    })
+})
+
+describe('computeStackEdges', () => {
+    const series = (key: string, data: number[]): Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'> => ({
+        key,
+        data,
+    })
+
+    it('picks the bottommost and topmost non-zero segment per band', () => {
+        const { topKeyAtIndex, bottomKeyAtIndex } = computeStackEdges(
+            [series('value', [100, 55]), series('filler', [0, 45])],
+            2
+        )
+        expect(bottomKeyAtIndex.get('left')).toEqual(['value', 'value'])
+        expect(topKeyAtIndex.get('left')).toEqual(['value', 'filler'])
+    })
+
+    it('skips excluded series and treats zero/non-finite as absent', () => {
+        const excluded: Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'> = {
+            key: 'hidden',
+            data: [10],
+            visibility: { excluded: true },
+        }
+        const { topKeyAtIndex, bottomKeyAtIndex } = computeStackEdges([excluded, series('a', [0]), series('b', [7])], 1)
+        expect(bottomKeyAtIndex.get('left')).toEqual(['b'])
+        expect(topKeyAtIndex.get('left')).toEqual(['b'])
+    })
+
+    it('keys edges by yAxisId', () => {
+        const left: Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'> = { key: 'l', data: [3], yAxisId: 'left' }
+        const right: Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'> = { key: 'r', data: [4], yAxisId: 'right' }
+        const { topKeyAtIndex } = computeStackEdges([left, right], 1)
+        expect(topKeyAtIndex.get('left')).toEqual(['l'])
+        expect(topKeyAtIndex.get('right')).toEqual(['r'])
     })
 })
 
