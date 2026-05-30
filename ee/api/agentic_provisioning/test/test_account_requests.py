@@ -488,6 +488,14 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             scope="query:read",
         )
 
+    def _make_live_refresh_token(self, user: User, partner: OAuthApplication) -> OAuthRefreshToken:
+        return OAuthRefreshToken.objects.create(
+            user=user,
+            application=partner,
+            token=f"rtok_{user.id}_{partner.id}",
+            revoked=None,
+        )
+
     def _make_revoked_refresh_token(self, user: User, partner: OAuthApplication) -> OAuthRefreshToken:
         return OAuthRefreshToken.objects.create(
             user=user,
@@ -504,17 +512,34 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
 
-    def test_reviewed_user_with_live_token_from_caller_silent_still_works(self):
+    @parameterized.expand(
+        [
+            ("live_access_token", lambda self, user: self._make_live_access_token(user, self.partner)),
+            ("live_refresh_token", lambda self, user: self._make_live_refresh_token(user, self.partner)),
+        ]
+    )
+    def test_reviewed_user_with_live_credential_from_caller_silent_still_works(self, _name, setup_credential):
         user = self._make_user(credentials_reviewed=True)
-        self._make_live_access_token(user, self.partner)
+        setup_credential(self, user)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
 
-    def test_reviewed_user_with_no_credentials_falls_through_to_consent(self):
-        self._make_user(credentials_reviewed=True)
+    @parameterized.expand(
+        [
+            ("no_credentials", lambda self, user: None),
+            (
+                "different_partner_credential",
+                lambda self, user: self._make_live_access_token(user, self.other_partner),
+            ),
+            ("only_revoked_token", lambda self, user: self._make_revoked_refresh_token(user, self.partner)),
+        ]
+    )
+    def test_reviewed_user_without_live_caller_credential_falls_through_to_consent(self, _name, setup_credential):
+        user = self._make_user(credentials_reviewed=True)
+        setup_credential(self, user)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
@@ -528,21 +553,3 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
         assert pending is not None
         assert pending["partner_id"] == str(self.partner.id)
-
-    def test_reviewed_user_credential_from_different_partner_is_blocked(self):
-        user = self._make_user(credentials_reviewed=True)
-        self._make_live_access_token(user, self.other_partner)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
-
-    def test_reviewed_user_with_only_revoked_token_from_caller_is_blocked(self):
-        user = self._make_user(credentials_reviewed=True)
-        self._make_revoked_refresh_token(user, self.partner)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
