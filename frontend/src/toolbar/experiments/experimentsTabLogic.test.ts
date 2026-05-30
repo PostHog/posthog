@@ -345,13 +345,19 @@ describe('experimentsTabLogic', () => {
         })
 
         it('resolves to an empty list when the fetch rejects at the transport level', async () => {
+            // Let the mount-triggered load settle first so it cannot race the failing load below.
+            await expectLogic(theExperimentsLogic).toFinishAllListeners()
+            expect(theExperimentsLogic.values.allExperiments.length).toBeGreaterThan(0)
+
             global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch')))
 
+            // Transport-level rejection should resolve to an empty list (loader succeeds, never fails).
             await expectLogic(theExperimentsLogic, () => {
                 theExperimentsLogic.actions.getExperiments()
-            })
-                .toDispatchActions(['getExperiments', 'getExperimentsSuccess'])
-                .toMatchValues({ allExperiments: [] })
+            }).toDispatchActions(['getExperiments', 'getExperimentsSuccess'])
+            await expectLogic(theExperimentsLogic).toFinishAllListeners()
+
+            expect(theExperimentsLogic.values.allExperiments).toEqual([])
         })
     })
 
