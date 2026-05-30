@@ -110,8 +110,6 @@ overrides:
   uWebSockets.js: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
   fast-xml-parser@^4: '>=4.5.4'
   fast-xml-parser@^5: '>=5.3.5'
-  playwright: 1.60.0
-  playwright-core: 1.60.0
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
