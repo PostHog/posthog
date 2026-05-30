@@ -10,6 +10,51 @@ export function isStackedLayout(layout: BarLayout): boolean {
     return layout !== 'grouped'
 }
 
+/** Per-axis, per-index key of the topmost / bottommost non-zero stacked segment. Cap and
+ *  baseline rounding for funnel-style stacks must be resolved per band, not per series: a
+ *  100% first step has no filler, so its single segment is simultaneously top and bottom. */
+export interface StackEdges {
+    topKeyAtIndex: Map<string, (string | null)[]>
+    bottomKeyAtIndex: Map<string, (string | null)[]>
+}
+
+export function computeStackEdges(
+    series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>[],
+    indexCount: number
+): StackEdges {
+    const topKeyAtIndex = new Map<string, (string | null)[]>()
+    const bottomKeyAtIndex = new Map<string, (string | null)[]>()
+    const arrFor = (m: Map<string, (string | null)[]>, axisId: string): (string | null)[] => {
+        let arr = m.get(axisId)
+        if (!arr) {
+            arr = new Array(indexCount).fill(null)
+            m.set(axisId, arr)
+        }
+        return arr
+    }
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const topArr = arrFor(topKeyAtIndex, axisId)
+        const bottomArr = arrFor(bottomKeyAtIndex, axisId)
+        for (let i = 0; i < indexCount; i++) {
+            const v = s.data[i]
+            if (typeof v !== 'number' || !isFinite(v) || v === 0) {
+                continue
+            }
+            // Series iterate bottom → top (d3.stack key order), so the last non-zero write
+            // at an index is the top segment; the first is the bottom.
+            topArr[i] = s.key
+            if (bottomArr[i] == null) {
+                bottomArr[i] = s.key
+            }
+        }
+    }
+    return { topKeyAtIndex, bottomKeyAtIndex }
+}
+
 /** Grouped-layout hit-test that ignores the value axis so a cursor above (or below) a bar still
  *  selects the bar whose band-slot it lines up with. Matches chart.js's `mode: 'point', axis: 'x'`
  *  behaviour — without this, hovering above a short bar in a grouped pair would fail every
@@ -55,6 +100,11 @@ export interface BarsAtCursorArgs {
     isHorizontal: boolean
     stackedData?: Map<string, StackedBand>
     topStackedKeyByAxis: Map<string, string>
+    /** When present, cap/baseline rounding is resolved per band from the visible non-zero
+     *  stack (funnel-style) so hover highlights match the rounded static bars. */
+    stackEdges?: StackEdges
+    /** Round the baseline-side corners of the bottom-of-stack segment. Only honored with `stackEdges`. */
+    roundStackBaseline?: boolean
 }
 
 export interface BarAtCursor<S> {
@@ -68,7 +118,8 @@ export interface BarAtCursor<S> {
 export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
-    const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis, stackEdges } =
+        args
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -76,6 +127,13 @@ export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 
         const stackedBand = stackedData?.get(s.key)
         const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
         const isTopOfStack = topStackedKeyByAxis.get(axisId) === s.key
+        let capRounded: boolean | undefined
+        let baseRounded: boolean | undefined
+        if (stackEdges && isStackedLayout(layout)) {
+            capRounded = stackEdges.topKeyAtIndex.get(axisId)?.[dataIndex] === s.key
+            baseRounded =
+                args.roundStackBaseline === true && stackEdges.bottomKeyAtIndex.get(axisId)?.[dataIndex] === s.key
+        }
         const bar = computeBarAtIndex({
             series: s as unknown as Series,
             label,
@@ -85,6 +143,8 @@ export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 
             isHorizontal,
             stackedBand,
             isTopOfStack,
+            capRounded,
+            baseRounded,
         })
         if (bar) {
             yield { series: s, bar }
@@ -119,9 +179,18 @@ export function resolveBarsAtCursor(
     return { hits, strictHit }
 }
 
+/** Value-axis interval [near, far] of a bar, regardless of orientation. */
+function valueAxisExtentRange(bar: BarRect, isHorizontal: boolean): [number, number] {
+    return isHorizontal ? [bar.x, bar.x + bar.width] : [bar.y, bar.y + bar.height]
+}
+
 /** Visible stacked segment under the cursor — last-drawn bar whose rect contains it.
  *  Also returns the next-smaller extent (the far edge of the bar that overdraws this
- *  segment's near side); callers clip the highlight rect there so hover preserves z-order. */
+ *  segment's near side); callers clip the highlight rect there so hover preserves z-order.
+ *  Only segments that actually *overlap* the visible one count — in a sparse/aggregated
+ *  overlap layout every segment is drawn from the baseline (nested), so a smaller one paints
+ *  over this segment's near side; in a proper adjacent stack (funnels) the neighbours sit
+ *  beside it and must not clip its highlight. */
 export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series' | 'label' | 'dataIndex'> & {
         series: readonly S[]
@@ -132,7 +201,7 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
 ): { series: S; bar: BarRect; dataIndex: number; nextSmallerExtent: number } | null {
     const { labels, hoveredLabel, cursor, isHorizontal } = args
     let visible: { series: S; bar: BarRect; dataIndex: number; extent: number } | null = null
-    const allExtents: number[] = []
+    const candidates: { extent: number; range: [number, number] }[] = []
     for (let dataIndex = 0; dataIndex < labels.length; dataIndex++) {
         if (labels[dataIndex] !== hoveredLabel) {
             continue
@@ -142,7 +211,7 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
             if (extent <= 0) {
                 continue
             }
-            allExtents.push(extent)
+            candidates.push({ extent, range: valueAxisExtentRange(bar, isHorizontal) })
             if (!barContainsPoint(bar, cursor)) {
                 continue
             }
@@ -153,6 +222,15 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
     if (!visible) {
         return null
     }
-    const nextSmallerExtent = allExtents.reduce((max, ext) => (ext < visible!.extent && ext > max ? ext : max), 0)
+    const [visNear, visFar] = valueAxisExtentRange(visible.bar, isHorizontal)
+    // Largest overdrawing segment: smaller extent (drawn on top) AND a real pixel overlap with
+    // the visible slice. Adjacent stack neighbours only touch at an edge, so they don't count.
+    const nextSmallerExtent = candidates.reduce((max, c) => {
+        if (c.extent >= visible!.extent || c.extent <= max) {
+            return max
+        }
+        const overlaps = c.range[0] < visFar && visNear < c.range[1]
+        return overlaps ? c.extent : max
+    }, 0)
     return { series: visible.series, bar: visible.bar, dataIndex: visible.dataIndex, nextSmallerExtent }
 }

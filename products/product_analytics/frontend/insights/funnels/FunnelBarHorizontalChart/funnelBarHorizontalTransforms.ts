@@ -5,12 +5,10 @@ import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
-export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
 
 const RATE_TO_PERCENT = 100
 
 export interface FunnelBarHorizontalSegmentMeta {
-    isDropOff: boolean
     breakdownIndex: number | null
 }
 
@@ -24,7 +22,6 @@ interface BuildOptions {
     breakdownFilter?: BreakdownFilter | null
     getColor: (series: FunnelStepWithConversionMetrics) => string
     getLabel: (series: FunnelStepWithConversionMetrics) => string
-    fillerColor: string
 }
 
 function isBreakdownLayout(steps: FunnelStepWithConversionMetrics[]): boolean {
@@ -79,11 +76,10 @@ function buildBreakdownSeries(
             label: options.getLabel(representative),
             data: fractions.map((f) => f * RATE_TO_PERCENT),
             color: options.getColor(representative),
-            meta: { isDropOff: false, breakdownIndex },
+            meta: { breakdownIndex },
         })
     }
 
-    series.push(buildFiller(steps, series, options.fillerColor))
     return series
 }
 
@@ -101,27 +97,8 @@ function buildSingleSeries(
         label: options.getLabel(representative),
         data: fractions.map((f) => f * RATE_TO_PERCENT),
         color: options.getColor(representative),
-        meta: { isDropOff: false, breakdownIndex: isSingleBreakdownCollapse ? 0 : null },
+        meta: { breakdownIndex: isSingleBreakdownCollapse ? 0 : null },
     }
 
-    return [segment, buildFiller(steps, [segment], options.fillerColor)]
-}
-
-function buildFiller(
-    steps: FunnelStepWithConversionMetrics[],
-    segments: Series<FunnelBarHorizontalSegmentMeta>[],
-    color: string
-): Series<FunnelBarHorizontalSegmentMeta> {
-    const fillerData = steps.map((_, stepIndex) => {
-        const covered = segments.reduce((sum, s) => sum + (s.data[stepIndex] ?? 0), 0)
-        return Math.max(0, RATE_TO_PERCENT - covered)
-    })
-    return {
-        key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
-        label: 'Drop-off',
-        data: fillerData,
-        color,
-        visibility: { tooltip: false },
-        meta: { isDropOff: true, breakdownIndex: null },
-    }
+    return [segment]
 }

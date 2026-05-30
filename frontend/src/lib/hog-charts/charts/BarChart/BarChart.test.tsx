@@ -368,6 +368,36 @@ describe('BarChart', () => {
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
+        it('stacked horizontal with barTrack flags clicks in the empty remainder region as inTrack', () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal', bars: { track: true } }}
+                    onPointClick={onPointClick}
+                />
+            )
+            // Tue row stacks to 35 while the axis runs to 55 (Wed) — its right side is empty track.
+            const yMidRow = dimensions.plotTop + dimensions.plotHeight / 2
+            // Click on the filled bar → a real segment, not the track.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + dimensions.plotWidth * 0.2,
+                clientY: yMidRow,
+            })
+            fireEvent.click(chart.element)
+            expect(onPointClick.mock.calls[0][0].inTrack).toBeFalsy()
+            onPointClick.mockClear()
+            // Click past the value extent, in the remainder → flagged as a track click.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + dimensions.plotWidth * 0.95,
+                clientY: yMidRow,
+            })
+            fireEvent.click(chart.element)
+            expect(onPointClick.mock.calls[0][0].inTrack).toBe(true)
+        })
+
         describe('sparse-stacked horizontal (overlap layout)', () => {
             // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
             // its own dataIndex, every label is the same band. Smallest bar paints on top, so

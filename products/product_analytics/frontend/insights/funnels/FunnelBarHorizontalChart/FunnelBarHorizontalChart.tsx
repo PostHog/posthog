@@ -18,9 +18,9 @@ import { StepDecorations } from './StepDecorations'
 
 const ROW_HEIGHT_PX = 76
 const BAR_PADDING = 0.6
-const GLYPH_COLUMN_WIDTH_PX = 24
+const GLYPH_COLUMN_WIDTH_PX = 40
 
-function getFillerColor(): string {
+function getTrackColor(): string {
     if (typeof document === 'undefined') {
         return 'rgba(0, 0, 0, 0.08)'
     }
@@ -40,7 +40,7 @@ export function FunnelBarHorizontalChart({
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const fillerColor = useMemo(() => getFillerColor(), [isDarkModeOn])
+    const trackColor = useMemo(() => getTrackColor(), [isDarkModeOn])
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -70,38 +70,37 @@ export function FunnelBarHorizontalChart({
                 breakdownFilter,
                 getColor: getFunnelsColor,
                 getLabel: (variant) => String(variant.breakdown_value ?? variant.name ?? ''),
-                fillerColor,
             }),
-        [steps, stepReference, breakdownFilter, getFunnelsColor, fillerColor]
+        [steps, stepReference, breakdownFilter, getFunnelsColor]
     )
 
     const chartConfig = useMemo<BarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            barCornerRadius: 4,
+            bars: { cornerRadius: 6, rounding: 'pill', track: { color: trackColor }, bandPadding: BAR_PADDING },
             axisOrientation: 'horizontal',
             hideXAxis: true,
             hideYAxis: true,
             showGrid: false,
             animateHover: true,
-            bandPadding: BAR_PADDING,
             margins: { top: 0, right: 0, bottom: 0, left: GLYPH_COLUMN_WIDTH_PX },
-            tooltip: { placement: 'top' },
+            tooltip: { placement: 'cursor' },
         }),
-        []
+        [trackColor]
     )
 
     const onPointClick = (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): void => {
-        const meta = clickData.series.meta
         const step = steps[clickData.dataIndex]
-        if (!step || !meta) {
+        if (!step) {
             return
         }
-        if (meta.isDropOff) {
+        // A click in the empty track region is the drop-off remainder.
+        if (clickData.inTrack) {
             openPersonsModalForStep({ step, converted: false })
             return
         }
-        if (meta.breakdownIndex != null && step.nested_breakdown?.[meta.breakdownIndex]) {
+        const meta = clickData.series.meta
+        if (meta?.breakdownIndex != null && step.nested_breakdown?.[meta.breakdownIndex]) {
             openPersonsModalForSeries({
                 step,
                 series: step.nested_breakdown[meta.breakdownIndex],

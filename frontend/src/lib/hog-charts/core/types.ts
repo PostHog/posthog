@@ -103,6 +103,10 @@ export interface PointClickData<Meta = unknown> {
     /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
      *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
     cursor: { x: number; y: number } | null
+    /** True when the click landed in the empty `barTrack` region (past the filled bar) rather
+     *  than on a bar segment — funnel-style charts route this to the "remainder" (drop-off).
+     *  Only set when a track is drawn; `series`/`dataIndex` still reference the clicked band. */
+    inTrack?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -199,38 +203,50 @@ export interface TooltipConfig {
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
-    /** Where the tooltip anchors vertically. `follow-data` (default) tracks the highest data point
-     *  at the hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump
-     *  vertically as the cursor moves between data points. */
-    placement?: 'follow-data' | 'top'
+    /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
+     *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
+     *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
+     *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
+    placement?: 'follow-data' | 'top' | 'cursor'
+}
+
+/** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
+ *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
+export interface BarsConfig {
+    /** Corner radius in px for the rounded end(s) of a bar. Defaults to 0 (square). */
+    cornerRadius?: number
+    /** How `cornerRadius` applies to a stack. `cap` (default) rounds only the far end of the
+     *  topmost segment; `pill` rounds the whole stack on both ends, resolved per band from the
+     *  visible non-zero stack (funnel-style — a 100% single segment still rounds both ends);
+     *  `none` forces square corners regardless of `cornerRadius`. */
+    rounding?: 'cap' | 'pill' | 'none'
+    /** Track behind each bar spanning the full value axis — for "share of a whole" charts.
+     *  `true` uses a default colour; `{ color }` overrides it. Grouped layouts draw a per-series
+     *  tinted+hatched track in each sub-band slot; stacked/percent draw one neutral solid track
+     *  per band behind the whole stack. Defaults to no track. */
+    track?: boolean | { color?: string }
+    /** Drop shadow under each bar so it reads as layered over a `track`. */
+    shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
+     *  baseline (positives above). Default `false` clamps negatives to 0. */
+    divergingStack?: boolean
+    /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
+     *  still span the full width — useful for few-category funnel-style charts. */
+    maxBandRange?: number
+    /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half this
+     *  value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
+    bandPadding?: number
+    /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush into
+     *  an unreadable strip, the chart expands its container height so each row has at least this
+     *  much vertical space. Defaults to `24`. Pass `0` to opt out. */
+    minBandSize?: number
 }
 
 export interface BarChartConfig extends ChartConfig {
     /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Stacked bars only round the topmost segment. */
-    barCornerRadius?: number
-    /** Draw a faint hatched track behind each bar, spanning the full plot height — for
-     *  funnel-style charts where every bar is a share of a whole. Only honored when
-     *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
-     *  semantics don't apply when bars share a band). Defaults to `false`. */
-    barTrack?: boolean
-    /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack
-     *  below the zero baseline (positives above). Default `false` clamps negatives to 0. */
-    divergingStack?: boolean
-    /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while
-     *  gridlines still span the full width — useful for few-category funnel-style charts. */
-    maxBandRange?: number
-    /** Inner gap between bars as a fraction of the band slot (0–1). Outer padding is half
-     *  this value, so `step = range / N`. Defaults to `DEFAULT_BAND_PADDING` in `scales.ts`. */
-    bandPadding?: number
-    /** Drop shadow under each bar so it reads as layered over a `barTrack`. */
-    barShadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
-    /** Horizontal bar charts only — minimum px per row. When many rows would otherwise crush
-     *  into an unreadable strip, the chart expands its container height so each row has at
-     *  least this much vertical space (label height + breathing room). Defaults to `24`.
-     *  Pass `0` to opt out. */
-    minBandSize?: number
+    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    bars?: BarsConfig
 }
 
 export interface LineChartConfig extends ChartConfig {

@@ -5,12 +5,15 @@ import { type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '..
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
+    type BarRoundedCorners,
     type BarShadow,
     drawBarHighlight,
     drawBars,
     drawBarTracks,
     drawGrid,
+    drawSolidBarTracks,
     type DrawContext,
+    clipToRoundedRects,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -29,6 +32,7 @@ import {
 } from '../../core/scales'
 import type {
     BarChartConfig,
+    BarsConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartScales,
@@ -46,15 +50,66 @@ import { BarTooltip } from './BarTooltip'
 import {
     type BarLayout,
     barContainsPointOnBandAxis,
+    computeStackEdges,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
     iterBarsAtCursor,
     isStackedLayout,
+    type StackEdges,
 } from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
     return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+
+/** One track rect per unique band, spanning the full value axis behind the stack — the
+ *  funnel-style "remainder of the whole" backdrop. Rounded on all corners so it reads as a pill. */
+function computeBandTrackRects(
+    scales: BarChartPrivate['__barChart'],
+    labels: string[],
+    isHorizontal: boolean
+): BarRect[] {
+    const [axisA = 0, axisB = 0] = scales.value.range()
+    const valueMin = Math.min(axisA, axisB)
+    const valueSize = Math.abs(axisB - axisA)
+    const bandwidth = scales.band.bandwidth()
+    const seen = new Set<string>()
+    const rects: BarRect[] = []
+    for (const label of labels) {
+        if (seen.has(label)) {
+            continue
+        }
+        seen.add(label)
+        const bandStart = scales.band(label)
+        if (bandStart == null) {
+            continue
+        }
+        rects.push(
+            isHorizontal
+                ? { x: valueMin, y: bandStart, width: valueSize, height: bandwidth, corners: ALL_CORNERS, dataIndex: 0 }
+                : { x: bandStart, y: valueMin, width: bandwidth, height: valueSize, corners: ALL_CORNERS, dataIndex: 0 }
+        )
+    }
+    return rects
+}
+
+/** Whether a cursor sits within a band's slot on the band axis — i.e. anywhere in that row's
+ *  full-width track, used to recognise a click in the empty remainder region. */
+function cursorInBandTrack(
+    scales: BarChartPrivate['__barChart'],
+    label: string,
+    cursor: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    const bandStart = scales.band(label)
+    if (bandStart == null) {
+        return false
+    }
+    const bandCoord = isHorizontal ? cursor.y : cursor.x
+    return bandCoord >= bandStart && bandCoord < bandStart + scales.band.bandwidth()
 }
 
 /** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
@@ -91,7 +146,7 @@ const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
 // Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
 const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
-function resolveBarShadow(barShadow: BarChartConfig['barShadow']): BarShadow | undefined {
+function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
     if (barShadow === true) {
         return DEFAULT_BAR_SHADOW
     }
@@ -124,16 +179,23 @@ function BarChartInner<Meta = unknown>({
         yScaleType = 'linear',
         showGrid = false,
         barLayout = 'stacked',
-        barCornerRadius = 0,
-        barTrack = false,
         axisOrientation = 'vertical',
         xTickFormatter,
+    } = config ?? {}
+    const {
+        cornerRadius = 0,
+        rounding = 'cap',
+        track,
+        shadow: barShadow,
         divergingStack = false,
         maxBandRange,
         bandPadding,
-        barShadow,
         minBandSize,
-    } = config ?? {}
+    } = config?.bars ?? {}
+    const roundStackBaseline = rounding === 'pill'
+    const barCornerRadius = rounding === 'none' ? 0 : cornerRadius
+    const barTrack = !!track
+    const barTrackColor = typeof track === 'object' ? track.color : undefined
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
@@ -175,6 +237,14 @@ function BarChartInner<Meta = unknown>({
         }
         return m
     }, [barLayout, series])
+
+    // Per-band non-zero stack edges — only needed when `roundStackBaseline` opts into funnel-style
+    // pill rounding, where the visible top/bottom segment differs per band (e.g. a 100% step has
+    // no filler). Left undefined otherwise so existing per-series cap rounding is unchanged.
+    const stackEdges = useMemo<StackEdges | undefined>(
+        () => (roundStackBaseline && barLayout !== 'grouped' ? computeStackEdges(series, labels.length) : undefined),
+        [roundStackBaseline, barLayout, series, labels.length]
+    )
 
     const chartConfig = useMemo<BarChartConfig>(() => {
         const base = { ...config, isPercent: barLayout === 'percent' }
@@ -313,6 +383,8 @@ function BarChartInner<Meta = unknown>({
                 .filter((s) => !s.visibility?.excluded)
                 .map((s) => {
                     const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                    const topAtIndex = stackEdges?.topKeyAtIndex.get(axisId)
+                    const bottomAtIndex = stackEdges?.bottomKeyAtIndex.get(axisId)
                     const bars = computeSeriesBars({
                         series: s,
                         labels: drawLabels,
@@ -321,20 +393,30 @@ function BarChartInner<Meta = unknown>({
                         isHorizontal,
                         stackedBand: stackedData?.get(s.key),
                         isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+                        capRoundedAtIndex: stackEdges ? (i) => topAtIndex?.[i] === s.key : undefined,
+                        baseRoundedAtIndex:
+                            stackEdges && roundStackBaseline ? (i) => bottomAtIndex?.[i] === s.key : undefined,
                     }).filter((b): b is BarRect => b !== null)
                     return { series: s, bars }
                 })
 
-            // Tracks are a separate pass so a later series' full-height track can't paint
-            // over an earlier series' bar. Track is "share of a whole" semantics — only
-            // meaningful for grouped layouts; in stacked/percent every layer would paint
-            // a full-height track over the same band with the wrong corners.
+            // Tracks are a separate pass before the bars so the stack paints on top. Grouped
+            // gets a per-series tinted+hatched track in each sub-band slot; stacked/percent gets
+            // one neutral solid track per band behind the whole stack (a single full-axis pill).
             if (barTrack && barLayout === 'grouped') {
                 const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
                 for (const { series: s, bars } of seriesBars) {
                     const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
                     drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
                 }
+            } else if (barTrack) {
+                const tracks = computeBandTrackRects(d3Scales, drawLabels, isHorizontal)
+                drawSolidBarTracks(
+                    ctx,
+                    tracks,
+                    barTrackColor ?? theme.gridColor ?? 'rgba(0, 0, 0, 0.08)',
+                    barCornerRadius
+                )
             }
 
             const resolvedShadow = resolveBarShadow(barShadow)
@@ -349,8 +431,18 @@ function BarChartInner<Meta = unknown>({
                 ctx.shadowOffsetX = resolvedShadow.offsetX ?? 0
                 ctx.shadowOffsetY = resolvedShadow.offsetY ?? 0
             }
+            // Pill mode: mask the whole stack to the rounded band so the outer corners round even
+            // when the edge segment (e.g. the last of many breakdowns) is too thin to round itself.
+            const pillClip = roundStackBaseline && isStackedLayout(barLayout)
+            if (pillClip) {
+                ctx.save()
+                clipToRoundedRects(ctx, computeBandTrackRects(d3Scales, drawLabels, isHorizontal), barCornerRadius)
+            }
             for (const { series: s, bars } of seriesBars) {
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
+            }
+            if (pillClip) {
+                ctx.restore()
             }
             if (resolvedShadow) {
                 ctx.restore()
@@ -362,8 +454,12 @@ function BarChartInner<Meta = unknown>({
             barLayout,
             isHorizontal,
             topStackedKeyByAxis,
+            stackEdges,
+            roundStackBaseline,
             barCornerRadius,
             barTrack,
+            barTrackColor,
+            theme.gridColor,
             xTickFormatter,
             barShadow,
         ]
@@ -409,6 +505,8 @@ function BarChartInner<Meta = unknown>({
                     isHorizontal,
                     stackedData,
                     topStackedKeyByAxis,
+                    stackEdges,
+                    roundStackBaseline,
                 })
                 if (visible) {
                     const visibleExtent = isHorizontal ? visible.bar.width : visible.bar.height
@@ -431,6 +529,8 @@ function BarChartInner<Meta = unknown>({
                     isHorizontal,
                     stackedData,
                     topStackedKeyByAxis,
+                    stackEdges,
+                    roundStackBaseline,
                 })) {
                     if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
                         continue
@@ -456,6 +556,10 @@ function BarChartInner<Meta = unknown>({
             }
             ctx.save()
             ctx.globalAlpha = alpha
+            // Match the static layer's pill mask so an edge segment's highlight rounds with it.
+            if (roundStackBaseline && stackedHighlight) {
+                clipToRoundedRects(ctx, computeBandTrackRects(d3Scales, drawLabels, isHorizontal), barCornerRadius)
+            }
             for (const { series: s, bar, isTrackHighlight } of items) {
                 if (isTrackHighlight) {
                     const parsed = d3.color(s.color)
@@ -482,7 +586,16 @@ function BarChartInner<Meta = unknown>({
             ctx.restore()
             return true
         },
-        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, barTrack]
+        [
+            stackedData,
+            barLayout,
+            isHorizontal,
+            topStackedKeyByAxis,
+            stackEdges,
+            roundStackBaseline,
+            barCornerRadius,
+            barTrack,
+        ]
     )
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels
@@ -511,10 +624,11 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis,
                     series: seriesRef.current,
                     labels: labelsRef.current,
+                    barTrack,
                 }) ?? clickData
             )
         },
-        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef, barTrack]
     )
 
     const chart = (
@@ -569,6 +683,7 @@ export function resolveClickedStackedSegment<Meta>({
     topStackedKeyByAxis,
     series,
     labels,
+    barTrack,
 }: {
     clickData: PointClickData<Meta>
     d3Scales: BarScaleSet
@@ -578,6 +693,7 @@ export function resolveClickedStackedSegment<Meta>({
     topStackedKeyByAxis: Map<string, string>
     series: Series<Meta>[]
     labels: readonly string[]
+    barTrack: boolean
 }): PointClickData<Meta> | null {
     if (!isStackedLayout(barLayout)) {
         return null
@@ -600,6 +716,11 @@ export function resolveClickedStackedSegment<Meta>({
         topStackedKeyByAxis,
     })
     if (!visible) {
+        // No filled segment under the cursor — for a tracked funnel that's the empty remainder
+        // region of the band, so flag it as a track click (the consumer routes it to drop-off).
+        if (barTrack && cursorInBandTrack(d3Scales, label, cursor, isHorizontal)) {
+            return { ...clickData, inTrack: true }
+        }
         return null
     }
     const hit = crossSeriesData.find((d) => d.series.key === visible.series.key)
