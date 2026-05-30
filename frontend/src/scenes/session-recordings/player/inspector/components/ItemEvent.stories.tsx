@@ -699,3 +699,20 @@ export const AutocaptureWithElements: Story = {
         ),
     },
 }
+
+export const AutocaptureWithoutElements: Story = {
+    render: renderWithMenu as any,
+    args: {
+        item: makeItem(
+            {},
+            {
+                event: '$autocapture',
+                elements: [],
+            },
+            {
+                $current_url: 'https://example.com/signup',
+                $event_type: 'click',
+            }
+        ),
+    },
+}

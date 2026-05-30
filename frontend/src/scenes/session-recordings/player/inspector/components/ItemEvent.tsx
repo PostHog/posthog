@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
+import { IconCollapse, IconCursorClick, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
@@ -166,6 +166,7 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
 }
 
 export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
     const insightUrl = insightUrlForEvent(item.data)
     // Get trace ID for linking to LLM trace view
     const traceId = item.data.properties.$ai_trace_id
@@ -184,12 +185,9 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 isAutocaptureWithElements(item.data)
                     ? {
                           label: 'Save as action',
+                          icon: <IconCursorClick />,
                           'data-attr': 'replay-save-as-action',
-                          onClick: () =>
-                              saveActionFromEvent(
-                                  item.data,
-                                  teamLogic.findMounted()?.values.currentTeam?.data_attributes || []
-                              ),
+                          onClick: () => saveActionFromEvent(item.data, currentTeam?.data_attributes ?? []),
                       }
                     : null,
                 item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
