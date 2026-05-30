@@ -150,11 +150,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         <div className="text-sm font-medium">Reasoning</div>
                         {reasoning ? (
                             <p className="text-sm whitespace-pre-wrap m-0">
-                                <CitedText
-                                    text={reasoning}
-                                    segments={reasoningSegments}
-                                    onSeek={seekEmbeddedPlayer}
-                                />
+                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
                             </p>
                         ) : (
                             <p className="text-muted text-sm m-0">No reasoning provided.</p>
