@@ -226,7 +226,7 @@ jobs:
             && needs.build-storybook.result == 'success'
         timeout-minutes: 60
         container:
-            image: ghcr.io/posthog/playwright:v1.45.0
+            image: ghcr.io/posthog/playwright:v1.60.0
         strategy:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
@@ -374,7 +374,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
         timeout-minutes: 30
         container:
-            image: ghcr.io/posthog/playwright:v1.45.0
+            image: ghcr.io/posthog/playwright:v1.60.0
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
