@@ -207,6 +207,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         assert body["finding_id"] == "f-1"
         assert body["skipped_reason"] is None
         mock_emit.assert_awaited_once()
+        assert mock_emit.await_args is not None
         # Idempotency is via the deterministic `source_id` keyed on (run, finding).
         assert mock_emit.await_args.kwargs["source_id"] == f"run:{run.id}:finding:f-1"
 

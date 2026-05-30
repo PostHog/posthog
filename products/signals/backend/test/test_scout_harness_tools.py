@@ -479,6 +479,7 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
     assert result.skipped_reason is None
     assert result.finding_id == "f-happy"
     mock_emit.assert_awaited_once()
+    assert mock_emit.await_args is not None
     call_kwargs = mock_emit.await_args.kwargs
     assert call_kwargs["team"] is ateam_emit
     assert call_kwargs["source_product"] == SOURCE_PRODUCT
