@@ -11,6 +11,8 @@ from parameterized import parameterized
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     HEATMAP_BROWSERLESS_FLAG,
+    BrowserlessError,
+    BrowserlessPermanentError,
     _browserless_screenshot,
     _build_browserless_screenshot_url,
     _redact_browserless_url,
@@ -27,11 +29,22 @@ BROWSERLESS_SETTINGS = {
 }
 
 
-def _make_response(content: bytes = b"", status: int = 200, text: str = "") -> MagicMock:
+def _jpeg(suffix: bytes = b"") -> bytes:
+    # Minimal bytes that pass the JPEG start-of-image magic-byte check.
+    return b"\xff\xd8\xff" + suffix
+
+
+def _make_response(
+    content: bytes | None = None,
+    status: int = 200,
+    text: str = "",
+    content_type: str = "image/jpeg",
+) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status
-    resp.content = content
+    resp.content = _jpeg() if content is None else content
     resp.text = text
+    resp.headers = {"content-type": content_type}
     return resp
 
 
@@ -108,7 +121,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert event["properties"]["success"] is True
         assert event["properties"]["width_count"] == 3
         assert event["properties"]["duration_seconds"] is not None
-        assert event["groups"]["project"] == str(self.team.uuid)
+        assert event["groups"]["project"] == str(self.team.id)
 
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.sync_playwright")
     def test_failure_marks_failed_and_records_exception(self, mock_sync_playwright: MagicMock) -> None:
@@ -211,7 +224,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
     def test_cloud_path_uses_rest_screenshot_api(
         self, mock_requests: MagicMock, mock_sync_playwright: MagicMock, mock_use_browserless: MagicMock
     ) -> None:
-        mock_requests.post.return_value = _make_response(b"img1024")
+        mock_requests.post.return_value = _make_response(_jpeg(b"1024"))
 
         heatmap = SavedHeatmap.objects.create(
             team=self.team,
@@ -237,7 +250,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         heatmap.refresh_from_db()
         assert heatmap.status == SavedHeatmap.Status.COMPLETED
         snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
-        assert snaps == {1024: b"img1024"}
+        assert snaps == {1024: _jpeg(b"1024")}
 
         # The mode-usage event reflects the browserless path
         assert self.captured_events[-1]["properties"]["mode"] == "browserless"
@@ -251,9 +264,9 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         self, mock_requests: MagicMock, mock_sync_playwright: MagicMock, mock_use_browserless: MagicMock
     ) -> None:
         mock_requests.post.side_effect = [
-            _make_response(b"img320"),
-            _make_response(b"img768"),
-            _make_response(b"img1024"),
+            _make_response(_jpeg(b"320")),
+            _make_response(_jpeg(b"768")),
+            _make_response(_jpeg(b"1024")),
         ]
 
         heatmap = SavedHeatmap.objects.create(
@@ -279,16 +292,16 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert heatmap.status == SavedHeatmap.Status.COMPLETED
         # Each width's bytes land on the matching row (the width→image mapping must be preserved)
         snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
-        assert snaps == {320: b"img320", 768: b"img768", 1024: b"img1024"}
+        assert snaps == {320: _jpeg(b"320"), 768: _jpeg(b"768"), 1024: _jpeg(b"1024")}
 
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot._use_browserless_for_screenshot", return_value=True)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
-    def test_cloud_path_failure_on_later_width_marks_failed_and_persists_nothing(
+    def test_cloud_path_failure_on_later_width_marks_failed_and_keeps_earlier_widths(
         self, mock_requests: MagicMock, mock_use_browserless: MagicMock
     ) -> None:
         # First width succeeds, second width's request fails
-        mock_requests.post.side_effect = [_make_response(b"img320"), Exception("boom on second width")]
+        mock_requests.post.side_effect = [_make_response(_jpeg(b"320")), Exception("boom on second width")]
 
         heatmap = SavedHeatmap.objects.create(
             team=self.team,
@@ -298,13 +311,15 @@ class TestHeatmapScreenshotTask(APIBaseTest):
             status=SavedHeatmap.Status.PROCESSING,
         )
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(BrowserlessError):
             generate_heatmap_screenshot(heatmap.id)
 
         heatmap.refresh_from_db()
         assert heatmap.status == SavedHeatmap.Status.FAILED
-        # Snapshots persist only after every width succeeds, so a later failure leaves none
-        assert HeatmapSnapshot.objects.filter(heatmap=heatmap).count() == 0
+        # The cloud path persists each width as it renders, so the earlier success is kept and the
+        # failed width is simply absent (bounded worker memory > all-or-nothing persistence).
+        snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
+        assert snaps == {320: _jpeg(b"320")}
         assert self.captured_events[-1]["properties"]["mode"] == "browserless"
         assert self.captured_events[-1]["properties"]["success"] is False
 
@@ -393,11 +408,11 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     def test_posts_full_page_body_with_viewport_width(
         self, _name: str, width: int, is_mobile: bool, mock_requests: MagicMock
     ) -> None:
-        mock_requests.post.return_value = _make_response(b"img")
+        mock_requests.post.return_value = _make_response(_jpeg(b"img"))
 
         content = _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", width)
 
-        assert content == b"img"
+        assert content == _jpeg(b"img")
         body = mock_requests.post.call_args.kwargs["json"]
         assert body["url"] == "https://example.com"
         assert body["viewport"]["width"] == width
@@ -417,7 +432,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     )
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_block_ads_added_to_body_when_enabled(self, mock_requests: MagicMock) -> None:
-        mock_requests.post.return_value = _make_response(b"img")
+        mock_requests.post.return_value = _make_response()
         _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
         assert mock_requests.post.call_args.kwargs["json"]["blockAds"] is True
 
@@ -435,13 +450,38 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         else:
             mock_requests.post.side_effect = Exception("ECONNREFUSED https://host/screenshot?token=secret-token")
 
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises(BrowserlessError) as ctx:
             _browserless_screenshot(endpoint, "https://example.com", 1024)
 
         message = str(ctx.exception)
         # The token must never reach the (API-readable) persisted exception
         assert "secret-token" not in message
         assert "REDACTED" in message
+
+    @parameterized.expand(
+        [
+            ("empty_body", b"", "image/jpeg"),
+            ("non_image_content_type", b'{"error":"nope"}', "application/json"),
+            ("non_jpeg_body", b"\x89PNG\r\n", "image/png"),
+        ]
+    )
+    @override_settings(HEATMAP_BROWSERLESS_TIMEOUT_MS=180000, HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_rejects_invalid_200_body(
+        self, _name: str, content: bytes, content_type: str, mock_requests: MagicMock
+    ) -> None:
+        # A 200 that isn't a real JPEG must not be stored and served as image/jpeg.
+        mock_requests.post.return_value = _make_response(content, content_type=content_type)
+        with self.assertRaises(BrowserlessError):
+            _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+
+    @override_settings(HEATMAP_BROWSERLESS_TIMEOUT_MS=180000, HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.HEATMAP_SCREENSHOT_MAX_BYTES", 8)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_rejects_oversized_body_as_permanent(self, mock_requests: MagicMock) -> None:
+        mock_requests.post.return_value = _make_response(_jpeg(b"way over the cap"))
+        with self.assertRaises(BrowserlessPermanentError):
+            _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
 
 
 # Pure-function tests for the Browserless URL helpers — no DB, so they run on SimpleTestCase.
