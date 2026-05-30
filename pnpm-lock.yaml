@@ -2332,6 +2332,18 @@ importers:
 
   products/customer_analytics:
     dependencies:
+      '@dnd-kit/core':
+        specifier: '*'
+        version: 6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/modifiers':
+        specifier: '*'
+        version: 6.0.1(@dnd-kit/core@6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/sortable':
+        specifier: '*'
+        version: 7.0.2(@dnd-kit/core@6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/utilities':
+        specifier: '*'
+        version: 3.2.1(react@18.3.1)
       '@posthog/icons':
         specifier: '*'
         version: 0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3459,12 +3471,18 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.36.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       clsx:
         specifier: '*'
         version: 1.2.1
+      jest:
+        specifier: '*'
+        version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.6.0(esbuild@0.27.7))(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.5(react@18.3.1)
@@ -3480,6 +3498,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
 
   products/visual_review:
     dependencies:
