@@ -1,8 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { ChevronsUpDown } from 'lucide-react'
+import { ChevronsUpDown, MoreHorizontal } from 'lucide-react'
+import * as React from 'react'
 
 import { Badge } from './badge'
 import { Button } from './button'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from './dropdown-menu'
 import { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow } from './table'
 
 const meta = {
@@ -334,6 +342,95 @@ export const InteractiveHeaders: Story = {
                         <TableCell className="font-medium">{row.name}</TableCell>
                         <TableCell>{row.email}</TableCell>
                         <TableCell>{row.role}</TableCell>
+                    </TableRow>
+                ))}
+            </TableBody>
+        </Table>
+    ),
+} satisfies Story
+
+// Shared dummy actions menu — a ghost ellipsis Button that opens a quill
+// DropdownMenu. Used by both the cell- and row-action stories.
+function ActionsMenu({ label }: { label: string }): React.ReactElement {
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        size="icon-xs"
+                        aria-label={label}
+                        // Dimmed until the row is hovered; stays full while focused or open.
+                        className="opacity-30 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
+                    />
+                }
+            >
+                <MoreHorizontal />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem>Edit</DropdownMenuItem>
+                <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                <DropdownMenuItem>Copy link</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive">Delete</DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+// Cell actions: an action button pushed to the end of a content cell with
+// `ml-auto`, opening the dummy dropdown menu.
+export const CellActions: Story = {
+    render: () => (
+        <Table className="max-w-2xl rounded-md border border-[var(--border)]">
+            <TableHeader>
+                <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Role</TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {manyRows.slice(0, 6).map((row) => (
+                    <TableRow key={row.id} className="group/row">
+                        <TableCell className="font-medium">
+                            <span className="flex items-center gap-2">
+                                {row.name}
+                                <span className="ml-auto">
+                                    <ActionsMenu label={`Actions for ${row.name}`} />
+                                </span>
+                            </span>
+                        </TableCell>
+                        <TableCell>{row.role}</TableCell>
+                    </TableRow>
+                ))}
+            </TableBody>
+        </Table>
+    ),
+} satisfies Story
+
+// Row actions: a trailing actions column with the same dummy menu at the end of
+// each row.
+export const RowActions: Story = {
+    render: () => (
+        <Table className="max-w-2xl rounded-md border border-[var(--border)]">
+            <TableHeader>
+                <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="w-0">
+                        <span className="sr-only">Actions</span>
+                    </TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {manyRows.slice(0, 6).map((row) => (
+                    <TableRow key={row.id} className="group/row">
+                        <TableCell className="font-medium">{row.name}</TableCell>
+                        <TableCell>{row.email}</TableCell>
+                        <TableCell>{row.role}</TableCell>
+                        <TableCell className="w-0 text-right">
+                            <ActionsMenu label={`Actions for ${row.name}`} />
+                        </TableCell>
                     </TableRow>
                 ))}
             </TableBody>
