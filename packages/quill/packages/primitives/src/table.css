@@ -67,7 +67,9 @@
 
     /* Right/bottom are always generic. Left/top defer to the frozen column/header
        shadow when one exists (it sits beside the frozen edge, not over it). */
-    .quill-table__root[data-scroll-right]:not(:has(.quill-table__cell[data-sticky='right'])) {
+    .quill-table__root[data-scroll-right]:not(
+            :has(.quill-table__cell[data-sticky='right'], .quill-table__head[data-sticky='right'])
+        ) {
         --tbl-shadow-right: inset -16px 0 16px -16px var(--tbl-edge-shadow);
     }
 
@@ -75,7 +77,9 @@
         --tbl-shadow-bottom: inset 0 -16px 16px -16px var(--tbl-edge-shadow);
     }
 
-    .quill-table__root[data-scroll-left]:not(:has(.quill-table__cell[data-sticky='left'])) {
+    .quill-table__root[data-scroll-left]:not(
+            :has(.quill-table__cell[data-sticky='left'], .quill-table__head[data-sticky='left'])
+        ) {
         --tbl-shadow-left: inset 16px 0 16px -16px var(--tbl-edge-shadow);
     }
 
