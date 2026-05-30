@@ -73,7 +73,9 @@ import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContex
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { MaxUIContext } from './maxTypes'
+import { AttachedContext, MaxUIContext } from './maxTypes'
+import { posthogAiContextLogic } from './posthogAiContextLogic'
+import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import {
@@ -88,6 +90,13 @@ import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 /** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
 export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
+
+/**
+ * SSE event name carrying the cloud-agent run handoff for the sandbox runtime. The routing
+ * response names the task/run; maxThreadLogic delegates the actual stream to sandboxStreamLogic.
+ * Distinct from the LangGraph-relay `AssistantEventType.Sandbox` event.
+ */
+export const SANDBOX_RUN_HANDOFF_EVENT = 'sandbox_run'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -140,7 +149,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ tabId }: MaxThreadLogicProps) => ({
+    connect(({ tabId, conversationId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
@@ -160,6 +169,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
             sceneLogic,
             ['sceneId'],
+            // Sandbox direct-SSE run lifecycle — read terminal status to gate the stream trigger.
+            sandboxStreamLogic({ conversationKey: `${conversationId}-${tabId}` }),
+            ['currentRunStatus as sandboxStreamRunStatus'],
+            // Sandbox runtime only — flat per-message attachments (see posthogAiContextLogic).
+            posthogAiContextLogic({ conversationKey: `${conversationId}-${tabId}` }),
+            ['attachments as attachedContext', 'chipsForDisplay as attachedContextChips'],
         ],
         actions: [
             maxLogic({ tabId }),
@@ -176,12 +191,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ],
             maxGlobalLogic,
             ['loadConversation'],
+            posthogAiContextLogic({ conversationKey: `${conversationId}-${tabId}` }),
+            ['syncSceneAttachments', 'clearAttachments'],
+            // Sandbox runtime owns its own direct SSE connection — maxThreadLogic only hands off.
+            sandboxStreamLogic({ conversationKey: `${conversationId}-${tabId}` }),
+            ['openSseForRun as openSandboxStream', 'closeSse as closeSandboxStream', 'reset as resetSandboxStream'],
         ],
     })),
 
     actions({
         // null prompt means resuming streaming or continuing previous generation
         reconnectToStream: true,
+        // Open the direct cloud-agent SSE for a sandbox conversation's active run, reading
+        // sandbox_task_id/sandbox_run_id off the conversation object (DECISION 3).
+        maybeStartSandboxStream: true,
         streamConversation: (
             streamData: {
                 agent_mode: AgentMode | null
@@ -190,6 +213,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
+                // Sandbox runtime only — flat per-message attachments instead of ui_context.
+                attached_context?: AttachedContext[]
                 resume_payload?: ResumePayload | null
             },
             generationAttempt: number,
@@ -649,6 +674,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.is_sandbox = true
                 }
 
+                // Sandbox runtime: send flat attachments instead of the rich ui_context payload.
+                // Only fires when agent_runtime === 'sandbox'; the LangGraph path is unchanged.
+                if (values.isSandboxRuntime) {
+                    apiData.attached_context = values.attachedContext
+                    delete apiData.ui_context
+                }
+
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
@@ -850,6 +882,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const nextConversationId = conversation?.id ?? null
             if (cache.lastConversationId !== nextConversationId) {
                 cache.lastConversationId = nextConversationId
+                // Allow re-opening a sandbox stream when switching conversations.
+                cache.lastSandboxRunId = undefined
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 if (values.queueingEnabled && conversation?.id) {
@@ -863,6 +897,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
             }
+            // After-send / refresh trigger: once the conversation carries an active backing run
+            // (sandbox_run_id set, status InProgress), open the direct cloud-agent stream (DECISION 3).
+            actions.maybeStartSandboxStream()
             if (
                 values.queueingEnabled &&
                 conversation?.pending_approvals?.some((approval) => approval.decision_status === 'pending')
@@ -1165,6 +1202,34 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
 
+        maybeStartSandboxStream: () => {
+            // Direct-SSE sandbox runtime (DECISION 3): the cloud-agent run is named by the
+            // conversation object, not by a Django relay frame. Open the stream only for a
+            // sandbox conversation whose backing run is still active (non-terminal).
+            const conversation = values.conversation
+            if (!values.isSandboxRuntime || !conversation) {
+                return
+            }
+            const taskId = conversation.sandbox_task_id
+            const runId = conversation.sandbox_run_id
+            if (!taskId || !runId) {
+                return
+            }
+            // The conversation status mirrors the backing run's lifecycle; a terminal run is read-only.
+            const runActive = conversation.status === ConversationStatus.InProgress
+            const runStatusTerminal = isTerminalRunStatus(values.sandboxStreamRunStatus)
+            if (!runActive || runStatusTerminal) {
+                return
+            }
+            // Idempotent: re-opening the same run resets resume state needlessly. A new run id
+            // (terminal-then-resume swap) does re-open — openSseForRun disposes the old stream.
+            if (cache.lastSandboxRunId === runId) {
+                return
+            }
+            cache.lastSandboxRunId = runId
+            actions.openSandboxStream({ taskId, runId })
+        },
+
         retryLastMessage: () => {
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
@@ -1240,6 +1305,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (conversation.messages?.length && !values.threadRaw.length) {
                 actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
             }
+            // History-load trigger: a reopened sandbox conversation with an active run resumes its
+            // direct cloud-agent stream (DECISION 3). No-op for langgraph or terminal conversations.
+            actions.maybeStartSandboxStream()
         },
         selectCommand: ({ command }) => {
             if (command.arg) {
@@ -1370,6 +1438,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         conversationId: [
             (s, p) => [s.conversation, p.conversationId],
             (conversation, propsConversationId) => (conversation?.id ? conversation.id : propsConversationId),
+        ],
+
+        // Sandbox runtime gate. All sandbox-only frontend behavior keys off this — it is
+        // stamped server-side from the `posthog-ai-sandbox` flag at conversation-create.
+        // Users without the flag keep the LangGraph path unchanged.
+        isSandboxRuntime: [
+            (s) => [s.conversation],
+            (conversation): boolean => conversation?.agent_runtime === 'sandbox',
         ],
 
         effectiveApprovalStatuses: [
@@ -2175,6 +2251,19 @@ export async function onEventImplementation(
 
         // Accumulate all sandbox entries (tool calls, console output, etc.) for rendering
         actions.appendSandboxEntry(entry)
+    } else if (event === SANDBOX_RUN_HANDOFF_EVENT) {
+        // Direct-SSE sandbox runtime (DECISION 3 "Option B"): the routing response names the
+        // cloud-agent run; hand off to sandboxStreamLogic, which owns the SSE connection.
+        // Additive and runtime-gated — the existing AssistantEventType.Sandbox path above is
+        // the LangGraph-relay path and stays untouched.
+        const handoff = parseResponse<{ task_id?: string; run_id?: string; just_created_run?: boolean }>(data)
+        if (handoff?.task_id && handoff.run_id) {
+            actions.openSandboxStream({
+                taskId: handoff.task_id,
+                runId: handoff.run_id,
+                startLatest: !handoff.just_created_run,
+            })
+        }
     }
 }
 

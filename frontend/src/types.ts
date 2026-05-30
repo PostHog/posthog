@@ -6946,6 +6946,14 @@ export interface ConversationQueueResponse {
     max_queue_messages: number
 }
 
+/**
+ * Which runtime serves a conversation. Stamped server-side at conversation-create
+ * from the `posthog-ai-sandbox` feature flag. `langgraph` is the historical default;
+ * `sandbox` routes to the cloud-agent runtime. Frontend sandbox foundations gate on
+ * `agent_runtime === 'sandbox'`.
+ */
+export type AgentRuntime = 'langgraph' | 'sandbox'
+
 export interface Conversation {
     id: string
     user: UserBasicType
@@ -6956,11 +6964,21 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    agent_runtime?: AgentRuntime
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    /**
+     * Cloud-agent Task backing a sandbox-runtime conversation. Plain UUID — the boundary
+     * between the ee Conversation and the products/tasks Task/Run. The sandbox frontend
+     * opens its direct SSE against /tasks/{sandbox_task_id}/runs/{sandbox_run_id}/stream/.
+     * Absent on langgraph conversations.
+     */
+    sandbox_task_id?: string | null
+    /** Cloud-agent Run currently backing the sandbox conversation (see sandbox_task_id). */
+    sandbox_run_id?: string | null
 }
 
 export interface ConversationDetail extends Conversation {

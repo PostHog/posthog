@@ -237,3 +237,64 @@ export const createMaxContextHelpers = {
 export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }
+
+/**
+ * Sandbox-runtime context model. A flat, per-message reference rather than the rich
+ * pre-interpolated MaxUIContext the LangGraph runtime sends. The sandbox agent fetches
+ * entity details on demand via its read tools, so attachments carry only IDs/labels (and
+ * free text). See docs/internal/posthog-ai-migration/01_CONTEXT.md.
+ */
+export type AttachedContextType =
+    | 'dashboard'
+    | 'insight'
+    | 'event'
+    | 'action'
+    | 'error_tracking_issue'
+    | 'evaluation'
+    | 'notebook'
+    | 'text'
+
+export interface AttachedContext {
+    type: AttachedContextType
+    /** Entity id (int for dashboard/action, short_id for insight/notebook, UUID for issue). */
+    id?: string | number
+    /** Optional human label for entity types. */
+    name?: string
+    /** Free-text body — only set when `type === 'text'`. */
+    value?: string
+}
+
+/**
+ * One permission option offered alongside a sandbox permission request (ACP). Mirrors
+ * the shape in types/sandboxStreamTypes.ts; re-exported here so renderer/message code can
+ * import context types from one place.
+ */
+export interface PermissionOption {
+    optionId: string
+    name: string
+    kind: 'allow_once' | 'allow_always' | 'reject' | 'reject_with_feedback'
+}
+
+/**
+ * Renderer-facing shape for a sandbox MCP tool call, projected from a `ToolInvocation`
+ * (see types/sandboxStreamTypes.ts). Consumed by Thread.tsx's additive sandbox dispatch
+ * case and the mcpToolRegistry. Separate from the LangGraph `AssistantToolCallMessage`.
+ */
+export interface McpToolCallMessage {
+    type: 'mcp_tool_call'
+    id: string
+    toolCallId: string
+    /** Registry lookup key resolved by resolveToolKey (inner tool / sentinel / wire name). */
+    resolvedKey: string
+    rawServerName: string
+    rawToolName: string
+    innerToolName?: string
+    title?: string
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    rawInput?: Record<string, unknown>
+    innerInput?: Record<string, unknown>
+    rawOutput?: unknown
+    /** Accumulated ACP `content[]` blocks. */
+    content?: unknown[]
+    error?: { message?: string }
+}

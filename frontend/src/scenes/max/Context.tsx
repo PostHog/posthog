@@ -334,8 +334,38 @@ interface ContextDisplayProps {
     size?: 'small' | 'default'
 }
 
+/**
+ * Sandbox-runtime chips. Renders flat attachments from posthogAiContextLogic; the X on each
+ * chip dispatches detach via the chip's onRemove — one removal path, no source distinction.
+ */
+function SandboxContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
+    const { attachedContextChips } = useValues(maxThreadLogic)
+
+    if (attachedContextChips.length === 0) {
+        return null
+    }
+
+    return (
+        <>
+            {attachedContextChips.map((chip) => (
+                <Tooltip key={chip.key} title={chip.label}>
+                    <LemonTag
+                        icon={<span className="flex-shrink-0">{chip.icon}</span>}
+                        onClose={chip.onRemove}
+                        closable
+                        closeOnClick
+                        className={clsx('flex items-center text-secondary', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                    >
+                        <span className="truncate min-w-0 flex-1">{chip.label}</span>
+                    </LemonTag>
+                </Tooltip>
+            ))}
+        </>
+    )
+}
+
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
+    const { showContextUI, contextDisabledReason, isSandboxRuntime } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
@@ -373,7 +403,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                     </span>
                 </Tooltip>
                 <ContextToolInfoTags size={size} />
-                <ContextTags size={size} />
+                {isSandboxRuntime ? <SandboxContextTags size={size} /> : <ContextTags size={size} />}
             </div>
         </div>
     )

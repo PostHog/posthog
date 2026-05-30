@@ -50,6 +50,7 @@ import {
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
+    McpToolCallMessage,
 } from './maxTypes'
 import { EnhancedToolCall } from './Thread'
 
@@ -93,6 +94,32 @@ export function isSubagentUpdateEvent(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
+}
+
+/**
+ * Sandbox-runtime type guard. Narrows a thread item to a sandbox MCP tool call.
+ * Returns false for every LangGraph message — the sandbox dispatch in Thread.tsx is
+ * additive and only fires for these items (which exist only when agent_runtime === 'sandbox').
+ */
+export function isMcpToolCallMessage(message: unknown): message is McpToolCallMessage {
+    return (
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { type?: unknown }).type === 'mcp_tool_call' &&
+        typeof (message as { resolvedKey?: unknown }).resolvedKey === 'string'
+    )
+}
+
+/** Sandbox-runtime type guard for a permission-request thread item. */
+export function isPermissionRequestMessage(
+    message: unknown
+): message is { type: 'permission_request'; requestId: string } {
+    return (
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { type?: unknown }).type === 'permission_request' &&
+        typeof (message as { requestId?: unknown }).requestId === 'string'
+    )
 }
 
 export function isMultiQuestionFormMessage(
