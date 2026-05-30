@@ -247,7 +247,8 @@ class TestRecentSurveys(BaseTest):
         assert len(result["recent"]) == 5  # RECENT_ENTITY_LIMIT
 
     def test_active_count_excludes_drafts_stopped_and_archived(self) -> None:
-        # Only `running` should count as active. Draft = no start_date; stopped = end_date in past.
+        # Only `running` should count as active. Draft = no start_date; stopped = end_date in past;
+        # scheduled = start_date in the future.
         now = timezone.now()
         Survey.objects.create(team=self.team, name="running", type="popover", start_date=now - timedelta(days=1))
         Survey.objects.create(
@@ -259,8 +260,9 @@ class TestRecentSurveys(BaseTest):
         )
         Survey.objects.create(team=self.team, name="draft", type="popover")
         Survey.objects.create(team=self.team, name="archived", type="popover", start_date=now, archived=True)
+        Survey.objects.create(team=self.team, name="scheduled", type="popover", start_date=now + timedelta(days=1))
         result = _recent_surveys(self.team)
-        assert result["total_count"] == 4
+        assert result["total_count"] == 5
         assert result["active_count"] == 1
 
     def test_status_field_derivation(self) -> None:

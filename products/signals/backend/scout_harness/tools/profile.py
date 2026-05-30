@@ -153,7 +153,8 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
                 return _to_dataclass(existing)
         payload: dict[str, Any] = {"inventory": build_inventory(team).model_dump(mode="json")}
         now = timezone.now()
-        row = SignalProjectProfile.objects.create(
+        # `.unscoped()` to match the reads above — off-request builds have no ambient team.
+        row = SignalProjectProfile.objects.unscoped().create(
             team=team,
             expires_at=now + PROFILE_TTL,
             source_version=INVENTORY_SOURCE_VERSION,

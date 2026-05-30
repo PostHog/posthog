@@ -31,6 +31,7 @@ from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -73,6 +74,9 @@ INVENTORY_SOURCE_VERSION = "v5"
 TOP_EVENTS_LOOKBACK_DAYS = 7
 TOP_EVENTS_RECENT_DAYS = 1
 TOP_EVENTS_LIMIT = 50
+# Cap below the 60s default so a high-volume team fails fast (and degrades to None) rather
+# than burning a full minute of ClickHouse on a best-effort orientation query.
+TOP_EVENTS_MAX_EXECUTION_S = 20
 
 # Dashboard recency limit. Bounded by name-only orientation — the agent can
 # `dashboard-get` on a specific id once the profile tells it what's worth pulling.
@@ -282,10 +286,10 @@ def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
 def _recent_surveys(team: Team) -> dict[str, Any]:
     """Surveys orientation — total + active count, plus the 5 most recently modified.
 
-    "Active" means not archived and either not yet ended or scheduled with no end date —
-    matches what the agent thinks of as a "live survey." `start_date IS NULL` ones
-    (drafts) count as not-active. Sort by `updated_at` so freshly-edited surveys
-    surface first; falls through to creation recency for never-edited rows.
+    "Active" matches PostHog's running semantics: not archived, already started
+    (`start_date <= now`), and not yet ended. Drafts (`start_date IS NULL`) and
+    future-scheduled surveys count as not-active. Sort by `updated_at` so freshly-edited
+    surveys surface first; falls through to creation recency for never-edited rows.
 
     `type` carries the survey-mode hint (popover/widget/external/api) the surveys
     specialist scout cares about; agents pull full question shape via `survey-get`.
@@ -295,7 +299,7 @@ def _recent_surveys(team: Team) -> dict[str, Any]:
     active = (
         qs.filter(
             archived=False,
-            start_date__isnull=False,
+            start_date__lte=timezone.now(),
         )
         .filter(Q(end_date__isnull=True) | Q(end_date__gt=timezone.now()))
         .count()
@@ -651,7 +655,12 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
         },
     )
     try:
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            limit_context=None,
+            settings=HogQLGlobalSettings(max_execution_time=TOP_EVENTS_MAX_EXECUTION_S),
+        )
     except Exception:
         # Defensive: ClickHouse can be slow or unavailable. Profile build shouldn't
         # crash on this — the rest of the inventory is still valuable orientation.
