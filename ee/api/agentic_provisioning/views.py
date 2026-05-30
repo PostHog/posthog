@@ -478,7 +478,8 @@ def _handle_existing_user(
         and not _user_has_existing_credentials_from_partner(user, partner)
     )
 
-    if silent_blocked_post_review and partner is not None:
+    if silent_blocked_post_review:
+        assert partner is not None  # implied by silent_blocked_post_review
         _capture_provisioning_event(
             "account_request",
             "silent_blocked_post_review",
