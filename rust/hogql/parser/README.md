@@ -70,6 +70,51 @@ python -c "import hogql_parser_rs; print(hogql_parser_rs.parse_expr_json('1 + 2'
 musllinux 1_2) and macOS arm64/x86_64; see
 [`.github/workflows/build-hogql-parser-rs.yml`](../../../.github/workflows/build-hogql-parser-rs.yml).
 
+## Coverage-instrumented build (for the parser-parity grind)
+
+A second build path exists for fuzz-driven parser-parity work: build the crate
+with `--features coverage` and SanitizerCoverage's `trace-pc-guard` pass, and
+the resulting wheel exposes two PyO3 functions (`cov_snapshot()`,
+`cov_reset()`) that the Python diagnostic uses to feed a per-example
+`rust_edges` novelty count into Hypothesis `target()`. See
+[`src/cov.rs`](src/cov.rs) and the `rust_edges` wiring in
+[`pbt_diagnostic.py`](../../../posthog/hogql/scripts/pbt_diagnostic.py). The
+production wheel is unchanged: without the feature, neither `cov.rs` nor the
+sancov pass are compiled, and the diagnostic detects the absence via
+`hasattr(hogql_parser_rs, "cov_snapshot")` and silently skips the third
+steering label.
+
+The build invocation is:
+
+```bash
+RUSTFLAGS="-C passes=sancov-module \
+           -C llvm-args=-sanitizer-coverage-level=3 \
+           -C llvm-args=-sanitizer-coverage-trace-pc-guard" \
+maturin develop --release --manifest-path rust/hogql/parser/Cargo.toml \
+                --features coverage
+```
+
+**Known build limitation.** `RUSTFLAGS=-C passes=sancov-module` is applied by
+cargo to *every* crate it compiles, including dependency proc macros and
+build scripts. Those don't have `__sanitizer_cov_trace_pc_guard*` linked in
+from `src/cov.rs`, so on macOS the host build scripts segfault at runtime
+when they call the unresolved callback (on Linux they typically fail to link
+outright). The fix is per-crate rustflags scoping, which cargo doesn't natively
+support; the common workarounds are:
+
++ Build in a Linux x86_64 CI environment with a small `RUSTC_WRAPPER` that
+  strips the sancov flags from build-script and dependency invocations (matches
+  what `cargo-fuzz` does internally).
++ Or pre-build all deps once with default flags, then re-run cargo with the
+  sancov RUSTFLAGS for just the leaf crate by using `--target` overrides; this
+  is fragile because cargo invalidates fingerprints when rustflags change.
+
+Until the wrapper is set up the coverage variant is best produced in a
+dedicated CI job rather than locally. The wiring is already correct: once a
+build pipeline emits the instrumented wheel and installs it into the fuzz
+venv, the diagnostic picks up the third `rust_edges` target label automatically
+on its next run. See the `_RUST_COV` block at the top of `pbt_diagnostic.py`.
+
 ## Publishing
 
 The crate is pinned via the `hogql-parser-rs==X.Y.Z` line in the

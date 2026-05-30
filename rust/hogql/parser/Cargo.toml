@@ -20,3 +20,18 @@ serde_json.workspace = true
 # `abi3-py312` lets one wheel work on every Python 3.12+ via the stable
 # CPython ABI — avoids shipping a separate wheel per minor Python.
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }
+
+[features]
+default = []
+# Compile the SanitizerCoverage `__sanitizer_cov_trace_pc_*` callbacks in
+# `src/cov.rs` and expose `cov_snapshot()` / `cov_reset()` to Python. The
+# actual edge-coverage instrumentation pass is requested via RUSTFLAGS in
+# the same build:
+#   RUSTFLAGS="-C passes=sancov-module \
+#              -C llvm-args=-sanitizer-coverage-level=3 \
+#              -C llvm-args=-sanitizer-coverage-trace-pc-guard" \
+#   maturin develop --release --features coverage
+# Production wheels never set this; the resulting wheel is the parser-parity
+# grind's coverage-instrumented variant. See the "Coverage-instrumented build"
+# section of `rust/hogql/parser/README.md`.
+coverage = []

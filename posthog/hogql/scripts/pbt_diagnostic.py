@@ -96,8 +96,20 @@ from typing import Any
 
 import django
 
+import numpy as np
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
+
+# Optional `rust_edges` steering signal: only available when the loaded
+# `hogql_parser_rs` wheel was built with `--features coverage` (see
+# `rust/hogql/parser/README.md` → "Coverage-instrumented build"). The production
+# wheel does NOT expose `cov_snapshot` / `cov_reset`, so this gracefully
+# degrades to just the AST-shape target() signals on a normal install. Detected
+# at import time so each run() invocation is a single `hasattr` short-circuit
+# rather than a try/except.
+import importlib
+from types import ModuleType
 
 from hypothesis import assume, event, given, settings, target
 from hypothesis.database import DirectoryBasedExampleDatabase
@@ -123,6 +135,15 @@ from posthog.hogql.test.test_parser_grammar_pbt import (
     _apply_jiggle,
     _apply_mutation,
 )
+
+_hogql_parser_rs_module: ModuleType | None
+try:
+    _hogql_parser_rs_module = importlib.import_module("hogql_parser_rs")
+except ImportError:
+    _hogql_parser_rs_module = None
+_RUST_COV: bool = _hogql_parser_rs_module is not None and hasattr(_hogql_parser_rs_module, "cov_snapshot")
+# Must match `cov::BITMAP_SIZE` in rust/hogql/parser/src/cov.rs.
+_RUST_COV_BITMAP_BYTES: int = 1 << 16
 
 # ---------------------------------------------------------------------------
 # Auto-shrinker
@@ -459,6 +480,26 @@ def main() -> int:
     # "coverage-guided" means), and Hypothesis tolerates a noisy target() as a
     # search heuristic.
     seen_kpaths: set[tuple[str, ...]] = set()
+    # Rust edge-coverage accumulator: only allocated when the loaded wheel is the
+    # coverage-instrumented build. `_emit_rust_edges_target` snapshots after each
+    # rust parse, counts edges set in this parse but not yet in `seen_edges`, ORs
+    # the snapshot into `seen_edges`, and feeds the count to `target("rust_edges")`.
+    seen_edges: np.ndarray = (
+        np.zeros(_RUST_COV_BITMAP_BYTES, dtype=np.uint8) if _RUST_COV else np.zeros(0, dtype=np.uint8)
+    )
+
+    def _emit_rust_edges_target() -> None:
+        """Snapshot the rust edge bitmap, count edges this parse hit for the first
+        time, OR them into the cumulative `seen_edges`, and feed the count to
+        Hypothesis `target()`. No-op when steering is off or the rust wheel
+        isn't coverage-instrumented. Called once per rust parse, never twice
+        per test case (the two branches that call it are mutually exclusive)."""
+        if not _RUST_COV or not args.steer or _hogql_parser_rs_module is None:
+            return
+        bitmap = np.frombuffer(_hogql_parser_rs_module.cov_snapshot(), dtype=np.uint8)
+        novel = int(np.count_nonzero(bitmap & ~seen_edges))
+        np.bitwise_or(seen_edges, bitmap, out=seen_edges)
+        target(float(novel), label="rust_edges")
 
     # Reuse the pytest PBT's shared settings (deadline=None, slow /
     # filter-too-much suppression) and only override `max_examples` from the
@@ -483,6 +524,11 @@ def main() -> int:
     @settings(**settings_kwargs)
     def run(query: str) -> None:
         counts["total"] += 1
+        if _RUST_COV and _hogql_parser_rs_module is not None:
+            # Clear the edge bitmap before any rust parse so the post-parse
+            # snapshot captures only edges hit by THIS example. cpp's parse
+            # doesn't touch the bitmap (cpp is a separate wheel without sancov).
+            _hogql_parser_rs_module.cov_reset()
 
         o_status, o_ast, _ = _safe_parse(query, args.rule, oracle)
         if o_status == "crash":
@@ -501,6 +547,7 @@ def main() -> int:
             counts["oracle_reject"] += 1
             event("outcome", "oracle_reject")
             rc_status, rc_ast, rc_detail = _safe_parse(query, args.rule, candidate)
+            _emit_rust_edges_target()
             if rc_status == "ok":
                 counts["candidate_accepts_oracle_reject"] += 1
                 bucket = _node_type(rc_ast)
@@ -559,6 +606,7 @@ def main() -> int:
             target(float(ast_depth(o_ast)), label="ast_depth")
 
         c_status, c_ast, c_detail = _safe_parse(query, args.rule, candidate)
+        _emit_rust_edges_target()
         if c_status == "reject":
             counts["candidate_reject"] += 1
             sig = c_detail or "<no message>"
