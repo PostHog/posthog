@@ -49,6 +49,11 @@ describe('approvalOperationUtils — sandbox permission mapping', () => {
             )
             expect(approval.preview).toBe('My tool')
         })
+
+        it('carries the remember flag through to the payload (drives the Always-allow affordance)', () => {
+            expect(permissionRequestToPendingApproval(record({ remember: true })).payload.remember).toBe(true)
+            expect(permissionRequestToPendingApproval(record({ remember: undefined })).payload.remember).toBe(false)
+        })
     })
 
     describe('pickPermissionOptionId', () => {
@@ -66,6 +71,15 @@ describe('approvalOperationUtils — sandbox permission mapping', () => {
         it('approve falls back to allow_always when no allow_once exists', () => {
             const onlyAlways = options.filter((o) => o.kind !== 'allow_once')
             expect(pickPermissionOptionId(onlyAlways, 'approve', false)).toBe('opt-allow-always')
+        })
+
+        it('approve with remember picks the allow_always option', () => {
+            expect(pickPermissionOptionId(options, 'approve', false, true)).toBe('opt-allow-always')
+        })
+
+        it('approve with remember falls back to allow_once when no allow_always exists', () => {
+            const noAlways = options.filter((o) => o.kind !== 'allow_always')
+            expect(pickPermissionOptionId(noAlways, 'approve', false, true)).toBe('opt-allow')
         })
 
         it('reject without feedback picks the plain reject option', () => {

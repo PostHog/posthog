@@ -44,6 +44,7 @@ import {
     AssistantMessage,
     AssistantMessageType,
     AssistantUpdateEvent,
+    DangerousOperationResponse,
     FailureMessage,
     HumanMessage,
     MultiQuestionForm,
@@ -182,6 +183,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             [
                 'currentRunStatus as sandboxStreamRunStatus',
                 'pendingPermissionRequest as sandboxPendingPermissionRequest',
+                // Progress/thinking + mode badge for the sandbox runtime (03_RICH_UI §6, 02_CORE §4).
+                'currentProgress as sandboxCurrentProgress',
+                'currentMode as sandboxCurrentMode',
             ],
             // Sandbox runtime only — flat per-message attachments (see posthogAiContextLogic).
             posthogAiContextLogic({ conversationKey: `${conversationId}-${tabId}` }),
@@ -305,7 +309,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             formAnswers,
         }),
         continueAfterFormDismissal: true,
-        continueAfterApproval: (proposalId: string) => ({ proposalId }),
+        // `remember` selects the sandbox `allow_always` ("Always allow") option when offered (03_RICH_UI §5.2).
+        // LangGraph ignores it — its resume path has no remembered-decision concept.
+        continueAfterApproval: (proposalId: string, remember?: boolean) => ({ proposalId, remember }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({
             proposalId,
             feedback,
@@ -323,10 +329,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
         // Sandbox-runtime approval resolution: forwards the chosen ACP option to the agent server via
         // POST /permission/ (mirrors cancel). Distinct from the langgraph resume_payload path.
-        resolveSandboxPermission: (requestId: string, decision: 'approve' | 'reject', feedback?: string) => ({
+        resolveSandboxPermission: (
+            requestId: string,
+            decision: 'approve' | 'reject',
+            feedback?: string,
+            remember?: boolean
+        ) => ({
             requestId,
             decision,
             feedback,
+            remember,
         }),
     }),
 
@@ -1523,7 +1535,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 false // Don't add to thread - no human message to show
             )
         },
-        continueAfterApproval: ({ proposalId }) => {
+        continueAfterApproval: ({ proposalId, remember }) => {
             actions.clearQueuedMessages()
             // Persist the approved status so the card can display it
             // NOTE: We don't call clearPendingApproval() here - the component should stay
@@ -1533,7 +1545,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Sandbox runtime resolves by forwarding the chosen ACP option to the agent server, NOT by
             // resuming a langgraph workflow. The langgraph resume_payload path below is untouched.
             if (values.isSandboxRuntime) {
-                actions.resolveSandboxPermission(proposalId, 'approve')
+                actions.resolveSandboxPermission(proposalId, 'approve', undefined, remember)
                 return
             }
             // Resume the conversation with the approval payload
@@ -1579,7 +1591,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 false // Don't add to thread - no human message to show
             )
         },
-        resolveSandboxPermission: async ({ requestId, decision, feedback }) => {
+        resolveSandboxPermission: async ({ requestId, decision, feedback, remember }) => {
             const conversationId = values.conversationId
             if (!conversationId) {
                 return
@@ -1587,7 +1599,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // The offered options[] were stashed on the merged approval record's payload at ingest.
             const approval = values.pendingApprovalsData[requestId]
             const options = ((approval?.payload?.options as PermissionOption[] | undefined) ?? []) as PermissionOption[]
-            const optionId = pickPermissionOptionId(options, decision, !!feedback)
+            const optionId = pickPermissionOptionId(options, decision, !!feedback, remember)
             if (!optionId) {
                 lemonToast.error('Could not resolve the approval option. Please try again.')
                 return
@@ -1625,6 +1637,66 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         isSandboxRuntime: [
             (s) => [s.conversation],
             (conversation): boolean => conversation?.agent_runtime === 'sandbox',
+        ],
+
+        // Latest `_posthog/progress` message from the sandbox stream — Thread.tsx renders it in place
+        // of a random thinking verb while the turn is in flight (03_RICH_UI §6.1). Gated on the
+        // sandbox runtime so the LangGraph thinking placeholder is unaffected.
+        currentProgress: [
+            (s) => [s.isSandboxRuntime, s.sandboxCurrentProgress],
+            (isSandboxRuntime, sandboxCurrentProgress): string | undefined =>
+                isSandboxRuntime ? sandboxCurrentProgress : undefined,
+        ],
+
+        // Current ACP permission/agent mode from the sandbox stream — drives the mode badge
+        // (02_CORE §4 current_mode_update). Gated on the sandbox runtime.
+        currentMode: [
+            (s) => [s.isSandboxRuntime, s.sandboxCurrentMode],
+            (isSandboxRuntime, sandboxCurrentMode): string | undefined =>
+                isSandboxRuntime ? sandboxCurrentMode : undefined,
+        ],
+
+        // The active, still-unresolved sandbox permission request surfaced as a DangerousOperationResponse
+        // so Thread.tsx can render the interactive sandbox approval card inline (03_RICH_UI §5). Null for
+        // LangGraph (which resolves in the input area) and once the request is resolved. A `plan` request
+        // (tool name 'finalize_plan' or the current mode being 'plan') drives the sandbox-plan variant.
+        activeSandboxApproval: [
+            (s) => [
+                s.isSandboxRuntime,
+                s.pendingApprovalProposalId,
+                s.pendingApprovalsData,
+                s.resolvedApprovalStatuses,
+                s.currentMode,
+            ],
+            (
+                isSandboxRuntime,
+                pendingApprovalProposalId,
+                pendingApprovalsData,
+                resolvedApprovalStatuses,
+                currentMode
+            ): { operation: DangerousOperationResponse; isPlan: boolean } | null => {
+                if (!isSandboxRuntime || !pendingApprovalProposalId) {
+                    return null
+                }
+                if (resolvedApprovalStatuses[pendingApprovalProposalId]?.status) {
+                    return null
+                }
+                const approval = pendingApprovalsData[pendingApprovalProposalId]
+                if (!approval || approval.decision_status !== 'pending') {
+                    return null
+                }
+                const isPlan = approval.tool_name === 'finalize_plan' || currentMode === 'plan'
+                return {
+                    operation: {
+                        status: PENDING_APPROVAL_STATUS,
+                        proposalId: approval.proposal_id,
+                        toolName: approval.tool_name,
+                        preview: approval.preview,
+                        payload: approval.payload as Record<string, any>,
+                    },
+                    isPlan,
+                }
+            },
         ],
 
         effectiveApprovalStatuses: [

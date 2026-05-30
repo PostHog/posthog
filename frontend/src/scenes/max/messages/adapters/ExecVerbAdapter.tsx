@@ -1,6 +1,7 @@
 import { IconWrench } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { ToolCardHeader } from '../../components/ToolCardHeader'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { MessageTemplate } from '../MessageTemplate'
 import { extractContentText, extractExecVerbHeader } from './extractors'
@@ -20,10 +21,11 @@ export function ExecVerbAdapter({ message }: McpToolRendererProps): JSX.Element 
     return (
         <MessageTemplate type="ai">
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5">
-                    <IconWrench className="text-lg text-secondary flex-shrink-0" />
-                    <span className="font-medium truncate min-w-0 flex-1">{header}</span>
-                </div>
+                <ToolCardHeader
+                    status={message.status}
+                    icon={<IconWrench className="text-secondary" />}
+                    label={header}
+                />
                 {output && (
                     <LemonCollapse
                         size="small"

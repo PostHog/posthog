@@ -156,6 +156,11 @@ describe('sandboxStreamLogic', () => {
             )
         })
 
+        it('captures the mode on a current_mode_update session update', () => {
+            const state = fold([[sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'plan' }), 'f1']])
+            expect(state.currentMode).toBe('plan')
+        })
+
         it('pushes an inline error on _posthog/error', () => {
             const state = fold([[notification('_posthog/error', { message: 'boom' }), 'f1']])
             expect(state.threadItems).toEqual([{ kind: 'error', id: 'f1', message: 'boom' }])
@@ -322,6 +327,24 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('currentMode selector — drives the mode badge', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('exposes the latest current_mode_update via the currentMode selector', () => {
+            const logic = sandboxStreamLogic({ conversationKey: 'conv-mode' })
+            logic.mount()
+            expect(logic.values.currentMode).toBeUndefined()
+            logic.actions.ingestFrame(
+                sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'plan' }),
+                'f1'
+            )
+            expect(logic.values.currentMode).toBe('plan')
+            logic.unmount()
+        })
+    })
+
     describe('buildPermissionRequestRecord — permission_request frame fold', () => {
         it('returns null when the frame lacks a request id', () => {
             expect(buildPermissionRequestRecord({ type: 'permission_request' })).toBeNull()
@@ -355,6 +378,16 @@ describe('sandboxStreamLogic', () => {
             const record = buildPermissionRequestRecord({ type: 'permission_request', requestId: 'req-2' })
             expect(record!.toolCallId).toBe('req-2')
             expect(record!.options).toEqual([])
+        })
+
+        it('carries the remember flag (drives the Always-allow affordance)', () => {
+            expect(
+                buildPermissionRequestRecord({ type: 'permission_request', requestId: 'req-3', remember: true })!
+                    .remember
+            ).toBe(true)
+            expect(buildPermissionRequestRecord({ type: 'permission_request', requestId: 'req-4' })!.remember).toBe(
+                false
+            )
         })
     })
 

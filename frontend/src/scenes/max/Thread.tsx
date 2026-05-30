@@ -29,6 +29,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
+    LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -70,6 +71,7 @@ import { PendingApproval, Region } from '~/types'
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
 import { FeedbackDisplay } from './components/FeedbackDisplay'
+import { ShimmeringContent } from './components/ToolCardHeader'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -119,7 +121,15 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const {
+        threadGrouped,
+        streamingActive,
+        threadLoading,
+        sandboxEntries,
+        isSandboxRuntime,
+        currentMode,
+        activeSandboxApproval,
+    } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
@@ -140,6 +150,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
+            {isSandboxRuntime && currentMode && <SandboxModeBadge mode={currentMode} />}
             {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
@@ -256,6 +267,14 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             )
                         })
                     })()}
+                    {activeSandboxApproval && (
+                        <MessageTemplate type="ai">
+                            <DangerousOperationApprovalCard
+                                operation={activeSandboxApproval.operation}
+                                variant={activeSandboxApproval.isPlan ? 'sandbox-plan' : 'sandbox-permission'}
+                            />
+                        </MessageTemplate>
+                    )}
                     {conversationId && isPromptVisible && !streamingActive && (
                         <MessageTemplate type="ai">
                             <div className="flex flex-col gap-2">
@@ -402,7 +421,8 @@ function Message({
 }: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses, currentProgress } =
+        useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
@@ -546,7 +566,14 @@ function Message({
                                 ) : (
                                     <ReasoningAnswer
                                         key={`thinking-${index}`}
-                                        content={block.thinking}
+                                        // Sandbox runtime: the injected thinking placeholder ('loader') shows the latest
+                                        // `_posthog/progress` message when one is set, else the random thinking verb the
+                                        // logic already chose (03_RICH_UI §6.1). LangGraph never sets currentProgress.
+                                        content={
+                                            message.id === 'loader' && currentProgress
+                                                ? currentProgress
+                                                : block.thinking
+                                        }
                                         id={message.id || key}
                                         completed={isThinkingComplete}
                                         showCompletionIcon={false}
@@ -732,6 +759,43 @@ function Message({
                 )}
             </div>
         </MessageContainer>
+    )
+}
+
+/** Human-readable label for an ACP mode id (sentence casing). Unknown ids pass through verbatim. */
+function modeBadgeLabel(mode: string): string {
+    switch (mode) {
+        case 'plan':
+            return 'Plan mode'
+        case 'default':
+            return 'Default mode'
+        case 'acceptEdits':
+        case 'accept_edits':
+            return 'Auto-accept edits'
+        case 'bypassPermissions':
+        case 'bypass_permissions':
+            return 'Bypass permissions'
+        default:
+            return mode
+    }
+}
+
+/**
+ * Small badge surfacing the sandbox agent's current ACP mode (`current_mode_update`, 02_CORE §4).
+ * Sandbox-only — rendered by `Thread` when `isSandboxRuntime && currentMode`. LangGraph never sets it.
+ */
+function SandboxModeBadge({ mode }: { mode: string }): JSX.Element {
+    const isPlan = mode === 'plan'
+    return (
+        <div className="flex justify-center">
+            <LemonTag
+                type={isPlan ? 'highlight' : 'muted'}
+                size="small"
+                icon={isPlan ? <IconNotebook /> : <IconBrain />}
+            >
+                {modeBadgeLabel(mode)}
+            </LemonTag>
+        </div>
     )
 }
 
@@ -936,37 +1000,6 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             )}
         </div>
-    )
-}
-
-function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
-    const isTextContent = typeof children === 'string'
-
-    if (isTextContent) {
-        return (
-            <span
-                className="bg-clip-text text-transparent"
-                style={{
-                    backgroundImage:
-                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
-                    backgroundSize: '200% 100%',
-                    animation: 'shimmer 3s linear infinite',
-                }}
-            >
-                {children}
-            </span>
-        )
-    }
-
-    return (
-        <span
-            className="inline-flex min-w-0 max-w-full"
-            style={{
-                animation: 'shimmer-opacity 3s linear infinite',
-            }}
-        >
-            {children}
-        </span>
     )
 }
 

@@ -66,6 +66,12 @@ export interface PermissionRequestRecord {
     title?: string
     description?: string
     rawToolCall: ToolInvocation
+    /**
+     * Whether the request offers a remembered ("always allow") decision. The `allow_always`
+     * affordance is only shown when this is true — see the option-kind mapping in UI-C
+     * (03_RICH_UI §5.2). Sourced from the `permission_request` frame's `remember` flag.
+     */
+    remember?: boolean
 }
 
 /** Ordered, append-only items the renderer consumes from the stream. */
