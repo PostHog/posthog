@@ -464,6 +464,22 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             provisioning_can_provision_resources=True,
             provisioning_skip_existing_user_consent=True,
         )
+        self.bearer_partner = OAuthApplication.objects.create(
+            client_id="bearer-partner",
+            name="Bearer Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://bearer.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="bearer",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            provisioning_skip_existing_user_consent=True,
+        )
 
     def _post_as_partner(self, data: dict, client_id: str = "silent-partner"):
         payload = {**data, "client_id": client_id}
@@ -484,6 +500,16 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             data=body,
             content_type="application/json",
             HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+            HTTP_API_VERSION="0.1d",
+        )
+
+    def _post_as_bearer_partner(self, data: dict, token: str):
+        body = json.dumps(data).encode()
+        return self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data=body,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
             HTTP_API_VERSION="0.1d",
         )
 
@@ -611,3 +637,46 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
         assert pending is not None
         assert pending["partner_id"] == str(self.partner.id)
+
+    def _mint_bearer_token(self, user: User, partner: OAuthApplication, raw_token: str) -> None:
+        OAuthAccessToken.objects.create(
+            user=user,
+            application=partner,
+            token=raw_token,
+            expires=timezone.now() + timedelta(hours=1),
+            scope="query:read",
+        )
+
+    def test_bearer_caller_cannot_remint_for_other_user_post_review(self):
+        # A bearer token only proves the caller holds *some* user's token under the
+        # partner's client, not that they control the partner. An attacker holding their
+        # own token must not ride a reviewed victim's existing credential to mint a code
+        # for the victim's account.
+        victim = self._make_user(credentials_reviewed=True)
+        self._make_live_access_token(victim, self.bearer_partner)
+
+        attacker = User.objects.create_and_join(
+            organization=self.organization,
+            email="attacker@example.com",
+            password="testpass",
+            first_name="Attacker",
+        )
+        self._mint_bearer_token(attacker, self.bearer_partner, "attacker_bearer_token")
+
+        res = self._post_as_bearer_partner(self._account_request_payload(), token="attacker_bearer_token")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
+
+    def test_bearer_caller_can_remint_for_own_user_post_review(self):
+        # The legitimate bearer re-link path: the caller presents the very user's own
+        # token, which is genuine proof of an existing trust relationship.
+        user = self._make_user(credentials_reviewed=True)
+        self._mint_bearer_token(user, self.bearer_partner, "owner_bearer_token")
+
+        res = self._post_as_bearer_partner(self._account_request_payload(), token="owner_bearer_token")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]

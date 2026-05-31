@@ -292,10 +292,11 @@ def account_requests(request: Request) -> Response:
     # --- Identify partner ---
     auth = ProvisioningAuthentication()
     partner = None
+    authenticated_user = None
     try:
         result = auth.authenticate(request)
         if result:
-            _, partner = result
+            authenticated_user, partner = result
     except AuthenticationFailed:
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
@@ -434,10 +435,20 @@ def account_requests(request: Request) -> Response:
             partner,
             code_challenge,
             code_challenge_method,
+            authenticated_user,
         )
 
     return _handle_new_user(
-        request_id, data, email, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
+        request_id,
+        data,
+        email,
+        scopes,
+        partner_account_id,
+        region,
+        partner,
+        code_challenge,
+        code_challenge_method,
+        authenticated_user,
     )
 
 
@@ -456,18 +467,27 @@ def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplic
     return False
 
 
-def _caller_is_authenticated_partner(partner: OAuthApplication) -> bool:
-    """True only when the request proved control of this partner.
+def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
+    """True only when the caller proved a prior trust relationship with this user.
 
-    HMAC and bearer callers authenticate by possessing a secret or token. PKCE callers
-    are public: the partner is identified solely by a public client_id that anyone can
-    send, so the request carries no proof the caller controls the partner. For those
-    callers the "user already holds a live credential from this partner" signal must not
-    be treated as proof of an existing trust relationship — otherwise an attacker who
-    knows a victim email and the public client_id could ride the victim's existing
-    credential to mint fresh tokens via the silent path.
+    This is what lets a skip-consent partner re-mint silently after the user has reviewed
+    their credentials. The proof differs by auth method:
+
+    - HMAC callers authenticate with a partner-level secret, so the partner already holding
+      a live OAuth credential for the user is sufficient proof of an existing relationship.
+    - Bearer callers present a single user-scoped access token. That token proves a
+      relationship only with its own user, so it qualifies only when it belongs to the user
+      being re-linked — otherwise any user of the partner could ride another user's live
+      credential to mint a code for that account.
+    - PKCE callers are public: the partner is identified solely by a client_id that anyone
+      can send, so the request carries no proof the caller controls the partner. The "user
+      already holds a live credential" signal proves nothing, so these never qualify.
     """
-    return partner.provisioning_auth_method in ("hmac", "bearer")
+    if partner.provisioning_auth_method == "hmac":
+        return _user_has_existing_credentials_from_partner(user, partner)
+    if partner.provisioning_auth_method == "bearer":
+        return authenticated_user is not None and authenticated_user.id == user.id
+    return False
 
 
 def _handle_existing_user(
@@ -481,19 +501,17 @@ def _handle_existing_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
+    authenticated_user: User | None = None,
 ) -> Response:
     # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
-    # skip_existing_user_consent=True can only mint silently if it (a) authenticated the
-    # request and (b) already holds live credentials on the account. The live-credential
-    # check is meaningless for unauthenticated public (PKCE) callers, since the partner is
-    # identified by a public client_id alone, so those always fall through to consent.
+    # skip_existing_user_consent=True can only mint silently when the caller proved a prior
+    # trust relationship with this user (see _caller_proved_existing_trust). Otherwise we
+    # fall through to consent.
     silent_blocked_post_review = (
         partner is not None
         and partner.provisioning_skip_existing_user_consent
         and user.credentials_reviewed_at is not None
-        and not (
-            _caller_is_authenticated_partner(partner) and _user_has_existing_credentials_from_partner(user, partner)
-        )
+        and not _caller_proved_existing_trust(partner, user, authenticated_user)
     )
 
     if silent_blocked_post_review:
@@ -659,6 +677,7 @@ def _handle_new_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
+    authenticated_user: User | None = None,
 ) -> Response:
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
@@ -692,6 +711,7 @@ def _handle_new_user(
                 partner,
                 code_challenge,
                 code_challenge_method,
+                authenticated_user,
             )
         _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(
