@@ -289,6 +289,18 @@ def build_agent_description(
         contracts, then upload each with `autoresearch-training-runs-artifacts-upload-create`
         (`pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, `path`, `content_base64`).
 
+        **Comment for a non-technical reader.** These files are saved and shown back to users
+        who may not read code. Write them so a curious product manager can follow along:
+        - A short module docstring at the top of each .py saying, in plain language, what the
+          file does and how it fits the pipeline (e.g. "Trains the model that predicts who will
+          download a file in the next 30 days").
+        - A one-line comment above each non-obvious step explaining WHY in business terms, not
+          what the syntax does (e.g. "# count recent sessions — active users convert more often").
+        - In features.sql, comment each feature with the intuition behind it.
+        - In recipe.yml, keep the `agent.description` plain-English and jargon-light.
+        Keep comments concise; explain reasoning, not Python mechanics. Do not let comments
+        change the I/O contract or print to stdout.
+
         Data is exchanged as **parquet** (the sandbox ships pyarrow) — use
         `pd.read_parquet` / `DataFrame.to_parquet`, never `read_csv` / `to_csv`.
 
