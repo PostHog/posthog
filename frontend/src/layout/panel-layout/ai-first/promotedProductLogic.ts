@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { urls } from 'scenes/urls'
 
 import type { promotedProductLogicType } from './promotedProductLogicType'
 
@@ -15,6 +16,21 @@ export interface PromotedProductTarget {
     kind: PromotedProductTargetKind
     /** product key when kind === 'product', URL when kind === 'url'. */
     value: string
+    /** Optional display label; URL targets fall back to `value` when unset. */
+    label?: string
+}
+
+/**
+ * Shown when an entry-showing variant resolves no onboarding product or override.
+ * Keeps the slot useful (a link to dashboards) instead of hiding it — and, on
+ * `intent_plus`, keeps the configure cog reachable so the user can still set a target.
+ *
+ * Built lazily (not as a module-level const) because `urls.dashboards()` pulls in the
+ * product registry — calling it at module-eval time risks an undefined `urls` under a
+ * circular import, which would crash this nav logic on load.
+ */
+export function dashboardsFallbackTarget(): PromotedProductTarget {
+    return { kind: 'url', value: urls.dashboards(), label: 'Dashboards' }
 }
 
 /** True for variants that should render the promoted-product sidebar entry. */
@@ -218,7 +234,7 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
                 if (variantAllowsOverride(variant) && override) {
                     return override
                 }
-                return resolveProductTarget(intent)
+                return resolveProductTarget(intent) ?? dashboardsFallbackTarget()
             },
         ],
         shouldRenderEntry: [

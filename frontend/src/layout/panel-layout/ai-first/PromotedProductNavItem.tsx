@@ -20,7 +20,9 @@ export function PromotedProductNavItem({ isCollapsed }: PromotedProductNavItemPr
     const to = promotedProductTargetToUrl(effectiveTarget) ?? '#'
 
     const label =
-        effectiveTarget.kind === 'product' ? labelForPromotedProductKey(effectiveTarget.value) : effectiveTarget.value
+        effectiveTarget.kind === 'product'
+            ? labelForPromotedProductKey(effectiveTarget.value)
+            : (effectiveTarget.label ?? effectiveTarget.value)
 
     return (
         <NavLink

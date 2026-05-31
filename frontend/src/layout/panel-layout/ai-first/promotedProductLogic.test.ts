@@ -73,12 +73,13 @@ describe('promotedProductLogic', () => {
             })
         })
 
-        it('hides entry when no intent is available even for intent variant', async () => {
+        it('falls back to a dashboards link when no intent is available', async () => {
             mountLogic()
             setFlagVariant('intent')
 
             await expectLogic(logic).toMatchValues({
-                shouldRenderEntry: false,
+                effectiveTarget: { kind: 'url', value: '/dashboard', label: 'Dashboards' },
+                shouldRenderEntry: true,
             })
         })
     })
@@ -116,14 +117,14 @@ describe('promotedProductLogic', () => {
             })
         })
 
-        it('rejects an unknown product key from onboarding intent', async () => {
+        it('falls back to a dashboards link for an unknown product key', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'fictional_product')
             mountLogic()
             setFlagVariant('intent')
 
             await expectLogic(logic).toMatchValues({
-                effectiveTarget: null,
-                shouldRenderEntry: false,
+                effectiveTarget: { kind: 'url', value: '/dashboard', label: 'Dashboards' },
+                shouldRenderEntry: true,
             })
         })
     })
@@ -146,9 +147,9 @@ describe('promotedProductLogic', () => {
             )
         })
 
-        it('does not capture click when there is no target', async () => {
+        it('does not capture click for a non-entry variant', async () => {
             mountLogic()
-            setFlagVariant('intent')
+            setFlagVariant('control')
 
             logic.actions.trackPromotedProductClick()
 
