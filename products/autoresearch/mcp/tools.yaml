@@ -415,8 +415,8 @@ tools:
             champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting
             champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card.
             Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run
-            should try next) — these are stored in the run summary and read back by the next run during orientation;
-            the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.
+            should try next) — these are stored in the run summary and read back by the next run during orientation; the
+            backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.
         mcp_version: 2
     autoresearch-training-runs-create:
         operation: autoresearch_training_runs_create
@@ -448,10 +448,10 @@ tools:
             Cross-run learning memory. Returns recent completed training runs — this pipeline first, then same-target
             sibling pipelines on the team. Each run has a distilled `summary` (read this first: distillation,
             recommended_next, the kept_ladder of winning approaches, and dead_ends to avoid) plus the full `iterations`
-            trail (every recipe tried, its agent_description rationale, holdout_score, kept/discarded status, model_spec)
-            to drill into when a summary points somewhere worth it. Call this before iterating to reuse the features and
-            transforms that won and avoid repeating approaches already discarded. Optional `limit` (default 5, max 20)
-            caps how many prior runs are returned.
+            trail (every recipe tried, its agent_description rationale, holdout_score, kept/discarded status,
+            model_spec) to drill into when a summary points somewhere worth it. Call this before iterating to reuse the
+            features and transforms that won and avoid repeating approaches already discarded. Optional `limit` (default
+            5, max 20) caps how many prior runs are returned.
     autoresearch-training-runs-iterations-create:
         operation: autoresearch_training_runs_iterations_create
         enabled: true
