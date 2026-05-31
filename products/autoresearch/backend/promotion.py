@@ -18,7 +18,12 @@ import yaml
 import structlog
 
 from products.autoresearch.backend import artifacts
-from products.autoresearch.backend.models import AutoresearchIteration, AutoresearchModel, AutoresearchTrainingRun
+from products.autoresearch.backend.models import (
+    AutoresearchIteration,
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchTrainingRun,
+)
 from products.autoresearch.backend.sandbox_inference import SandboxInferenceError, fit_champion_model
 
 logger = structlog.get_logger(__name__)
@@ -214,6 +219,13 @@ def complete_training_run(
         distillation=distillation,
     )
     training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "summary", "completed_at"])
+
+    # A pipeline with its first champion goes live: flip Draft -> Running so the daily
+    # coordinator starts scoring it. Mirrors the stub path (stub_training); pause/resume
+    # handle the rest. Guarded on DRAFT so re-promotions on an already-live pipeline are no-ops.
+    if promoted and pipeline.status == AutoresearchPipeline.Status.DRAFT:
+        pipeline.status = AutoresearchPipeline.Status.RUNNING
+        pipeline.save(update_fields=["status", "updated_at"])
 
     # The train run produces the serving artifact: fit the champion and persist model.pkl
     # so predict runs are pure inference. Deferred to on_commit — the sandbox + object-storage

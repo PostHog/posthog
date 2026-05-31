@@ -105,6 +105,20 @@ class TestHandleTaskRunCompleted(BaseTest):
         champion = AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
         assert champion.holdout_score == 0.82
         assert champion.source_training_run == training_run
+        # First champion takes the pipeline live so the daily coordinator scores it.
+        pipeline.refresh_from_db()
+        assert pipeline.status == AutoresearchPipeline.Status.RUNNING
+
+    def test_promotion_does_not_reactivate_non_draft_pipeline(self) -> None:
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.PAUSED)
+        training_run = self._make_training_run(pipeline)
+        self._record_iteration(training_run, number=0, status="kept", holdout=0.82)
+
+        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+
+        AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        pipeline.refresh_from_db()
+        assert pipeline.status == AutoresearchPipeline.Status.PAUSED
 
     def test_marks_failed_when_no_iterations(self) -> None:
         pipeline = self._make_pipeline()
