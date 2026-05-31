@@ -52,9 +52,21 @@ class TestRetrievalEval(BaseTest):
         assert logic.search_knowledge(self.team.id, "") == []
         assert logic.search_knowledge(self.team.id, "   ") == []
 
-    def test_limit_respected(self) -> None:
+    def test_limit_caps_anchors_with_neighbour_expansion(self) -> None:
+        # `limit` caps the number of matched anchor chunks; each anchor expands to
+        # its ordinal neighbours (n-1, n, n+1), so the returned set is at most 3x.
         results = logic.search_knowledge(self.team.id, "refund", limit=1)
-        assert len(results) <= 1
+        assert len(results) <= 3
+
+    def test_neighbours_are_contiguous_per_document(self) -> None:
+        # Adjacency expansion must keep ordinals contiguous within each document.
+        results = logic.search_knowledge(self.team.id, "refund", limit=1)
+        by_doc: dict[str, list[int]] = {}
+        for r in results:
+            by_doc.setdefault(r.document_title, []).append(r.ordinal)
+        for ordinals in by_doc.values():
+            assert ordinals == sorted(ordinals)
+            assert ordinals == list(range(ordinals[0], ordinals[0] + len(ordinals)))
 
     def test_results_have_source_metadata(self) -> None:
         results = logic.search_knowledge(self.team.id, "refund")
