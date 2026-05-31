@@ -222,7 +222,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
             const teamId = Math.floor(Math.random() * 2147483647) + 1
-            const userId = teamId
+            const userId = Math.floor(Math.random() * 2147483647) + 1
             const organizationId = new UUIDT().toString()
 
             const newTeam: Team = {
