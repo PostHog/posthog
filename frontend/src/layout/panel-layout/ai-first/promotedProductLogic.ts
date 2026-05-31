@@ -6,6 +6,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
 import type { promotedProductLogicType } from './promotedProductLogicType'
 
 export type PromotedProductVariant = 'control' | 'control_b' | 'intent' | 'intent_plus'
@@ -71,22 +73,27 @@ interface PromotedProductInfo {
     url: string
     /** Display label shown in the sidebar entry and the configure modal. */
     label: string
+    /** `iconForType` key used to render the product's icon in the sidebar entry. */
+    iconType: FileSystemIconType
 }
 
 const PRODUCT_REGISTRY: Record<string, PromotedProductInfo> = {
-    product_analytics: { url: '/insights', label: 'Product analytics' },
-    web_analytics: { url: '/web', label: 'Web analytics' },
-    session_replay: { url: '/replay', label: 'Session replay' },
-    llm_analytics: { url: '/ai-observability', label: 'LLM analytics' },
-    error_tracking: { url: '/error_tracking', label: 'Error tracking' },
-    feature_flags: { url: '/feature_flags', label: 'Feature flags' },
-    experiments: { url: '/experiments', label: 'Experiments' },
-    surveys: { url: '/surveys', label: 'Surveys' },
-    logs: { url: '/logs', label: 'Logs' },
-    data_warehouse: { url: '/data-warehouse', label: 'Data warehouse' },
-    workflows: { url: '/workflows', label: 'Workflows' },
-    marketing_analytics: { url: '/marketing', label: 'Marketing analytics' },
+    product_analytics: { url: '/insights', label: 'Product analytics', iconType: 'product_analytics' },
+    web_analytics: { url: '/web', label: 'Web analytics', iconType: 'web_analytics' },
+    session_replay: { url: '/replay', label: 'Session replay', iconType: 'session_replay' },
+    llm_analytics: { url: '/ai-observability', label: 'LLM analytics', iconType: 'llm_analytics' },
+    error_tracking: { url: '/error_tracking', label: 'Error tracking', iconType: 'error_tracking' },
+    feature_flags: { url: '/feature_flags', label: 'Feature flags', iconType: 'feature_flag' },
+    experiments: { url: '/experiments', label: 'Experiments', iconType: 'experiment' },
+    surveys: { url: '/surveys', label: 'Surveys', iconType: 'survey' },
+    logs: { url: '/logs', label: 'Logs', iconType: 'logs' },
+    data_warehouse: { url: '/data-warehouse', label: 'Data warehouse', iconType: 'data_warehouse' },
+    workflows: { url: '/workflows', label: 'Workflows', iconType: 'workflows' },
+    marketing_analytics: { url: '/marketing', label: 'Marketing analytics', iconType: 'marketing_analytics' },
 }
+
+/** Icon used for non-product (URL / dashboards-fallback) targets — a generic quick link. */
+export const PROMOTED_PRODUCT_LINK_ICON_TYPE: FileSystemIconType = 'link'
 
 const PRODUCT_KEY_TO_URL: Record<string, string> = Object.fromEntries(
     Object.entries(PRODUCT_REGISTRY).map(([key, { url }]) => [key, url])
@@ -98,6 +105,14 @@ export const PRODUCT_KEY_LABELS: Record<string, string> = Object.fromEntries(
 
 export function labelForPromotedProductKey(productKey: string): string {
     return PRODUCT_KEY_LABELS[productKey] ?? productKey
+}
+
+/** Icon-type for the sidebar entry: the product's own icon, or the quick-link icon for URL targets. */
+export function iconTypeForTarget(target: PromotedProductTarget): FileSystemIconType {
+    if (target.kind === 'product') {
+        return PRODUCT_REGISTRY[target.value]?.iconType ?? PROMOTED_PRODUCT_LINK_ICON_TYPE
+    }
+    return PROMOTED_PRODUCT_LINK_ICON_TYPE
 }
 
 function readLocalStorageString(key: string): string | null {

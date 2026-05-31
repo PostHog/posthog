@@ -1,9 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRocket } from '@posthog/icons'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { NavLink } from './NavLink'
-import { labelForPromotedProductKey, promotedProductLogic, promotedProductTargetToUrl } from './promotedProductLogic'
+import {
+    iconTypeForTarget,
+    labelForPromotedProductKey,
+    promotedProductLogic,
+    promotedProductTargetToUrl,
+} from './promotedProductLogic'
 
 interface PromotedProductNavItemProps {
     isCollapsed: boolean
@@ -28,7 +33,7 @@ export function PromotedProductNavItem({ isCollapsed }: PromotedProductNavItemPr
         <NavLink
             to={to}
             label={label}
-            icon={<IconRocket />}
+            icon={iconForType(iconTypeForTarget(effectiveTarget))}
             isCollapsed={isCollapsed}
             data-attr="nav-item-promoted-product"
             onClick={() => trackPromotedProductClick()}
