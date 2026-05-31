@@ -87,15 +87,15 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: Materialize training features to the sandbox
         description: >
-            Run your features.sql server-side against the labeled training population and write the
-            train/holdout feature and label parquet files directly into your sandbox. Returns the local paths
-            (train_features_path, train_labels_path, holdout_features_path, holdout_labels_path), row counts, and
-            the feature column list — the feature rows never pass through your context and there is NO 500-row cap.
-            Then pd.read_parquet the returned paths and iterate in Python. Use this to pull training data instead of
-            execute-sql, and re-call it whenever you change features.sql.
+            Run your features.sql server-side against the labeled training population and write the train/holdout
+            feature and label parquet files directly into your sandbox. Returns the local paths (train_features_path,
+            train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list —
+            the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
+            returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
+            whenever you change features.sql.
+        mcp_version: 2
     autoresearch-models-list:
         operation: autoresearch_models_list
         enabled: true
