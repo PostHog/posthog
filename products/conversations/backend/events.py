@@ -10,6 +10,7 @@ import structlog
 
 from posthog.api.capture import capture_internal
 from posthog.event_usage import groups as build_groups
+from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from products.conversations.backend.models import Ticket
@@ -43,8 +44,14 @@ def capture_ticket_created(ticket: Ticket) -> None:
         try:
             persons = get_persons_by_distinct_ids(team_id, [ticket.distinct_id])
             if any(p.is_identified for p in persons):
-                process_person = True
-                properties["$groups"] = build_groups(team.organization, team)
+                membership = (
+                    OrganizationMembership.objects.select_related("organization")
+                    .filter(user__distinct_id=ticket.distinct_id)
+                    .first()
+                )
+                if membership:
+                    process_person = True
+                    properties["$groups"] = build_groups(membership.organization, team)
         except Exception:
             logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
