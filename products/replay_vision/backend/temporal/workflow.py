@@ -200,10 +200,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
                     scanner_type=scanner_type,
-                    scanner_result=ScannerResult(
-                        model_output=call_output.model_output,
-                        event_id_mapping=call_output.event_id_mapping,
-                    ),
+                    scanner_result=ScannerResult(model_output=call_output.model_output),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,

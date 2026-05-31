@@ -364,6 +364,11 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 }
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
+    // Minted directly into a server-issued token, never advertised via OAuth metadata
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
+    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
@@ -379,7 +384,9 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             }
         }
 
-        const missing = [...scopesFromTools].filter((s) => !supportedScopes.has(s)).sort()
+        const missing = [...scopesFromTools]
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .sort()
 
         expect(
             missing,

@@ -1,6 +1,7 @@
 import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { colonDelimitedDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
@@ -10,7 +11,6 @@ import {
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
-import { CitationPart, formatSessionOffset, parseCitedText } from '../utils/citations'
 
 export function ObservationStatusTag({ status }: { status: ReplayObservationApi['status'] }): JSX.Element {
     if (status === 'succeeded') {
@@ -38,24 +38,48 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-/** Dumb renderer for parsed citation parts. Pass `onSeek` to make citations interactive; omit for plain-text timestamps. */
+type Segment = { kind: 'text'; value: string } | { kind: 'chip'; uuid: string; timestamp_ms: number }
+
+function isSegment(value: unknown): value is Segment {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    const candidate = value as Partial<Segment>
+    if (candidate.kind === 'text') {
+        return typeof (candidate as { value?: unknown }).value === 'string'
+    }
+    if (candidate.kind === 'chip') {
+        const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
+        return typeof chip.uuid === 'string' && typeof chip.timestamp_ms === 'number'
+    }
+    return false
+}
+
+/** Dumb renderer for parsed citation segments. Pass `onSeek` to make citation chips interactive; omit for plain-text timestamps. */
 export function CitedText({
-    parts,
+    text,
+    segments,
     onSeek,
 }: {
-    parts: CitationPart[]
+    text: string
+    segments: unknown
     onSeek?: (timestampMs: number) => void
 }): JSX.Element {
+    const list = Array.isArray(segments) ? (segments.filter(isSegment) as Segment[]) : []
+    if (list.length === 0) {
+        return <>{text}</>
+    }
     return (
         <>
-            {parts.map((part, i) => {
-                if (part.type === 'text') {
-                    return <span key={i}>{part.value}</span>
+            {list.map((segment, i) => {
+                if (segment.kind === 'text') {
+                    return <span key={i}>{segment.value}</span>
                 }
-                const label = formatSessionOffset(part.timestampMs)
+                const seconds = Math.max(0, Math.floor(segment.timestamp_ms / 1000))
+                const label = colonDelimitedDuration(seconds, null)
                 if (onSeek) {
                     return (
-                        <Link key={i} onClick={() => onSeek(part.timestampMs)}>
+                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)}>
                             <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
                             <span className="font-mono">{label}</span>
                         </Link>
@@ -123,10 +147,7 @@ export function ObservationPrimaryOutput({
                 {title && <span className="font-semibold text-sm">{title}</span>}
                 {summary && (
                     <span className={summaryClass}>
-                        <CitedText
-                            parts={parseCitedText(summary, observation.scanner_result?.event_id_mapping)}
-                            onSeek={onSeek}
-                        />
+                        <CitedText text={summary} segments={result.summary_segments} onSeek={onSeek} />
                     </span>
                 )}
             </div>
