@@ -15,10 +15,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 import numpy as np
 from parameterized import parameterized
 
-from posthog.temporal.mcp_analytics.summarize_session_intents.activities import NO_INTENT_RECORDED_FALLBACK
-
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
+    NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
     _medoid_index,
     _routing_entropy,
@@ -237,18 +236,11 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         session_id: str,
         intent: str,
         *,
-        session_end_offset: timedelta = timedelta(minutes=-55),
+        created_at_offset: timedelta = timedelta(minutes=-55),
     ) -> None:
-        end = datetime.now(tz=UTC) + session_end_offset
-        start = end - timedelta(minutes=5)
-        MCPSession.objects.create(
-            team=self.team,
-            session_id=session_id,
-            session_start=start,
-            session_end=end,
-            duration_seconds=300,
-            intent=intent,
-        )
+        session = MCPSession.objects.create(team=self.team, session_id=session_id, intent=intent)
+        # created_at is auto_now_add, so override it directly to position the row in the lookback window.
+        MCPSession.objects.filter(pk=session.pk).update(created_at=datetime.now(tz=UTC) + created_at_offset)
 
     def _seed_tool_call(self, session_id: str, tool_name: str, is_error: bool = False) -> None:
         _create_event(
@@ -303,10 +295,10 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         assert records[0].frequency == 1
 
     def test_lookback_days_excludes_sessions_outside_the_window(self) -> None:
-        # In-window session (ends ~55 min ago).
+        # In-window session (intent generated ~55 min ago).
         self._seed_session("recent", "recent intent")
-        # Out-of-window session (ends 10 days ago, beyond the 7-day default).
-        self._seed_session("old", "old intent", session_end_offset=timedelta(days=-10))
+        # Out-of-window session (intent generated 10 days ago, beyond the 7-day default).
+        self._seed_session("old", "old intent", created_at_offset=timedelta(days=-10))
 
         records, intent_by_session = fetch_intent_corpus(self.team)
 
@@ -322,8 +314,8 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
     def test_lookback_days_argument_is_respected(
         self, _name: str, lookback_days: int, expected_intents: list[str]
     ) -> None:
-        # Session ends 10 days ago: excluded at 7 days, included at 30.
-        self._seed_session("old", "old intent", session_end_offset=timedelta(days=-10))
+        # Intent generated 10 days ago: excluded at 7 days, included at 30.
+        self._seed_session("old", "old intent", created_at_offset=timedelta(days=-10))
 
         records, _ = fetch_intent_corpus(self.team, lookback_days=lookback_days)
 

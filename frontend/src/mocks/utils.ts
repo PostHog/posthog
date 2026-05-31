@@ -21,7 +21,7 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<(typeof rest)['get']>[
                         // We currently support a few ways to specify a mock response:
                         // 1. A function that returns a tuple of [status, body]
                         // 2. A function that returns a tuple of [status]
-                        // 3. A function that returns undefined. This represents that a network error has occured
+                        // 3. A function that returns undefined. This represents that a network error has occurred
                         // 4. A function that returns an MSW response
                         // 5. A JSON serializable object that will be returned as the response body
                         if (typeof handler === 'function') {

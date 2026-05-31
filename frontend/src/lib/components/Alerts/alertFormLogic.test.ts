@@ -107,7 +107,7 @@ describe('alertFormLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [] })
+        jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
         jest.spyOn(api.alerts, 'get').mockResolvedValue(makeSavedAlert())
         createSpy = jest.spyOn(api.alerts, 'create').mockResolvedValue(makeSavedAlert())
         updateSpy = jest.spyOn(api.alerts, 'update').mockResolvedValue(makeSavedAlert())

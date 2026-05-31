@@ -98,6 +98,8 @@ async def test_skips_summary_when_org_has_not_approved_ai(team, user):
     )
 
     assert result.summary_text is None
+    # No-consent skips carry no user-facing notice — only over-budget skips do.
+    assert result.summary_skipped_over_budget is False
 
 
 async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
@@ -139,6 +141,74 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
     assert result.summary_text == "- Pageviews is trending up"
 
 
+# A named function rather than a lambda because the fail-open param case needs to raise.
+def _raise_quota_lookup_error(*args, **kwargs):
+    raise RuntimeError("quota cache unavailable")
+
+
+@pytest.mark.parametrize(
+    "name,is_team_limited_impl,expect_summary_generated,expect_skipped_over_budget",
+    [
+        # Over budget: skip the summary entirely (generate is never called) and flag it so
+        # the delivered report can show a notice.
+        ("over_budget_skips", lambda *a, **kw: True, False, True),
+        # Under budget: generate and deliver as normal.
+        ("under_budget_runs", lambda *a, **kw: False, True, False),
+        # Fail open: a quota-lookup error must not drop the summary — generate and deliver.
+        ("credit_check_errors_fails_open", _raise_quota_lookup_error, True, False),
+    ],
+)
+async def test_summary_generation_respects_ai_credit_budget(
+    team, user, monkeypatch, name, is_team_limited_impl, expect_summary_generated, expect_skipped_over_budget
+):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    summary_text = "- Pageviews is trending up"
+    called = {}
+
+    def fake_generate(*args, **kwargs):
+        called["ran"] = True
+        return summary_text
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.is_team_limited",
+        is_team_limited_impl,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+
+    result = await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    if expect_summary_generated:
+        assert result.summary_text == summary_text
+        assert called.get("ran") is True
+    else:
+        assert result.summary_text is None
+        assert called.get("ran") is None
+    assert result.summary_skipped_over_budget is expect_skipped_over_budget
+
+
 async def test_skips_summary_when_summary_not_enabled(team, user):
     subscription = await _create_subscription(team, user, summary_enabled=False)
     await _set_ai_consent(subscription, approved=True)
@@ -152,6 +222,8 @@ async def test_skips_summary_when_summary_not_enabled(team, user):
     )
 
     assert result.summary_text is None
+    # Summary-disabled skips carry no user-facing notice — only over-budget skips do.
+    assert result.summary_skipped_over_budget is False
 
 
 async def test_stored_prompt_guide_is_ignored_when_prompt_guide_flag_is_off(team, user, monkeypatch):

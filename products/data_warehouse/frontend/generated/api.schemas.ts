@@ -584,6 +584,7 @@ export const CreatedViaEnumApi = {
  * `Plain` - Plain
  * `Resend` - Resend
  * `PgAnalyze` - PgAnalyze
+ * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -734,6 +735,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plain: 'Plain',
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
+    Custom: 'Custom',
 } as const
 
 /**
@@ -812,6 +814,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether this source supports per-column sync selection via `enabled_columns`. */
+    readonly supports_column_selection: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -975,7 +979,8 @@ export interface ExternalDataSourceCreateApi {
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
   * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze */
+  * `PgAnalyze` - PgAnalyze
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -1053,6 +1058,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether this source supports per-column sync selection via `enabled_columns`. */
+    readonly supports_column_selection?: boolean
 }
 
 export interface ExternalDataSourceBulkUpdateSchemaApi {
@@ -1280,7 +1287,8 @@ export interface DatabaseSchemaRequestApi {
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
   * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze */
+  * `PgAnalyze` - PgAnalyze
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 

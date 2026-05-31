@@ -70,7 +70,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             intents: [ProductKey.ERROR_TRACKING],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.APP_MONITORING,
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,
             iconColor: [
