@@ -37165,35 +37165,6 @@ export namespace Schemas {
       has_more?: boolean;
     }
 
-    export interface _SourceMapsSetupCheckSymbolSet {
-      /** Symbol set ID. */
-      id: string;
-      /** Symbol set reference (chunk ID). */
-      ref: string;
-      /** When the symbol set row was created. */
-      created_at: string;
-      /** Whether the symbol set actually has bytes uploaded to storage. */
-      has_uploaded_file: boolean;
-    }
-
-    export interface _SourceMapsSetupCheckFrames {
-      /** JavaScript frames created in the window. */
-      total: number;
-      /** Of those, how many resolved via a symbol set. */
-      resolved: number;
-      /** Of those, how many are still unresolved. */
-      unresolved: number;
-    }
-
-    export interface SourceMapsSetupCheck {
-      /** The window the response describes. */
-      since_minutes: number;
-      /** Symbol sets created in the window. */
-      symbol_sets: _SourceMapsSetupCheckSymbolSet[];
-      /** JS frame resolution stats over the window. */
-      frames: _SourceMapsSetupCheckFrames;
-    }
-
     /**
      * The internal sandbox run the discovery agent used to pick this run's repo.
 
@@ -37345,6 +37316,35 @@ export namespace Schemas {
       task: SlackThreadContextTask | null;
       /** All runs on the task, oldest first. Empty when no mapping was found. */
       runs: SlackThreadContextRun[];
+    }
+
+    export interface _SourceMapsSetupCheckSymbolSet {
+      /** Symbol set ID. */
+      id: string;
+      /** Symbol set reference (chunk ID). */
+      ref: string;
+      /** When the symbol set row was created. */
+      created_at: string;
+      /** Whether the symbol set actually has bytes uploaded to storage. */
+      has_uploaded_file: boolean;
+    }
+
+    export interface _SourceMapsSetupCheckFrames {
+      /** JavaScript frames created in the window. */
+      total: number;
+      /** Of those, how many resolved via a symbol set. */
+      resolved: number;
+      /** Of those, how many are still unresolved. */
+      unresolved: number;
+    }
+
+    export interface SourceMapsSetupCheck {
+      /** The window the response describes. */
+      since_minutes: number;
+      /** Symbol sets created in the window. */
+      symbol_sets: _SourceMapsSetupCheckSymbolSet[];
+      /** JS frame resolution stats over the window. */
+      frames: _SourceMapsSetupCheckFrames;
     }
 
     /**
