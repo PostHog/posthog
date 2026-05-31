@@ -374,7 +374,7 @@ def _should_use_browserless(exported_asset: ExportedAsset) -> bool:
     if not settings.BROWSERLESS_CDP_URL:
         return False
     team = exported_asset.team
-    distinct_id = exported_asset.created_by.distinct_id if exported_asset.created_by else str(team.uuid)
+    distinct_id = (exported_asset.created_by.distinct_id if exported_asset.created_by else None) or str(team.uuid)
     return bool(
         posthoganalytics.feature_enabled(
             "image-exporter-use-browserless",
@@ -552,7 +552,7 @@ def _is_browserless_connection_error(error: Exception) -> bool:
     return any(indicator in message for indicator in _BROWSERLESS_CONNECTION_ERROR_INDICATORS)
 
 
-def _save_debug_screenshot(take_screenshot: Callable[[str], None], image_path: str) -> None:
+def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path: str) -> None:
     try:
         take_screenshot(image_path)
         posthoganalytics.tag("image_path", image_path)

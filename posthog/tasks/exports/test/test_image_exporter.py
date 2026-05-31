@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -692,9 +692,9 @@ class TestBuildCdpEndpoint(SimpleTestCase):
 
 class TestShouldUseBrowserless(SimpleTestCase):
     @staticmethod
-    def _make_asset(created_by: Any) -> SimpleNamespace:
+    def _make_asset(created_by: Any) -> ExportedAsset:
         team = SimpleNamespace(uuid=uuid.uuid4(), id=42, organization_id="org-99")
-        return SimpleNamespace(team=team, created_by=created_by)
+        return cast(ExportedAsset, SimpleNamespace(team=team, created_by=created_by))
 
     def test_returns_false_when_cdp_url_empty(self) -> None:
         asset = self._make_asset(created_by=SimpleNamespace(distinct_id="user-1"))
