@@ -451,7 +451,7 @@ export function SharingModalContent({
                                                         ) : null}
                                                     </LemonButton>
                                                     {showPreview && (
-                                                        <div className="SharingPreview border-t bg-primary">
+                                                        <div className="SharingPreview border-t">
                                                             <iframe
                                                                 className="block"
                                                                 {...iframeProperties}
