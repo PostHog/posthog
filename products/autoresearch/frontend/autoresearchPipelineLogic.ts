@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -34,6 +35,20 @@ export type AutoresearchPipelineTab =
     | 'online_performance'
     | 'runs'
     | 'settings'
+
+const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
+    'overview',
+    'training',
+    'models',
+    'predictions',
+    'online_performance',
+    'runs',
+    'settings',
+]
+
+function isPipelineTab(value: string | undefined): value is AutoresearchPipelineTab {
+    return value !== undefined && (AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)
+}
 
 /** Metrics stored in AutoresearchRun.metrics for validation runs. */
 export interface ValidationRunMetrics {
@@ -283,6 +298,29 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             // Lazy-load a run's bundle the first time it's expanded.
             if (values.expandedRunId === runId && !values.artifactsByRun[runId]) {
                 actions.loadRunArtifacts({ runId })
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        // Reflect the active tab in the URL (?tab=…) so each tab is deep-linkable.
+        setActiveTab: ({ tab }) => {
+            const searchParams = { ...router.values.searchParams }
+            if (tab === 'overview') {
+                delete searchParams.tab
+            } else {
+                searchParams.tab = tab
+            }
+            if ((router.values.searchParams.tab ?? 'overview') === (values.activeTab as string)) {
+                return // no-op when the URL already matches (avoids a redundant history entry)
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '/autoresearch/:id': (_, searchParams) => {
+            const tab = isPipelineTab(searchParams.tab) ? searchParams.tab : 'overview'
+            if (tab !== values.activeTab) {
+                actions.setActiveTab(tab)
             }
         },
     })),
