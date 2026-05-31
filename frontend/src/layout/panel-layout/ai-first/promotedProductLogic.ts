@@ -162,7 +162,7 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
         // `showConfigureModal` reseeds it from the current product every time the modal
         // opens — preventing stale state in the always-mounted modal in `GlobalModals`.
         pendingProduct: [
-            FALLBACK_PRODUCT_KEY,
+            FALLBACK_PRODUCT_KEY as string,
             {
                 setPendingProduct: (_, { productKey }) => productKey,
             },
