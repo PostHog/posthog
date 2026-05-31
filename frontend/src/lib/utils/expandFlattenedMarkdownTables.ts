@@ -8,9 +8,7 @@ export function expandFlattenedMarkdownTables(text: string): string {
         .split('\n')
         .flatMap((line) => {
             const segments = line.split(FLATTENED_TABLE_ROW_BOUNDARY_RE).map((s) => s.trim())
-
             if (segments.length < 2 || !segments.some((s) => TABLE_DELIMITER_SEGMENT_RE.test(s))) {
-
                 return [line]
             }
             return segments

@@ -20,6 +20,11 @@ describe('expandFlattenedMarkdownTables', () => {
         )
     })
 
+    it('expands a header + delimiter row table with no data rows', () => {
+        const input = '| a | b | |---|---|'
+        expect(expandFlattenedMarkdownTables(input)).toBe(['| a | b |', '|---|---|'].join('\n'))
+    })
+
     it('leaves a well-formed multi-line table untouched', () => {
         const input = ['| a | b |', '|---|---|', '| 1 | 2 |'].join('\n')
         expect(expandFlattenedMarkdownTables(input)).toBe(input)
