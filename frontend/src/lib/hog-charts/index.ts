@@ -58,6 +58,7 @@ export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue 
 // Core types
 export type {
     BarChartConfig,
+    BarsConfig,
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
