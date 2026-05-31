@@ -245,7 +245,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         },
         startHandsFreeChat: () => {
             posthog.capture('homepage hands-free started')
-            // Fresh conversation first so submitQuery's create-on-demand branch is skipped,
+            // Clear any in-progress conversation so hands-free always starts a fresh thread,
             // then flip into AI mode (mounting maxThreadLogic) before Scribe starts listening.
             actions.startNewConversation()
             actions.submitQuery('ai')
