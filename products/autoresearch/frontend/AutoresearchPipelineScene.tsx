@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconPause, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconChevronRight, IconExternal, IconPause, IconPlay } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSkeleton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
+import { humanizeBytes } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -100,6 +102,133 @@ function MetricCard({ label, value }: { label: string; value: string }): JSX.Ele
     )
 }
 
+function languageForArtifact(path: string): Language {
+    const lower = path.toLowerCase()
+    if (lower.endsWith('.py')) {
+        return Language.Python
+    }
+    if (lower.endsWith('.sql')) {
+        return Language.SQL
+    }
+    if (lower.endsWith('.yml') || lower.endsWith('.yaml')) {
+        return Language.YAML
+    }
+    if (lower.endsWith('.json') || lower.endsWith('.ipynb')) {
+        return Language.JSON
+    }
+    return Language.Text
+}
+
+function ArtifactViewerModal(): JSX.Element {
+    const { viewedArtifact, viewedArtifactLoading } = useValues(autoresearchPipelineLogic)
+    const { closeArtifact } = useActions(autoresearchPipelineLogic)
+    return (
+        <LemonModal
+            isOpen={viewedArtifactLoading || viewedArtifact !== null}
+            onClose={closeArtifact}
+            title={viewedArtifact?.path ?? 'Artifact'}
+            description={
+                viewedArtifact
+                    ? `${humanizeBytes(viewedArtifact.sizeBytes)} · run ${viewedArtifact.runId.slice(0, 8)}`
+                    : undefined
+            }
+            width={720}
+        >
+            {viewedArtifactLoading ? (
+                <Spinner />
+            ) : viewedArtifact?.text != null ? (
+                <CodeSnippet language={languageForArtifact(viewedArtifact.path)} wrap maxLinesWithoutExpansion={40}>
+                    {viewedArtifact.text}
+                </CodeSnippet>
+            ) : (
+                <div className="text-muted text-sm">
+                    Binary file — {viewedArtifact ? humanizeBytes(viewedArtifact.sizeBytes) : ''}. Not previewable here.
+                </div>
+            )}
+        </LemonModal>
+    )
+}
+
+function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Element {
+    const { expandedRunId, artifactsByRun, artifactsByRunLoading } = useValues(autoresearchPipelineLogic)
+    const { toggleRunArtifacts, viewArtifact } = useActions(autoresearchPipelineLogic)
+    const isExpanded = expandedRunId === run.id
+    const paths = artifactsByRun[run.id]
+
+    return (
+        <div className="border rounded">
+            <div className="p-3 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronRight className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />}
+                        onClick={() => toggleRunArtifacts(run.id)}
+                        tooltip={isExpanded ? 'Hide bundle' : 'Show bundle'}
+                    />
+                    <div className="space-y-0.5">
+                        <div className="text-sm font-semibold flex items-center gap-1">
+                            Run {run.id.slice(0, 8)}
+                            {run.task_url && (
+                                <Link
+                                    to={run.task_url}
+                                    target="_blank"
+                                    className="text-muted hover:text-primary"
+                                    title="Open sandbox task"
+                                >
+                                    <IconExternal className="text-sm" />
+                                </Link>
+                            )}
+                            {run.status === 'running' && <Spinner className="ml-2 inline" />}
+                        </div>
+                        <div className="text-xs text-muted">
+                            {run.iteration_count} iterations ·{' '}
+                            {run.best_holdout_score != null
+                                ? `best AUC ${run.best_holdout_score.toFixed(3)}`
+                                : 'no score yet'}
+                        </div>
+                    </div>
+                </div>
+                <LemonTag
+                    type={
+                        run.status === 'completed'
+                            ? 'success'
+                            : run.status === 'failed'
+                              ? 'danger'
+                              : run.status === 'running'
+                                ? 'purple'
+                                : 'default'
+                    }
+                >
+                    {run.status}
+                </LemonTag>
+            </div>
+            {isExpanded && (
+                <div className="border-t p-3 space-y-2">
+                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">Artifact bundle</div>
+                    {paths === undefined && artifactsByRunLoading ? (
+                        <Spinner />
+                    ) : paths && paths.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                            {paths.map((path) => (
+                                <LemonButton
+                                    key={path}
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => viewArtifact({ runId: run.id, path })}
+                                >
+                                    {path}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-muted text-sm">No artifacts uploaded for this run.</div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 function TrainingTab(): JSX.Element {
     const { trainingRuns, trainingRunsLoading, startTrainingResultLoading } = useValues(autoresearchPipelineLogic)
     const { startTraining } = useActions(autoresearchPipelineLogic)
@@ -123,46 +252,11 @@ function TrainingTab(): JSX.Element {
             ) : (
                 <div className="space-y-2">
                     {trainingRuns.map((run: AutoresearchTrainingRunApi) => (
-                        <div key={run.id} className="border rounded p-3 flex justify-between items-center">
-                            <div className="space-y-0.5">
-                                <div className="text-sm font-semibold flex items-center gap-1">
-                                    Run {run.id.slice(0, 8)}
-                                    {run.task_url && (
-                                        <Link
-                                            to={run.task_url}
-                                            target="_blank"
-                                            className="text-muted hover:text-primary"
-                                            title="Open sandbox task"
-                                        >
-                                            <IconExternal className="text-sm" />
-                                        </Link>
-                                    )}
-                                    {run.status === 'running' && <Spinner className="ml-2 inline" />}
-                                </div>
-                                <div className="text-xs text-muted">
-                                    {run.iteration_count} iterations ·{' '}
-                                    {run.best_holdout_score != null
-                                        ? `best AUC ${run.best_holdout_score.toFixed(3)}`
-                                        : 'no score yet'}
-                                </div>
-                            </div>
-                            <LemonTag
-                                type={
-                                    run.status === 'completed'
-                                        ? 'success'
-                                        : run.status === 'failed'
-                                          ? 'danger'
-                                          : run.status === 'running'
-                                            ? 'purple'
-                                            : 'default'
-                                }
-                            >
-                                {run.status}
-                            </LemonTag>
-                        </div>
+                        <TrainingRunRow key={run.id} run={run} />
                     ))}
                 </div>
             )}
+            <ArtifactViewerModal />
         </div>
     )
 }

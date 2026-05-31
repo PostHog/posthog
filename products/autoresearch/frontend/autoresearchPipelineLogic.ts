@@ -9,6 +9,8 @@ import {
     autoresearchRetrieve,
     autoresearchRunsList,
     autoresearchSuggestionsList,
+    autoresearchTrainingRunsArtifactsGetCreate,
+    autoresearchTrainingRunsArtifactsRetrieve,
     autoresearchTrainingRunsList,
     autoresearchTrainCreate,
 } from './generated/api'
@@ -56,6 +58,31 @@ export interface ValidationRunMetrics {
     >
 }
 
+/** A decoded artifact bundle file, ready for display. */
+export interface ViewedArtifact {
+    runId: string
+    path: string
+    sizeBytes: number
+    /** UTF-8 text for text files; null when the file is binary (e.g. model.pkl, parquet). */
+    text: string | null
+}
+
+/** Bundle paths we render inline as text; anything else is treated as binary. */
+const TEXT_ARTIFACT_EXTENSIONS = ['.py', '.sql', '.yml', '.yaml', '.json', '.md', '.txt', '.ipynb', '.csv']
+
+function isTextArtifact(path: string): boolean {
+    return TEXT_ARTIFACT_EXTENSIONS.some((ext) => path.toLowerCase().endsWith(ext))
+}
+
+function base64ToUtf8(base64: string): string {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+    }
+    return new TextDecoder('utf-8').decode(bytes)
+}
+
 /** Flattened row for the online performance table. */
 export interface OnlinePerformanceRow {
     run_id: string
@@ -77,12 +104,19 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     }),
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
+        toggleRunArtifacts: (runId: string) => ({ runId }),
     }),
     reducers({
         activeTab: [
             'overview' as AutoresearchPipelineTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        expandedRunId: [
+            null as string | null,
+            {
+                toggleRunArtifacts: (current, { runId }) => (current === runId ? null : runId),
             },
         ],
     }),
@@ -158,6 +192,45 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 },
             },
         ],
+        artifactsByRun: [
+            {} as Record<string, string[]>,
+            {
+                loadRunArtifacts: async ({ runId }: { runId: string }) => {
+                    if (!values.currentTeamId) {
+                        return values.artifactsByRun
+                    }
+                    const response = await autoresearchTrainingRunsArtifactsRetrieve(
+                        String(values.currentTeamId),
+                        props.id,
+                        runId
+                    )
+                    return { ...values.artifactsByRun, [runId]: response.paths }
+                },
+            },
+        ],
+        viewedArtifact: [
+            null as ViewedArtifact | null,
+            {
+                viewArtifact: async ({ runId, path }: { runId: string; path: string }) => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    const response = await autoresearchTrainingRunsArtifactsGetCreate(
+                        String(values.currentTeamId),
+                        props.id,
+                        runId,
+                        { path }
+                    )
+                    return {
+                        runId,
+                        path: response.path,
+                        sizeBytes: response.size_bytes,
+                        text: isTextArtifact(response.path) ? base64ToUtf8(response.content_base64) : null,
+                    }
+                },
+                closeArtifact: () => null,
+            },
+        ],
     })),
     selectors({
         validationRuns: [
@@ -201,10 +274,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         startTrainingSuccess: () => {
             actions.loadTrainingRuns()
             actions.loadPipeline()
+        },
+        toggleRunArtifacts: ({ runId }) => {
+            // Lazy-load a run's bundle the first time it's expanded.
+            if (values.expandedRunId === runId && !values.artifactsByRun[runId]) {
+                actions.loadRunArtifacts({ runId })
+            }
         },
     })),
     afterMount(({ actions }) => {
