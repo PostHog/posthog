@@ -3746,7 +3746,8 @@
                 "marketing_list_data_sources",
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
-                "marketing_suggest_utm_mappings"
+                "marketing_suggest_utm_mappings",
+                "summarize_replay_vision_summaries"
             ],
             "type": "string"
         },
@@ -20005,7 +20006,8 @@
                 "ClickHouse",
                 "Plain",
                 "Resend",
-                "PgAnalyze"
+                "PgAnalyze",
+                "Custom"
             ],
             "type": "string"
         },
@@ -38268,6 +38270,9 @@
                 },
                 {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/SignalsScoutSignalInput"
                 }
             ]
         },
@@ -38303,7 +38308,8 @@
                 "conversations",
                 "error_tracking",
                 "endpoints",
-                "pganalyze"
+                "pganalyze",
+                "signals_scout"
             ],
             "type": "string"
         },
@@ -38318,9 +38324,117 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
-                "endpoint_execution_failed"
+                "endpoint_execution_failed",
+                "cross_source_issue"
             ],
             "type": "string"
+        },
+        "SignalsScoutEvidenceEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "entity_id": {
+                    "description": "Optional entity id within that product, e.g. an issue id or session id.",
+                    "type": "string"
+                },
+                "source_product": {
+                    "description": "The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'.",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "One-line summary of the evidence the scout used.",
+                    "type": "string"
+                }
+            },
+            "required": ["source_product", "summary"],
+            "type": "object"
+        },
+        "SignalsScoutSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence": {
+                    "description": "Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
+                    "type": "number"
+                },
+                "dedupe_keys": {
+                    "description": "Free-form short keys the harness can use for cross-run dedupe.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "evidence": {
+                    "items": {
+                        "$ref": "#/definitions/SignalsScoutEvidenceEntry"
+                    },
+                    "type": "array"
+                },
+                "finding_id": {
+                    "type": "string"
+                },
+                "hypothesis": {
+                    "type": "string"
+                },
+                "mcp_trace_id": {
+                    "description": "Trace id from the LLM analytics span for the scout run, when available.",
+                    "type": "string"
+                },
+                "scout_run_id": {
+                    "type": "string"
+                },
+                "severity": {
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                "skill_name": {
+                    "type": "string"
+                },
+                "skill_version": {
+                    "type": "number"
+                },
+                "time_range": {
+                    "additionalProperties": false,
+                    "description": "Optional time window the finding refers to.",
+                    "properties": {
+                        "date_from": {
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                }
+            },
+            "required": ["scout_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "type": "object"
+        },
+        "SignalsScoutSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalsScoutSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "signals_scout",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "cross_source_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "SimilarIssue": {
             "additionalProperties": false,

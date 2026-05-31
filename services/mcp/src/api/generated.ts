@@ -12583,6 +12583,7 @@ export namespace Schemas {
     * `Plain` - Plain
     * `Resend` - Resend
     * `PgAnalyze` - PgAnalyze
+    * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -12733,6 +12734,7 @@ export namespace Schemas {
       Plain: 'Plain',
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
+      Custom: 'Custom',
     } as const;
 
     /**
@@ -12889,7 +12891,8 @@ export namespace Schemas {
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
       * `Resend` - Resend
-      * `PgAnalyze` - PgAnalyze */
+      * `PgAnalyze` - PgAnalyze
+      * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -14038,6 +14041,95 @@ export namespace Schemas {
       text?: string;
       html?: string;
       design?: unknown;
+    }
+
+    /**
+     * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
+     */
+    export interface EvidenceEntry {
+      /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
+      source_product: string;
+      /** One-sentence prose about why this evidence supports the finding. */
+      summary: string;
+      /**
+         * Optional ID of the cited entity (issue id, recording id, log query id).
+         * @nullable
+         */
+      entity_id?: string | null;
+    }
+
+    export interface TimeRange {
+      /** ISO-8601 inclusive lower bound for the finding's window. */
+      date_from: string;
+      /** ISO-8601 inclusive upper bound for the finding's window. */
+      date_to: string;
+    }
+
+    /**
+     * Request body for `emit-finding`. Run attribution is taken from the URL path.
+     */
+    export interface EmitFindingRequest {
+      /**
+         * Canonical evidence-bundle prose. Becomes the signal's `description`.
+         * @maxLength 50000
+         */
+      description: string;
+      /**
+         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+         * @minimum 0
+         * @maximum 1
+         */
+      weight: number;
+      /**
+         * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+         * @minimum 0
+         * @maximum 1
+         */
+      confidence: number;
+      /**
+         * Citations supporting the finding. Capped at 20 entries.
+         * @maxItems 20
+         */
+      evidence: EvidenceEntry[];
+      /**
+         * Optional one-line hypothesis the finding tests.
+         * @nullable
+         */
+      hypothesis?: string | null;
+      /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      severity?: AutonomyPriorityEnum | null;
+      /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
+      dedupe_keys?: string[];
+      /** Optional time window the finding refers to. */
+      time_range?: TimeRange | null;
+      /**
+         * Optional MCP trace id for cross-system debugging.
+         * @nullable
+         */
+      mcp_trace_id?: string | null;
+      /**
+         * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+         * @nullable
+         */
+      finding_id?: string | null;
+    }
+
+    export interface EmitFindingResponse {
+      /** Stable id for the finding (echoed back from request, or generated). */
+      finding_id: string;
+      /** Whether `emit_signal` was actually fired. */
+      emitted: boolean;
+      /**
+         * `ai_processing_not_approved` | `source_disabled` | null when emitted normally.
+         * @nullable
+         */
+      skipped_reason: string | null;
     }
 
     export interface EndExperiment {
@@ -16300,6 +16392,26 @@ export namespace Schemas {
     }
 
     /**
+     * One bucket in `inventory.existing_inbox_reports.by_status`.
+     */
+    export interface InboxReportStatusBucket {
+      /** Report status (e.g. `potential`, `candidate`, `ready`). */
+      status: string;
+      /** Number of reports in this status (excludes deleted/suppressed). */
+      count: number;
+    }
+
+    /**
+     * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
+     */
+    export interface ExistingInboxReports {
+      /** Total non-deleted, non-suppressed reports for this team. */
+      total: number;
+      /** Per-status breakdown of inbox reports. */
+      by_status: InboxReportStatusBucket[];
+    }
+
+    /**
      * * `exit_on_conversion` - Conversion
     * `exit_on_trigger_not_matched` - Trigger Not Matched
     * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
@@ -16509,7 +16621,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -17105,7 +17217,8 @@ export namespace Schemas {
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
       * `Resend` - Resend
-      * `PgAnalyze` - PgAnalyze */
+      * `PgAnalyze` - PgAnalyze
+      * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -17132,6 +17245,23 @@ export namespace Schemas {
       * `api` - api
       * `mcp` - mcp */
       created_via?: CreatedViaEnum;
+    }
+
+    /**
+     * One row in `inventory.external_data_sources`.
+     */
+    export interface ExternalDataSourceEntry {
+      /** Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`). */
+      source_type: string;
+      /** Current sync status (`Running`, `Failed`, `Paused`, etc.). */
+      status: string;
+      /** Schema prefix used by this source, if any. */
+      prefix: string;
+      /**
+         * ISO-8601 timestamp the source was connected.
+         * @nullable
+         */
+      created_at: string | null;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -17977,6 +18107,22 @@ export namespace Schemas {
     export interface FlagValueResponse {
       results: FlagValueItem[];
       refreshing: boolean;
+    }
+
+    /**
+     * Request body for `forget`.
+     */
+    export interface ForgetRequest {
+      /**
+         * Memory key to delete.
+         * @maxLength 300
+         */
+      key: string;
+    }
+
+    export interface ForgetResponse {
+      /** Whether a row was actually removed (false if the key didn't exist). */
+      deleted: boolean;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -20226,6 +20372,19 @@ export namespace Schemas {
       readonly display_name: string;
     }
 
+    /**
+     * One row in `inventory.integrations`. Sensitive config is intentionally excluded.
+     */
+    export interface IntegrationEntry {
+      /** Integration kind (e.g. `slack`, `github`, `linear`). */
+      kind: string;
+      /**
+         * ISO-8601 timestamp the integration was connected.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
     export interface InterestingNote {
       text: string;
       line_refs: string;
@@ -20960,8 +21119,8 @@ export namespace Schemas {
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-         * @minimum 1
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * @minimum 0
          */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -21132,7 +21291,7 @@ export namespace Schemas {
       filters: LogsAlertFilters;
       /**
          * Threshold count to evaluate against.
-         * @minimum 1
+         * @minimum 0
          */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -22628,6 +22787,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
+    * `signals_scout` - Signals Scout
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22641,6 +22801,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
@@ -24000,7 +24161,6 @@ export namespace Schemas {
     * `classifier` - Classifier
     * `scorer` - Scorer
     * `summarizer` - Summarizer
-    * `indexer` - Indexer
      */
     export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
 
@@ -24010,7 +24170,6 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
-      Indexer: 'indexer',
     } as const;
 
     /**
@@ -24041,13 +24200,12 @@ export namespace Schemas {
     export interface ScannerSnapshot {
       /** Scanner name at run time. */
       name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
+      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
@@ -24067,11 +24225,6 @@ export namespace Schemas {
     }
 
     /**
-     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
-     */
-    export type ScannerResultEventIdMapping = { [key: string]: unknown };
-
-    /**
      * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
      */
     export interface ScannerResult {
@@ -24082,8 +24235,6 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
-      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-      event_id_mapping: ScannerResultEventIdMapping;
     }
 
     export interface ReplayObservation {
@@ -24140,15 +24291,14 @@ export namespace Schemas {
       name: string;
       /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -24759,6 +24909,7 @@ export namespace Schemas {
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
+    * `signals_scout` - Signals scout
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -24772,6 +24923,7 @@ export namespace Schemas {
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
@@ -24782,6 +24934,7 @@ export namespace Schemas {
     * `issue_created` - Issue created
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
+    * `cross_source_issue` - Cross source issue
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -24794,6 +24947,7 @@ export namespace Schemas {
       IssueCreated: 'issue_created',
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
+      CrossSourceIssue: 'cross_source_issue',
     } as const;
 
     export interface SignalSourceConfig {
@@ -28180,7 +28334,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -29053,8 +29207,8 @@ export namespace Schemas {
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-         * @minimum 1
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * @minimum 0
          */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
@@ -30497,15 +30651,14 @@ export namespace Schemas {
       name?: string;
       /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -32622,6 +32775,24 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.product_intents`.
+     */
+    export interface ProductIntentEntry {
+      /** Product key the team signaled intent to use. */
+      product_type: string;
+      /**
+         * ISO-8601 timestamp the team activated the product, or null if intent only.
+         * @nullable
+         */
+      activated_at: string | null;
+      /**
+         * ISO-8601 timestamp the intent was first recorded.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
      * Serializer for creating and updating ProductTour.
      */
     export interface ProductTourSerializerCreateUpdateOnly {
@@ -33442,6 +33613,487 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * `inventory.project_context` — free-form orientation about the project's product.
+     */
+    export interface ProjectContext {
+      /**
+         * Human-set product description on the project (max 1000 chars). When present, the most direct "what does this team's product do" answer. `null` when unset.
+         * @nullable
+         */
+      product_description: string | null;
+      /** Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`. */
+      app_urls: string[];
+    }
+
+    /**
+     * One row in either bucket of `inventory.signal_source_configs`.
+     */
+    export interface SignalSourceConfigEntry {
+      /** Source product the config applies to. */
+      source_product: string;
+      /** Source type within the product. */
+      source_type: string;
+    }
+
+    /**
+     * `inventory.signal_source_configs` split into enabled and disabled buckets.
+     */
+    export interface SignalSourceConfigsBuckets {
+      /** Source configs the team has explicitly enabled. */
+      enabled: SignalSourceConfigEntry[];
+      /** Source configs the team has explicitly disabled (different from never wired up). */
+      disabled: SignalSourceConfigEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_activity.by_scope`.
+     */
+    export interface ScopeActivityEntry {
+      /** Activity-log scope (entity type), e.g. `FeatureFlag`, `Dashboard`, `Survey`. */
+      scope: string;
+      /** Total activity-log entries for this scope in the window (write velocity). */
+      edits: number;
+      /** Distinct users who edited this scope in the window. */
+      users: number;
+      /**
+         * ISO-8601 timestamp of the most recent edit in the window.
+         * @nullable
+         */
+      last_edit: string | null;
+    }
+
+    /**
+     * `inventory.recent_activity` — per-scope counts off the activity log.
+     */
+    export interface RecentActivity {
+      /** Lookback window in days the per-scope counts cover. */
+      window_days: number;
+      /** Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately. */
+      by_scope: ScopeActivityEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_dashboards`.
+     */
+    export interface RecentDashboardEntry {
+      /** Dashboard ID — pass to `dashboard-get` to pull the full payload. */
+      id: number;
+      /** Dashboard name (may be blank if unnamed). */
+      name: string;
+      /**
+         * ISO-8601 timestamp of the most recent view in the PostHog UI.
+         * @nullable
+         */
+      last_accessed_at: string | null;
+      /**
+         * ISO-8601 timestamp of the most recent data refresh. Distinct from access — a dashboard can be refreshed without anyone viewing it.
+         * @nullable
+         */
+      last_refresh: string | null;
+      /**
+         * ISO-8601 timestamp the dashboard was created.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * One row in `inventory.recent_surveys.recent`.
+     */
+    export interface RecentSurveyEntry {
+      /** Survey UUID — pass to `survey-get` for full question shape. */
+      id: string;
+      /** Survey name (may be blank if unnamed). */
+      name: string;
+      /** Survey mode: `popover`, `widget`, `external_survey`, or `api`. */
+      type: string;
+      /** Derived status: `draft`, `running`, `stopped`, or `archived`. */
+      status: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_surveys` — total + active count, plus the 5 most recently modified.
+     */
+    export interface RecentSurveys {
+      /** Total surveys on the team. */
+      total_count: number;
+      /** Surveys that are live (not archived, started, and not yet ended). */
+      active_count: number;
+      /** The 5 most recently updated surveys. */
+      recent: RecentSurveyEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_feature_flags.recent`.
+     */
+    export interface RecentFeatureFlagEntry {
+      /** Feature flag ID. */
+      id: number;
+      /** Flag key used in code (`posthog.isFeatureEnabled('<key>')`). */
+      key: string;
+      /** Human-set description; falls back to the key when blank. */
+      name: string;
+      /** Whether the flag is currently evaluating (a user could be hitting it). */
+      active: boolean;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_feature_flags` — total + active count, plus the 5 most recently modified.
+     */
+    export interface RecentFeatureFlags {
+      /** Total non-deleted feature flags on the team. */
+      total_count: number;
+      /** Flags currently evaluating (`active=true`). */
+      active_count: number;
+      /** The 5 most recently updated non-deleted flags. */
+      recent: RecentFeatureFlagEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_experiments.recent`.
+     */
+    export interface RecentExperimentEntry {
+      /** Experiment ID. */
+      id: number;
+      /** Experiment name. */
+      name: string;
+      /** Derived status: `draft`, `running`, `stopped`, or `archived`. */
+      status: string;
+      /**
+         * Key of the experiment's feature flag — cross-ref into `recent_feature_flags`. Null if unlinked.
+         * @nullable
+         */
+      feature_flag_key: string | null;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_experiments` — total + currently-running count, plus the 5 most recently modified.
+     */
+    export interface RecentExperiments {
+      /** Total experiments on the team. */
+      total_count: number;
+      /** Experiments currently running (started, not ended, not archived). */
+      running_count: number;
+      /** The 5 most recently updated experiments. */
+      recent: RecentExperimentEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_alerts.recent`.
+     */
+    export interface RecentAlertEntry {
+      /** Alert configuration UUID. */
+      id: string;
+      /** Alert name. */
+      name: string;
+      /** Whether the alert is currently armed. */
+      enabled: boolean;
+      /** Alert state (e.g. `not_firing`, `firing`). */
+      state: string;
+      /**
+         * How often the alert is evaluated (e.g. `daily`, `hourly`); null if unset.
+         * @nullable
+         */
+      calculation_interval: string | null;
+      /**
+         * ID of the insight the alert watches; null if none.
+         * @nullable
+         */
+      insight_id: number | null;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_alerts` — total + currently-enabled count, plus the 5 most recently created.
+     */
+    export interface RecentAlerts {
+      /** Total insight alerts on the team. */
+      total_count: number;
+      /** Alerts currently armed (`enabled=true`). */
+      enabled_count: number;
+      /** The 5 most recently created alerts. */
+      recent: RecentAlertEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_hog_functions.recent`.
+     */
+    export interface RecentHogFunctionEntry {
+      /** Hog function UUID. */
+      id: string;
+      /** Hog function name. */
+      name: string;
+      /**
+         * Function type: `destination`, `transformation`, `site_app`, etc. Null if unset.
+         * @nullable
+         */
+      type: string | null;
+      /**
+         * Function kind sub-classifier; null if unset.
+         * @nullable
+         */
+      kind: string | null;
+      /** Whether the function is currently enabled. */
+      enabled: boolean;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_hog_functions` — total + enabled count, plus the 5 most recently modified.
+     */
+    export interface RecentHogFunctions {
+      /** Total non-deleted hog functions on the team. */
+      total_count: number;
+      /** Hog functions currently enabled (`enabled=true`). */
+      enabled_count: number;
+      /** The 5 most recently updated hog functions. */
+      recent: RecentHogFunctionEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_hog_flows.recent`.
+     */
+    export interface RecentHogFlowEntry {
+      /** Hog flow UUID. */
+      id: string;
+      /** Hog flow name. */
+      name: string;
+      /** Flow lifecycle state (e.g. `draft`, `active`, `archived`). */
+      status: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_hog_flows` — total + non-archived count, plus the 5 most recently modified.
+     */
+    export interface RecentHogFlows {
+      /** Total hog flows on the team. */
+      total_count: number;
+      /** Hog flows that are not archived. */
+      active_count: number;
+      /** The 5 most recently updated hog flows. */
+      recent: RecentHogFlowEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_notebooks.recent`.
+     */
+    export interface RecentNotebookEntry {
+      /** Notebook short ID — pass to the notebooks API to open it. */
+      short_id: string;
+      /** Notebook title (may be blank if untitled). */
+      title: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      last_modified_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_notebooks` — total + the 5 most recently modified.
+     */
+    export interface RecentNotebooks {
+      /** Total non-deleted notebooks on the team. */
+      total_count: number;
+      /** The 5 most recently modified notebooks. */
+      recent: RecentNotebookEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_cohorts.recent`.
+     */
+    export interface RecentCohortEntry {
+      /** Cohort ID. */
+      id: number;
+      /** Cohort name. */
+      name: string;
+      /** True for a one-shot snapshot cohort; false for a dynamic-filter cohort. */
+      is_static: boolean;
+      /**
+         * Membership size when last calculated; null if never calculated.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_cohorts` — total + the 5 most recently created.
+     */
+    export interface RecentCohorts {
+      /** Total non-deleted cohorts on the team. */
+      total_count: number;
+      /** The 5 most recently created cohorts. */
+      recent: RecentCohortEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_actions.recent`.
+     */
+    export interface RecentActionEntry {
+      /** Action ID. */
+      id: number;
+      /** Action name. */
+      name: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_actions` — total + the 5 most recently modified.
+     */
+    export interface RecentActions {
+      /** Total non-deleted actions on the team. */
+      total_count: number;
+      /** The 5 most recently updated actions. */
+      recent: RecentActionEntry[];
+    }
+
+    /**
+     * One row in `inventory.top_events`.
+     */
+    export interface TopEventEntry {
+      /** Event name as captured. */
+      event: string;
+      /** Number of occurrences in the lookback window (last 7 days). */
+      count: number;
+      /** `uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users. */
+      distinct_users: number;
+      /** Count in just the last 24 hours. Compare to `count / 7` to spot bursts: a ratio well above 1/7 means the event is concentrated in the last day. */
+      recent_24h_count: number;
+      /** `uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop. */
+      recent_24h_users: number;
+      /**
+         * ISO-8601 timestamp of the earliest occurrence within the lookback window. Compare to the window start to spot new event types: `first_seen` close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
+         * @nullable
+         */
+      first_seen: string | null;
+      /**
+         * ISO-8601 timestamp of the most recent occurrence within the lookback window.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    /**
+     * The deterministic inventory layer of a project profile.
+
+    Read this to orient on the team's product mix, integrations, warehouse sources, signal
+    coverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:
+    profile is ground truth from authoritative tables; memory is agent inference.
+     */
+    export interface ProjectProfileInventory {
+      /** Free-form orientation: human-set product description + registered app URLs. */
+      project_context: ProjectContext;
+      /** Product keys this team has completed onboarding for, sorted alphabetically. */
+      products_in_use: string[];
+      /** Products the team signaled intent to use; useful for spotting stuck onboardings. */
+      product_intents: ProductIntentEntry[];
+      /** Connected integrations (kind + connection time only — config never surfaced). */
+      integrations: IntegrationEntry[];
+      /** Connected warehouse sources (excludes soft-deleted). */
+      external_data_sources: ExternalDataSourceEntry[];
+      /** Signal source configs split into enabled / disabled buckets. */
+      signal_source_configs: SignalSourceConfigsBuckets;
+      /** Counts of reports already in the inbox, grouped by status. */
+      existing_inbox_reports: ExistingInboxReports;
+      /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+      recent_activity: RecentActivity;
+      /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
+      recent_dashboards: RecentDashboardEntry[];
+      /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
+      recent_surveys: RecentSurveys;
+      /** Feature flag orientation: total + active count, plus the 5 most recently updated non-deleted flags with id, key, name, active, and updated_at. */
+      recent_feature_flags: RecentFeatureFlags;
+      /** Experiment orientation: total + running count, plus the 5 most recently updated experiments. The feature_flag_key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
+      recent_experiments: RecentExperiments;
+      /** Alert orientation: total + enabled count, plus the 5 most recently created alerts with their state and threshold metadata. */
+      recent_alerts: RecentAlerts;
+      /** Hog function orientation: total + enabled count, plus the 5 most recently updated destinations / transformations the team has wired up via the CDP pipelines. */
+      recent_hog_functions: RecentHogFunctions;
+      /** Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows. */
+      recent_hog_flows: RecentHogFlows;
+      /** Notebook orientation: total + the 5 most recently modified notebooks — useful signal for what the team has been investigating. */
+      recent_notebooks: RecentNotebooks;
+      /** Cohort orientation: total + the 5 most recently created cohorts on the team. */
+      recent_cohorts: RecentCohorts;
+      /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
+      recent_actions: RecentActions;
+      /**
+         * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
+         * @nullable
+         */
+      top_events: TopEventEntry[] | null;
+    }
+
+    /**
+     * Top-level `payload` shape on a `SignalProjectProfile` row.
+
+    v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
+    `narrative` slots — they're absent (not null) in v1 responses.
+     */
+    export interface ProjectProfilePayload {
+      /** Deterministic snapshot of what's true about the project. */
+      inventory: ProjectProfileInventory;
+    }
+
+    /**
+     * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
+
+    Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+    is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
+    latest cached profile or a freshly-built one if the cache was stale or the caller passed
+    `force_refresh=true`.
+     */
+    export interface ProjectProfile {
+      /** UUID of the `SignalProjectProfile` row. */
+      profile_id: string;
+      /** ISO-8601 timestamp the profile was built. */
+      computed_at: string;
+      /** ISO-8601 timestamp after which the profile is considered stale. */
+      expires_at: string;
+      /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
+      source_version: string;
+      /** Structured profile content. v1 has `inventory` only. */
+      payload: ProjectProfilePayload;
     }
 
     export interface Property {
@@ -35772,6 +36424,27 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Request body for `remember`.
+     */
+    export interface RememberRequest {
+      /**
+         * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+         * @maxLength 300
+         */
+      key: string;
+      /**
+         * Prose to write. Read verbatim into future prompts.
+         * @maxLength 50000
+         */
+      content: string;
+      /**
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+         * @nullable
+         */
+      run_id?: string | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
          * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -36031,6 +36704,31 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    /**
+     * `SignalScratchpad` projection used by `search-memory` and `remember`.
+     */
+    export interface ScratchpadEntry {
+      /** Agent-chosen semantic key, unique per team. */
+      key: string;
+      /** Prose content for prompt injection. */
+      content: string;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 last-write timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+      /**
+         * Run that wrote this entry, or null if human-authored.
+         * @nullable
+         */
+      created_by_run_id: string | null;
     }
 
     /**
@@ -36323,6 +37021,86 @@ export namespace Schemas {
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
       release_to_everyone?: boolean;
+    }
+
+    /**
+     * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
+    today; kept distinct so future detail-only extensions (linked Signal rows,
+    LLMA token-cost join) can land here without bloating the list response.
+     */
+    export interface SignalScoutRunDetail {
+      /** UUID of the bridge row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
+      status: string;
+      /** ISO-8601 timestamp the TaskRun was created. */
+      started_at: string;
+      /**
+         * ISO-8601 timestamp the TaskRun completed; null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * UUID of the Tasks `Task` the scout span ran inside.
+         * @nullable
+         */
+      task_id?: string | null;
+      /**
+         * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
+         * @nullable
+         */
+      task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
+    }
+
+    /**
+     * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
+
+    Status and timestamps flow from the linked `tasks.TaskRun`.
+     */
+    export interface SignalScoutRunSummary {
+      /** UUID of the bridge row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
+      status: string;
+      /** ISO-8601 timestamp the TaskRun was created. */
+      started_at: string;
+      /**
+         * ISO-8601 timestamp the TaskRun completed; null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * UUID of the Tasks `Task` the scout span ran inside.
+         * @nullable
+         */
+      task_id?: string | null;
+      /**
+         * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
+         * @nullable
+         */
+      task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
     }
 
     export interface _User {
@@ -43004,13 +43782,12 @@ export namespace Schemas {
      */
     order_by?: string[];
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
+     * Filter by scanner type (monitor, classifier, scorer, summarizer).
 
     * `monitor` - Monitor
     * `classifier` - Classifier
     * `scorer` - Scorer
     * `summarizer` - Summarizer
-    * `indexer` - Indexer
      */
     scanner_type?: VisionScannersListScannerType;
     };
@@ -43020,7 +43797,6 @@ export namespace Schemas {
 
     export const VisionScannersListScannerType = {
       Classifier: 'classifier',
-      Indexer: 'indexer',
       Monitor: 'monitor',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
@@ -47364,6 +48140,48 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    };
+
+    export type SignalsScoutProjectProfileGetParams = {
+    /**
+     * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
+     */
+    force_refresh?: boolean;
+    };
+
+    export type SignalsScoutRunsListParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     */
+    date_to?: string;
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
+     */
+    text?: string;
+    };
+
+    export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     */
+    text?: string;
     };
 
     export type SignalsSourceConfigsListParams = {

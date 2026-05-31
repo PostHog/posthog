@@ -356,7 +356,15 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
+    scope_object_write_actions = [
+        "create",
+        "complete",
+        "approve",
+        "auto_approve",
+        "add_snapshots",
+        "recompute",
+        "mark_tolerated",
+    ]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
 
