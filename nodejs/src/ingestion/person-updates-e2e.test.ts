@@ -195,8 +195,8 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         })
         kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
-        const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
-        const userId = teamId
+        const teamId = Math.floor(Math.random() * 2147483647) + 1
+        const userId = Math.floor(Math.random() * 2147483647) + 1
         const organizationId = new UUIDT().toString()
         const userUuid = new UUIDT().toString()
         const organizationMembershipId = new UUIDT().toString()
@@ -695,8 +695,8 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
     describe(`${configName} - person_last_seen_at_enabled disabled`, () => {
         beforeEach(async () => {
-            const disabledTeamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
-            const disabledUserId = disabledTeamId
+            const disabledTeamId = Math.floor(Math.random() * 2147483647) + 1
+            const disabledUserId = Math.floor(Math.random() * 2147483647) + 1
             const disabledUserUuid = new UUIDT().toString()
             const disabledOrgId = new UUIDT().toString()
             const disabledOrgMembershipId = new UUIDT().toString()

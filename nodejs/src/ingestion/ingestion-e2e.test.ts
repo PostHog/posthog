@@ -221,7 +221,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             })
             const kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
-            const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const teamId = Math.floor(Math.random() * 2147483647) + 1
             const userId = teamId
             const organizationId = new UUIDT().toString()
 
@@ -3337,7 +3337,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             {},
             async (ingester, hub, team, _kafkaProducer) => {
                 // Create a second team
-                const team2Id = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+                const team2Id = Math.floor(Math.random() * 2147483647) + 1
                 await createUserTeamAndOrganization(
                     hub.postgres,
                     team2Id,
