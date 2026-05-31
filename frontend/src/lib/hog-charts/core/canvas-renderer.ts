@@ -538,11 +538,12 @@ function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], corner
  *  layer to the funnel pill so a stack's outer corners round even when the edge segment is too
  *  thin to round on its own. Caller owns save/restore. */
 export function clipToRoundedRects(ctx: CanvasRenderingContext2D, rects: BarRect[], cornerRadius: number): void {
+    const renderableRects = rects.filter((r) => r.width > 0 && r.height > 0)
+    if (renderableRects.length === 0) {
+        return
+    }
     ctx.beginPath()
-    for (const r of rects) {
-        if (r.width <= 0 || r.height <= 0) {
-            continue
-        }
+    for (const r of renderableRects) {
         traceRoundedBarPath(ctx, r.x, r.y, r.width, r.height, cornerRadius, r.corners)
     }
     ctx.clip()
