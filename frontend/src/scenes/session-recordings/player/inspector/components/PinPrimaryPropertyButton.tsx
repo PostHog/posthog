@@ -27,8 +27,10 @@ export function PinPrimaryPropertyButton({
             <LemonButton
                 size="xsmall"
                 noPadding
+                active
                 icon={<IconPinFilled />}
                 disabledReason="Built-in primary property — can't be changed"
+                data-attr="replay-pin-primary-property-builtin"
             />
         )
     }
@@ -53,6 +55,7 @@ export function PinPrimaryPropertyButton({
             tooltip={tooltip}
             onClick={() => setPrimaryProperty(eventName, isPinned ? null : propertyKey)}
             className={isPinned || isRowHovered ? undefined : 'opacity-0 focus:opacity-100'}
+            data-attr="replay-pin-primary-property"
         />
     )
 }
