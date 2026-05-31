@@ -309,9 +309,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     if (!response.ok) {
                         const message = await parseElementStatsErrorMessage(response)
                         lemonToast.error(`Failed to load heatmap data: ${message}`)
-                        captureToolbarException(new Error(`Error loading HeatMap data: ${message}`), 'getElementStats', {
-                            status: response.status,
-                        })
+                        captureToolbarException(
+                            new Error(`Error loading HeatMap data: ${message}`),
+                            'getElementStats',
+                            {
+                                status: response.status,
+                            }
+                        )
                         return emptyElementsStatsPages
                     }
 
@@ -320,9 +324,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     if (!Array.isArray(paginatedResults.results)) {
                         const message = `unexpected response shape (status ${response.status})`
                         lemonToast.error(`Failed to load heatmap data: ${message}`)
-                        captureToolbarException(new Error(`Error loading HeatMap data: ${message}`), 'getElementStats', {
-                            status: response.status,
-                        })
+                        captureToolbarException(
+                            new Error(`Error loading HeatMap data: ${message}`),
+                            'getElementStats',
+                            {
+                                status: response.status,
+                            }
+                        )
                         return emptyElementsStatsPages
                     }
 
