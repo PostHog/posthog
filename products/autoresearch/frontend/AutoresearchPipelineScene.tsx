@@ -1,7 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconExternal, IconPause, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSkeleton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconChevronRight, IconExternal, IconGraph, IconPause, IconPlay, IconRefresh } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTab,
+    LemonTabs,
+    LemonTag,
+    LemonTextArea,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
@@ -10,6 +21,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import {
     AutoresearchPipelineLogicProps,
@@ -19,10 +32,12 @@ import {
 } from './autoresearchPipelineLogic'
 import {
     AutoresearchModelApi,
+    AutoresearchPipelineApi,
     AutoresearchPipelineStatusEnumApi,
     AutoresearchRunApi,
     AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
+    CreateSuggestionPriorityEnumApi,
     RoleEnumApi,
 } from './generated/api.schemas'
 
@@ -35,10 +50,10 @@ export const scene: SceneExport = {
 function StatusBadge({ status }: { status: AutoresearchPipelineStatusEnumApi }): JSX.Element {
     const typeMap: Record<
         AutoresearchPipelineStatusEnumApi,
-        'default' | 'success' | 'warning' | 'purple' | 'completion'
+        'default' | 'success' | 'warning' | 'highlight' | 'completion'
     > = {
         draft: 'default',
-        bootstrapping: 'purple',
+        bootstrapping: 'highlight',
         running: 'success',
         converged: 'completion',
         paused: 'warning',
@@ -55,6 +70,28 @@ function StatusBadge({ status }: { status: AutoresearchPipelineStatusEnumApi }):
     return <LemonTag type={typeMap[status]}>{labelMap[status]}</LemonTag>
 }
 
+/** Shared empty-state block: an icon, a headline, supporting copy, and an optional CTA. */
+function EmptyTab({
+    icon,
+    title,
+    children,
+    cta,
+}: {
+    icon: JSX.Element
+    title: string
+    children: React.ReactNode
+    cta?: JSX.Element
+}): JSX.Element {
+    return (
+        <div className="flex flex-col items-center text-center gap-2 border border-dashed rounded p-8 text-muted">
+            <span className="text-2xl text-secondary">{icon}</span>
+            <div className="text-sm font-semibold text-default">{title}</div>
+            <div className="text-sm max-w-prose">{children}</div>
+            {cta}
+        </div>
+    )
+}
+
 function OverviewTab(): JSX.Element {
     const { pipeline, models } = useValues(autoresearchPipelineLogic)
     if (!pipeline) {
@@ -63,6 +100,10 @@ function OverviewTab(): JSX.Element {
     const champion = models.find((m) => m.role === RoleEnumApi.Champion)
     return (
         <div className="space-y-4">
+            <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-muted">Status</span>
+                <StatusBadge status={pipeline.status} />
+            </div>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <MetricCard label="Target event" value={pipeline.target_event} />
                 <MetricCard label="Prediction horizon" value={`${pipeline.horizon_days ?? '—'}d`} />
@@ -195,7 +236,7 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
                             : run.status === 'failed'
                               ? 'danger'
                               : run.status === 'running'
-                                ? 'purple'
+                                ? 'highlight'
                                 : 'default'
                     }
                 >
@@ -203,26 +244,41 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
                 </LemonTag>
             </div>
             {isExpanded && (
-                <div className="border-t p-3 space-y-2">
-                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">Artifact bundle</div>
-                    {paths === undefined && artifactsByRunLoading ? (
-                        <Spinner />
-                    ) : paths && paths.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                            {paths.map((path) => (
-                                <LemonButton
-                                    key={path}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => viewArtifact({ runId: run.id, path })}
-                                >
-                                    {path}
-                                </LemonButton>
-                            ))}
+                <div className="border-t p-3 space-y-3">
+                    {run.summary && (
+                        <div className="space-y-1">
+                            <div className="text-xs font-semibold text-muted uppercase tracking-wide">
+                                What the agent learned
+                            </div>
+                            {run.summary.distillation && (
+                                <div className="text-sm text-default italic">"{run.summary.distillation}"</div>
+                            )}
+                            {run.summary.recommended_next && (
+                                <div className="text-xs text-muted">Next: {run.summary.recommended_next}</div>
+                            )}
                         </div>
-                    ) : (
-                        <div className="text-muted text-sm">No artifacts uploaded for this run.</div>
                     )}
+                    <div className="space-y-2">
+                        <div className="text-xs font-semibold text-muted uppercase tracking-wide">Artifact bundle</div>
+                        {paths === undefined && artifactsByRunLoading ? (
+                            <Spinner />
+                        ) : paths && paths.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                                {paths.map((path) => (
+                                    <LemonButton
+                                        key={path}
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => viewArtifact({ runId: run.id, path })}
+                                    >
+                                        {path}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-muted text-sm">No artifacts uploaded for this run.</div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
@@ -248,7 +304,10 @@ function TrainingTab(): JSX.Element {
             {trainingRunsLoading ? (
                 <Spinner />
             ) : trainingRuns.length === 0 ? (
-                <div className="text-muted text-sm">No training runs yet.</div>
+                <EmptyTab icon={<IconRefresh />} title="No training runs yet">
+                    Run training to kick off the autoresearch loop. The agent iterates on feature recipes, keeping only
+                    the changes that improve holdout AUC.
+                </EmptyTab>
             ) : (
                 <div className="space-y-2">
                     {trainingRuns.map((run: AutoresearchTrainingRunApi) => (
@@ -267,7 +326,12 @@ function ModelsTab(): JSX.Element {
         return <Spinner />
     }
     if (models.length === 0) {
-        return <div className="text-muted text-sm">No models yet. Start a training run to create the first model.</div>
+        return (
+            <EmptyTab icon={<IconGraph />} title="No models yet">
+                Start a training run to create the first champion model. Champions and challengers you accumulate appear
+                here with their offline and realized scores.
+            </EmptyTab>
+        )
     }
     return (
         <div className="space-y-3">
@@ -279,7 +343,7 @@ function ModelsTab(): JSX.Element {
                                 model.role === RoleEnumApi.Champion
                                     ? 'success'
                                     : model.role === RoleEnumApi.Challenger
-                                      ? 'purple'
+                                      ? 'highlight'
                                       : 'default'
                             }
                         >
@@ -311,8 +375,156 @@ function ModelsTab(): JSX.Element {
     )
 }
 
+function PredictionsTab(): JSX.Element {
+    const { pipeline } = useValues(autoresearchPipelineLogic)
+    if (!pipeline) {
+        return <LemonSkeleton className="h-40" />
+    }
+
+    if (!pipeline.last_scored_at) {
+        return (
+            <EmptyTab icon={<IconGraph />} title="No predictions yet" cta={<ScoreNowButton />}>
+                Once the champion scores your inference population, each user's predicted probability lands on the{' '}
+                <code>{pipeline.output_person_property}</code> person property and an{' '}
+                <code>autoresearch_prediction</code> event is emitted. Score now to populate this tab.
+            </EmptyTab>
+        )
+    }
+
+    const values = { pipeline_id: pipeline.id }
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-muted">
+                    Each scoring run writes the champion's predicted probability to the{' '}
+                    <code>{pipeline.output_person_property}</code> person property and emits an{' '}
+                    <code>autoresearch_prediction</code> event. These views read straight from those events.
+                </p>
+                <ScoreNowButton />
+            </div>
+
+            <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Probability distribution (latest scoring run)</h4>
+                <Query
+                    readOnly
+                    query={{
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                                WITH latest AS (
+                                    SELECT max(toDate(timestamp)) AS d
+                                    FROM events
+                                    WHERE event = 'autoresearch_prediction'
+                                      AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                )
+                                SELECT
+                                    concat(
+                                        toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10),
+                                        '–',
+                                        toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10 + 0.1)
+                                    ) AS probability_bucket,
+                                    count() AS users,
+                                    repeat('▇', toInt(round(40 * count() / max(count()) OVER ()))) AS distribution
+                                FROM events
+                                WHERE event = 'autoresearch_prediction'
+                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                  AND toDate(timestamp) = (SELECT d FROM latest)
+                                GROUP BY probability_bucket
+                                ORDER BY probability_bucket
+                            `,
+                            values,
+                        },
+                    }}
+                />
+            </div>
+
+            <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Highest-probability users</h4>
+                <Query
+                    readOnly
+                    query={{
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                                SELECT
+                                    person_id,
+                                    round(argMax(toFloat(properties.$autoresearch_p_y), timestamp), 4) AS probability,
+                                    max(timestamp) AS last_scored
+                                FROM events
+                                WHERE event = 'autoresearch_prediction'
+                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                GROUP BY person_id
+                                ORDER BY probability DESC
+                                LIMIT 50
+                            `,
+                            values,
+                        },
+                    }}
+                />
+            </div>
+
+            <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Daily scoring volume</h4>
+                <Query
+                    readOnly
+                    query={{
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                                SELECT
+                                    toDate(timestamp) AS day,
+                                    count() AS users_scored,
+                                    round(avg(toFloat(properties.$autoresearch_p_y)), 4) AS avg_probability
+                                FROM events
+                                WHERE event = 'autoresearch_prediction'
+                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                                GROUP BY day
+                                ORDER BY day DESC
+                                LIMIT 60
+                            `,
+                            values,
+                        },
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
+
 function fmt(value: number | null, decimals = 3): string {
     return value != null ? value.toFixed(decimals) : '—'
+}
+
+/** Tiny inline sparkline of champion realized AUC over prediction dates. No chart deps. */
+function AucSparkline({ points }: { points: { date: string; auc: number }[] }): JSX.Element | null {
+    if (points.length < 2) {
+        return null
+    }
+    const width = 280
+    const height = 56
+    const pad = 4
+    const aucs = points.map((p) => p.auc)
+    const min = Math.min(...aucs, 0.5)
+    const max = Math.max(...aucs, 1)
+    const span = max - min || 1
+    const stepX = (width - pad * 2) / (points.length - 1)
+    const coords = points.map((p, i) => {
+        const x = pad + i * stepX
+        const y = pad + (1 - (p.auc - min) / span) * (height - pad * 2)
+        return [x, y] as const
+    })
+    const line = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
+    const last = coords[coords.length - 1]
+    return (
+        <svg width={width} height={height} className="overflow-visible">
+            <polyline points={line} fill="none" stroke="var(--success)" strokeWidth={2} />
+            <circle cx={last[0]} cy={last[1]} r={3} fill="var(--success)" />
+        </svg>
+    )
 }
 
 function OnlinePerformanceTab(): JSX.Element {
@@ -324,19 +536,20 @@ function OnlinePerformanceTab(): JSX.Element {
 
     if (onlinePerformanceRows.length === 0) {
         return (
-            <div className="space-y-2">
-                <div className="text-muted text-sm">
-                    Realized performance metrics appear here after prediction horizons elapse. For each prediction date,
-                    PostHog joins your <code>autoresearch_prediction</code> events to actual target outcomes and
-                    computes AUC, Brier score, and lift.
-                </div>
-                <div className="text-muted text-sm">
-                    To trigger evaluation manually, use the <code>autoresearch-validate-online</code> MCP tool or run
-                    the <code>autoresearch_validate_online</code> management command.
-                </div>
-            </div>
+            <EmptyTab icon={<IconGraph />} title="No realized performance yet">
+                Realized metrics appear once prediction horizons elapse. For each prediction date, PostHog joins your{' '}
+                <code>autoresearch_prediction</code> events to actual outcomes and computes AUC, Brier score, and lift.
+                Trigger evaluation with the <code>autoresearch-validate-online</code> MCP tool or the{' '}
+                <code>autoresearch_validate_online</code> management command.
+            </EmptyTab>
         )
     }
+
+    // Champion AUC over time, oldest → newest, for the sparkline.
+    const championTrend = onlinePerformanceRows
+        .filter((r) => r.model_role === 'champion' && r.realized_auc != null)
+        .map((r) => ({ date: r.prediction_date, auc: r.realized_auc as number }))
+        .sort((a, b) => a.date.localeCompare(b.date))
 
     return (
         <div className="space-y-4">
@@ -344,6 +557,18 @@ function OnlinePerformanceTab(): JSX.Element {
                 Realized performance measured after each prediction horizon elapses. AUC and lift here reflect actual
                 user outcomes, not just holdout estimates.
             </p>
+            {championTrend.length >= 2 && (
+                <div className="border rounded p-3 space-y-1 inline-block">
+                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">
+                        Champion realized AUC
+                    </div>
+                    <AucSparkline points={championTrend} />
+                    <div className="text-xs text-muted">
+                        {championTrend[0].date} → {championTrend[championTrend.length - 1].date} · latest{' '}
+                        {fmt(championTrend[championTrend.length - 1].auc)}
+                    </div>
+                </div>
+            )}
             <table className="w-full text-sm border-collapse">
                 <thead>
                     <tr className="border-b text-left">
@@ -378,7 +603,7 @@ function OnlinePerformanceTab(): JSX.Element {
                                         row.model_role === 'champion'
                                             ? 'success'
                                             : row.model_role === 'challenger'
-                                              ? 'purple'
+                                              ? 'highlight'
                                               : 'default'
                                     }
                                 >
@@ -408,10 +633,18 @@ function RunsTab(): JSX.Element {
         return <Spinner />
     }
     if (runs.length === 0) {
-        return <div className="text-muted text-sm">No inference or validation runs yet.</div>
+        return (
+            <EmptyTab icon={<IconRefresh />} title="No inference or validation runs yet" cta={<ScoreNowButton />}>
+                Scoring and validation runs land here. Score now to create the first inference run, or wait for the
+                daily scheduled workflow.
+            </EmptyTab>
+        )
     }
     return (
         <div className="space-y-2">
+            <div className="flex justify-end">
+                <ScoreNowButton />
+            </div>
             {runs.map((run: AutoresearchRunApi) => (
                 <div key={run.id} className="border rounded p-3 flex justify-between items-center">
                     <div className="space-y-0.5">
@@ -431,7 +664,7 @@ function RunsTab(): JSX.Element {
                                 : run.status === 'failed'
                                   ? 'danger'
                                   : run.status === 'running'
-                                    ? 'purple'
+                                    ? 'highlight'
                                     : 'default'
                         }
                     >
@@ -443,45 +676,198 @@ function RunsTab(): JSX.Element {
     )
 }
 
+function SuggestionForm(): JSX.Element {
+    const { suggestionDraft, suggestionPriority, suggestionSubmitResultLoading } = useValues(autoresearchPipelineLogic)
+    const { setSuggestionDraft, setSuggestionPriority, submitSuggestion } = useActions(autoresearchPipelineLogic)
+    return (
+        <div className="border rounded p-3 space-y-2">
+            <div className="text-sm font-semibold">Steer the agent</div>
+            <LemonTextArea
+                value={suggestionDraft}
+                onChange={setSuggestionDraft}
+                placeholder="e.g. Try a momentum feature: downloads in the last 7 days over the last 30 days."
+                minRows={2}
+                maxRows={6}
+                data-attr="autoresearch-suggestion-input"
+            />
+            <div className="flex items-center gap-2">
+                <LemonSelect
+                    size="small"
+                    value={suggestionPriority}
+                    onChange={(v) => v && setSuggestionPriority(v)}
+                    options={[
+                        { value: CreateSuggestionPriorityEnumApi.Consider, label: 'Consider (advisory)' },
+                        {
+                            value: CreateSuggestionPriorityEnumApi.TryNext,
+                            label: 'Try next (before autonomous iterations)',
+                        },
+                    ]}
+                />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => submitSuggestion()}
+                    loading={suggestionSubmitResultLoading}
+                    disabledReason={!suggestionDraft.trim() ? 'Write a suggestion first' : undefined}
+                >
+                    Send suggestion
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function SuggestionsTab(): JSX.Element {
     const { suggestions, suggestionsLoading } = useValues(autoresearchPipelineLogic)
-    if (suggestionsLoading) {
-        return <Spinner />
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted">
+                Inject a free-text hypothesis into the training loop. The agent reads queued suggestions at the start of
+                each iteration batch and decides whether to act on, apply, or dismiss each one.
+            </p>
+            <SuggestionForm />
+            {suggestionsLoading ? (
+                <Spinner />
+            ) : suggestions.length === 0 ? (
+                <div className="text-muted text-sm">No suggestions yet — send one above to steer the next run.</div>
+            ) : (
+                <div className="space-y-2">
+                    {suggestions.map((s: AutoresearchSuggestionApi) => (
+                        <div key={s.id} className="border rounded p-3 space-y-1">
+                            <div className="flex items-center gap-2">
+                                <LemonTag
+                                    type={
+                                        s.status === 'acted_on'
+                                            ? 'success'
+                                            : s.status === 'dismissed'
+                                              ? 'danger'
+                                              : s.status === 'picked_up'
+                                                ? 'highlight'
+                                                : 'default'
+                                    }
+                                >
+                                    {s.status}
+                                </LemonTag>
+                                <span className="text-xs text-muted">{s.priority}</span>
+                                <span className="text-xs text-muted">{dayjs(s.created_at).fromNow()}</span>
+                            </div>
+                            <div className="text-sm">{s.prompt}</div>
+                            {s.agent_response && (
+                                <div className="text-sm text-muted italic">Agent: {s.agent_response}</div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function SettingRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex justify-between items-start gap-4 py-2 border-b last:border-0">
+            <div className="text-sm font-semibold text-muted">{label}</div>
+            <div className="text-sm text-right">{children}</div>
+        </div>
+    )
+}
+
+function populationSummary(population: AutoresearchPipelineApi['training_population']): string {
+    if (!population || typeof population !== 'object' || Object.keys(population).length === 0) {
+        return 'All users'
     }
-    if (suggestions.length === 0) {
-        return (
-            <div className="text-muted text-sm">
-                No suggestions yet. Use the <code>autoresearch-suggest</code> MCP tool to inject a hypothesis into the
-                training loop.
-            </div>
-        )
+    return JSON.stringify(population)
+}
+
+function SettingsTab(): JSX.Element {
+    const { pipeline } = useValues(autoresearchPipelineLogic)
+    if (!pipeline) {
+        return <LemonSkeleton className="h-40" />
     }
     return (
-        <div className="space-y-2">
-            {suggestions.map((s: AutoresearchSuggestionApi) => (
-                <div key={s.id} className="border rounded p-3 space-y-1">
-                    <div className="flex items-center gap-2">
-                        <LemonTag
-                            type={
-                                s.status === 'acted_on'
-                                    ? 'success'
-                                    : s.status === 'dismissed'
-                                      ? 'danger'
-                                      : s.status === 'picked_up'
-                                        ? 'purple'
-                                        : 'default'
-                            }
-                        >
-                            {s.status}
-                        </LemonTag>
-                        <span className="text-xs text-muted">{s.priority}</span>
-                        <span className="text-xs text-muted">{dayjs(s.created_at).fromNow()}</span>
-                    </div>
-                    <div className="text-sm">{s.prompt}</div>
-                    {s.agent_response && <div className="text-xs text-muted italic">Agent: {s.agent_response}</div>}
-                </div>
-            ))}
+        <div className="space-y-4">
+            <div className="border rounded p-4">
+                <SettingRow label="Target event">
+                    <code>{pipeline.target_event}</code>
+                </SettingRow>
+                <SettingRow label="Prediction horizon">{pipeline.horizon_days ?? '—'} days</SettingRow>
+                <SettingRow label="Training lookback">{pipeline.training_lookback_days ?? '—'} days</SettingRow>
+                <SettingRow label="Output person property">
+                    <code>{pipeline.output_person_property ?? '—'}</code>
+                </SettingRow>
+                <SettingRow label="Iteration budget">
+                    {pipeline.iteration_budget_remaining} / {pipeline.iteration_budget ?? '—'} remaining
+                </SettingRow>
+                <SettingRow label="Training population">
+                    <span className="font-mono text-xs">{populationSummary(pipeline.training_population)}</span>
+                </SettingRow>
+                <SettingRow label="Inference population">
+                    <span className="font-mono text-xs">{populationSummary(pipeline.inference_population)}</span>
+                </SettingRow>
+                <SettingRow label="Created">
+                    {dayjs(pipeline.created_at).format('MMM D, YYYY')} by {pipeline.created_by?.first_name ?? 'unknown'}
+                </SettingRow>
+            </div>
+            <p className="text-sm text-muted">
+                Editing the target, populations, schedule, and budget from the UI is coming soon. For now, adjust these
+                with the <code>autoresearch</code> API or MCP tools, or recreate the pipeline.
+            </p>
         </div>
+    )
+}
+
+/** Score-now action, gated on a champion existing. Reused in the title bar and empty states. */
+function ScoreNowButton({ size = 'small' }: { size?: 'small' | 'medium' }): JSX.Element | null {
+    const { pipeline, models, scoreResultLoading } = useValues(autoresearchPipelineLogic)
+    const { scoreNow } = useActions(autoresearchPipelineLogic)
+    const hasChampion = models.some((m) => m.role === RoleEnumApi.Champion)
+    if (!pipeline || pipeline.status === 'archived') {
+        return null
+    }
+    return (
+        <LemonButton
+            type="secondary"
+            size={size}
+            icon={<IconRefresh />}
+            onClick={() => scoreNow()}
+            loading={scoreResultLoading}
+            disabledReason={hasChampion ? undefined : 'Train a champion model first'}
+        >
+            Score now
+        </LemonButton>
+    )
+}
+
+function PipelineActions(): JSX.Element | null {
+    const { pipeline, pipelineLoading } = useValues(autoresearchPipelineLogic)
+    const { pausePipeline, resumePipeline } = useActions(autoresearchPipelineLogic)
+    if (!pipeline) {
+        return null
+    }
+    return (
+        <>
+            {pipeline.status === 'paused' ? (
+                <LemonButton
+                    type="secondary"
+                    icon={<IconPlay />}
+                    size="small"
+                    onClick={() => resumePipeline()}
+                    loading={pipelineLoading}
+                >
+                    Resume
+                </LemonButton>
+            ) : pipeline.status === 'running' || pipeline.status === 'bootstrapping' ? (
+                <LemonButton
+                    type="secondary"
+                    icon={<IconPause />}
+                    size="small"
+                    onClick={() => pausePipeline()}
+                    loading={pipelineLoading}
+                >
+                    Pause
+                </LemonButton>
+            ) : null}
+        </>
     )
 }
 
@@ -493,32 +879,11 @@ export function AutoresearchPipelineScene(): JSX.Element {
         { key: 'overview', label: 'Overview', content: <OverviewTab /> },
         { key: 'training', label: 'Training', content: <TrainingTab /> },
         { key: 'models', label: 'Models', content: <ModelsTab /> },
-        {
-            key: 'predictions',
-            label: 'Predictions',
-            content: (
-                <div className="text-muted text-sm">
-                    Prediction scores are emitted as <code>autoresearch_prediction</code> events. Query them in{' '}
-                    <Link to="/insights">Insights</Link> using the event name.
-                </div>
-            ),
-        },
+        { key: 'predictions', label: 'Predictions', content: <PredictionsTab /> },
         { key: 'online_performance', label: 'Online performance', content: <OnlinePerformanceTab /> },
         { key: 'runs', label: 'Runs', content: <RunsTab /> },
-        {
-            key: 'settings',
-            label: 'Settings',
-            content: (
-                <div className="text-muted text-sm space-y-2">
-                    <div>Pipeline settings (target, populations, schedule, budget) coming soon.</div>
-                    <div>
-                        Use <code>autoresearch-suggest</code> MCP tool or the Suggestions panel (below) to steer the
-                        agent.
-                    </div>
-                    <SuggestionsTab />
-                </div>
-            ),
-        },
+        { key: 'suggestions', label: 'Suggestions', content: <SuggestionsTab /> },
+        { key: 'settings', label: 'Settings', content: <SettingsTab /> },
     ]
 
     const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Pipeline')
@@ -530,32 +895,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
                 name={heading}
                 description={subheading}
                 resourceType={{ type: 'experiment' }}
-                actions={
-                    pipeline ? (
-                        <>
-                            <StatusBadge status={pipeline.status} />
-                            {pipeline.status === 'paused' ? (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconPlay />}
-                                    size="small"
-                                    disabledReason="Resume via API or MCP"
-                                >
-                                    Resume
-                                </LemonButton>
-                            ) : pipeline.status === 'running' || pipeline.status === 'bootstrapping' ? (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconPause />}
-                                    size="small"
-                                    disabledReason="Pause via API or MCP"
-                                >
-                                    Pause
-                                </LemonButton>
-                            ) : null}
-                        </>
-                    ) : null
-                }
+                actions={<PipelineActions />}
             />
 
             {pipelineLoading && !pipeline ? (

@@ -27,10 +27,10 @@ export const scene: SceneExport = {
 
 const STATUS_TAG_TYPE: Record<
     AutoresearchPipelineStatusEnumApi,
-    'default' | 'success' | 'warning' | 'danger' | 'purple' | 'completion'
+    'default' | 'success' | 'warning' | 'danger' | 'highlight' | 'completion'
 > = {
     draft: 'default',
-    bootstrapping: 'purple',
+    bootstrapping: 'highlight',
     running: 'success',
     converged: 'completion',
     paused: 'warning',

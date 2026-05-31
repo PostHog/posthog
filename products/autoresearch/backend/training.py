@@ -212,7 +212,11 @@ def build_agent_description(
            At training cutoff_ts is per-user T0; at inference cutoff_ts = now(). Same SQL, two tables.
         2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` — strict `<`. The leakage guard.
         3. Window the lookback: `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
-        4. Output `a.person_id AS distinct_id` as the first column.
+        4. Output `a.person_id AS distinct_id` as the FIRST column, always. Then list the feature
+           columns after it, ordered by how predictive/important you expect them to be (strongest
+           signal first). These files are read by non-technical users — a consistent
+           `distinct_id, <most-important feature>, …, <least-important feature>` left-to-right order
+           makes the model legible at a glance. Give every feature a clear snake_case name.
         5. `GROUP BY a.person_id, a.cutoff_ts` — ClickHouse needs cutoff_ts in the GROUP BY to
            select it (no Postgres-style functional-dependency inference). Still one row per person.
         6. **Never** call `now()` — use `a.cutoff_ts`. The framework rejects `now()` outright.

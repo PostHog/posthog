@@ -2,25 +2,35 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
 
 import type { autoresearchPipelineLogicType } from './autoresearchPipelineLogicType'
 import {
     autoresearchModelsList,
+    autoresearchPauseCreate,
+    autoresearchResumeCreate,
     autoresearchRetrieve,
     autoresearchRunsList,
+    autoresearchScoreCreate,
+    autoresearchSuggestionsCreate,
     autoresearchSuggestionsList,
     autoresearchTrainingRunsArtifactsGetCreate,
     autoresearchTrainingRunsArtifactsRetrieve,
     autoresearchTrainingRunsList,
     autoresearchTrainCreate,
 } from './generated/api'
-import type {
-    AutoresearchModelApi,
-    AutoresearchPipelineApi,
-    AutoresearchRunApi,
-    AutoresearchSuggestionApi,
-    AutoresearchTrainingRunApi,
+import {
+    type AutoresearchModelApi,
+    type AutoresearchPipelineApi,
+    type AutoresearchRunApi,
+    type AutoresearchSuggestionApi,
+    type AutoresearchTrainingRunApi,
+    CreateSuggestionPriorityEnumApi,
 } from './generated/api.schemas'
 
 export interface AutoresearchPipelineLogicProps {
@@ -34,6 +44,7 @@ export type AutoresearchPipelineTab =
     | 'predictions'
     | 'online_performance'
     | 'runs'
+    | 'suggestions'
     | 'settings'
 
 const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
@@ -43,6 +54,7 @@ const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
     'predictions',
     'online_performance',
     'runs',
+    'suggestions',
     'settings',
 ]
 
@@ -120,6 +132,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         toggleRunArtifacts: (runId: string) => ({ runId }),
+        setSuggestionDraft: (draft: string) => ({ draft }),
+        setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => ({ priority }),
     }),
     reducers({
         activeTab: [
@@ -134,6 +148,19 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 toggleRunArtifacts: (current, { runId }) => (current === runId ? null : runId),
             },
         ],
+        suggestionDraft: [
+            '',
+            {
+                setSuggestionDraft: (_, { draft }) => draft,
+                submitSuggestionSuccess: () => '',
+            },
+        ],
+        suggestionPriority: [
+            CreateSuggestionPriorityEnumApi.Consider as CreateSuggestionPriorityEnumApi,
+            {
+                setSuggestionPriority: (_, { priority }) => priority,
+            },
+        ],
     }),
     loaders(({ values, props }) => ({
         pipeline: [
@@ -144,6 +171,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                         return null
                     }
                     return autoresearchRetrieve(String(values.currentTeamId), props.id)
+                },
+                pausePipeline: async () => {
+                    if (!values.currentTeamId || !values.pipeline) {
+                        return values.pipeline
+                    }
+                    // The endpoint ignores the body (it only flips status), but the generated
+                    // client types a pipeline body — pass the current one to satisfy it.
+                    return autoresearchPauseCreate(String(values.currentTeamId), props.id, values.pipeline)
+                },
+                resumePipeline: async () => {
+                    if (!values.currentTeamId || !values.pipeline) {
+                        return values.pipeline
+                    }
+                    return autoresearchResumeCreate(String(values.currentTeamId), props.id, values.pipeline)
                 },
             },
         ],
@@ -246,8 +287,47 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 closeArtifact: () => null,
             },
         ],
+        scoreResult: [
+            null as AutoresearchRunApi | null,
+            {
+                scoreNow: async () => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    return autoresearchScoreCreate(String(values.currentTeamId), props.id)
+                },
+            },
+        ],
+        suggestionSubmitResult: [
+            null as AutoresearchSuggestionApi | null,
+            {
+                submitSuggestion: async () => {
+                    if (!values.currentTeamId || !values.suggestionDraft.trim()) {
+                        return null
+                    }
+                    return autoresearchSuggestionsCreate(String(values.currentTeamId), props.id, {
+                        prompt: values.suggestionDraft.trim(),
+                        priority: values.suggestionPriority,
+                    })
+                },
+            },
+        ],
     })),
     selectors({
+        breadcrumbs: [
+            (s) => [s.pipeline],
+            (pipeline): Breadcrumb[] => [
+                {
+                    key: Scene.Autoresearch,
+                    name: 'Autoresearch',
+                    path: urls.autoresearch(),
+                },
+                {
+                    key: [Scene.AutoresearchPipeline, pipeline?.id ?? 'unknown'],
+                    name: pipeline?.name ?? 'Pipeline',
+                },
+            ],
+        ],
         validationRuns: [
             (s) => [s.runs],
             (runs): AutoresearchRunApi[] => runs.filter((r) => r.run_type === 'validation' && r.status === 'completed'),
@@ -293,7 +373,25 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         startTrainingSuccess: () => {
             actions.loadTrainingRuns()
             actions.loadPipeline()
+            lemonToast.success('Training run started')
         },
+        startTrainingFailure: () => lemonToast.error('Could not start training run'),
+        pausePipelineSuccess: () => lemonToast.success('Pipeline paused — daily scoring is on hold'),
+        pausePipelineFailure: () => lemonToast.error('Could not pause the pipeline'),
+        resumePipelineSuccess: () => lemonToast.success('Pipeline resumed'),
+        resumePipelineFailure: () => lemonToast.error('Could not resume the pipeline'),
+        scoreNowSuccess: ({ scoreResult }) => {
+            actions.loadRuns()
+            actions.loadPipeline()
+            const scored = scoreResult?.rows_scored
+            lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
+        },
+        scoreNowFailure: () => lemonToast.error('Could not score users — train a champion model first'),
+        submitSuggestionSuccess: () => {
+            actions.loadSuggestions()
+            lemonToast.success('Suggestion sent — the agent will pick it up on its next run')
+        },
+        submitSuggestionFailure: () => lemonToast.error('Could not submit the suggestion'),
         toggleRunArtifacts: ({ runId }) => {
             // Lazy-load a run's bundle the first time it's expanded.
             if (values.expandedRunId === runId && !values.artifactsByRun[runId]) {
