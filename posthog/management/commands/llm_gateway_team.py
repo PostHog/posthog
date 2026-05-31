@@ -7,6 +7,7 @@ Usage:
     python manage.py llm_gateway_team unenable 42
     python manage.py llm_gateway_team revoke 42
     python manage.py llm_gateway_team unrevoke 42
+    python manage.py llm_gateway_team refresh 42
     python manage.py llm_gateway_team status 42
 
 Both fields live on Team and project into the dedicated llm_gateway_policy
@@ -20,12 +21,14 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.models.team.team import Team
+from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
 
 _VERBS = (
     ("enable", "set llm_gateway_enabled_at to now (idempotent: no-op if already set)"),
     ("unenable", "clear llm_gateway_enabled_at (no-op if already null)"),
     ("revoke", "set llm_gateway_revoked_at to now (idempotent: no-op if already set)"),
     ("unrevoke", "clear llm_gateway_revoked_at (no-op if already null)"),
+    ("refresh", "rewrite the team's policy cache entry from current DB state (no field change)"),
     ("status", "print the team's current admission state"),
 )
 
@@ -45,6 +48,11 @@ class Command(BaseCommand):
         if action == "status":
             _print_status(self.stdout, team)
             return
+        if action == "refresh":
+            update_team_llm_gateway_policy_cache(team)
+            self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): refresh ok"))
+            self.stdout.write(f"  {_snapshot(team)}")
+            return
 
         before = _snapshot(team)
         changed = _apply(team, action)
@@ -60,9 +68,8 @@ class Command(BaseCommand):
 
 
 def _resolve_team(arg: str) -> Team:
-    # Try integer first so api_tokens that happen to be all-digit don't get
-    # mis-routed; otherwise treat as an api_token regardless of prefix
-    # (production tokens are phc_-prefixed but BaseTest fixtures aren't).
+    # Bare integers resolve as id; anything else as api_token (no phc_ prefix
+    # gate, since BaseTest fixtures use non-prefixed tokens).
     try:
         team_id = int(arg)
     except ValueError:

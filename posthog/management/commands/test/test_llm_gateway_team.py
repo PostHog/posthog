@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from io import StringIO
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -100,3 +101,18 @@ class TestLLMGatewayTeamCommand(BaseTest):
     def test_resolve_failure_raises(self, _name: str, arg: str) -> None:
         with self.assertRaises(CommandError):
             self._run("enable", arg)
+
+    def test_refresh_rewrites_cache_without_field_change(self) -> None:
+        # refresh exists so an operator can re-warm a drifted cache without
+        # toggling enabled_at/revoked_at (which enable/revoke would no-op on).
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+        before_enabled = self.team.llm_gateway_enabled_at
+        before_revoked = self.team.llm_gateway_revoked_at
+        with patch("posthog.management.commands.llm_gateway_team.update_team_llm_gateway_policy_cache") as mock_update:
+            out = self._run("refresh", str(self.team.id))
+        self.team.refresh_from_db()
+        mock_update.assert_called_once_with(self.team)
+        self.assertEqual(self.team.llm_gateway_enabled_at, before_enabled)
+        self.assertEqual(self.team.llm_gateway_revoked_at, before_revoked)
+        self.assertIn("refresh ok", out)
