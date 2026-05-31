@@ -93,10 +93,11 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_contains_user_hogql, tag_queries
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.contains_user_hogql import contains_user_hogql
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
@@ -1495,6 +1496,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             tag_queries(execution_mode=execution_mode.value)
             tag_queries(cache_key=cache_key)
+
+            # Set up front from the query structure so the flag is reliable even when
+            # execution fails before reaching a parse site. Parse-site tagging remains a
+            # backstop. Only set the positive case — leave the tag absent otherwise so
+            # platform-only queries stay excluded from JSON.
+            if contains_user_hogql(self.query):
+                tag_contains_user_hogql()
 
             slo_properties: dict[str, JsonValue] = {
                 "query_type": query_type,
