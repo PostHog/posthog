@@ -1171,8 +1171,18 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("narrow_to_tightened_ceiling", ["experiment:read"], "openid experiment:read insight:read", {"openid", "experiment:read"}),
-            ("preserve_in_ceiling", ["experiment:read", "insight:read"], "experiment:read insight:read", {"experiment:read", "insight:read"}),
+            (
+                "narrow_to_tightened_ceiling",
+                ["experiment:read"],
+                "openid experiment:read insight:read",
+                {"openid", "experiment:read"},
+            ),
+            (
+                "preserve_in_ceiling",
+                ["experiment:read", "insight:read"],
+                "experiment:read insight:read",
+                {"experiment:read", "insight:read"},
+            ),
             ("empty_ceiling_is_noop", [], "experiment:read insight:read", {"experiment:read", "insight:read"}),
             ("zero_overlap_not_emptied", ["experiment:read"], "insight:read", {"insight:read"}),
         ]
