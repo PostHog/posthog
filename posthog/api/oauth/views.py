@@ -336,6 +336,47 @@ class OAuthValidator(OAuth2Validator):
             return "*" not in to_check and to_check.issubset(effective)
         return to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
 
+    def get_original_scopes(self, refresh_token, request, *args, **kwargs):
+        """Cap refreshed scopes at the application's current ceiling.
+
+        DOT's refresh grant copies the prior access token's scopes verbatim and never
+        re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
+        keep refreshing into the old, broader set. Intersecting with `application.scopes`
+        means a narrowed app drops the removed scopes on the next refresh.
+
+        Always-allowed scopes (OIDC, introspection) pass through, mirroring
+        `validate_scopes`. Two cases are deliberately left untouched:
+        - a `*` token: narrowing it would strip all resource access on refresh, so its
+          retirement is handled separately in #60330 (coupled to #60342).
+        - a token with no overlap with the ceiling: intersecting to `{}` would yield an
+          empty-scope token that `APIScopePermission` rejects, breaking the client.
+
+        An empty `application.scopes` (no ceiling) is a no-op.
+        """
+        original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
+        # DOT's base returns the stored scope as a space-delimited string; oauthlib
+        # `scope_to_list`s whatever we return, so a list back is fine.
+        original_list = original.split() if isinstance(original, str) else list(original)
+        # `request.client` is not always populated when oauthlib calls this during the
+        # refresh grant, so fall back to resolving the application from the token row.
+        application = getattr(request, "client", None)
+        if application is None:
+            rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
+            application = rt.application if rt else None
+
+        app_scopes = set(getattr(application, "scopes", None) or [])
+        if not app_scopes:
+            return original_list
+
+        original_set = set(original_list)
+        if "*" in original_set:
+            return original_list
+
+        narrowed = (original_set & app_scopes) | (original_set & self._ALWAYS_ALLOWED_SCOPES)
+        if not narrowed:
+            return original_list
+        return sorted(narrowed)
+
     def rotate_refresh_token(self, request) -> bool:
         """
         Don't rotate refresh tokens for dynamically registered (DCR/CIMD) clients.

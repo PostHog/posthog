@@ -1135,6 +1135,65 @@ class TestOAuthAPI(APIBaseTest):
 
             refresh_token = refresh_response.json()["refresh_token"]
 
+    def _create_refreshable_token_pair(self, scope: str) -> OAuthRefreshToken:
+        suffix = scope.replace(" ", "_").replace("*", "star").replace(":", "_")
+        access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"at_{suffix}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        return OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"rt_{suffix}",
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+
+    def _refresh_and_get_scopes(self, refresh_token: OAuthRefreshToken) -> set[str]:
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_access_token = OAuthAccessToken.objects.get(token=response.json()["access_token"])
+        return set((new_access_token.scope or "").split())
+
+    @parameterized.expand(
+        [
+            ("narrow_to_tightened_ceiling", ["experiment:read"], "openid experiment:read insight:read", {"openid", "experiment:read"}),
+            ("preserve_in_ceiling", ["experiment:read", "insight:read"], "experiment:read insight:read", {"experiment:read", "insight:read"}),
+            ("empty_ceiling_is_noop", [], "experiment:read insight:read", {"experiment:read", "insight:read"}),
+            ("zero_overlap_not_emptied", ["experiment:read"], "insight:read", {"insight:read"}),
+        ]
+    )
+    def test_refresh_caps_scopes_at_app_ceiling(self, _name, ceiling, token_scope, expected):
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    def test_refresh_leaves_wildcard_token_untouched(self):
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("*")
+
+        # Wildcard narrowing is deferred to #60342; the token must keep working.
+        self.assertIn("*", self._refresh_and_get_scopes(refresh_token))
+
     def test_refresh_with_injected_code_does_not_escalate_scopes(self):
         """A refresh request that includes a `code` parameter from a broader-scope
         grant must NOT override the scopes inherited from the refresh token."""
