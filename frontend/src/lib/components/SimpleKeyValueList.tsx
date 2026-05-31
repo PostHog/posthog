@@ -18,6 +18,11 @@ export interface SimpleKeyValueListProps {
      */
     promotedKeys?: string[]
     sortItems?: boolean
+    /**
+     * Optional action rendered at the end of each row. Revealed on row hover so it stays out of the
+     * way until needed (the action itself decides whether to also show when not hovered).
+     */
+    rowActions?: (key: string) => ReactNode
 }
 
 export function SimpleKeyValueList({
@@ -26,6 +31,7 @@ export function SimpleKeyValueList({
     promotedKeys,
     header,
     sortItems = true,
+    rowActions,
 }: SimpleKeyValueListProps): JSX.Element {
     const sortedItemsPromotedFirst = useMemo(() => {
         const sortedItems = sortItems
@@ -61,9 +67,10 @@ export function SimpleKeyValueList({
             {sortedItemsPromotedFirst.map(([key, value]) => {
                 const isComplexStructure = Array.isArray(value) || isObject(value)
                 return (
-                    <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
-                        <span className="font-semibold">
+                    <div key={key} className="group/kv-row flex gap-4 items-start justify-between overflow-hidden">
+                        <span className="font-semibold flex items-center gap-1 min-w-0">
                             <PropertyKeyInfo value={key} />
+                            {rowActions ? rowActions(key) : null}
                         </span>
                         {isComplexStructure ? (
                             <JSONViewer src={value} collapsed={1} />
