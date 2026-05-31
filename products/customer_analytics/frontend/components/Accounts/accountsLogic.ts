@@ -1,5 +1,4 @@
-import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -9,7 +8,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
-import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
+import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountApi,
     PatchedAccountApiProperties,
@@ -18,8 +17,6 @@ import type {
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
-
-export const ACCOUNTS_PAGE_SIZE = 20
 
 export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
 
@@ -46,8 +43,6 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 }
 
 export type RoleFilterValue = number | null
-
-export type AccountsView = 'endpoint' | 'hogql'
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
@@ -83,13 +78,6 @@ const ROLE_LABELS: Record<AccountRoleKey, string> = {
 
 export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
-export interface AccountsLoadResult {
-    count: number
-    results: AccountApi[]
-}
-
-const EMPTY_RESULT: AccountsLoadResult = { count: 0, results: [] }
-
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
@@ -103,8 +91,6 @@ export const accountsLogic = kea<accountsLogicType>([
         setCsmFilter: (value: RoleFilterValue) => ({ value }),
         setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
-        setCurrentPage: (page: number) => ({ page }),
-        setActiveView: (view: AccountsView) => ({ view }),
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
@@ -116,7 +102,6 @@ export const accountsLogic = kea<accountsLogicType>([
         roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         replaceAccount: (account: AccountApi) => ({ account }),
-        revertAccountOverride: (accountId: string) => ({ accountId }),
     }),
     reducers({
         searchQuery: [
@@ -155,18 +140,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountOwnerFilter: (_, { value }) => value,
             },
         ],
-        currentPage: [
-            1,
-            {
-                setCurrentPage: (_, { page }) => page,
-            },
-        ],
-        activeView: [
-            'endpoint' as AccountsView,
-            {
-                setActiveView: (_, { view }) => view,
-            },
-        ],
         sortOrder: [
             null as AccountSortOrder,
             {
@@ -191,66 +164,10 @@ export const accountsLogic = kea<accountsLogicType>([
             {} as Record<string, AccountApi>,
             {
                 replaceAccount: (state, { account }) => ({ ...state, [account.id]: account }),
-                revertAccountOverride: (state, { accountId }) => {
-                    const next = { ...state }
-                    delete next[accountId]
-                    return next
-                },
-                loadAccountsSuccess: () => ({}),
             },
         ],
     }),
-    loaders(({ values }) => ({
-        accounts: [
-            EMPTY_RESULT,
-            {
-                loadAccounts: async (_ = null, breakpoint) => {
-                    await breakpoint(300)
-                    const projectId = String(values.currentTeamId)
-                    const params: Record<string, string | number | boolean> = {
-                        limit: ACCOUNTS_PAGE_SIZE,
-                        offset: (values.currentPage - 1) * ACCOUNTS_PAGE_SIZE,
-                    }
-                    if (values.searchQuery.trim()) {
-                        params.search = values.searchQuery.trim()
-                    }
-                    if (values.tagsFilter.length > 0) {
-                        params.tags = JSON.stringify(values.tagsFilter)
-                    }
-                    if (values.allRolesUnassigned) {
-                        params.all_roles_unassigned = true
-                    }
-                    if (values.csmFilter !== null) {
-                        params.csm = String(values.csmFilter)
-                    }
-                    if (values.accountExecutiveFilter !== null) {
-                        params.account_executive = String(values.accountExecutiveFilter)
-                    }
-                    if (values.accountOwnerFilter !== null) {
-                        params.account_owner = String(values.accountOwnerFilter)
-                    }
-                    try {
-                        const response = await accountsList(projectId, params)
-                        breakpoint()
-                        return { count: response.count, results: response.results }
-                    } catch (error) {
-                        if (!isBreakpoint(error as Error)) {
-                            posthog.captureException(error as Error, { scope: 'accountsLogic.loadAccounts' })
-                            lemonToast.error('Failed to load accounts')
-                        }
-                        throw error
-                    }
-                },
-            },
-        ],
-    })),
     selectors({
-        totalCount: [(s) => [s.accounts], (a: AccountsLoadResult): number => a.count],
-        results: [
-            (s) => [s.accounts, s.accountOverrides],
-            (a: AccountsLoadResult, overrides: Record<string, AccountApi>): AccountApi[] =>
-                a.results.map((account) => overrides[account.id] ?? account),
-        ],
         isRoleSaving: [
             (s) => [s.savingRoles],
             (savingRoles: Record<string, true>) =>
@@ -320,12 +237,6 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        setSearchQuery: () => {
-            actions.setCurrentPage(1)
-        },
-        setTagsFilter: () => {
-            actions.setCurrentPage(1)
-        },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
                 if (values.csmFilter !== null) {
@@ -338,28 +249,21 @@ export const accountsLogic = kea<accountsLogicType>([
                     actions.setAccountOwnerFilter(null)
                 }
             }
-            actions.setCurrentPage(1)
         },
         setCsmFilter: ({ value }) => {
             if (value !== null && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
-            actions.setCurrentPage(1)
         },
         setAccountExecutiveFilter: ({ value }) => {
             if (value !== null && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
-            actions.setCurrentPage(1)
         },
         setAccountOwnerFilter: ({ value }) => {
             if (value !== null && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
-            actions.setCurrentPage(1)
-        },
-        setCurrentPage: () => {
-            actions.loadAccounts()
         },
         toggleSort: ({ column }) => {
             const current = values.sortOrder
@@ -373,9 +277,6 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             actions.setSortOrder(next)
         },
-        setSortOrder: () => {
-            actions.setCurrentPage(1)
-        },
         setSelectColumns: () => {
             clearSortIfColumnRemoved(values, actions)
         },
@@ -386,36 +287,24 @@ export const accountsLogic = kea<accountsLogicType>([
             clearSortIfColumnRemoved(values, actions)
         },
         refresh: () => {
-            actions.loadAccounts()
             dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         updateAccountRole: async ({ accountId, role, user }) => {
             if (values.isRoleSaving(accountId, role)) {
                 return
             }
-            const account = values.results.find((a) => a.id === accountId)
-            if (!account) {
-                return
-            }
-            const previousOverride = values.accountOverrides[accountId]
-            const nextProperties: PatchedAccountApiProperties = {
-                ...account.properties,
-                [role]: user ? { id: user.id, email: user.email } : null,
-            }
-            const optimisticAccount: AccountApi = { ...account, properties: nextProperties }
             const projectId = String(values.currentTeamId)
             actions.roleUpdateStarted(accountId, role)
-            actions.replaceAccount(optimisticAccount)
             try {
+                const current = await accountsRetrieve(projectId, accountId)
+                const nextProperties: PatchedAccountApiProperties = {
+                    ...current.properties,
+                    [role]: user ? { id: user.id, email: user.email } : null,
+                }
                 const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
                 actions.replaceAccount(updated)
                 dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
-                if (previousOverride) {
-                    actions.replaceAccount(previousOverride)
-                } else {
-                    actions.revertAccountOverride(accountId)
-                }
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
                 lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
             } finally {
@@ -423,7 +312,4 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadAccounts()
-    }),
 ])
