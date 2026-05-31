@@ -14,5 +14,5 @@ Also produce facets that characterize this session for free-text search by futur
 - `friction_points`: list of named blockers, errors, or frustrations the user hit (empty if none). Only include things the user would notice — visible error states, dead clicks, rage clicks, abandoned actions, page reloads. Background JS console errors that don't affect the UI (ResizeObserver loops, feature-flag fetch failures, third-party script noise) are not friction.
 - `keywords`: 5-15 distinctive lowercase terms — favor action verbs and specific feature names; skip generic terms ('user', 'session', 'navigation') and the product/team name.
 
-Do not include any event citations or `event_id` hashes inside `intent`, `outcome`, `friction_points`, or `keywords` — those are consumed by a vector-embedding pipeline and hex tokens would be noise.
+Do not include any event citations or `event_uuid` values inside `intent`, `outcome`, `friction_points`, or `keywords` — those are consumed by a vector-embedding pipeline and UUID tokens would be noise.
 {% endif %}{% endblock %}
