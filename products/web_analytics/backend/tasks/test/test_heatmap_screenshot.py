@@ -411,7 +411,9 @@ class TestHeatmapScreenshotTask(APIBaseTest):
     def test_use_browserless_passes_environment_property(
         self, _name: str, cloud_deployment: str | None, expected: str, mock_feature_enabled: MagicMock
     ) -> None:
-        with override_settings(HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=False, CLOUD_DEPLOYMENT=cloud_deployment):
+        with override_settings(
+            HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=False, CLOUD_DEPLOYMENT=cloud_deployment
+        ):
             assert _use_browserless_for_screenshot(self._make_heatmap()) is True
         _, kwargs = mock_feature_enabled.call_args
         assert kwargs["person_properties"]["environment"] == expected
