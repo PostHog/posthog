@@ -26,6 +26,7 @@ import type {
     AutoresearchSuggestionsListParams,
     AutoresearchTemplatesListParams,
     AutoresearchTrainingRunApi,
+    AutoresearchTrainingRunsHistoryRetrieveParams,
     AutoresearchTrainingRunsListParams,
     CompleteTrainingRunApi,
     CreateSuggestionApi,
@@ -42,6 +43,7 @@ import type {
     ResolvedTemplateApi,
     StartTrainingRequestApi,
     StoredArtifactApi,
+    TrainingRunHistoryApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
 } from './api.schemas'
@@ -556,6 +558,45 @@ export const autoresearchTrainingRunsIterationsCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(recordIterationApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsHistoryRetrieveUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/history/`
+}
+
+/**
+ * Return recent completed training runs and their iteration trails so a new run can learn from what was already tried. Scoped to this pipeline first, then same-target sibling pipelines on the team. Read this before iterating to reuse winning features and avoid repeating discarded approaches.
+ * @summary Read prior training-run history
+ */
+export const autoresearchTrainingRunsHistoryRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<TrainingRunHistoryApi> => {
+    return apiMutator<TrainingRunHistoryApi>(
+        getAutoresearchTrainingRunsHistoryRetrieveUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }

@@ -1,1 +1,1 @@
-0006_autoresearchmodel_artifact_prefix
+0007_autoresearchtrainingrun_summary

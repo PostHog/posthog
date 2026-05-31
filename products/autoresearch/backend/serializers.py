@@ -302,9 +302,47 @@ class AutoresearchModelSerializer(serializers.ModelSerializer):
         }
 
 
+class TrainingRunSummaryLadderItemSerializer(serializers.Serializer):
+    """One iteration referenced from a run summary's ladder or dead-ends list."""
+
+    iteration_number = serializers.IntegerField(help_text="Iteration index this entry refers to.")
+    holdout_score = serializers.FloatField(allow_null=True, help_text="Holdout AUC for this iteration.")
+    model_class = serializers.CharField(allow_blank=True, help_text="Model class tried in this iteration.")
+    agent_description = serializers.CharField(allow_blank=True, help_text="The agent's rationale for this attempt.")
+
+
+class TrainingRunSummarySerializer(serializers.Serializer):
+    """Tier-1 distilled summary of a completed run — the orientation memory a new run reads first."""
+
+    target_event = serializers.CharField(help_text="Target event the run's pipeline predicts.")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon, in days.")
+    best_holdout_score = serializers.FloatField(allow_null=True, help_text="Best holdout AUC achieved in the run.")
+    champion_promoted = serializers.BooleanField(
+        help_text="Whether this run's best model was promoted to champion (vs kept as challenger)."
+    )
+    champion_model_class = serializers.CharField(allow_blank=True, help_text="Model class of the run's best model.")
+    kept_ladder = TrainingRunSummaryLadderItemSerializer(
+        many=True,
+        help_text="Kept iterations, highest holdout AUC first — the winning approaches worth reusing.",
+    )
+    dead_ends = TrainingRunSummaryLadderItemSerializer(
+        many=True,
+        help_text="Discarded or crashed iterations — approaches already tried that did not help; avoid repeating.",
+    )
+    recommended_next = serializers.CharField(
+        allow_blank=True, help_text="Agent's suggested next experiments for a future run. Empty if not provided."
+    )
+    distillation = serializers.CharField(
+        allow_blank=True, help_text="Agent's 1–2 sentence distillation of what this run learned. Empty if not provided."
+    )
+
+
 class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
     task_url = serializers.SerializerMethodField(
         help_text="Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs."
+    )
+    summary = serializers.SerializerMethodField(
+        help_text="Distilled cross-run learning summary written on completion. Null until the run completes."
     )
 
     class Meta:
@@ -319,6 +357,7 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
             "iteration_budget",
             "iteration_count",
             "best_holdout_score",
+            "summary",
             "error",
             "started_at",
             "completed_at",
@@ -330,6 +369,7 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
             "status",
             "iteration_count",
             "best_holdout_score",
+            "summary",
             "error",
             "started_at",
             "completed_at",
@@ -351,6 +391,10 @@ class AutoresearchTrainingRunSerializer(serializers.ModelSerializer):
 
     def get_task_url(self, obj: AutoresearchTrainingRun) -> str | None:
         return f"/tasks/{obj.task_id}" if obj.task_id else None
+
+    @extend_schema_field(TrainingRunSummarySerializer(allow_null=True))
+    def get_summary(self, obj: AutoresearchTrainingRun) -> dict[str, Any] | None:
+        return obj.summary or None
 
 
 class AutoresearchIterationSerializer(serializers.ModelSerializer):
@@ -378,6 +422,71 @@ class AutoresearchIterationSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+class IterationTrailSerializer(serializers.ModelSerializer):
+    """Compact, read-only view of one iteration for the cross-run history feed."""
+
+    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+
+    class Meta:
+        model = AutoresearchIteration
+        fields = [
+            "iteration_number",
+            "status",
+            "holdout_score",
+            "train_score",
+            "agent_description",
+            "model_spec",
+        ]
+        extra_kwargs = {
+            "iteration_number": {"help_text": "Order of this attempt within its run (0-based)."},
+            "status": {"help_text": "Whether this recipe was kept (improved the best score), discarded, or crashed."},
+            "holdout_score": {"help_text": "Holdout AUC this iteration achieved. Null if it was skipped/degenerate."},
+            "train_score": {"help_text": "Train-fold AUC for this iteration, if recorded."},
+            "agent_description": {"help_text": "The agent's one-line rationale for what it tried and why."},
+        }
+
+
+class TrainingRunHistoryEntrySerializer(serializers.Serializer):
+    """One prior completed training run plus its full iteration trail."""
+
+    run_id = serializers.UUIDField(help_text="UUID of the completed training run.")
+    pipeline_id = serializers.UUIDField(help_text="UUID of the pipeline this run belongs to.")
+    is_current_pipeline = serializers.BooleanField(
+        help_text=(
+            "True if this run is from the pipeline you are training; False if it is a same-target "
+            "sibling pipeline on the team."
+        )
+    )
+    target_event = serializers.CharField(help_text="Target event this run's pipeline predicts.")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon (days) of this run's pipeline.")
+    best_holdout_score = serializers.FloatField(
+        allow_null=True, help_text="Best holdout AUC achieved across this run's iterations."
+    )
+    iteration_count = serializers.IntegerField(help_text="Number of iterations recorded in this run.")
+    completed_at = serializers.DateTimeField(allow_null=True, help_text="When this run completed.")
+    summary = TrainingRunSummarySerializer(
+        allow_null=True,
+        help_text="Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one.",
+    )
+    iterations = IterationTrailSerializer(
+        many=True,
+        help_text="The iteration trail: every recipe tried, kept or discarded, with rationale and score.",
+    )
+
+
+class TrainingRunHistorySerializer(serializers.Serializer):
+    """Cross-run learning memory: prior runs the agent should read before iterating."""
+
+    runs = TrainingRunHistoryEntrySerializer(
+        many=True,
+        help_text=(
+            "Recent completed training runs — the current pipeline first, then same-target sibling "
+            "pipelines on the team — newest first. Mine these to reuse winning features and avoid "
+            "repeating discarded approaches."
+        ),
+    )
 
 
 class AutoresearchRunSerializer(serializers.ModelSerializer):
@@ -604,6 +713,24 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         required=False,
         default=dict,
         help_text="Global feature importance / directionality bundle for the champion model card.",
+    )
+    recommended_next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "What a future run should try next, given what this run learned. Stored in the run summary so the "
+            "next run reads it during orientation. Keep it short and concrete."
+        ),
+    )
+    distillation = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
+            "dead-ends. Stored in the run summary as the cheapest thing the next run reads."
+        ),
     )
 
 

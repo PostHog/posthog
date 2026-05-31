@@ -7,7 +7,7 @@ from typing import Any
 from django.utils import timezone as django_timezone
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -54,6 +54,7 @@ from products.autoresearch.backend.serializers import (
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
+    TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
 )
@@ -462,7 +463,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     """
 
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact"]
+    scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact", "history"]
     scope_object_write_actions = [
         "create",
         "record_iteration",
@@ -595,9 +596,80 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
             training_run,
             best_iteration_id=data.get("best_iteration_id"),
             model_explanation=data.get("model_explanation") or {},
+            recommended_next=data.get("recommended_next") or "",
+            distillation=data.get("distillation") or "",
         )
         training_run.refresh_from_db()
         return Response(AutoresearchTrainingRunSerializer(training_run).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of prior runs to return (default 5, capped at 20).",
+            )
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=TrainingRunHistorySerializer,
+                description="Prior completed training runs with their iteration trails, for orienting a new run.",
+            )
+        },
+        summary="Read prior training-run history",
+        description=(
+            "Return recent completed training runs and their iteration trails so a new run can learn "
+            "from what was already tried. Scoped to this pipeline first, then same-target sibling "
+            "pipelines on the team. Read this before iterating to reuse winning features and avoid "
+            "repeating discarded approaches."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="history", pagination_class=None)
+    def history(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        pipeline = self._get_pipeline()
+        try:
+            limit = int(request.query_params.get("limit", 5))
+        except (TypeError, ValueError):
+            limit = 5
+        limit = max(1, min(limit, 20))
+
+        completed = (
+            AutoresearchTrainingRun.objects.filter(
+                status=AutoresearchTrainingRun.Status.COMPLETED,
+                pipeline__team=self.team,
+            )
+            .select_related("pipeline")
+            .prefetch_related("iterations")
+        )
+
+        # This pipeline's own history first; backfill with same-target sibling pipelines on the team.
+        runs = list(completed.filter(pipeline=pipeline).order_by("-completed_at")[:limit])
+        remaining = limit - len(runs)
+        if remaining > 0:
+            runs += list(
+                completed.filter(pipeline__target_event=pipeline.target_event)
+                .exclude(pipeline=pipeline)
+                .order_by("-completed_at")[:remaining]
+            )
+
+        entries = [
+            {
+                "run_id": run.id,
+                "pipeline_id": run.pipeline_id,
+                "is_current_pipeline": run.pipeline_id == pipeline.id,
+                "target_event": run.pipeline.target_event,
+                "horizon_days": run.pipeline.horizon_days,
+                "best_holdout_score": run.best_holdout_score,
+                "iteration_count": run.iteration_count,
+                "completed_at": run.completed_at,
+                "summary": run.summary or None,
+                "iterations": list(run.iterations.all()),
+            }
+            for run in runs
+        ]
+        return Response(TrainingRunHistorySerializer({"runs": entries}).data)
 
     def _bundle_prefix(self, training_run: AutoresearchTrainingRun) -> str:
         return artifact_store.bundle_prefix(

@@ -139,8 +139,17 @@ def build_agent_description(
            `id = "<source_training_run>"`, `path = "features.sql"` (and `train.py`). Your goal is
            to beat `holdout_score`. Start from a meaningfully different hypothesis, not a trivial variant.
 
-        3. **Review training history**: call `autoresearch-training-runs-list` with `pipeline_id = "{pipeline.pk}"`.
-           Check `best_holdout_score` and `iteration_count` to avoid repeating discarded approaches.
+        3. **Read prior runs' learning memory**: call `autoresearch-training-runs-history` with
+           `pipeline_id = "{pipeline.pk}"`. This returns recent completed runs — this pipeline first,
+           then same-target sibling pipelines on the team. For each run, read its `summary` FIRST
+           (the cheap orientation): `distillation` (what that run learned), `recommended_next` (what
+           it suggested trying next), the `kept_ladder` (winning approaches), and `dead_ends`
+           (approaches that did not help). Then, if a summary points somewhere worth it, drill into
+           that run's full `iterations` trail (`agent_description`, `holdout_score`, status,
+           `model_spec`). Mine all this before you iterate: reuse the features and transforms that
+           won, act on a prior `recommended_next` when sensible, and do NOT re-try approaches already
+           in `dead_ends`. In each iteration's `agent_description`, cite which prior learning you are
+           building on or deliberately avoiding.
 
         If no champion exists you are establishing the baseline — aim for AUC > 0.6.
 
@@ -397,6 +406,12 @@ def build_agent_description(
         2. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
            and `id = "{training_run_id}"`. The backend picks the best iteration, decides
            champion vs challenger, and attaches your uploaded bundle as the model's artifact.
+           Also pass two short fields that become this run's learning memory for the NEXT run:
+           - `distillation`: 1–2 sentences on what this run learned — the winning signal, the
+             key transform, the dead-ends. This is the cheapest thing the next run reads.
+           - `recommended_next`: concretely what a future run should try next given what you found.
+           The backend derives the rest of the summary (the kept ladder and dead-ends) from your
+           recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
 
         **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
         AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.

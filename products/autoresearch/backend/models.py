@@ -151,6 +151,11 @@ class AutoresearchTrainingRun(UUIDModel):
     iteration_count = models.IntegerField(default=0)
     best_holdout_score = models.FloatField(null=True, blank=True)
     error = models.TextField(blank=True, default="")
+    # Tier-1 cross-run learning memory: a distilled, structured summary of this run written on
+    # completion. Backend derives the structural fields (champion, kept ladder, dead-ends) from the
+    # recorded iterations; the agent enriches recommended_next + distillation via the complete tool.
+    # Read back by a new run via the training_runs/history endpoint to orient before iterating.
+    summary = models.JSONField(default=dict, blank=True)
 
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)

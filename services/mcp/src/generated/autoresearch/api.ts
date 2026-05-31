@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 26 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -405,6 +405,9 @@ export const AutoresearchTrainingRunsCompleteCreateParams = /* @__PURE__ */ zod.
         ),
 })
 
+export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
+export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
+
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
         best_iteration_id: zod
@@ -417,6 +420,18 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .looseObject({})
             .optional()
             .describe('Global feature importance / directionality bundle for the champion model card.'),
+        recommended_next: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault)
+            .describe(
+                'What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete.'
+            ),
+        distillation: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
+            .describe(
+                'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads.'
+            ),
     })
     .describe('Input for finalizing a training run. The backend selects/promotes the champion.')
 
@@ -479,6 +494,23 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
     })
     .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
+
+/**
+ * Return recent completed training runs and their iteration trails so a new run can learn from what was already tried. Scoped to this pipeline first, then same-target sibling pipelines on the team. Read this before iterating to reuse winning features and avoid repeating discarded approaches.
+ * @summary Read prior training-run history
+ */
+export const AutoresearchTrainingRunsHistoryRetrieveParams = /* @__PURE__ */ zod.object({
+    pipeline_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AutoresearchTrainingRunsHistoryRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Maximum number of prior runs to return (default 5, capped at 20).'),
+})
 
 /**
  * Manage autoresearch prediction pipelines.

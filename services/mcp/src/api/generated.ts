@@ -5201,6 +5201,50 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * One iteration referenced from a run summary's ladder or dead-ends list.
+     */
+    export interface TrainingRunSummaryLadderItem {
+      /** Iteration index this entry refers to. */
+      iteration_number: number;
+      /**
+         * Holdout AUC for this iteration.
+         * @nullable
+         */
+      holdout_score: number | null;
+      /** Model class tried in this iteration. */
+      model_class: string;
+      /** The agent's rationale for this attempt. */
+      agent_description: string;
+    }
+
+    /**
+     * Tier-1 distilled summary of a completed run — the orientation memory a new run reads first.
+     */
+    export interface TrainingRunSummary {
+      /** Target event the run's pipeline predicts. */
+      target_event: string;
+      /** Prediction horizon, in days. */
+      horizon_days: number;
+      /**
+         * Best holdout AUC achieved in the run.
+         * @nullable
+         */
+      best_holdout_score: number | null;
+      /** Whether this run's best model was promoted to champion (vs kept as challenger). */
+      champion_promoted: boolean;
+      /** Model class of the run's best model. */
+      champion_model_class: string;
+      /** Kept iterations, highest holdout AUC first — the winning approaches worth reusing. */
+      kept_ladder: TrainingRunSummaryLadderItem[];
+      /** Discarded or crashed iterations — approaches already tried that did not help; avoid repeating. */
+      dead_ends: TrainingRunSummaryLadderItem[];
+      /** Agent's suggested next experiments for a future run. Empty if not provided. */
+      recommended_next: string;
+      /** Agent's 1–2 sentence distillation of what this run learned. Empty if not provided. */
+      distillation: string;
+    }
+
     export interface AutoresearchTrainingRun {
       /** Unique UUID of this training run. */
       readonly id: string;
@@ -5241,6 +5285,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly best_holdout_score: number | null;
+      /** Distilled cross-run learning summary written on completion. Null until the run completes. */
+      readonly summary: TrainingRunSummary | null;
       /** Error message if the run failed. */
       readonly error: string;
       /**
@@ -8743,6 +8789,10 @@ export namespace Schemas {
       best_iteration_id?: string | null;
       /** Global feature importance / directionality bundle for the champion model card. */
       model_explanation?: CompleteTrainingRunModelExplanation;
+      /** What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete. */
+      recommended_next?: string;
+      /** A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. */
+      distillation?: string;
     }
 
     export interface ComposeTicket {
@@ -21082,6 +21132,38 @@ export namespace Schemas {
          * @maxLength 400
          */
       identifier: string;
+    }
+
+    /**
+     * Compact, read-only view of one iteration for the cross-run history feed.
+     */
+    export interface IterationTrail {
+      /**
+         * Order of this attempt within its run (0-based).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+
+      * `kept` - Kept
+      * `discarded` - Discarded
+      * `crashed` - Crashed */
+      status: AutoresearchIterationStatusEnum;
+      /**
+         * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Train-fold AUC for this iteration, if recorded.
+         * @nullable
+         */
+      train_score?: number | null;
+      /** The agent's one-line rationale for what it tried and why. */
+      agent_description?: string;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: unknown;
     }
 
     /**
@@ -39882,6 +39964,46 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    /**
+     * One prior completed training run plus its full iteration trail.
+     */
+    export interface TrainingRunHistoryEntry {
+      /** UUID of the completed training run. */
+      run_id: string;
+      /** UUID of the pipeline this run belongs to. */
+      pipeline_id: string;
+      /** True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team. */
+      is_current_pipeline: boolean;
+      /** Target event this run's pipeline predicts. */
+      target_event: string;
+      /** Prediction horizon (days) of this run's pipeline. */
+      horizon_days: number;
+      /**
+         * Best holdout AUC achieved across this run's iterations.
+         * @nullable
+         */
+      best_holdout_score: number | null;
+      /** Number of iterations recorded in this run. */
+      iteration_count: number;
+      /**
+         * When this run completed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
+      summary: TrainingRunSummary | null;
+      /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
+      iterations: IterationTrail[];
+    }
+
+    /**
+     * Cross-run learning memory: prior runs the agent should read before iterating.
+     */
+    export interface TrainingRunHistory {
+      /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
+      runs: TrainingRunHistoryEntry[];
+    }
+
     export interface TranslateRequest {
       /**
          * The text to translate
@@ -45834,6 +45956,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type AutoresearchTrainingRunsHistoryRetrieveParams = {
+    /**
+     * Maximum number of prior runs to return (default 5, capped at 20).
+     */
+    limit?: number;
     };
 
     export type AutoresearchTemplatesListParams = {

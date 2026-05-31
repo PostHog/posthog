@@ -198,6 +198,9 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */
  * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
  * @summary Complete a training run
  */
+export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
+export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
+
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
         best_iteration_id: zod
@@ -210,6 +213,18 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .looseObject({})
             .optional()
             .describe('Global feature importance \/ directionality bundle for the champion model card.'),
+        recommended_next: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault)
+            .describe(
+                'What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete.'
+            ),
+        distillation: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
+            .describe(
+                'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads.'
+            ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
 

@@ -143,6 +143,56 @@ class TestAgentRecordedTraining(APIBaseTest):
             pipeline=self.pipeline, role=AutoresearchModel.Role.CHALLENGER, holdout_score=0.80
         ).exists()
 
+    def test_complete_writes_backend_derived_summary(self):
+        run_id = self._open_run()
+        self._record(run_id, number=0, status_value="kept", holdout=0.75)
+        self._record(run_id, number=1, status_value="discarded", holdout=0.70)
+        self._record(
+            run_id,
+            number=2,
+            status_value="kept",
+            holdout=0.82,
+            spec={"model_class": "xgboost.XGBClassifier", "model_params": {}},
+        )
+        resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        summary = resp.json()["summary"]
+        assert summary["target_event"] == "$pageview"
+        assert summary["best_holdout_score"] == 0.82
+        assert summary["champion_promoted"] is True
+        assert summary["champion_model_class"] == "xgboost.XGBClassifier"
+        # kept iterations are ranked highest-AUC first; discarded land in dead_ends.
+        assert [it["iteration_number"] for it in summary["kept_ladder"]] == [2, 0]
+        assert [it["iteration_number"] for it in summary["dead_ends"]] == [1]
+        # Backend leaves the two judgment fields empty when the agent does not supply them.
+        assert summary["recommended_next"] == ""
+        assert summary["distillation"] == ""
+
+    def test_complete_persists_agent_summary_enrichment(self):
+        run_id = self._open_run()
+        self._record(run_id, number=0, status_value="kept", holdout=0.8)
+        resp = self.client.post(
+            f"{self.runs_url}/{run_id}/complete/",
+            {"distillation": "log1p of counts won", "recommended_next": "try session recency"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        summary = resp.json()["summary"]
+        assert summary["distillation"] == "log1p of counts won"
+        assert summary["recommended_next"] == "try session recency"
+        run = AutoresearchTrainingRun.objects.get(pk=run_id)
+        assert run.summary["recommended_next"] == "try session recency"
+
+    def test_complete_with_no_iterations_writes_skeleton_summary(self):
+        run_id = self._open_run()
+        resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        summary = resp.json()["summary"]
+        assert summary["best_holdout_score"] is None
+        assert summary["champion_promoted"] is False
+        assert summary["kept_ladder"] == []
+        assert summary["dead_ends"] == []
+
     def test_signal_handler_uses_agent_recorded_path_when_iterations_exist(self):
         from unittest.mock import MagicMock
 
@@ -224,6 +274,162 @@ class TestAgentRecordedTraining(APIBaseTest):
         champion = AutoresearchModel.objects.get(pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION)
         assert champion.artifact_prefix == ""
         assert champion.metrics["artifact_bundle"] is False
+
+
+class TestTrainingRunHistory(APIBaseTest):
+    """The cross-run learning-memory read-back endpoint (training_runs/history)."""
+
+    def setUp(self):
+        super().setUp()
+        self._flag_patcher = patch(
+            "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._flag_patcher.start()
+        self.addCleanup(self._flag_patcher.stop)
+        self.pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Main", target_event="downloaded_file", horizon_days=30
+        )
+
+    def _runs_url(self, pipeline) -> str:
+        return f"/api/projects/{self.team.pk}/autoresearch/{pipeline.pk}/training_runs"
+
+    def _completed_run(self, pipeline, *, iterations, distillation="", recommended_next="") -> str:
+        runs_url = self._runs_url(pipeline)
+        run_id = self.client.post(f"{runs_url}/", {}, format="json").json()["id"]
+        for number, (status_value, holdout, desc) in enumerate(iterations):
+            self.client.post(
+                f"{runs_url}/{run_id}/iterations/",
+                {
+                    "iteration_number": number,
+                    "recipe_snapshot": VALID_RECIPE,
+                    "model_spec": VALID_SPEC,
+                    "status": status_value,
+                    "holdout_score": holdout,
+                    "agent_description": desc,
+                },
+                format="json",
+            )
+        resp = self.client.post(
+            f"{runs_url}/{run_id}/complete/",
+            {"distillation": distillation, "recommended_next": recommended_next},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        return run_id
+
+    def _history(self, pipeline=None, **params):
+        pipeline = pipeline or self.pipeline
+        return self.client.get(f"{self._runs_url(pipeline)}/history/", params)
+
+    def test_history_returns_iteration_trail_for_completed_run(self):
+        run_id = self._completed_run(
+            self.pipeline,
+            iterations=[("discarded", 0.70, "baseline engagement"), ("kept", 0.82, "added file RFM")],
+        )
+        resp = self._history()
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        runs = resp.json()["runs"]
+        assert len(runs) == 1
+        run = runs[0]
+        assert run["run_id"] == run_id
+        assert run["is_current_pipeline"] is True
+        assert run["target_event"] == "downloaded_file"
+        assert run["best_holdout_score"] == 0.82
+        descriptions = [(it["status"], it["holdout_score"], it["agent_description"]) for it in run["iterations"]]
+        assert descriptions == [
+            ("discarded", 0.70, "baseline engagement"),
+            ("kept", 0.82, "added file RFM"),
+        ]
+        assert run["iterations"][0]["model_spec"]["model_class"] == "sklearn.linear_model.LogisticRegression"
+
+    def test_history_excludes_runs_that_are_not_completed(self):
+        # An open (running) run with a recorded iteration must not surface as history.
+        runs_url = self._runs_url(self.pipeline)
+        run_id = self.client.post(f"{runs_url}/", {}, format="json").json()["id"]
+        self.client.post(
+            f"{runs_url}/{run_id}/iterations/",
+            {
+                "iteration_number": 0,
+                "recipe_snapshot": VALID_RECIPE,
+                "model_spec": VALID_SPEC,
+                "status": "kept",
+                "holdout_score": 0.8,
+                "agent_description": "in progress",
+            },
+            format="json",
+        )
+        resp = self._history()
+        assert resp.json()["runs"] == []
+
+    def test_history_includes_same_target_sibling_flagged_not_current(self):
+        sibling = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Sibling", target_event="downloaded_file", horizon_days=30
+        )
+        other_target = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="OtherTarget", target_event="$pageview", horizon_days=30
+        )
+        self._completed_run(sibling, iterations=[("kept", 0.75, "sibling run")])
+        self._completed_run(other_target, iterations=[("kept", 0.90, "different target")])
+        self._completed_run(self.pipeline, iterations=[("kept", 0.80, "own run")])
+
+        runs = self._history().json()["runs"]
+        by_target_desc = {r["iterations"][0]["agent_description"]: r for r in runs}
+        # Own run + same-target sibling appear; the different-target pipeline does not.
+        assert set(by_target_desc) == {"own run", "sibling run"}
+        assert by_target_desc["own run"]["is_current_pipeline"] is True
+        assert by_target_desc["sibling run"]["is_current_pipeline"] is False
+        # Current pipeline is listed first.
+        assert runs[0]["iterations"][0]["agent_description"] == "own run"
+
+    def test_history_respects_limit(self):
+        for _ in range(3):
+            self._completed_run(self.pipeline, iterations=[("kept", 0.8, "run")])
+        assert len(self._history(limit=2).json()["runs"]) == 2
+        # Out-of-range limits are clamped, not errored.
+        assert self._history(limit=0).status_code == status.HTTP_200_OK
+        assert len(self._history(limit=0).json()["runs"]) == 1
+
+    def test_history_includes_distilled_run_summary(self):
+        self._completed_run(
+            self.pipeline,
+            iterations=[("discarded", 0.70, "baseline"), ("kept", 0.82, "winner")],
+            distillation="log1p of file counts is the signal",
+            recommended_next="try session-recency features",
+        )
+        summary = self._history().json()["runs"][0]["summary"]
+        assert summary["distillation"] == "log1p of file counts is the signal"
+        assert summary["recommended_next"] == "try session-recency features"
+        assert summary["target_event"] == "downloaded_file"
+        assert summary["best_holdout_score"] == 0.82
+        assert summary["champion_promoted"] is True
+        assert [it["iteration_number"] for it in summary["kept_ladder"]] == [1]
+        assert [it["iteration_number"] for it in summary["dead_ends"]] == [0]
+
+    def test_history_excludes_other_teams(self):
+        other_org = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=other_team, created_by=self.user, name="Other", target_event="downloaded_file", horizon_days=30
+        )
+        # Build a completed run on the other team directly (its API is on a different project route).
+        other_run = AutoresearchTrainingRun.objects.create(
+            pipeline=other_pipeline, status=AutoresearchTrainingRun.Status.COMPLETED, best_holdout_score=0.99
+        )
+        AutoresearchIteration.objects.create(
+            pipeline=other_pipeline,
+            training_run=other_run,
+            iteration_number=0,
+            recipe_hash="x",
+            recipe_snapshot=VALID_RECIPE,
+            model_spec=VALID_SPEC,
+            holdout_score=0.99,
+            status="kept",
+            agent_description="leaked",
+        )
+        self._completed_run(self.pipeline, iterations=[("kept", 0.8, "own")])
+        runs = self._history().json()["runs"]
+        assert all(r["iterations"][0]["agent_description"] != "leaked" for r in runs)
 
 
 class _InMemoryStorage:

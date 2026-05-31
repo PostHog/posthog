@@ -60,6 +60,48 @@ def _build_recipe(iteration: AutoresearchIteration) -> dict[str, Any]:
     }
 
 
+def _summary_item(iteration: AutoresearchIteration) -> dict[str, Any]:
+    spec = iteration.model_spec or {}
+    return {
+        "iteration_number": iteration.iteration_number,
+        "holdout_score": iteration.holdout_score,
+        "model_class": spec.get("model_class", ""),
+        "agent_description": iteration.agent_description or "",
+    }
+
+
+def _build_run_summary(
+    training_run: AutoresearchTrainingRun,
+    *,
+    best: AutoresearchIteration | None,
+    iterations: list[AutoresearchIteration],
+    promoted: bool,
+    recommended_next: str,
+    distillation: str,
+) -> dict[str, Any]:
+    """Tier-1 cross-run memory: backend derives the structural facts; the agent supplies the two
+    judgment fields (recommended_next, distillation). Read back by a new run before it iterates."""
+    pipeline = training_run.pipeline
+    kept = sorted(
+        (it for it in iterations if it.status == AutoresearchIteration.Status.KEPT),
+        key=lambda it: it.holdout_score if it.holdout_score is not None else -1.0,
+        reverse=True,
+    )
+    dead_ends = [it for it in iterations if it.status != AutoresearchIteration.Status.KEPT]
+    best_spec = (best.model_spec or {}) if best else {}
+    return {
+        "target_event": pipeline.target_event,
+        "horizon_days": pipeline.horizon_days,
+        "best_holdout_score": best.holdout_score if best else None,
+        "champion_promoted": promoted,
+        "champion_model_class": best_spec.get("model_class", ""),
+        "kept_ladder": [_summary_item(it) for it in kept],
+        "dead_ends": [_summary_item(it) for it in dead_ends],
+        "recommended_next": recommended_next or "",
+        "distillation": distillation or "",
+    }
+
+
 def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> tuple[str, dict[str, Any]] | None:
     """
     If the agent uploaded a complete artifact bundle for this run, return its
@@ -94,13 +136,16 @@ def complete_training_run(
     *,
     best_iteration_id: UUID | None = None,
     model_explanation: dict[str, Any] | None = None,
+    recommended_next: str = "",
+    distillation: str = "",
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
     pipeline = training_run.pipeline
     now = django_timezone.now()
 
     best = _select_best_iteration(training_run, best_iteration_id)
-    iteration_count = AutoresearchIteration.objects.filter(training_run=training_run).count()
+    iterations = list(AutoresearchIteration.objects.filter(training_run=training_run))
+    iteration_count = len(iterations)
 
     # If the agent uploaded a runnable bundle, the champion's artifact is that bundle
     # (inference runs it in a sandbox). recipe.yml is informational metadata for the model card.
@@ -160,7 +205,15 @@ def complete_training_run(
     training_run.iteration_count = iteration_count
     training_run.best_holdout_score = best_score
     training_run.completed_at = now
-    training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "completed_at"])
+    training_run.summary = _build_run_summary(
+        training_run,
+        best=best,
+        iterations=iterations,
+        promoted=promoted,
+        recommended_next=recommended_next,
+        distillation=distillation,
+    )
+    training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "summary", "completed_at"])
 
     # The train run produces the serving artifact: fit the champion and persist model.pkl
     # so predict runs are pure inference. Deferred to on_commit — the sandbox + object-storage

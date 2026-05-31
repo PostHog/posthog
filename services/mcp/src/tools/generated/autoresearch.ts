@@ -38,6 +38,8 @@ import {
     AutoresearchTrainingRunsCompleteCreateParams,
     AutoresearchTrainingRunsCreateBody,
     AutoresearchTrainingRunsCreateParams,
+    AutoresearchTrainingRunsHistoryRetrieveParams,
+    AutoresearchTrainingRunsHistoryRetrieveQueryParams,
     AutoresearchTrainingRunsIterationsCreateBody,
     AutoresearchTrainingRunsIterationsCreateParams,
     AutoresearchTrainingRunsListParams,
@@ -756,6 +758,12 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.model_explanation !== undefined) {
             body['model_explanation'] = params.model_explanation
         }
+        if (params.recommended_next !== undefined) {
+            body['recommended_next'] = params.recommended_next
+        }
+        if (params.distillation !== undefined) {
+            body['distillation'] = params.distillation
+        }
         const result = await context.api.request<Schemas.AutoresearchTrainingRun>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/complete/`,
@@ -786,6 +794,29 @@ const autoresearchTrainingRunsCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/`,
             body,
+        })
+        return result
+    },
+})
+
+const AutoresearchTrainingRunsHistorySchema = AutoresearchTrainingRunsHistoryRetrieveParams.omit({
+    project_id: true,
+}).extend(AutoresearchTrainingRunsHistoryRetrieveQueryParams.shape)
+
+const autoresearchTrainingRunsHistory = (): ToolBase<
+    typeof AutoresearchTrainingRunsHistorySchema,
+    Schemas.TrainingRunHistory
+> => ({
+    name: 'autoresearch-training-runs-history',
+    schema: AutoresearchTrainingRunsHistorySchema,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsHistorySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TrainingRunHistory>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/history/`,
+            query: {
+                limit: params.limit,
+            },
         })
         return result
     },
@@ -998,6 +1029,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-training-runs-artifacts-upload-create': autoresearchTrainingRunsArtifactsUploadCreate,
     'autoresearch-training-runs-complete-create': autoresearchTrainingRunsCompleteCreate,
     'autoresearch-training-runs-create': autoresearchTrainingRunsCreate,
+    'autoresearch-training-runs-history': autoresearchTrainingRunsHistory,
     'autoresearch-training-runs-iterations-create': autoresearchTrainingRunsIterationsCreate,
     'autoresearch-training-runs-list': autoresearchTrainingRunsList,
     'autoresearch-validate-create': autoresearchValidateCreate,
