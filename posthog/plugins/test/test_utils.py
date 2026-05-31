@@ -12,6 +12,7 @@ from posthog.plugins.utils import (
     get_file_from_zip_archive,
     parse_url,
     put_json_into_zip_archive,
+    split_url_and_private_token,
 )
 
 from .mock import mocked_plugin_requests_get
@@ -657,6 +658,12 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(plugin_json_tgz["name"], "helloworldplugin")
         self.assertEqual(plugin_json_tgz["url"], "https://github.com/PostHog/helloworldplugin")
         self.assertEqual(plugin_json_tgz["description"], "Greet the World and Foo a Bar, JS edition!")
+
+    def test_split_url_and_private_token_multiple_question_marks(self, mock_get):
+        # A URL with two '?' characters must not raise ValueError (maxsplit=1 fix)
+        url, token = split_url_and_private_token("https://github.com/PostHog/plugin?private_token=abc?extra")
+        self.assertEqual(url, "https://github.com/PostHog/plugin")
+        self.assertEqual(token, "abc?extra")  # parse_qs treats 'abc?extra' as the full value
 
     def test_put_json_into_zip_archive(self, mock_get):
         archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
