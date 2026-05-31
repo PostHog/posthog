@@ -46,6 +46,8 @@ class PrConcurrencyCheck(WorkflowCheck):
             "ci-migrations-service-separation-check.yml",
             # Shared concurrency group on master causes intermediate runs to be cancelled.
             "ci-security.yaml",
+            # Shared concurrency group on master causes LLM Gateway Tests to be cancelled.
+            "ci-llm-gateway.yml",
         }
     )
 

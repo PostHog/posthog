@@ -15,10 +15,6 @@ on:
     pull_request:
     merge_group:
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 permissions:
     contents: read
     pull-requests: read
