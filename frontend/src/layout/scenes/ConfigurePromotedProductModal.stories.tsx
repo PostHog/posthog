@@ -8,7 +8,7 @@ import { ConfigurePromotedProductModal } from './ConfigurePromotedProductModal'
 interface StoryArgs {
     /** The target kind pre-selected when the modal opens. */
     kind: PromotedProductTargetKind
-    /** Product key (kind === 'product') or URL string (kind === 'url'); ignored for 'ai_chat'. */
+    /** Product key (kind === 'product') or URL string (kind === 'url'). */
     value: string
 }
 
@@ -61,10 +61,6 @@ export const ProductSelected: Story = {
 
 export const UrlSelected: Story = {
     args: { kind: 'url', value: '/my-dashboard' },
-}
-
-export const AiChatSelected: Story = {
-    args: { kind: 'ai_chat', value: '' },
 }
 
 export const DefaultProduct: Story = {

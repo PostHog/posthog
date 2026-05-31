@@ -5,17 +5,15 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-
 import type { promotedProductLogicType } from './promotedProductLogicType'
 
 export type PromotedProductVariant = 'control' | 'control_b' | 'intent' | 'intent_plus'
 
-export type PromotedProductTargetKind = 'product' | 'url' | 'ai_chat'
+export type PromotedProductTargetKind = 'product' | 'url'
 
 export interface PromotedProductTarget {
     kind: PromotedProductTargetKind
-    /** product key when kind === 'product', URL when kind === 'url', ignored when kind === 'ai_chat'. */
+    /** product key when kind === 'product', URL when kind === 'url'. */
     value: string
 }
 
@@ -113,11 +111,7 @@ function readPromotedProductOverrideFromStorage(): PromotedProductTarget | null 
     }
     try {
         const parsed = JSON.parse(raw) as PromotedProductTarget
-        if (
-            parsed &&
-            typeof parsed.value === 'string' &&
-            (parsed.kind === 'product' || parsed.kind === 'url' || parsed.kind === 'ai_chat')
-        ) {
+        if (parsed && typeof parsed.value === 'string' && (parsed.kind === 'product' || parsed.kind === 'url')) {
             return parsed
         }
     } catch {
@@ -141,7 +135,6 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
 
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
 
     actions({
@@ -306,12 +299,5 @@ export function promotedProductTargetToUrl(target: PromotedProductTarget): strin
     if (target.kind === 'product') {
         return PRODUCT_KEY_TO_URL[target.value] ?? null
     }
-    if (target.kind === 'url') {
-        return target.value
-    }
-    return null
-}
-
-export function isAiChatTarget(target: PromotedProductTarget): boolean {
-    return target.kind === 'ai_chat'
+    return target.value
 }

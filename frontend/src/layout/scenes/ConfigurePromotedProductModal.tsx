@@ -23,19 +23,13 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
         useActions(promotedProductLogic)
 
     const canSave =
-        pendingKind === 'ai_chat' ||
-        (pendingKind === 'product' && !!pendingProduct) ||
-        (pendingKind === 'url' && pendingUrl.trim().length > 0)
+        (pendingKind === 'product' && !!pendingProduct) || (pendingKind === 'url' && pendingUrl.trim().length > 0)
 
     const handleSave = (): void => {
-        let target: PromotedProductTarget
-        if (pendingKind === 'product') {
-            target = { kind: 'product', value: pendingProduct }
-        } else if (pendingKind === 'url') {
-            target = { kind: 'url', value: pendingUrl.trim() }
-        } else {
-            target = { kind: 'ai_chat', value: 'ai_chat' }
-        }
+        const target: PromotedProductTarget =
+            pendingKind === 'product'
+                ? { kind: 'product', value: pendingProduct }
+                : { kind: 'url', value: pendingUrl.trim() }
         setOverride(target)
         onClose()
     }
@@ -80,7 +74,6 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
                     options={[
                         { value: 'product', label: 'Product' },
                         { value: 'url', label: 'URL' },
-                        { value: 'ai_chat', label: 'AI chat' },
                     ]}
                 />
 
@@ -101,10 +94,6 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
                         placeholder="/my-dashboard or https://example.com"
                         data-attr="configure-promoted-product-url"
                     />
-                )}
-
-                {pendingKind === 'ai_chat' && (
-                    <p className="text-sm text-tertiary m-0">Clicking the entry will open the Max side panel.</p>
                 )}
             </section>
         </LemonModal>

@@ -128,15 +128,6 @@ export const IntentPlusWithUrlOverride: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } },
 }
 
-export const IntentPlusWithAiChatOverride: Story = {
-    args: {
-        onboardingIntent: 'session_replay',
-        override: { kind: 'ai_chat', value: 'ai_chat' },
-        isCollapsed: false,
-    },
-    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } },
-}
-
 export const IntentCollapsedSidebar: Story = {
     args: { onboardingIntent: 'web_analytics', override: null, isCollapsed: true },
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent' } },

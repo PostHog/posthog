@@ -107,7 +107,7 @@ describe('promotedProductLogic', () => {
 
         it('intent variant ignores the override (cog is intent_plus only)', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'ai_chat', value: 'ai_chat' }))
+            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'url', value: '/my-page' }))
             mountLogic()
             setFlagVariant('intent')
 
