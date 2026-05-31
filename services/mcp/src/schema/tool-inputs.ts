@@ -544,7 +544,7 @@ export const HogQLSchemaInputSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-connections-list to discover available connection ids.'
         ),
 })
 
@@ -565,7 +565,7 @@ export const QueryValidateInputSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-connections-list to discover available connection ids.'
         ),
 })
 

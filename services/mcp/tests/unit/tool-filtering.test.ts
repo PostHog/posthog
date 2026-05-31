@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -8,6 +9,8 @@ import {
     getRequiredFeatureFlags,
     getToolsForFeatures,
     type ToolDefinition,
+    ToolDefinitionSchema,
+    toolPassesFlagGate,
 } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
@@ -361,6 +364,11 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 }
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
+    // Minted directly into a server-issued token, never advertised via OAuth metadata
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
+    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
@@ -376,7 +384,9 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             }
         }
 
-        const missing = [...scopesFromTools].filter((s) => !supportedScopes.has(s)).sort()
+        const missing = [...scopesFromTools]
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .sort()
 
         expect(
             missing,
@@ -703,35 +713,12 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(flags).toHaveLength(9)
     })
 
-    // Test the filtering logic with a direct unit test approach using
-    // a standalone implementation that mirrors getToolsForFeatures' logic
+    // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
+    // so we can cover variant / behavior / missing-flag matrices without
+    // having to register fake tools into the global tool registry.
     describe('feature flag filter predicate', () => {
-        function filterByFeatureFlags(
-            entries: [string, ToolDefinition][],
-            featureFlags?: Record<string, boolean>
-        ): string[] {
-            let filtered = entries
-
-            if (featureFlags) {
-                filtered = filtered.filter(([_, definition]) => {
-                    if (!definition.feature_flag) {
-                        return true
-                    }
-                    const flagValue = featureFlags[definition.feature_flag]
-                    const isOn = flagValue === true
-                    const behavior = definition.feature_flag_behavior ?? 'enable'
-                    return behavior === 'enable' ? isOn : !isOn
-                })
-            } else {
-                filtered = filtered.filter(([_, definition]) => {
-                    if (!definition.feature_flag) {
-                        return true
-                    }
-                    return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-                })
-            }
-
-            return filtered.map(([name]) => name)
+        function filterByFeatureFlags(entries: [string, ToolDefinition][], featureFlags?: EvaluatedFlags): string[] {
+            return entries.filter(([_, def]) => toolPassesFlagGate(def, featureFlags)).map(([name]) => name)
         }
 
         it('should include tools with feature_flag when flag is enabled', () => {
@@ -820,6 +807,100 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).not.toContain('new-tool-v2')
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
+        })
+
+        describe('feature_flag_variant matching', () => {
+            const variantToolEntries: [string, ToolDefinition][] = [
+                ['unrelated-tool', { ...baseDef }],
+                [
+                    'variant-gated-tool',
+                    {
+                        ...baseDef,
+                        feature_flag: 'promoted-product',
+                        feature_flag_variant: 'intent_plus',
+                    },
+                ],
+            ]
+
+            it('shows variant-gated tool only when the variant matches', () => {
+                const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': 'intent_plus' })
+                expect(tools).toContain('variant-gated-tool')
+                expect(tools).toContain('unrelated-tool')
+            })
+
+            it.each(['control_a', 'control_b', 'intent', false, true, undefined])(
+                'hides variant-gated tool when flag value is %p',
+                (flagValue) => {
+                    const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })
+                    expect(tools).not.toContain('variant-gated-tool')
+                    expect(tools).toContain('unrelated-tool')
+                }
+            )
+
+            it('hides variant-gated tool when featureFlags map is omitted entirely', () => {
+                const tools = filterByFeatureFlags(variantToolEntries)
+                expect(tools).not.toContain('variant-gated-tool')
+                expect(tools).toContain('unrelated-tool')
+            })
+
+            it('hides a hand-rolled misconfig tool with feature_flag_variant but no feature_flag', () => {
+                // The Zod `.refine` rejects this at parse time, but a developer
+                // can still construct one in code via cast — the runtime predicate
+                // must treat it as hidden, not ungated.
+                const misconfigEntries: [string, ToolDefinition][] = [
+                    ['orphan-variant', { ...baseDef, feature_flag_variant: 'intent_plus' }],
+                ]
+                expect(filterByFeatureFlags(misconfigEntries, { 'promoted-product': 'intent_plus' })).not.toContain(
+                    'orphan-variant'
+                )
+                expect(filterByFeatureFlags(misconfigEntries)).not.toContain('orphan-variant')
+            })
+        })
+
+        describe('feature_flag_variant schema validation', () => {
+            const baseFields = {
+                description: '',
+                category: 'platform_features',
+                feature: 'platform_features',
+                summary: '',
+                title: '',
+                required_scopes: [],
+                annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true },
+            }
+
+            it('rejects feature_flag_variant without feature_flag', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag_variant: 'intent_plus',
+                })
+                expect(result.success).toBe(false)
+                if (!result.success) {
+                    expect(result.error.issues[0]?.message).toMatch(/feature_flag_variant.*requires.*feature_flag/i)
+                    expect(result.error.issues[0]?.path).toEqual(['feature_flag_variant'])
+                }
+            })
+
+            it('accepts feature_flag_variant when feature_flag is also set', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag: 'promoted-product',
+                    feature_flag_variant: 'intent_plus',
+                })
+                expect(result.success).toBe(true)
+            })
+
+            it('accepts feature_flag alone (no variant)', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag: 'promoted-product',
+                })
+                expect(result.success).toBe(true)
+            })
+
+            it('accepts a definition with neither flag field set', () => {
+                const result = ToolDefinitionSchema.safeParse(baseFields)
+                expect(result.success).toBe(true)
+            })
         })
     })
 })

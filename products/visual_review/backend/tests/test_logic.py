@@ -1592,6 +1592,79 @@ class TestRecomputeRun:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRerunGithubJob:
+    """Tests for _rerun_github_job SHA validation."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=55555, repo_full_name="org/test-repo")
+
+    def _make_run(self, repo: "Repo", commit_sha: str = "abc123def456") -> "Run":
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha=commit_sha,
+            branch="feature",
+            pr_number=1,
+            snapshots=[],
+            metadata={"github_check_run_id": "72855643533"},
+        )
+        return run
+
+    def test_rejects_non_digit_check_run_id(self, repo):
+        run = self._make_run(repo)
+        success, error = logic._rerun_github_job(run, "not-a-number")
+        assert success is False
+        assert error == "Invalid check run ID"
+
+    def test_rejects_when_sha_does_not_match(self, repo, mocker):
+        run = self._make_run(repo, commit_sha="abc123")
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"head_sha": "different_sha_entirely"}
+        mocker.patch("products.visual_review.backend.logic._github_api_request", return_value=mock_response)
+
+        success, error = logic._rerun_github_job(run, "72855643533")
+
+        assert success is False
+        assert error == "Check run does not belong to this commit"
+
+    def test_rejects_when_check_run_fetch_fails(self, repo, mocker):
+        run = self._make_run(repo)
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 404
+        mocker.patch("products.visual_review.backend.logic._github_api_request", return_value=mock_response)
+
+        success, error = logic._rerun_github_job(run, "72855643533")
+
+        assert success is False
+        assert error is not None
+        assert "404" in error
+
+    def test_triggers_rerun_when_sha_matches(self, repo, mocker):
+        commit_sha = "abc123def456"
+        run = self._make_run(repo, commit_sha=commit_sha)
+
+        check_run_response = mocker.MagicMock()
+        check_run_response.status_code = 200
+        check_run_response.json.return_value = {"head_sha": commit_sha}
+
+        rerun_response = mocker.MagicMock()
+        rerun_response.status_code = 201
+
+        mocker.patch(
+            "products.visual_review.backend.logic._github_api_request",
+            side_effect=[check_run_response, rerun_response],
+        )
+
+        success, error = logic._rerun_github_job(run, "72855643533")
+
+        assert success is True
+        assert error is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestMergeBaseBaselineHealing:
     """Tests for _resolve_baselines_with_merge_base healing rebase-corrupted baselines."""
 
