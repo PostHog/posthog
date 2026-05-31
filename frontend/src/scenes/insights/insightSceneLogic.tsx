@@ -295,9 +295,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                     }
                                   : sceneSource === 'llm-analytics'
                                     ? {
-                                          key: 'LLMAnalytics',
+                                          key: 'AIObservability',
                                           name: 'AI observability',
-                                          path: urls.llmAnalyticsDashboard(),
+                                          path: urls.aiObservabilityDashboard(),
                                           iconType: 'llm_analytics' as FileSystemIconType,
                                       }
                                     : sceneSource === 'endpoints'

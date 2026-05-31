@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
+import { dimensions, setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -352,6 +352,33 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         )
         const [seriesArg] = onDataPointClick.mock.calls[0]
         expect(seriesArg.day).toBeUndefined()
+    })
+
+    it('tooltip on a breakdown shows that breakdown row with its own value', async () => {
+        // Regression: aggregated tooltip used to read the visible series's value at
+        // ctx.dataIndex, a sparse-zero cell, so the row showed `0` (or the wrong row).
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+        await screen.findByRole('img', { name: /chart with 5 data series/i }, { timeout: 5000 })
+
+        // Spike has aggregated_value 11 — largest, so it's the topmost row in DESC layout.
+        const canvas = screen.getByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+        fireEvent.mouseMove(wrapper, {
+            clientX: dimensions.plotLeft + 10,
+            clientY: dimensions.plotTop + 10,
+        })
+
+        const tooltip = chart.getTooltip()
+        expect(tooltip).not.toBeNull()
+        const rowText = tooltip!.textContent ?? ''
+        expect(rowText).toContain('Spike')
+        expect(rowText).toContain('11')
     })
 
     it('renders InsightEmptyState when every aggregated_value is zero', async () => {

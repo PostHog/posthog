@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -4221,6 +4222,8 @@ class TestExperimentService(APIBaseTest):
         [
             ("created_at",),
             ("-created_at",),
+            ("created_by",),
+            ("-created_by",),
             ("name",),
             ("-name",),
             ("start_date",),
@@ -4895,3 +4898,49 @@ class TestExperimentService(APIBaseTest):
                     ],
                 },
             )
+
+
+class TestValidateExperimentParametersExcludedVariants:
+    def _base_params(self) -> dict[str, Any]:
+        return {
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test-1", "rollout_percentage": 25},
+                {"key": "test-2", "rollout_percentage": 25},
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "extra_params",
+        [
+            {},
+            {"excluded_variants": []},
+            {"excluded_variants": ["test-2"]},
+            {"excluded_variants": ["test-2", "test-2"]},
+        ],
+    )
+    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
+        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+
+    @pytest.mark.parametrize(
+        "extra_params,match",
+        [
+            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
+            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
+            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
+            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
+            ({"excluded_variants": "test-2"}, "must be a list of strings"),
+            ({"excluded_variants": [123]}, "must be a list of strings"),
+            (
+                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
+                "baseline variant cannot be excluded",
+            ),
+        ],
+    )
+    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
+        with pytest.raises(ValidationError, match=match):
+            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+
+    def test_excluded_variants_without_feature_flag_variants_raises(self):
+        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
+            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
