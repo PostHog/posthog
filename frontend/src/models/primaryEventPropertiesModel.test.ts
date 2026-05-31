@@ -84,6 +84,20 @@ describe('the primary event properties model', () => {
             })
     })
 
+    it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/event_definitions/primary_properties/': () => [500, {}] },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPrimaryProperties(['flaky_event'])
+        })
+            .toDispatchActions(['loadPrimaryProperties'])
+            .delay(0)
+
+        expect(logic.values.loadedEventNames).toEqual([])
+    })
+
     it('lets a later server refresh override a pinned value without a stale optimistic shadow', async () => {
         await expectLogic(logic, () => {
             logic.actions.setPrimaryProperty('my_event', 'chosen_prop')

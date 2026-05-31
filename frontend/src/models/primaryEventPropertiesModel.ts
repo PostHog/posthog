@@ -49,7 +49,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
         loadedEventNames: [
             [] as string[],
             {
-                loadPrimaryProperties: (state, { names }) => Array.from(new Set([...state, ...names])),
+                primaryPropertiesLoaded: (state, { names }) => Array.from(new Set([...state, ...names])),
             },
         ],
         optimisticPrimaryProperties: [
@@ -109,8 +109,10 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
             if (names.length === 0) {
                 return
             }
-            const response = await api.eventDefinitions.primaryProperties({ names })
-            actions.primaryPropertiesLoaded(names, response.primary_properties)
+            try {
+                const response = await api.eventDefinitions.primaryProperties({ names })
+                actions.primaryPropertiesLoaded(names, response.primary_properties)
+            } catch {}
         },
         setPrimaryProperty: async ({ eventName, propertyKey }) => {
             actions.applyOptimisticPrimaryProperty(eventName, propertyKey)
