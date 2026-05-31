@@ -8,7 +8,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { localStorageOverrideKey, localStorageProductKey, promotedProductLogic } from './promotedProductLogic'
+import {
+    isInternalPath,
+    localStorageOverrideKey,
+    localStorageProductKey,
+    promotedProductLogic,
+} from './promotedProductLogic'
 
 const PRODUCT_KEY = localStorageProductKey(MOCK_TEAM_ID)
 const OVERRIDE_KEY = localStorageOverrideKey(MOCK_TEAM_ID)
@@ -126,6 +131,35 @@ describe('promotedProductLogic', () => {
                 effectiveTarget: { kind: 'url', value: '/dashboard', label: 'Dashboards' },
                 shouldRenderEntry: true,
             })
+        })
+
+        it('ignores a non-internal url override', async () => {
+            window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
+            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'url', value: 'https://evil.com' }))
+            mountLogic()
+            setFlagVariant('intent_plus')
+
+            await expectLogic(logic).toMatchValues({
+                effectiveTarget: { kind: 'product', value: 'session_replay' },
+            })
+        })
+    })
+
+    describe('isInternalPath', () => {
+        it.each([
+            ['/insights', true],
+            ['/dashboard/123', true],
+            ['/', true],
+            ['https://evil.com', false],
+            ['http://evil.com', false],
+            ['//evil.com', false],
+            ['/\\evil.com', false],
+            ['javascript:alert(1)', false],
+            ['mailto:a@b.com', false],
+            ['relative/path', false],
+            ['', false],
+        ])('isInternalPath(%s) === %s', (value, expected) => {
+            expect(isInternalPath(value)).toBe(expected)
         })
     })
 

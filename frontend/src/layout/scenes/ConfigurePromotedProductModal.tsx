@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@pos
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import {
+    isInternalPath,
     PRODUCT_KEY_LABELS,
     PromotedProductTarget,
     promotedProductLogic,
@@ -22,14 +23,18 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
     const { setPendingKind, setPendingProduct, setPendingUrl, setOverride, clearOverride } =
         useActions(promotedProductLogic)
 
-    const canSave =
-        (pendingKind === 'product' && !!pendingProduct) || (pendingKind === 'url' && pendingUrl.trim().length > 0)
+    const trimmedUrl = pendingUrl.trim()
+    const urlIsValid = isInternalPath(trimmedUrl)
+    const canSave = (pendingKind === 'product' && !!pendingProduct) || (pendingKind === 'url' && urlIsValid)
+    const saveDisabledReason = canSave
+        ? undefined
+        : pendingKind === 'url'
+          ? 'Enter an internal path that starts with /'
+          : 'Pick a target'
 
     const handleSave = (): void => {
         const target: PromotedProductTarget =
-            pendingKind === 'product'
-                ? { kind: 'product', value: pendingProduct }
-                : { kind: 'url', value: pendingUrl.trim() }
+            pendingKind === 'product' ? { kind: 'product', value: pendingProduct } : { kind: 'url', value: trimmedUrl }
         setOverride(target)
         onClose()
     }
@@ -58,7 +63,7 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
                         <LemonButton
                             type="primary"
                             onClick={handleSave}
-                            disabledReason={canSave ? undefined : 'Pick a target'}
+                            disabledReason={saveDisabledReason}
                             data-attr="configure-promoted-product-save"
                         >
                             Save
@@ -91,9 +96,15 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
                     <LemonInput
                         value={pendingUrl}
                         onChange={setPendingUrl}
-                        placeholder="/my-dashboard or https://example.com"
+                        placeholder="/my-dashboard"
+                        status={trimmedUrl.length > 0 && !urlIsValid ? 'danger' : 'default'}
                         data-attr="configure-promoted-product-url"
                     />
+                )}
+                {pendingKind === 'url' && (
+                    <p className="text-xs text-tertiary m-0">
+                        Internal app paths only, e.g. <code>/insights</code> or <code>/dashboard/123</code>.
+                    </p>
                 )}
             </section>
         </LemonModal>

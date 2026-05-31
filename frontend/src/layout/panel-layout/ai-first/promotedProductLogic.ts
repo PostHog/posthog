@@ -116,6 +116,15 @@ function readPromotedProductFromStorage(): string | null {
     return readLocalStorageString(localStorageProductKey(teamId))
 }
 
+/**
+ * A `url` override may only point at an internal app path: it must start with a single
+ * `/` (not `//` or `/\`, which browsers can treat as protocol-relative external links).
+ * This blocks external URLs and `javascript:` / `data:` schemes from reaching the nav anchor.
+ */
+export function isInternalPath(value: string): boolean {
+    return /^\/(?![/\\])/.test(value)
+}
+
 function readPromotedProductOverrideFromStorage(): PromotedProductTarget | null {
     const teamId = currentTeamId()
     if (teamId === null) {
@@ -127,8 +136,13 @@ function readPromotedProductOverrideFromStorage(): PromotedProductTarget | null 
     }
     try {
         const parsed = JSON.parse(raw) as PromotedProductTarget
-        if (parsed && typeof parsed.value === 'string' && (parsed.kind === 'product' || parsed.kind === 'url')) {
-            return parsed
+        if (parsed && typeof parsed.value === 'string') {
+            if (parsed.kind === 'product') {
+                return parsed
+            }
+            if (parsed.kind === 'url' && isInternalPath(parsed.value)) {
+                return parsed
+            }
         }
     } catch {
         // fall through
