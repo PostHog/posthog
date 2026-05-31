@@ -16,8 +16,8 @@ export function PinPrimaryPropertyButton({
     propertyKey: string
     isRowHovered: boolean
 }): JSX.Element | null {
-    const { primaryProperties, savingPrimaryPropertyForEvents } = useValues(primaryEventPropertiesModel)
-    const { setPrimaryProperty } = useActions(primaryEventPropertiesModel)
+    const { primaryProperties, primaryPropertiesLoading } = useValues(primaryEventPropertiesModel)
+    const { updatePrimaryProperty } = useActions(primaryEventPropertiesModel)
 
     if (hasTaxonomyPrimaryProperty(eventName)) {
         if (getPrimaryPropertyForEvent(eventName) !== propertyKey) {
@@ -37,7 +37,6 @@ export function PinPrimaryPropertyButton({
 
     const currentPrimary = primaryProperties[eventName] ?? null
     const isPinned = currentPrimary === propertyKey
-    const saving = savingPrimaryPropertyForEvents.includes(eventName)
 
     const tooltip = isPinned
         ? `Unpin "${propertyKey}" — it will stop showing next to ${eventName} events`
@@ -50,10 +49,10 @@ export function PinPrimaryPropertyButton({
             size="xsmall"
             noPadding
             active={isPinned}
-            loading={saving}
+            loading={primaryPropertiesLoading}
             icon={isPinned ? <IconPinFilled /> : <IconPin />}
             tooltip={tooltip}
-            onClick={() => setPrimaryProperty(eventName, isPinned ? null : propertyKey)}
+            onClick={() => updatePrimaryProperty({ eventName, propertyKey: isPinned ? null : propertyKey })}
             className={isPinned || isRowHovered ? undefined : 'opacity-0 focus:opacity-100'}
             data-attr="replay-pin-primary-property"
         />

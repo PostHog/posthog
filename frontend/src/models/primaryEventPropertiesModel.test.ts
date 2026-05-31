@@ -36,74 +36,48 @@ describe('the primary event properties model', () => {
         await expectLogic(logic, () => {
             logic.actions.ensureLoadedForEvents(['my_event', '$pageview'])
         })
-            .toDispatchActions(['primaryPropertiesLoaded'])
+            .toDispatchActions(['loadPrimaryPropertiesSuccess'])
             .toMatchValues({
                 primaryProperties: { my_event: 'existing_prop' },
                 loadedEventNames: ['my_event'],
             })
     })
 
-    it('optimistically applies the pin and folds it into loaded state when the request succeeds', async () => {
+    it('folds the API response into the loaded map when a pin succeeds', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setPrimaryProperty('my_event', 'chosen_prop')
+            logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
         })
-            .toDispatchActions([
-                'setPrimaryProperty',
-                logic.actionCreators.applyOptimisticPrimaryProperty('my_event', 'chosen_prop'),
-                logic.actionCreators.setLoadedPrimaryProperty('my_event', 'chosen_prop'),
-                'clearOptimisticPrimaryProperty',
-                'finishSavingPrimaryProperty',
-            ])
-            .toMatchValues({
-                primaryProperties: { my_event: 'chosen_prop' },
-                loadedPrimaryProperties: { my_event: 'chosen_prop' },
-                optimisticPrimaryProperties: {},
-                savingPrimaryPropertyForEvents: [],
-            })
+            .toDispatchActions(['updatePrimaryProperty', 'updatePrimaryPropertySuccess'])
+            .toMatchValues({ primaryProperties: { my_event: 'chosen_prop' } })
     })
 
-    it('reverts the pin when the request fails', async () => {
+    it('removes the entry when unpinned', async () => {
+        logic.actions.loadPrimaryPropertiesSuccess({ my_event: 'existing_prop' }, { names: ['my_event'] })
+
+        await expectLogic(logic, () => {
+            logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: null })
+        })
+            .toDispatchActions(['updatePrimaryPropertySuccess'])
+            .toMatchValues({ primaryProperties: {} })
+    })
+
+    it('leaves the loaded map unchanged when the update request fails', async () => {
         useMocks({
             patch: { '/api/projects/:team_id/event_definitions/:id/': () => [403, { detail: 'nope' }] },
         })
+        logic.actions.loadPrimaryPropertiesSuccess({ my_event: 'existing_prop' }, { names: ['my_event'] })
 
         await expectLogic(logic, () => {
-            logic.actions.setPrimaryProperty('my_event', 'chosen_prop')
+            logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
         })
-            .toDispatchActions([
-                'setPrimaryProperty',
-                logic.actionCreators.applyOptimisticPrimaryProperty('my_event', 'chosen_prop'),
-                'clearOptimisticPrimaryProperty',
-                'finishSavingPrimaryProperty',
-            ])
-            .toMatchValues({
-                primaryProperties: {},
-                loadedPrimaryProperties: {},
-                optimisticPrimaryProperties: {},
-                savingPrimaryPropertyForEvents: [],
-            })
+            .toDispatchActions(['updatePrimaryProperty', 'updatePrimaryPropertySuccess'])
+            .toMatchValues({ primaryProperties: { my_event: 'existing_prop' } })
     })
 
-    it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
-        useMocks({
-            get: { '/api/projects/:team_id/event_definitions/primary_properties/': () => [500, {}] },
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.loadPrimaryProperties(['flaky_event'])
-        })
-            .toDispatchActions(['loadPrimaryProperties'])
-            .delay(0)
-
-        expect(logic.values.loadedEventNames).toEqual([])
-    })
-
-    it('reverts and does not attempt an update when the event definition lookup fails', async () => {
+    it('does not attempt an update when the event definition lookup fails', async () => {
         let updateAttempted = false
         useMocks({
-            get: {
-                '/api/projects/:team_id/event_definitions/by_name/': () => [404, { detail: 'not found' }],
-            },
+            get: { '/api/projects/:team_id/event_definitions/by_name/': () => [404, { detail: 'not found' }] },
             patch: {
                 '/api/projects/:team_id/event_definitions/:id/': () => {
                     updateAttempted = true
@@ -113,68 +87,23 @@ describe('the primary event properties model', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setPrimaryProperty('missing_event', 'some_prop')
-        }).toDispatchActions([
-            'setPrimaryProperty',
-            logic.actionCreators.applyOptimisticPrimaryProperty('missing_event', 'some_prop'),
-            'clearOptimisticPrimaryProperty',
-            'finishSavingPrimaryProperty',
-        ])
+            logic.actions.updatePrimaryProperty({ eventName: 'missing_event', propertyKey: 'some_prop' })
+        })
+            .toDispatchActions(['updatePrimaryProperty', 'updatePrimaryPropertySuccess'])
+            .toMatchValues({ primaryProperties: {} })
 
         expect(updateAttempted).toBe(false)
-        expect(logic.values.primaryProperties).toEqual({})
-        expect(logic.values.savingPrimaryPropertyForEvents).toEqual([])
     })
 
-    it('a save completed during an in-flight refresh is not clobbered by the stale refresh result', async () => {
-        let releaseLoad: (() => void) | undefined
-        const loadGate = new Promise<void>((resolve) => {
-            releaseLoad = resolve
-        })
+    it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
         useMocks({
-            get: {
-                '/api/projects/:team_id/event_definitions/by_name/': () => [200, { id: 'def-1', name: 'my_event' }],
-                '/api/projects/:team_id/event_definitions/primary_properties/': async () => {
-                    await loadGate
-                    return [200, { primary_properties: {} }]
-                },
-            },
-        })
-
-        logic.actions.loadPrimaryProperties(['my_event'])
-        await expectLogic(logic).toDispatchActions(['loadPrimaryProperties'])
-
-        await expectLogic(logic, () => {
-            logic.actions.setPrimaryProperty('my_event', 'fresh')
-        }).toDispatchActions(['finishSavingPrimaryProperty'])
-        expect(logic.values.primaryProperties).toEqual({ my_event: 'fresh' })
-
-        releaseLoad?.()
-        await expectLogic(logic).delay(0)
-
-        expect(logic.values.primaryProperties).toEqual({ my_event: 'fresh' })
-        expect(logic.values.loadedPrimaryProperties).toEqual({ my_event: 'fresh' })
-    })
-
-    it('lets a later server refresh override a pinned value without a stale optimistic shadow', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setPrimaryProperty('my_event', 'chosen_prop')
-        }).toDispatchActions(['finishSavingPrimaryProperty'])
-        expect(logic.values.primaryProperties).toEqual({ my_event: 'chosen_prop' })
-
-        useMocks({
-            get: {
-                '/api/projects/:team_id/event_definitions/primary_properties/': () => [
-                    200,
-                    { primary_properties: { my_event: 'changed_elsewhere' } },
-                ],
-            },
+            get: { '/api/projects/:team_id/event_definitions/primary_properties/': () => [500, {}] },
         })
 
         await expectLogic(logic, () => {
-            logic.actions.loadPrimaryProperties(['my_event'])
-        }).toDispatchActions(['primaryPropertiesLoaded'])
+            logic.actions.loadPrimaryProperties({ names: ['flaky_event'] })
+        }).toDispatchActions(['loadPrimaryPropertiesFailure'])
 
-        expect(logic.values.primaryProperties).toEqual({ my_event: 'changed_elsewhere' })
+        expect(logic.values.loadedEventNames).toEqual([])
     })
 })

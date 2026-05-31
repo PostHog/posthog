@@ -61,7 +61,7 @@ describe('PinPrimaryPropertyButton', () => {
 
     it.each(revealCases)('$name', ({ pinned, hovered, hidden }) => {
         if (pinned) {
-            logic.actions.primaryPropertiesLoaded(['my_event'], { my_event: 'my_prop' })
+            logic.actions.loadPrimaryPropertiesSuccess({ my_event: 'my_prop' }, { names: ['my_event'] })
         }
 
         const container = renderButton('my_event', 'my_prop', hovered)
