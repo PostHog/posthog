@@ -129,7 +129,7 @@ def fit_champion_model(
         except Exception as exc:
             raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
 
-    data = _materialize_training_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql)
+    data = materialize_training_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql)
     if not data.train_rows:
         raise SandboxInferenceError("No training rows to fit on")
     if not data.feature_cols:
@@ -212,7 +212,7 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
     return max(30, pipeline.horizon_days * 4)
 
 
-def _materialize_training_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql: str) -> MaterializedData:
+def materialize_training_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql: str) -> MaterializedData:
     """
     Train run materialization: the bundle's feature SQL against the LABELED training
     anchors (per-user random T0, with __label + __fold). Splits train/holdout by fold
@@ -314,10 +314,10 @@ def _run_train_in_sandbox(
     with Sandbox.create(_sandbox_config(pipeline, "train")) as sandbox:
         for name, content in bundle.as_files().items():
             sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
-        sandbox.write_file(f"{_WORKDIR}/data/train_features.parquet", _features_parquet(data.train_rows, cols))
-        sandbox.write_file(f"{_WORKDIR}/data/train_labels.parquet", _labels_parquet(data.train_rows))
-        sandbox.write_file(f"{_WORKDIR}/data/holdout_features.parquet", _features_parquet(data.holdout_rows, cols))
-        sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.parquet", _labels_parquet(data.holdout_rows))
+        sandbox.write_file(f"{_WORKDIR}/data/train_features.parquet", features_parquet(data.train_rows, cols))
+        sandbox.write_file(f"{_WORKDIR}/data/train_labels.parquet", labels_parquet(data.train_rows))
+        sandbox.write_file(f"{_WORKDIR}/data/holdout_features.parquet", features_parquet(data.holdout_rows, cols))
+        sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.parquet", labels_parquet(data.holdout_rows))
 
         train_cmd = (
             f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/train.py "
@@ -348,7 +348,7 @@ def _run_predict_in_sandbox(
         for name, content in bundle.as_files().items():
             sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
         sandbox.write_file(f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
-        sandbox.write_file(f"{_WORKDIR}/data/score_features.parquet", _features_parquet(score_rows, feature_cols))
+        sandbox.write_file(f"{_WORKDIR}/data/score_features.parquet", features_parquet(score_rows, feature_cols))
 
         predict_cmd = (
             f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/predict.py "
@@ -364,7 +364,7 @@ def _run_predict_in_sandbox(
     return _join_scores(score_rows=score_rows, scores=scores)
 
 
-def _features_parquet(rows: list[dict[str, Any]], feature_cols: list[str]) -> bytes:
+def features_parquet(rows: list[dict[str, Any]], feature_cols: list[str]) -> bytes:
     """Serialize the feature matrix to parquet bytes: string `distinct_id` + float feature columns."""
     data: dict[str, list[Any]] = {"distinct_id": [str(r.get("distinct_id", "")) for r in rows]}
     for col in feature_cols:
@@ -372,7 +372,7 @@ def _features_parquet(rows: list[dict[str, Any]], feature_cols: list[str]) -> by
     return _to_parquet_bytes(pd.DataFrame(data))
 
 
-def _labels_parquet(rows: list[dict[str, Any]]) -> bytes:
+def labels_parquet(rows: list[dict[str, Any]]) -> bytes:
     """Serialize the label vector to parquet bytes: string `distinct_id` + int `__label`."""
     df = pd.DataFrame(
         {

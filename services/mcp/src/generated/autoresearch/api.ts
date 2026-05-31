@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 28 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -494,6 +494,30 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
     })
     .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const AutoresearchTrainingRunsMaterializeFeaturesCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch training run.'),
+    pipeline_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AutoresearchTrainingRunsMaterializeFeaturesCreateBody = /* @__PURE__ */ zod
+    .object({
+        features_sql: zod
+            .string()
+            .describe(
+                'Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox.'
+            ),
+    })
+    .describe("Input for materializing the labeled training feature matrix into the run's sandbox.")
 
 /**
  * Return recent completed training runs and their iteration trails so a new run can learn from what was already tried. Scoped to this pipeline first, then same-target sibling pipelines on the team. Read this before iterating to reuse winning features and avoid repeating discarded approaches.

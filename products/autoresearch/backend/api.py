@@ -32,6 +32,13 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.online_validation import run_online_validation_for_pipeline
 from products.autoresearch.backend.promotion import complete_training_run
+from products.autoresearch.backend.recipe_validation import RecipeValidationError, validate_feature_sql
+from products.autoresearch.backend.sandbox_inference import (
+    SandboxInferenceError,
+    features_parquet,
+    labels_parquet,
+    materialize_training_data,
+)
 from products.autoresearch.backend.serializers import (
     ArtifactContentSerializer,
     ArtifactDeleteResultSerializer,
@@ -47,6 +54,8 @@ from products.autoresearch.backend.serializers import (
     AutoresearchTrainingRunSerializer,
     CompleteTrainingRunSerializer,
     CreateSuggestionSerializer,
+    MaterializeFeaturesRequestSerializer,
+    MaterializeFeaturesResponseSerializer,
     OpenTrainingRunSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
@@ -64,8 +73,13 @@ from products.autoresearch.backend.templates import (
 )
 from products.autoresearch.backend.training import run_training
 from products.autoresearch.backend.validation import validate_pipeline_definition
+from products.tasks.backend.services.sandbox import Sandbox
 
 logger = structlog.get_logger(__name__)
+
+# Where materialized training parquet lands inside the agent's sandbox. The agent reads
+# these paths with pd.read_parquet — the rows never transit the model's context.
+_AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
 
 
 class AutoresearchAccessPermission(BasePermission):
@@ -468,6 +482,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         "create",
         "record_iteration",
         "complete",
+        "materialize_features",
         "upload_artifact",
         "delete_artifact",
     ]
@@ -566,6 +581,119 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
             },
         )
         return Response(AutoresearchIterationSerializer(iteration).data, status=201)
+
+    @validated_request(
+        request_serializer=MaterializeFeaturesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=MaterializeFeaturesResponseSerializer,
+                description="Sandbox paths to the train/holdout feature and label parquet files, plus row counts and feature columns.",
+            ),
+            400: OpenApiResponse(
+                description="Run not running, features_sql invalid, sandbox unavailable, or the query produced no usable rows."
+            ),
+        },
+        summary="Materialize training features to the sandbox",
+        description=(
+            "Run features_sql server-side against the labeled training population and write the resulting "
+            "train/holdout feature and label parquet files directly into this run's sandbox. Returns the local "
+            "sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and "
+            "there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="materialize-features")
+    def materialize_features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = self.get_object()
+        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+            raise ValidationError("Can only materialize features for a running training run.")
+        features_sql = request.validated_data["features_sql"]  # type: ignore[attr-defined]
+        try:
+            validate_feature_sql(features_sql)
+        except RecipeValidationError as exc:
+            raise ValidationError(str(exc))
+
+        sandbox_id = self._resolve_run_sandbox_id(training_run)
+        try:
+            data = materialize_training_data(team=self.team, pipeline=training_run.pipeline, feature_sql=features_sql)
+        except SandboxInferenceError as exc:
+            raise ValidationError(f"Feature materialization failed: {exc}")
+        if not data.train_rows:
+            raise ValidationError("features_sql produced no training rows.")
+        if not data.feature_cols:
+            raise ValidationError("features_sql produced no numeric feature columns.")
+
+        paths = self._write_feature_parquets(sandbox_id, data)
+        response = {
+            **paths,
+            "n_train": len(data.train_rows),
+            "n_holdout": len(data.holdout_rows),
+            "n_features": len(data.feature_cols),
+            "feature_cols": data.feature_cols,
+        }
+        logger.info(
+            "autoresearch_features_materialized_to_sandbox",
+            pipeline_id=str(training_run.pipeline_id),
+            training_run_id=str(training_run.id),
+            n_train=len(data.train_rows),
+            n_holdout=len(data.holdout_rows),
+            n_features=len(data.feature_cols),
+        )
+        return Response(MaterializeFeaturesResponseSerializer(response).data)
+
+    def _resolve_run_sandbox_id(self, training_run: AutoresearchTrainingRun) -> str:
+        """
+        Resolve the live sandbox for this training run from its TaskRun state.
+
+        The sandbox id is derived from the team-scoped run record — never from the
+        client — and verified to belong to this training run. Raises ValidationError
+        if the run has no live sandbox.
+        """
+        # Deferred to avoid a tasks<->autoresearch import cycle (matches training.run_training).
+        from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+        if not training_run.task_run_id:
+            raise ValidationError("This training run has no sandbox (e.g. a stub run). Cannot materialize features.")
+        try:
+            task_run = TaskRun.objects.get(id=training_run.task_run_id)
+        except TaskRun.DoesNotExist:
+            raise ValidationError("Sandbox task run not found for this training run.")
+        state = task_run.state or {}
+        if str(state.get("autoresearch_training_run_id")) != str(training_run.id):
+            raise ValidationError("Sandbox does not belong to this training run.")
+        sandbox_id = state.get("sandbox_id")
+        if not sandbox_id:
+            raise ValidationError("Sandbox is not ready yet — try again once the agent has started.")
+        return str(sandbox_id)
+
+    def _write_feature_parquets(self, sandbox_id: str, data: Any) -> dict[str, str]:
+        """Serialize train/holdout matrices to parquet and write them into the agent's sandbox."""
+        try:
+            sandbox = Sandbox.get_by_id(sandbox_id)
+        except Exception as exc:
+            raise ValidationError(f"Could not connect to the run's sandbox: {exc}")
+        # Paths are hardcoded by the framework — the agent supplies the query, never the destination.
+        files = {
+            "train_features_path": (
+                f"{_AGENT_FEATURE_DIR}/train_features.parquet",
+                features_parquet(data.train_rows, data.feature_cols),
+            ),
+            "train_labels_path": (f"{_AGENT_FEATURE_DIR}/train_labels.parquet", labels_parquet(data.train_rows)),
+            "holdout_features_path": (
+                f"{_AGENT_FEATURE_DIR}/holdout_features.parquet",
+                features_parquet(data.holdout_rows, data.feature_cols),
+            ),
+            "holdout_labels_path": (
+                f"{_AGENT_FEATURE_DIR}/holdout_labels.parquet",
+                labels_parquet(data.holdout_rows),
+            ),
+        }
+        paths: dict[str, str] = {}
+        for key, (path, content) in files.items():
+            result = sandbox.write_file(path, content)
+            if result.exit_code != 0:
+                raise ValidationError(f"Failed to write {path} into the sandbox: {result.stderr[:300]}")
+            paths[key] = path
+        return paths
 
     @validated_request(
         request_serializer=CompleteTrainingRunSerializer,

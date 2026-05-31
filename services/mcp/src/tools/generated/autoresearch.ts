@@ -44,6 +44,8 @@ import {
     AutoresearchTrainingRunsIterationsCreateParams,
     AutoresearchTrainingRunsListParams,
     AutoresearchTrainingRunsListQueryParams,
+    AutoresearchTrainingRunsMaterializeFeaturesCreateBody,
+    AutoresearchTrainingRunsMaterializeFeaturesCreateParams,
     AutoresearchValidateCreateBody,
     AutoresearchValidateOnlineCreateBody,
     AutoresearchValidateOnlineCreateParams,
@@ -208,6 +210,32 @@ const autoresearchList = (): ToolBase<
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/autoresearch')
+    },
+})
+
+const AutoresearchMaterializeFeaturesSchema = AutoresearchTrainingRunsMaterializeFeaturesCreateParams.omit({
+    project_id: true,
+}).extend(AutoresearchTrainingRunsMaterializeFeaturesCreateBody.shape)
+
+const autoresearchMaterializeFeatures = (): ToolBase<
+    typeof AutoresearchMaterializeFeaturesSchema,
+    Schemas.MaterializeFeaturesResponse
+> => ({
+    name: 'autoresearch-materialize-features',
+    schema: AutoresearchMaterializeFeaturesSchema,
+    mcpVersion: 2,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchMaterializeFeaturesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.features_sql !== undefined) {
+            body['features_sql'] = params.features_sql
+        }
+        const result = await context.api.request<Schemas.MaterializeFeaturesResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/materialize-features/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -1010,6 +1038,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-archive-create': autoresearchArchiveCreate,
     'autoresearch-create': autoresearchCreate,
     'autoresearch-list': autoresearchList,
+    'autoresearch-materialize-features': autoresearchMaterializeFeatures,
     'autoresearch-models-list': autoresearchModelsList,
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-pause-create': autoresearchPauseCreate,

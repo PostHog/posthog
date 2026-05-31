@@ -15,15 +15,15 @@ from products.autoresearch.backend.sandbox_inference import (
     SandboxInferenceError,
     SandboxScoreResult,
     _between_sentinels,
-    _features_parquet,
     _join_scores,
-    _labels_parquet,
     _materialize_score_data,
-    _materialize_training_data,
     _numeric_feature_cols,
     _read_metrics,
     _read_scores,
+    features_parquet,
     fit_champion_model,
+    labels_parquet,
+    materialize_training_data,
     score_via_sandbox,
 )
 from products.tasks.backend.services.sandbox import ExecutionResult
@@ -121,7 +121,7 @@ class TestMaterializeData(BaseTest):
     def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
         with patch.object(sandbox_inference, "_run_hogql", return_value=_TRAINING_ROWS):
-            data = _materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
+            data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
@@ -163,28 +163,28 @@ class TestMaterializeData(BaseTest):
 
 class TestParquetSerialization(BaseTest):
     def test_features_parquet_columns_and_rows(self):
-        df = pd.read_parquet(io.BytesIO(_features_parquet(_SCORE_ROWS, ["events_total", "pageviews"])))
+        df = pd.read_parquet(io.BytesIO(features_parquet(_SCORE_ROWS, ["events_total", "pageviews"])))
         assert list(df.columns) == ["distinct_id", "events_total", "pageviews"]
         assert df.iloc[0]["distinct_id"] == "s1"
         assert df.iloc[0]["events_total"] == 7.0
         assert df.iloc[0]["pageviews"] == 2.0
 
     def test_labels_parquet_columns_and_rows(self):
-        df = pd.read_parquet(io.BytesIO(_labels_parquet(_TRAINING_ROWS)))
+        df = pd.read_parquet(io.BytesIO(labels_parquet(_TRAINING_ROWS)))
         assert list(df.columns) == ["distinct_id", "__label"]
         assert df.iloc[0]["distinct_id"] == "p1"
         assert int(df.iloc[0]["__label"]) == 1
 
     def test_features_parquet_missing_value_becomes_zero(self):
         rows = [{"distinct_id": "x", "events_total": None}]
-        df = pd.read_parquet(io.BytesIO(_features_parquet(rows, ["events_total", "pageviews"])))
+        df = pd.read_parquet(io.BytesIO(features_parquet(rows, ["events_total", "pageviews"])))
         # both feature cols present; missing/None coerced to 0.0
         assert df.iloc[0]["events_total"] == 0.0
         assert df.iloc[0]["pageviews"] == 0.0
 
     def test_features_parquet_distinct_id_is_string(self):
         rows = [{"distinct_id": 12345, "events_total": 1}]
-        df = pd.read_parquet(io.BytesIO(_features_parquet(rows, ["events_total"])))
+        df = pd.read_parquet(io.BytesIO(features_parquet(rows, ["events_total"])))
         assert df.iloc[0]["distinct_id"] == "12345"
 
 
@@ -336,7 +336,7 @@ class TestScoreViaSandbox(BaseTest):
         stored: dict = {}
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
-            patch.object(sandbox_inference, "_materialize_training_data", return_value=_training_materialized()),
+            patch.object(sandbox_inference, "materialize_training_data", return_value=_training_materialized()),
             patch.object(
                 sandbox_inference, "write_model", side_effect=lambda prefix, content: stored.update(model=content)
             ),

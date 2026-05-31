@@ -30,6 +30,8 @@ import type {
     AutoresearchTrainingRunsListParams,
     CompleteTrainingRunApi,
     CreateSuggestionApi,
+    MaterializeFeaturesRequestApi,
+    MaterializeFeaturesResponseApi,
     OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
@@ -558,6 +560,36 @@ export const autoresearchTrainingRunsIterationsCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(recordIterationApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/materialize-features/`
+}
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const autoresearchTrainingRunsMaterializeFeaturesCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    materializeFeaturesRequestApi: MaterializeFeaturesRequestApi,
+    options?: RequestInit
+): Promise<MaterializeFeaturesResponseApi> => {
+    return apiMutator<MaterializeFeaturesResponseApi>(
+        getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(materializeFeaturesRequestApi),
         }
     )
 }

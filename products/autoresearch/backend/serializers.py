@@ -734,6 +734,46 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
     )
 
 
+# ── Feature materialization serializers ─────────────────────────────────────
+
+
+class MaterializeFeaturesRequestSerializer(serializers.Serializer):
+    """Input for materializing the labeled training feature matrix into the run's sandbox."""
+
+    features_sql = serializers.CharField(
+        help_text=(
+            "Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only "
+            "SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it "
+            "server-side against the labeled training population — no 500-row cap — and writes the resulting "
+            "train/holdout feature and label parquet files into your sandbox."
+        ),
+    )
+
+
+class MaterializeFeaturesResponseSerializer(serializers.Serializer):
+    """The local sandbox paths and shape of the materialized training matrix."""
+
+    train_features_path = serializers.CharField(
+        help_text="Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns)."
+    )
+    train_labels_path = serializers.CharField(
+        help_text="Sandbox path to the training labels parquet (distinct_id + __label)."
+    )
+    holdout_features_path = serializers.CharField(
+        help_text="Sandbox path to the holdout feature matrix parquet (same columns as train_features)."
+    )
+    holdout_labels_path = serializers.CharField(
+        help_text="Sandbox path to the holdout labels parquet (distinct_id + __label)."
+    )
+    n_train = serializers.IntegerField(help_text="Number of rows in the training split.")
+    n_holdout = serializers.IntegerField(help_text="Number of rows in the holdout split.")
+    n_features = serializers.IntegerField(help_text="Number of numeric feature columns produced by features_sql.")
+    feature_cols = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The numeric feature column names (excludes distinct_id, __label, __fold).",
+    )
+
+
 # ── Artifact bundle serializers ─────────────────────────────────────────────
 
 

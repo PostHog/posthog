@@ -22635,6 +22635,36 @@ export namespace Schemas {
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
     }
 
+    /**
+     * Input for materializing the labeled training feature matrix into the run's sandbox.
+     */
+    export interface MaterializeFeaturesRequest {
+      /** Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox. */
+      features_sql: string;
+    }
+
+    /**
+     * The local sandbox paths and shape of the materialized training matrix.
+     */
+    export interface MaterializeFeaturesResponse {
+      /** Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns). */
+      train_features_path: string;
+      /** Sandbox path to the training labels parquet (distinct_id + __label). */
+      train_labels_path: string;
+      /** Sandbox path to the holdout feature matrix parquet (same columns as train_features). */
+      holdout_features_path: string;
+      /** Sandbox path to the holdout labels parquet (distinct_id + __label). */
+      holdout_labels_path: string;
+      /** Number of rows in the training split. */
+      n_train: number;
+      /** Number of rows in the holdout split. */
+      n_holdout: number;
+      /** Number of numeric feature columns produced by features_sql. */
+      n_features: number;
+      /** The numeric feature column names (excludes distinct_id, __label, __fold). */
+      feature_cols: string[];
+    }
+
     export interface PropertyDefinition {
       readonly id: string;
       readonly name: string;

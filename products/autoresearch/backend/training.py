@@ -27,60 +27,7 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
-from products.autoresearch.backend.labeling import NUM_FOLDS, _build_labeled_users_cte
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
-
-
-def _quote_for_inlined_sql(value: object) -> str:
-    """
-    Conservatively render a value for inlining into a SQL string the agent will
-    paste into execute-sql. Only handles the value shapes labeling.py emits —
-    target_event strings, numeric horizons/lookbacks, and population-filter
-    primitives. Anything else falls through to a quoted string with embedded
-    single quotes doubled (HogQL string literal escape).
-    """
-    if isinstance(value, bool):
-        return "1" if value else "0"
-    if isinstance(value, int | float):
-        return str(value)
-    if value is None:
-        return "NULL"
-    text = str(value).replace("'", "''")
-    return f"'{text}'"
-
-
-def _resolve_labeled_anchors_cte_for_prompt(pipeline: AutoresearchPipeline) -> str:
-    """
-    Return the labeled_anchors CTE block as a ready-to-paste SQL string, with all
-    placeholders inlined. The agent embeds this verbatim into its execute-sql
-    queries to materialize labeled training data for its inner loop.
-
-    Same labeling math the server runs at inference time (build_training_features_sql)
-    so the agent's local eval is the trainer's actual training data — not a proxy.
-    """
-    cte, values = _build_labeled_users_cte(
-        target_event=pipeline.target_event,
-        horizon_days=pipeline.horizon_days,
-        lookback_days=pipeline.training_lookback_days or 180,
-        training_population=pipeline.training_population,
-        sample_limit=None,
-    )
-    resolved = cte
-    for key, val in values.items():
-        resolved = resolved.replace("{" + key + "}", _quote_for_inlined_sql(val))
-
-    return (
-        resolved.rstrip()
-        + ",\n        labeled_anchors AS (\n"
-        + "            SELECT\n"
-        + "                person_id,\n"
-        + "                t0_ts,\n"
-        + "                positive,\n"
-        + f"                toInt(bitAnd(cityHash64(concat('fold:', toString(person_id))), 2147483647)) % {NUM_FOLDS} AS fold\n"
-        + "            FROM labeled_users\n"
-        + "        )"
-    )
-
 
 logger = structlog.get_logger(__name__)
 
@@ -101,7 +48,6 @@ def build_agent_description(
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
-    labeled_anchors_cte = _resolve_labeled_anchors_cte_for_prompt(pipeline)
 
     prompt = textwrap.dedent(f"""
         # PostHog Autoresearch Agent
@@ -241,53 +187,47 @@ def build_agent_description(
         GROUP BY a.person_id, a.cutoff_ts
         ```
 
-        ### Step 3 — Fit and evaluate (in your sandbox)
+        ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
 
         **Your sandbox is already equipped — do NOT `pip install` anything.** numpy, pandas,
         scikit-learn, and pyarrow are pre-installed (the same versions the framework uses to run
-        your bundle), so just `import` them. Compute the fit and holdout AUC in Python (the pattern
-        below) — do not try to compute AUC in SQL; `execute-sql` is only for pulling the feature rows.
+        your bundle), so just `import` them.
 
-        For each iteration, run one composite `execute-sql` query returning one row per labeled
-        user with feature columns + `__label` + `__fold`, then fit on `__fold != 0` and evaluate
-        on `__fold == 0`. This is the real holdout AUC — no proxies.
+        **Pull training data with `autoresearch-materialize-features`, NOT `execute-sql`.** Call it with
+        `pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, and your `features_sql`. The framework
+        runs it server-side against the labeled training population — no 500-row cap, and the rows never
+        pass through your context — then writes four parquet files into your sandbox and returns their
+        paths: `train_features_path`, `train_labels_path`, `holdout_features_path`, `holdout_labels_path`
+        (features = `distinct_id` + your numeric columns; labels = `distinct_id` + `__label`). The
+        train/holdout split and the labels are produced for you — your `features_sql` must NOT add its own
+        label or fold columns.
 
-        **Paste-in `labeled_anchors` CTE for THIS pipeline:**
+        The feature matrix only changes when `features_sql` changes, so call materialize ONCE per
+        `features_sql` and run many model iterations in Python on the same parquet; re-call it only after
+        you edit `features_sql`. `execute-sql` is for lightweight schema exploration only — never for
+        pulling feature rows (it caps at 500 rows and would force the data through your context).
 
-        ```sql
-        WITH {labeled_anchors_cte}
-        ```
-
-        **Composite query each iteration** (substitute `{{anchors}}` with
-        `(SELECT person_id, t0_ts AS cutoff_ts FROM labeled_anchors)` and `{{lookback_days}}` with
-        an integer, e.g. {max(30, pipeline.horizon_days * 4)}):
-
-        ```sql
-        WITH {labeled_anchors_cte}
-        SELECT f.*, la.positive AS __label, la.fold AS __fold
-        FROM ( <your features.sql, placeholders substituted> ) f
-        LEFT JOIN labeled_anchors la ON f.distinct_id = la.person_id
-        ```
-
-        **Python fit + eval pattern:**
+        **Python fit + eval pattern** (reads the parquet the tool wrote — no data in your context):
 
         ```python
         import pandas as pd
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import roc_auc_score
 
-        df = pd.DataFrame(rows)  # rows = execute-sql output for the composite query
-        feature_cols = [c for c in df.columns if c not in ('distinct_id', '__label', '__fold')]
-        X = df[feature_cols].fillna(0).astype(float)
-        y = df['__label'].astype(int)
-        fold = df['__fold'].astype(int)
-        train, holdout = fold != 0, fold == 0
-        if y[holdout].nunique() < 2 or y[train].sum() < 5:
+        # res = the autoresearch-materialize-features response
+        train = pd.read_parquet(res["train_features_path"]).merge(
+            pd.read_parquet(res["train_labels_path"]), on="distinct_id")
+        holdout = pd.read_parquet(res["holdout_features_path"]).merge(
+            pd.read_parquet(res["holdout_labels_path"]), on="distinct_id")
+        feature_cols = [c for c in train.columns if c not in ("distinct_id", "__label")]
+        Xtr, ytr = train[feature_cols].fillna(0).astype(float), train["__label"].astype(int)
+        Xho, yho = holdout[feature_cols].fillna(0).astype(float), holdout["__label"].astype(int)
+        if yho.nunique() < 2 or ytr.sum() < 5:
             holdout_auc = None  # not enough signal — skip
         else:
             model = LogisticRegression(C=1.0, max_iter=200, random_state=42)
-            model.fit(X[train], y[train])
-            holdout_auc = float(roc_auc_score(y[holdout], model.predict_proba(X[holdout])[:, 1]))
+            model.fit(Xtr, ytr)
+            holdout_auc = float(roc_auc_score(yho, model.predict_proba(Xho)[:, 1]))
         ```
 
         **Record each iteration:** call `autoresearch-training-runs-iterations-create` with
