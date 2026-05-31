@@ -189,26 +189,23 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
                     : null
             },
         ],
-        effectiveProductKey: [
-            (s) => [s.variant, s.promotedProductIntent, s.override],
-            (variant, intent, override): string | null => {
-                if (!variantShowsEntry(variant)) {
-                    return null
-                }
-                if (variantAllowsOverride(variant) && override) {
-                    return override
-                }
-                return resolveProductKey(intent) ?? FALLBACK_PRODUCT_KEY
-            },
-        ],
-        shouldRenderEntry: [(s) => [s.variant], (variant): boolean => variantShowsEntry(variant)],
-        shouldRenderCog: [(s) => [s.variant], (variant): boolean => variantAllowsOverride(variant)],
         // The product the slot shows with no override — onboarding intent, else the fallback.
         // Drives the "Reset to default (…)" label so the user sees what reset reverts to.
         defaultProductKey: [
             (s) => [s.promotedProductIntent],
             (intent): string => resolveProductKey(intent) ?? FALLBACK_PRODUCT_KEY,
         ],
+        effectiveProductKey: [
+            (s) => [s.variant, s.override, s.defaultProductKey],
+            (variant, override, defaultProductKey): string | null => {
+                if (!variantShowsEntry(variant)) {
+                    return null
+                }
+                return variantAllowsOverride(variant) && override ? override : defaultProductKey
+            },
+        ],
+        shouldRenderEntry: [(s) => [s.variant], (variant): boolean => variantShowsEntry(variant)],
+        shouldRenderCog: [(s) => [s.variant], (variant): boolean => variantAllowsOverride(variant)],
     }),
 
     listeners(({ actions, values }) => {
