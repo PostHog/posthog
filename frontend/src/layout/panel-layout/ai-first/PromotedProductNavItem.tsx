@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
+import { IconDashboard, IconExternal } from '@posthog/icons'
 
 import { getProductIcon } from 'scenes/onboarding/utils'
+import { urls } from 'scenes/urls'
 
 import { NavLink } from './NavLink'
 import { labelForPromotedProductKey, promotedProductLogic, promotedProductTargetToUrl } from './promotedProductLogic'
@@ -29,6 +30,8 @@ export function PromotedProductNavItem({ isCollapsed }: PromotedProductNavItemPr
     const icon =
         effectiveTarget.kind === 'product' ? (
             getProductIcon(null, { productType: effectiveTarget.value })
+        ) : effectiveTarget.value === urls.dashboards() ? (
+            <IconDashboard />
         ) : (
             <IconExternal />
         )
