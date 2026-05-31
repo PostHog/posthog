@@ -36,24 +36,28 @@ describe('the primary event properties model', () => {
         await expectLogic(logic, () => {
             logic.actions.ensureLoadedForEvents(['my_event', '$pageview'])
         })
-            .toDispatchActions(['loadPrimaryPropertiesSuccess'])
+            .toDispatchActions(['primaryPropertiesLoaded'])
             .toMatchValues({
                 primaryProperties: { my_event: 'existing_prop' },
                 loadedEventNames: ['my_event'],
             })
     })
 
-    it('optimistically applies the pin and keeps it when the request succeeds', async () => {
+    it('optimistically applies the pin and folds it into loaded state when the request succeeds', async () => {
         await expectLogic(logic, () => {
             logic.actions.setPrimaryProperty('my_event', 'chosen_prop')
         })
             .toDispatchActions([
                 'setPrimaryProperty',
                 logic.actionCreators.applyOptimisticPrimaryProperty('my_event', 'chosen_prop'),
+                logic.actionCreators.setLoadedPrimaryProperty('my_event', 'chosen_prop'),
+                'clearOptimisticPrimaryProperty',
                 'finishSavingPrimaryProperty',
             ])
             .toMatchValues({
                 primaryProperties: { my_event: 'chosen_prop' },
+                loadedPrimaryProperties: { my_event: 'chosen_prop' },
+                optimisticPrimaryProperties: {},
                 savingPrimaryPropertyForEvents: [],
             })
     })
@@ -69,12 +73,36 @@ describe('the primary event properties model', () => {
             .toDispatchActions([
                 'setPrimaryProperty',
                 logic.actionCreators.applyOptimisticPrimaryProperty('my_event', 'chosen_prop'),
-                logic.actionCreators.applyOptimisticPrimaryProperty('my_event', null),
+                'clearOptimisticPrimaryProperty',
                 'finishSavingPrimaryProperty',
             ])
             .toMatchValues({
                 primaryProperties: {},
+                loadedPrimaryProperties: {},
+                optimisticPrimaryProperties: {},
                 savingPrimaryPropertyForEvents: [],
             })
+    })
+
+    it('lets a later server refresh override a pinned value without a stale optimistic shadow', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setPrimaryProperty('my_event', 'chosen_prop')
+        }).toDispatchActions(['finishSavingPrimaryProperty'])
+        expect(logic.values.primaryProperties).toEqual({ my_event: 'chosen_prop' })
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/primary_properties/': () => [
+                    200,
+                    { primary_properties: { my_event: 'changed_elsewhere' } },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPrimaryProperties(['my_event'])
+        }).toDispatchActions(['primaryPropertiesLoaded'])
+
+        expect(logic.values.primaryProperties).toEqual({ my_event: 'changed_elsewhere' })
     })
 })
