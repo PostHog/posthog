@@ -51,6 +51,14 @@ describe('the primary event properties model', () => {
             .toMatchValues({ primaryProperties: { my_event: 'chosen_prop' } })
     })
 
+    it('reports loading while a pin update is in flight', async () => {
+        logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
+        expect(logic.values.primaryPropertiesLoading).toBe(true)
+
+        await expectLogic(logic).toDispatchActions(['updatePrimaryPropertySuccess'])
+        expect(logic.values.primaryPropertiesLoading).toBe(false)
+    })
+
     it('removes the entry when unpinned', async () => {
         logic.actions.loadPrimaryPropertiesSuccess({ my_event: 'existing_prop' }, { names: ['my_event'] })
 
