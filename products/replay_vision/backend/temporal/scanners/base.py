@@ -1,6 +1,6 @@
 """Base class for all Replay Vision scanner types."""
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,21 @@ from products.replay_vision.backend.temporal.scanners.prompt_env import render_p
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.temporal.types import EventTable
+
+
+# Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
+class TextSegment(BaseModel, frozen=True):
+    kind: Literal["text"] = "text"
+    value: str
+
+
+class ChipSegment(BaseModel, frozen=True):
+    kind: Literal["chip"] = "chip"
+    uuid: str
+    timestamp_ms: int = Field(ge=0)
+
+
+Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
 
 
 class BaseScannerOutput(BaseModel, frozen=True):
@@ -32,7 +47,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Per-scanner-type Jinja2 template under `prompts/`. Subclasses set this.
     prompt_template: ClassVar[str] = ""
-    # Names of free-text fields on the LLM response that may contain `(event_id <hash>)` citations.
+    # Names of free-text fields on the LLM response that may contain `(event_uuid <uuid>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None

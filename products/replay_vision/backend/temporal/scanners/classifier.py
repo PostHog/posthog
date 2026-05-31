@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, create_model, field_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
 
 _MAX_FREEFORM_TAGS = 5
 # Anything that isn't a-z, 0-9, underscore, or dash collapses to a single underscore.
@@ -30,6 +30,7 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
         ),
     )
     reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
+    reasoning_segments: list[Segment] = Field(default_factory=list)
 
     @field_validator("tags_freeform", mode="after")
     @classmethod

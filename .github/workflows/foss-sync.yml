@@ -45,7 +45,7 @@ jobs:
               env:
                   FOSS_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  git remote add foss "https://x-access-token:${FOSS_TOKEN}@github.com/posthog/posthog-foss.git"
+                  git remote add foss "https://x-access-token:${FOSS_TOKEN}@github.com/PostHog/posthog-foss.git"
                   git push foss "HEAD:refs/heads/foss-sync-staging" --force
                   git push foss "refs/tags/*:refs/tags/*" --force
 
@@ -68,7 +68,7 @@ jobs:
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'Sync and remove all non-FOSS parts'
-                  repo: posthog/posthog-foss
+                  repo: PostHog/posthog-foss
                   branch: foss-sync-staging
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -80,9 +80,9 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   FOSS_SHA: ${{ steps.foss-commit.outputs.commit-hash }}
               run: |
-                  if gh api repos/posthog/posthog-foss/git/ref/heads/master >/dev/null 2>&1; then
-                    gh api -X PATCH repos/posthog/posthog-foss/git/refs/heads/master -f sha="$FOSS_SHA" -F force=true
+                  if gh api repos/PostHog/posthog-foss/git/ref/heads/master >/dev/null 2>&1; then
+                    gh api -X PATCH repos/PostHog/posthog-foss/git/refs/heads/master -f sha="$FOSS_SHA" -F force=true
                   else
-                    gh api repos/posthog/posthog-foss/git/refs -f ref=refs/heads/master -f sha="$FOSS_SHA"
+                    gh api repos/PostHog/posthog-foss/git/refs -f ref=refs/heads/master -f sha="$FOSS_SHA"
                   fi
-                  gh api -X DELETE repos/posthog/posthog-foss/git/refs/heads/foss-sync-staging || true
+                  gh api -X DELETE repos/PostHog/posthog-foss/git/refs/heads/foss-sync-staging || true

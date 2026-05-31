@@ -87,6 +87,8 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "signal_scout",
+    "signal_scout_internal",
     "streamlit_app",
     "subscription",
     "survey",
@@ -123,7 +125,16 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 # Scope objects minted programmatically only — never via the OAuth consent flow,
 # the personal-API-key UI, the CLI authorize page, or RBAC. Filtered out of
 # `get_scope_descriptions()` and rejected by every user-facing scope validator.
-INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_test_cluster_perf", "query_performance"})
+INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
+    {
+        "clickhouse_test_cluster_perf",
+        "query_performance",
+        # Sandbox-only writes for the headless Signals agent (memory create/delete,
+        # finding emit). Read access for the same surface lives on the public
+        # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
+        "signal_scout_internal",
+    }
+)
 
 # Scope objects available via personal API keys but never advertised through
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
@@ -236,11 +247,21 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Built from `UNPRIVILEGED_SCOPES`, so it excludes both `OAUTH_HIDDEN_SCOPES`
-    (alpha / PAT-only) and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
+    Built from `UNPRIVILEGED_SCOPES`, so it excludes all three non-advertised
+    classes: `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only, e.g.
+    `signal_scout_internal` — never user-grantable), `OAUTH_HIDDEN_SCOPES`
+    (alpha / PAT-only), and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
     only). Discovery metadata shouldn't advertise scopes an OAuth client can't
     obtain self-serve. PAT validation uses `get_scope_descriptions()` directly
     and is unaffected.
+
+    The Signals scout harness sandbox token carries `signal_scout_internal:write`,
+    but it is minted by directly inserting an `OAuthAccessToken` row (see
+    `posthog/temporal/oauth.py:create_oauth_access_token_for_user`) and never passes
+    through `/authorize`, so the scope needs neither advertising here nor a place in
+    `OAUTH2_PROVIDER["SCOPES"]`. Advertising it would let any OAuth client request it
+    via user consent — a durable prompt-injection vector (scratchpad rows are read
+    verbatim into every subsequent run's prompt).
     """
     visible = UNPRIVILEGED_SCOPES
     ordered = [
