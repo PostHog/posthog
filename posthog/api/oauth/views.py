@@ -379,6 +379,8 @@ class OAuthValidator(OAuth2Validator):
         if not is_non_rotating_refresh:
             return super()._save_bearer_token(token, request, *args, **kwargs)
 
+        assert isinstance(refresh_token_instance, OAuthRefreshToken)
+
         if "scope" not in token:
             raise FatalClientError("Failed to renew access token: missing scope")
 
