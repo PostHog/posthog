@@ -456,6 +456,20 @@ def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplic
     return False
 
 
+def _caller_is_authenticated_partner(partner: OAuthApplication) -> bool:
+    """True only when the request proved control of this partner.
+
+    HMAC and bearer callers authenticate by possessing a secret or token. PKCE callers
+    are public: the partner is identified solely by a public client_id that anyone can
+    send, so the request carries no proof the caller controls the partner. For those
+    callers the "user already holds a live credential from this partner" signal must not
+    be treated as proof of an existing trust relationship — otherwise an attacker who
+    knows a victim email and the public client_id could ride the victim's existing
+    credential to mint fresh tokens via the silent path.
+    """
+    return partner.provisioning_auth_method in ("hmac", "bearer")
+
+
 def _handle_existing_user(
     request_id: str,
     user: User,
@@ -469,13 +483,17 @@ def _handle_existing_user(
     code_challenge_method: str = "S256",
 ) -> Response:
     # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
-    # skip_existing_user_consent=True can only mint silently if they already hold live
-    # credentials on the account. Otherwise the user must confirm via the consent screen.
+    # skip_existing_user_consent=True can only mint silently if it (a) authenticated the
+    # request and (b) already holds live credentials on the account. The live-credential
+    # check is meaningless for unauthenticated public (PKCE) callers, since the partner is
+    # identified by a public client_id alone, so those always fall through to consent.
     silent_blocked_post_review = (
         partner is not None
         and partner.provisioning_skip_existing_user_consent
         and user.credentials_reviewed_at is not None
-        and not _user_has_existing_credentials_from_partner(user, partner)
+        and not (
+            _caller_is_authenticated_partner(partner) and _user_has_existing_credentials_from_partner(user, partner)
+        )
     )
 
     if silent_blocked_post_review:

@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
@@ -18,7 +19,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+
+HMAC_PARTNER_SECRET = "test_hmac_partner_secret"
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -443,6 +447,23 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             provisioning_can_provision_resources=True,
             provisioning_skip_existing_user_consent=True,
         )
+        self.hmac_partner = OAuthApplication.objects.create(
+            client_id="hmac-partner",
+            name="HMAC Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://hmac.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="hmac",
+            provisioning_signing_secret=HMAC_PARTNER_SECRET,
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_can_create_accounts=True,
+            provisioning_can_provision_resources=True,
+            provisioning_skip_existing_user_consent=True,
+        )
 
     def _post_as_partner(self, data: dict, client_id: str = "silent-partner"):
         payload = {**data, "client_id": client_id}
@@ -451,6 +472,18 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             "/api/agentic/provisioning/account_requests",
             data=body,
             content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+        )
+
+    def _post_as_hmac_partner(self, data: dict):
+        body = json.dumps(data).encode()
+        ts = int(time.time())
+        sig = compute_signature(HMAC_PARTNER_SECRET, ts, body)
+        return self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data=body,
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
             HTTP_API_VERSION="0.1d",
         )
 
@@ -514,13 +547,38 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("live_access_token", lambda self, user: self._make_live_access_token(user, self.partner)),
-            ("live_refresh_token", lambda self, user: self._make_live_refresh_token(user, self.partner)),
+            ("live_access_token", lambda self, user: self._make_live_access_token(user, self.hmac_partner)),
+            ("live_refresh_token", lambda self, user: self._make_live_refresh_token(user, self.hmac_partner)),
         ]
     )
-    def test_reviewed_user_with_live_credential_from_caller_silent_still_works(self, _name, setup_credential):
+    def test_reviewed_user_with_live_credential_from_authenticated_caller_silent_still_works(
+        self, _name, setup_credential
+    ):
         user = self._make_user(credentials_reviewed=True)
         setup_credential(self, user)
+        res = self._post_as_hmac_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+
+    def test_pkce_caller_with_live_credential_is_blocked_post_review(self):
+        # A public PKCE caller is unauthenticated, so an existing live credential
+        # for the claimed client_id is not proof the caller controls the partner.
+        # It must not unlock the silent path once the user has reviewed credentials.
+        user = self._make_user(credentials_reviewed=True)
+        self._make_live_access_token(user, self.partner)
+        res = self._post_as_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
+
+    def test_pkce_caller_with_live_credential_unreviewed_silent_still_works(self):
+        # The public-client lockout only applies after review; the legitimate
+        # Connect re-link flow on an unreviewed user must stay silent.
+        user = self._make_user(credentials_reviewed=False)
+        self._make_live_access_token(user, self.partner)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
