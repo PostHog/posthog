@@ -1317,6 +1317,7 @@ class KnowledgeSearchResult:
     source_id: UUID
     source_name: str
     source_type: str
+    document_id: UUID
     document_title: str
     heading_path: str
     ordinal: int
@@ -1407,6 +1408,7 @@ def search_knowledge(
             source_id=c.source_id,
             source_name=c.source.name,
             source_type=c.source.source_type,
+            document_id=c.document_id,
             document_title=c.document.title,
             heading_path=c.heading_path,
             ordinal=c.ordinal,
