@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
+AUTORESEARCH_IMAGE_NAME = "posthog-sandbox-autoresearch"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
@@ -249,6 +250,17 @@ class DockerSandbox(SandboxBase):
                 build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
             )
             return PI_IMAGE_NAME
+
+        if template == SandboxTemplate.AUTORESEARCH_BASE:
+            autoresearch_dockerfile = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch"
+            )
+            DockerSandbox._build_image_if_needed(
+                AUTORESEARCH_IMAGE_NAME,
+                autoresearch_dockerfile,
+                build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
+            )
+            return AUTORESEARCH_IMAGE_NAME
 
         local_packages = DockerSandbox._get_local_posthog_code_packages()
         if local_packages:

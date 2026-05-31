@@ -409,6 +409,7 @@ def run_training(
     Raises if Temporal is unreachable or the task cannot be created.
     """
     from products.tasks.backend.models import Task, TaskRun
+    from products.tasks.backend.services.sandbox import SandboxTemplate
 
     now = django_timezone.now()
     training_run = AutoresearchTrainingRun.objects.create(
@@ -447,6 +448,11 @@ def run_training(
             # autoresearch-training-runs-artifacts-upload-create, and finalize via
             # autoresearch-training-runs-complete-create. Read-only would hide those tools.
             posthog_mcp_scopes="full",
+            # The autoresearch image is the agent-capable base plus pandas/numpy/
+            # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the
+            # notebook image has the libs but cannot host the agent server — only this
+            # image has both, which the agent's training loop needs.
+            sandbox_template=SandboxTemplate.AUTORESEARCH_BASE.value,
         )
 
         task_run = task.latest_run

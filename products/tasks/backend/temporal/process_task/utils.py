@@ -180,6 +180,7 @@ class RunState(BaseModel, extra="allow"):
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
+    sandbox_template: str | None = None
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
