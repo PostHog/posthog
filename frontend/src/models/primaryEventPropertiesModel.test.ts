@@ -98,6 +98,34 @@ describe('the primary event properties model', () => {
         expect(logic.values.loadedEventNames).toEqual([])
     })
 
+    it('reverts and does not attempt an update when the event definition lookup fails', async () => {
+        let updateAttempted = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/by_name/': () => [404, { detail: 'not found' }],
+            },
+            patch: {
+                '/api/projects/:team_id/event_definitions/:id/': () => {
+                    updateAttempted = true
+                    return [200, {}]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setPrimaryProperty('missing_event', 'some_prop')
+        }).toDispatchActions([
+            'setPrimaryProperty',
+            logic.actionCreators.applyOptimisticPrimaryProperty('missing_event', 'some_prop'),
+            'clearOptimisticPrimaryProperty',
+            'finishSavingPrimaryProperty',
+        ])
+
+        expect(updateAttempted).toBe(false)
+        expect(logic.values.primaryProperties).toEqual({})
+        expect(logic.values.savingPrimaryPropertyForEvents).toEqual([])
+    })
+
     it('a save completed during an in-flight refresh is not clobbered by the stale refresh result', async () => {
         let releaseLoad: (() => void) | undefined
         const loadGate = new Promise<void>((resolve) => {

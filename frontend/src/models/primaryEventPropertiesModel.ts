@@ -139,14 +139,21 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
         setPrimaryProperty: async ({ eventName, propertyKey }) => {
             actions.applyOptimisticPrimaryProperty(eventName, propertyKey)
             try {
-                const definition = await api.eventDefinitions.byName({ name: eventName })
+                let definitionId: string
+                try {
+                    definitionId = (await api.eventDefinitions.byName({ name: eventName })).id
+                } catch (error) {
+                    posthog.captureException(error, { action: 'set-primary-property', stage: 'lookup' })
+                    lemonToast.error(`We couldn't find a definition for "${eventName}" yet. Please try again shortly.`)
+                    return
+                }
                 await api.eventDefinitions.update({
-                    eventDefinitionId: definition.id,
+                    eventDefinitionId: definitionId,
                     eventDefinitionData: { primary_property: propertyKey },
                 })
                 actions.setLoadedPrimaryProperty(eventName, propertyKey)
             } catch (error) {
-                posthog.captureException(error, { action: 'set-primary-property' })
+                posthog.captureException(error, { action: 'set-primary-property', stage: 'update' })
                 lemonToast.error('Could not update the pinned property. Please try again.')
             } finally {
                 actions.clearOptimisticPrimaryProperty(eventName)
