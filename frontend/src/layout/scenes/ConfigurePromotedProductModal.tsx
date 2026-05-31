@@ -6,7 +6,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import {
     labelForPromotedProductKey,
-    PRODUCT_KEY_LABELS,
     PROMOTED_PRODUCT_KEYS,
     promotedProductLogic,
 } from '~/layout/panel-layout/ai-first/promotedProductLogic'
@@ -16,7 +15,7 @@ export interface ConfigurePromotedProductModalProps {
     onClose: () => void
 }
 
-const PRODUCT_OPTIONS = PROMOTED_PRODUCT_KEYS.map((value) => ({ value, label: PRODUCT_KEY_LABELS[value] }))
+const PRODUCT_OPTIONS = PROMOTED_PRODUCT_KEYS.map((value) => ({ value, label: labelForPromotedProductKey(value) }))
 
 export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigurePromotedProductModalProps): JSX.Element {
     const { pendingProduct, defaultProductKey } = useValues(promotedProductLogic)

@@ -40,9 +40,8 @@ export function localStorageOverrideKey(teamId: number): string {
 }
 
 /**
- * Single source of truth for the promoted-product registry — one record per product.
- * `PRODUCT_KEY_TO_URL` and `PRODUCT_KEY_LABELS` below are derived from it so a
- * new product can't be added to one map without the other.
+ * Single source of truth for the promoted-product registry — one record per product,
+ * so a product's url and label can't drift apart. The helpers below index it directly.
  *
  * Labels follow PostHog's sentence-case convention (CLAUDE.md) — proper-noun
  * acronyms (LLM, AI) stay capitalised, everything else is sentence case.
@@ -69,28 +68,20 @@ const PRODUCT_REGISTRY: Record<string, PromotedProductInfo> = {
     marketing_analytics: { url: '/marketing', label: 'Marketing analytics' },
 }
 
-const PRODUCT_KEY_TO_URL: Record<string, string> = Object.fromEntries(
-    Object.entries(PRODUCT_REGISTRY).map(([key, { url }]) => [key, url])
-)
-
-export const PRODUCT_KEY_LABELS: Record<string, string> = Object.fromEntries(
-    Object.entries(PRODUCT_REGISTRY).map(([key, { label }]) => [key, label])
-)
-
 /** Selectable product keys for the configure modal, in registry order. */
 export const PROMOTED_PRODUCT_KEYS: string[] = Object.keys(PRODUCT_REGISTRY)
 
 export function labelForPromotedProductKey(productKey: string): string {
-    return PRODUCT_KEY_LABELS[productKey] ?? productKey
+    return PRODUCT_REGISTRY[productKey]?.label ?? productKey
 }
 
 export function urlForPromotedProductKey(productKey: string): string | null {
-    return PRODUCT_KEY_TO_URL[productKey] ?? null
+    return PRODUCT_REGISTRY[productKey]?.url ?? null
 }
 
 /** Returns the product key when it names a known promoted product, otherwise null. */
 export function resolveProductKey(productKey: string | null | undefined): string | null {
-    return productKey && productKey in PRODUCT_KEY_TO_URL ? productKey : null
+    return productKey && productKey in PRODUCT_REGISTRY ? productKey : null
 }
 
 function readLocalStorageString(key: string): string | null {
@@ -115,6 +106,24 @@ function readPromotedProductOverrideFromStorage(): string | null {
         return null
     }
     return resolveProductKey(readLocalStorageString(localStorageOverrideKey(teamId)))
+}
+
+/** Persist (or, with `null`, clear) the team-scoped override. Best-effort — failures are ignored. */
+function persistOverride(productKey: string | null): void {
+    const teamId = currentTeamId()
+    if (teamId === null) {
+        return
+    }
+    const key = localStorageOverrideKey(teamId)
+    try {
+        if (productKey === null) {
+            window.localStorage.removeItem(key)
+        } else {
+            window.localStorage.setItem(key, productKey)
+        }
+    } catch {
+        // ignore — override is best-effort persistence in localStorage
+    }
 }
 
 export const promotedProductLogic = kea<promotedProductLogicType>([
@@ -202,59 +211,46 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        setOverride: ({ productKey }) => {
-            const teamId = currentTeamId()
-            if (teamId !== null) {
-                try {
-                    window.localStorage.setItem(localStorageOverrideKey(teamId), productKey)
-                } catch {
-                    // ignore — override is best-effort persistence in localStorage
-                }
-            }
+    listeners(({ actions, values }) => {
+        const captureConfigChanged = (to: string | null): void => {
             posthog.capture('promoted product config changed', {
                 variant: values.variant,
                 from: values.promotedProductIntent,
-                to: productKey,
+                to,
             })
-        },
-        clearOverride: () => {
-            const teamId = currentTeamId()
-            if (teamId !== null) {
-                try {
-                    window.localStorage.removeItem(localStorageOverrideKey(teamId))
-                } catch {
-                    // ignore
+        }
+        return {
+            setOverride: ({ productKey }) => {
+                persistOverride(productKey)
+                captureConfigChanged(productKey)
+            },
+            clearOverride: () => {
+                persistOverride(null)
+                captureConfigChanged(null)
+            },
+            showConfigureModal: () => {
+                // Seed the pending product from the current effectiveProductKey so the modal
+                // always opens reflecting the user's current promoted product, even after
+                // Reset-to-default or a fresh page load.
+                const productKey = values.effectiveProductKey ?? FALLBACK_PRODUCT_KEY
+                actions.setPendingProduct(productKey)
+                posthog.capture('promoted product config opened', {
+                    variant: values.variant,
+                    current_product: productKey,
+                })
+            },
+            trackPromotedProductClick: () => {
+                const productKey = values.effectiveProductKey
+                if (!productKey) {
+                    return
                 }
-            }
-            posthog.capture('promoted product config changed', {
-                variant: values.variant,
-                from: values.promotedProductIntent,
-                to: null,
-            })
-        },
-        showConfigureModal: () => {
-            // Seed the pending product from the current effectiveProductKey so the modal
-            // always opens reflecting the user's current promoted product, even after
-            // Reset-to-default or a fresh page load.
-            const productKey = values.effectiveProductKey ?? FALLBACK_PRODUCT_KEY
-            actions.setPendingProduct(productKey)
-            posthog.capture('promoted product config opened', {
-                variant: values.variant,
-                current_product: productKey,
-            })
-        },
-        trackPromotedProductClick: () => {
-            const productKey = values.effectiveProductKey
-            if (!productKey) {
-                return
-            }
-            posthog.capture('promoted product clicked', {
-                variant: values.variant,
-                product_key: productKey,
-            })
-        },
-    })),
+                posthog.capture('promoted product clicked', {
+                    variant: values.variant,
+                    product_key: productKey,
+                })
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.refreshIntentFromStorage()
