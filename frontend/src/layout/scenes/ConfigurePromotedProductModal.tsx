@@ -54,12 +54,7 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
                         <LemonButton type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabledReason={pendingProduct ? undefined : 'Pick a product'}
-                            data-attr="configure-promoted-product-save"
-                        >
+                        <LemonButton type="primary" onClick={handleSave} data-attr="configure-promoted-product-save">
                             Save
                         </LemonButton>
                     </div>
