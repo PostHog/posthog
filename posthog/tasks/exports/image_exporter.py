@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, Literal, Optional, cast
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlparse, urlunparse
 
 from django.conf import settings
 
@@ -363,6 +363,13 @@ def _build_cdp_endpoint(cdp_url: str, token: str, session_timeout_ms: int) -> st
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def _redact_browserless_token(message: str) -> str:
+    token = settings.BROWSERLESS_TOKEN
+    if not token:
+        return message
+    return message.replace(token, "***").replace(quote_plus(token), "***")
+
+
 def _should_use_browserless(exported_asset: ExportedAsset) -> bool:
     if not settings.BROWSERLESS_CDP_URL:
         return False
@@ -479,7 +486,7 @@ def _screenshot_asset_selenium(
                     pass
                 capture_exception(e)
 
-            raise TimeoutException(f"Timeout while waiting for the page to load")
+            raise TimeoutException("Timeout while waiting for the page to load") from e
 
         try:
             # Also wait until nothing is loading
@@ -570,7 +577,9 @@ def _screenshot_asset_browserless(
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
         except (PlaywrightError, PlaywrightTimeoutError) as e:
-            raise BrowserlessUnavailable(f"Failed to connect to browserless: {e}") from e
+            raise BrowserlessUnavailable(
+                f"Failed to connect to browserless: {_redact_browserless_token(str(e))}"
+            ) from None
 
         disconnected = [False]
         browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))
@@ -594,7 +603,7 @@ def _screenshot_asset_browserless(
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
                     capture_exception(e)
 
-                raise PlaywrightTimeoutError("Timeout while waiting for the page to load")
+                raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
 
             try:
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
@@ -628,7 +637,7 @@ def _screenshot_asset_browserless(
             raise
         except PlaywrightError as e:
             if disconnected[0] or _is_browserless_connection_error(e):
-                raise BrowserlessUnavailable(str(e)) from e
+                raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
 
             with posthoganalytics.new_context():
                 posthoganalytics.tag("url_to_render", url_to_render)

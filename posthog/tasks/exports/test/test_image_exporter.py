@@ -776,6 +776,30 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
                 with self.assertRaises(BrowserlessUnavailable):
                     image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
 
+    def test_connect_error_redacts_token_and_breaks_chain(self) -> None:
+        token = "super-secret-token"
+        leaked = (
+            f"connect_over_cdp: WebSocket error connecting to wss://chrome.browserless.io/?token={token}&timeout=180000"
+        )
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.side_effect = PlaywrightError(leaked)
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch("posthog.tasks.exports.image_exporter.sync_playwright", return_value=sync_playwright_cm),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+            patch.object(settings, "BROWSERLESS_TOKEN", token),
+        ):
+            with self.assertRaises(BrowserlessUnavailable) as ctx:
+                image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+
+        message = str(ctx.exception)
+        assert token not in message
+        assert "***" in message
+        assert ctx.exception.__cause__ is None
+        assert ctx.exception.__suppress_context__ is True
+
     def test_goto_timeout_is_captured_and_reraised(self) -> None:
         # Connect succeeds, but navigation times out — the debug-capture path must run
         # for a goto (navigation) timeout, not just a selector timeout.
@@ -798,10 +822,13 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
             patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
             patch("posthog.tasks.exports.image_exporter.capture_exception") as mock_capture,
         ):
-            with self.assertRaises(PlaywrightTimeoutError):
+            with self.assertRaises(PlaywrightTimeoutError) as ctx:
                 image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
 
         mock_capture.assert_called_once()
+        # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
+        assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
+        assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
 
 class TestDimensionHelpers(SimpleTestCase):
