@@ -325,6 +325,9 @@ tools:
     organizations-partial-update:
         operation: partial_update
         enabled: false
+    organizations-projects-promoted-product-intent-retrieve:
+        operation: organizations_projects_promoted_product_intent_retrieve
+        enabled: false
     organizations-update:
         operation: update
         enabled: false
