@@ -17,6 +17,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
+    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     PromotedProductIntentSerializer,
     TeamSerializer,
@@ -948,15 +949,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @extend_schema(
         tags=["platform_features"],
         responses={200: PromotedProductIntentSerializer},
-        description=(
-            "Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary "
-            "product during onboarding. Resolved from the most recent `user showed product intent` event with "
-            "`intent_context = onboarding product selected - primary`. Returns `null` when no such event has been "
-            "captured (e.g. teams created before this signal existed, or where onboarding was skipped)."
-        ),
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     )
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
-    def promoted_product_intent(self, request: request.Request, **kwargs):
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
         project = self.get_object()
         team = project.passthrough_team
         product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)

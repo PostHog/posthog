@@ -46,6 +46,7 @@ from posthog.models.event_ingestion_restriction_config import EventIngestionRest
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
+from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
@@ -142,6 +143,16 @@ def _format_serializer_errors(serializer_errors: dict) -> str:
         else:
             error_messages.append(f"{field}: {field_errors}")
     return ". ".join(error_messages)
+
+
+PROMOTED_PRODUCT_INTENT_DESCRIPTION = (
+    "Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary "
+    "product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` "
+    "record (the one carrying the `onboarding product selected - primary` context) — not from the "
+    "`user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no "
+    "primary onboarding product intent has been captured (e.g. teams created before this signal existed, or "
+    "where onboarding was skipped)."
+)
 
 
 class PromotedProductIntentSerializer(serializers.Serializer):
@@ -2050,19 +2061,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @extend_schema(
         tags=["platform_features"],
         responses={200: PromotedProductIntentSerializer},
-        description=(
-            "Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary "
-            "product during onboarding. Resolved from the most recent `user showed product intent` event with "
-            "`intent_context = onboarding product selected - primary`. Returns `null` when no such event has been "
-            "captured (e.g. teams created before this signal existed, or where onboarding was skipped)."
-        ),
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     )
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
-    def promoted_product_intent(self, request: request.Request, **kwargs):
-        from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
-
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
         team = self.get_object()
-        product_key = get_promoted_product_intent(team.pk)
+        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
         return response.Response({"product_key": product_key})
 
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")

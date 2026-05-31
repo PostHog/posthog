@@ -254,7 +254,7 @@ export const getOrganizationsProjectsPromotedProductIntentRetrieveUrl = (organiz
 }
 
 /**
- * Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary product during onboarding. Resolved from the most recent `user showed product intent` event with `intent_context = onboarding product selected - primary`. Returns `null` when no such event has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
  */
 export const organizationsProjectsPromotedProductIntentRetrieve = async (
     organizationId: string,
@@ -937,7 +937,7 @@ export const getEnvironmentsPromotedProductIntentRetrieveUrl = (projectId: strin
 }
 
 /**
- * Return the product key (e.g. `session_replay`, `web_analytics`) that this team selected as their primary product during onboarding. Resolved from the most recent `user showed product intent` event with `intent_context = onboarding product selected - primary`. Returns `null` when no such event has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
  */
 export const environmentsPromotedProductIntentRetrieve = async (
     projectId: string,
