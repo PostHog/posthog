@@ -185,7 +185,8 @@ def build_agent_description(
         | `recipe.yml`   | informational metadata for the model card                            |
 
         The framework runs train.py + predict.py in a locked-down sandbox with NO network and
-        NO credentials. `NOTEBOOK_BASE` ships pandas / numpy / scikit-learn — import only those.
+        NO credentials. It ships pandas / numpy / scikit-learn / pyarrow (the same libraries your
+        own sandbox already has) — `import` only those, and never `pip install`.
 
         ## Research loop (perform at least {min_iters} iterations)
 
@@ -237,6 +238,11 @@ def build_agent_description(
         ```
 
         ### Step 3 — Fit and evaluate (in your sandbox)
+
+        **Your sandbox is already equipped — do NOT `pip install` anything.** numpy, pandas,
+        scikit-learn, and pyarrow are pre-installed (the same versions the framework uses to run
+        your bundle), so just `import` them. Compute the fit and holdout AUC in Python (the pattern
+        below) — do not try to compute AUC in SQL; `execute-sql` is only for pulling the feature rows.
 
         For each iteration, run one composite `execute-sql` query returning one row per labeled
         user with feature columns + `__label` + `__fold`, then fit on `__fold != 0` and evaluate
