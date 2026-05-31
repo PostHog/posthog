@@ -1,138 +1,101 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
-import type { Meta, StoryObj } from '@storybook/react'
-import { useEffect, useState } from 'react'
+import { Meta, StoryObj, type Decorator } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { getAppContext } from 'lib/utils/getAppContext'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
 
-import {
-    localStorageOverrideKey,
-    localStorageProductKey,
-    PromotedProductTarget,
-    promotedProductLogic,
-} from './promotedProductLogic'
-import { PromotedProductNavItem } from './PromotedProductNavItem'
+import { mswDecorator } from '~/mocks/browser'
 
-interface StoryArgs {
-    onboardingIntent: string | null
-    override: PromotedProductTarget | null
-    isCollapsed: boolean
-}
-
-const PRODUCT_KEY = localStorageProductKey(MOCK_TEAM_ID)
-const OVERRIDE_KEY = localStorageOverrideKey(MOCK_TEAM_ID)
-
-/** Sidebar-shaped wrapper so the nav item renders against the same Tailwind context it would on the real left rail. */
-function SidebarWrapper({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="w-64 bg-surface-primary border border-border rounded p-2">
-            <div className="text-xs text-muted px-2 pb-2">Project nav (preview)</div>
-            {children}
-        </div>
-    )
-}
+import { localStorageOverrideKey, localStorageProductKey } from './promotedProductLogic'
 
 /**
- * The variant comes from the `featureFlags` story parameter (handled by the global
- * decorator). This wrapper only stages the onboarding intent / override that the
- * logic reads from team-scoped localStorage, then mounts the logic so the entry resolves.
+ * The promoted-product entry lives in the left project nav, so these stories render the
+ * full `App` with the navigation captured. We vary only the two inputs that decide what
+ * the slot shows: the `promoted-product` flag variant and whether the team has a primary
+ * onboarding product. With no product, `intent`/`intent_plus` fall back to a dashboards link.
  */
-function StoryRunner({ onboardingIntent, override, isCollapsed }: StoryArgs): JSX.Element | null {
-    const [ready, setReady] = useState(false)
-
-    useEffect(() => {
-        window.localStorage.removeItem(PRODUCT_KEY)
-        window.localStorage.removeItem(OVERRIDE_KEY)
-        if (onboardingIntent) {
-            window.localStorage.setItem(PRODUCT_KEY, onboardingIntent)
+const withPromotedProductIntent =
+    (intent: string | null): Decorator =>
+    (Story) => {
+        const ctx = getAppContext()
+        const teamId = ctx?.current_team?.id
+        if (teamId != null) {
+            // Clear any leakage from a previous story so AppContext is the only source.
+            window.localStorage.removeItem(localStorageProductKey(teamId))
+            window.localStorage.removeItem(localStorageOverrideKey(teamId))
         }
-        if (override) {
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify(override))
+        if (ctx) {
+            ctx.promoted_product_intent = intent
         }
-
-        const unmount = promotedProductLogic.mount()
-        promotedProductLogic.actions.refreshIntentFromStorage()
-        promotedProductLogic.actions.refreshOverrideFromStorage()
-        setReady(true)
-
-        return () => {
-            window.localStorage.removeItem(PRODUCT_KEY)
-            window.localStorage.removeItem(OVERRIDE_KEY)
-            unmount()
-            setReady(false)
-        }
-    }, [onboardingIntent, override])
-
-    if (!ready) {
-        return null
+        return <Story />
     }
 
-    return (
-        <SidebarWrapper>
-            <PromotedProductNavItem isCollapsed={isCollapsed} />
-        </SidebarWrapper>
-    )
-}
-
-const meta: Meta<StoryArgs> = {
-    title: 'Layout/Promoted Product Nav Item',
+const meta: Meta = {
+    component: App,
+    title: 'Scenes-App/Promoted Product',
     parameters: {
-        layout: 'centered',
+        layout: 'fullscreen',
         viewMode: 'story',
-    },
-    argTypes: {
-        onboardingIntent: {
-            control: { type: 'select' },
-            options: [null, 'product_analytics', 'session_replay', 'web_analytics', 'error_tracking', 'llm_analytics'],
+        pageUrl: urls.dashboards(),
+        testOptions: {
+            includeNavigationInSnapshot: true,
         },
-        isCollapsed: { control: 'boolean' },
     },
-    render: (args) => <StoryRunner {...args} />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/dashboard_templates/': {},
+                '/api/projects/:id/integrations': { results: [] },
+                '/api/organizations/:organization_id/pipeline_destinations/': { results: [] },
+                '/api/projects/:id/pipeline_destination_configs/': { results: [] },
+                '/api/projects/:id/batch_exports/': { results: [] },
+                '/api/projects/:id/surveys/': { results: [] },
+                '/api/projects/:id/surveys/responses_count/': { results: [] },
+                '/api/environments/:team_id/exports/': { results: [] },
+                '/api/environments/:team_id/events': { results: [] },
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind': {},
+            },
+        }),
+    ],
 }
 export default meta
 
-type Story = StoryObj<StoryArgs>
+type Story = StoryObj
 
-export const ControlAHidden: Story = {
-    args: { onboardingIntent: 'session_replay', override: null, isCollapsed: false },
+const PROMOTED_PRODUCT = 'session_replay'
+
+// control: the entry never renders, with or without a product.
+export const ControlNoProduct: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'control' } },
+    decorators: [withPromotedProductIntent(null)],
 }
 
-export const ControlBHidden: Story = {
-    args: { onboardingIntent: 'session_replay', override: null, isCollapsed: false },
-    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'control_b' } },
+export const ControlWithProduct: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'control' } },
+    decorators: [withPromotedProductIntent(PROMOTED_PRODUCT)],
 }
 
-export const IntentShowsOnboardingPick: Story = {
-    args: { onboardingIntent: 'session_replay', override: null, isCollapsed: false },
+// intent: renders the entry; falls back to a dashboards link when there's no product.
+export const IntentNoProduct: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent' } },
+    decorators: [withPromotedProductIntent(null)],
 }
 
-export const IntentWithProductAnalytics: Story = {
-    args: { onboardingIntent: 'product_analytics', override: null, isCollapsed: false },
+export const IntentWithProduct: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent' } },
+    decorators: [withPromotedProductIntent(PROMOTED_PRODUCT)],
 }
 
-export const IntentNoOnboardingPickHidden: Story = {
-    args: { onboardingIntent: null, override: null, isCollapsed: false },
-    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent' } },
-}
-
-export const IntentPlusShowsCog: Story = {
-    args: { onboardingIntent: 'session_replay', override: null, isCollapsed: false },
+// intent_plus: same as intent, plus the configure cog.
+export const IntentPlusNoProduct: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } },
+    decorators: [withPromotedProductIntent(null)],
 }
 
-export const IntentPlusWithUrlOverride: Story = {
-    args: { onboardingIntent: 'session_replay', override: { kind: 'url', value: '/my-dashboard' }, isCollapsed: false },
+export const IntentPlusWithProduct: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } },
-}
-
-export const IntentCollapsedSidebar: Story = {
-    args: { onboardingIntent: 'web_analytics', override: null, isCollapsed: true },
-    parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent' } },
-}
-
-export const FlagUnsetHidden: Story = {
-    args: { onboardingIntent: 'session_replay', override: null, isCollapsed: false },
+    decorators: [withPromotedProductIntent(PROMOTED_PRODUCT)],
 }
