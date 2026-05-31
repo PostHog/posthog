@@ -1,4 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -73,6 +74,15 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                 finishSavingPrimaryProperty: (state, { eventName }) => state.filter((name) => name !== eventName),
             },
         ],
+        primaryPropertySaveVersions: [
+            {} as Record<string, number>,
+            {
+                setLoadedPrimaryProperty: (state, { eventName }) => ({
+                    ...state,
+                    [eventName]: (state[eventName] ?? 0) + 1,
+                }),
+            },
+        ],
     }),
     selectors({
         primaryProperties: [
@@ -109,10 +119,22 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
             if (names.length === 0) {
                 return
             }
+            const versionsAtRequest = values.primaryPropertySaveVersions
             try {
                 const response = await api.eventDefinitions.primaryProperties({ names })
-                actions.primaryPropertiesLoaded(names, response.primary_properties)
-            } catch {}
+                const supersededBySave = (name: string): boolean =>
+                    (values.primaryPropertySaveVersions[name] ?? 0) !== (versionsAtRequest[name] ?? 0)
+                const namesToApply = names.filter((name) => !supersededBySave(name))
+                if (namesToApply.length === 0) {
+                    return
+                }
+                const propertiesToApply = Object.fromEntries(
+                    Object.entries(response.primary_properties).filter(([name]) => !supersededBySave(name))
+                )
+                actions.primaryPropertiesLoaded(namesToApply, propertiesToApply)
+            } catch (error) {
+                posthog.captureException(error, { action: 'load-primary-properties' })
+            }
         },
         setPrimaryProperty: async ({ eventName, propertyKey }) => {
             actions.applyOptimisticPrimaryProperty(eventName, propertyKey)
@@ -123,7 +145,8 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                     eventDefinitionData: { primary_property: propertyKey },
                 })
                 actions.setLoadedPrimaryProperty(eventName, propertyKey)
-            } catch {
+            } catch (error) {
+                posthog.captureException(error, { action: 'set-primary-property' })
                 lemonToast.error('Could not update the pinned property. Please try again.')
             } finally {
                 actions.clearOptimisticPrimaryProperty(eventName)

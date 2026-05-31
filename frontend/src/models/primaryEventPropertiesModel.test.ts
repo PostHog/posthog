@@ -98,6 +98,36 @@ describe('the primary event properties model', () => {
         expect(logic.values.loadedEventNames).toEqual([])
     })
 
+    it('a save completed during an in-flight refresh is not clobbered by the stale refresh result', async () => {
+        let releaseLoad: (() => void) | undefined
+        const loadGate = new Promise<void>((resolve) => {
+            releaseLoad = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/by_name/': () => [200, { id: 'def-1', name: 'my_event' }],
+                '/api/projects/:team_id/event_definitions/primary_properties/': async () => {
+                    await loadGate
+                    return [200, { primary_properties: {} }]
+                },
+            },
+        })
+
+        logic.actions.loadPrimaryProperties(['my_event'])
+        await expectLogic(logic).toDispatchActions(['loadPrimaryProperties'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setPrimaryProperty('my_event', 'fresh')
+        }).toDispatchActions(['finishSavingPrimaryProperty'])
+        expect(logic.values.primaryProperties).toEqual({ my_event: 'fresh' })
+
+        releaseLoad?.()
+        await expectLogic(logic).delay(0)
+
+        expect(logic.values.primaryProperties).toEqual({ my_event: 'fresh' })
+        expect(logic.values.loadedPrimaryProperties).toEqual({ my_event: 'fresh' })
+    })
+
     it('lets a later server refresh override a pinned value without a stale optimistic shadow', async () => {
         await expectLogic(logic, () => {
             logic.actions.setPrimaryProperty('my_event', 'chosen_prop')
