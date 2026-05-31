@@ -183,7 +183,7 @@ def parse_url(url: str, get_latest_if_none=False) -> dict[str, Optional[str]]:
 def split_url_and_private_token(url: str) -> tuple[str, Optional[str]]:
     private_token = None
     if "?" in url:
-        url, query = url.split("?")
+        url, query = url.split("?", 1)
         params = {k: v[0] for k, v in parse_qs(query).items()}
         private_token = params.get("private_token", None)
     return url.strip("/"), private_token
