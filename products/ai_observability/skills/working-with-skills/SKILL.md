@@ -245,7 +245,7 @@ memory. There is one rule:
   `files=[{path, content, content_type}]` array, and `file_edits=[{path, edits}]`.
 - **`old_path` / `new_path`** — body fields on `llma-skill-file-rename`.
 
-Mnemonic: `path` is the field name on a file *object* (it sits next to
+Mnemonic: `path` is the field name on a file _object_ (it sits next to
 `content`), so everything that carries a file object uses `path`; the two
 tools that address a file by URL use `file_path`. When unsure, check the
 tool's input schema rather than guessing — passing `path` to file-get yields a
