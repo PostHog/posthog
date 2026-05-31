@@ -15,10 +15,12 @@ from products.autoresearch.backend.sandbox_inference import (
     _features_csv,
     _join_scores,
     _labels_csv,
-    _materialize_data,
+    _materialize_score_data,
+    _materialize_training_data,
     _numeric_feature_cols,
     _read_metrics,
     _read_scores,
+    fit_champion_model,
     score_via_sandbox,
 )
 from products.tasks.backend.services.sandbox import ExecutionResult
@@ -34,6 +36,14 @@ _SCORE_ROWS = [
 ]
 
 
+def _training_materialized() -> sandbox_inference.MaterializedData:
+    return sandbox_inference.MaterializedData(
+        feature_cols=["events_total", "pageviews"],
+        train_rows=[r for r in _TRAINING_ROWS if r["__fold"] != 0],
+        holdout_rows=[r for r in _TRAINING_ROWS if r["__fold"] == 0],
+    )
+
+
 class _FakeSandbox:
     """Stands in for a Tasks sandbox: records writes, routes execute() by command.
 
@@ -41,10 +51,19 @@ class _FakeSandbox:
     cat command is recognised by _FILE_BEGIN and the target file name in the command.
     """
 
-    def __init__(self, *, scores_csv: str = "", metrics_json: str = "", train_exit: int = 0, predict_exit: int = 0):
+    def __init__(
+        self,
+        *,
+        scores_csv: str = "",
+        metrics_json: str = "",
+        model_bytes: bytes = b"PICKLE",
+        train_exit: int = 0,
+        predict_exit: int = 0,
+    ):
         self.written: dict[str, bytes] = {}
         self._scores_csv = scores_csv
         self._metrics_json = metrics_json
+        self._model_bytes = model_bytes
         self._train_exit = train_exit
         self._predict_exit = predict_exit
         self.destroyed = False
@@ -60,8 +79,15 @@ class _FakeSandbox:
         self.written[path] = payload
 
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
-        if _FILE_BEGIN in command:  # a sentinel-bracketed cat
-            payload = self._metrics_json if "output.json" in command else self._scores_csv
+        if _FILE_BEGIN in command:  # a sentinel-bracketed readback
+            if "base64" in command:  # binary model.pkl readback
+                import base64
+
+                payload = base64.b64encode(self._model_bytes).decode()
+            elif "output.json" in command:
+                payload = self._metrics_json
+            else:
+                payload = self._scores_csv
             return ExecutionResult(stdout=f"{_FILE_BEGIN}\n{payload}\n{_FILE_END}\n", stderr="", exit_code=0)
         if "train.py" in command:
             return ExecutionResult(stdout="", stderr="boom" if self._train_exit else "", exit_code=self._train_exit)
@@ -80,15 +106,25 @@ class TestMaterializeData(BaseTest):
             horizon_days=7,
         )
 
-    def test_splits_folds_and_extracts_feature_cols(self):
+    def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_run_hogql", side_effect=[_TRAINING_ROWS, _SCORE_ROWS]):
-            data = _materialize_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
+        with patch.object(sandbox_inference, "_run_hogql", return_value=_TRAINING_ROWS):
+            data = _materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
         assert [r["distinct_id"] for r in data.holdout_rows] == ["p3"]
-        assert [r["distinct_id"] for r in data.score_rows] == ["s1", "s2"]
+
+    def test_score_data_is_inference_only_no_labels(self):
+        pipeline = self._pipeline()
+        with patch.object(sandbox_inference, "_run_hogql", return_value=_SCORE_ROWS) as run:
+            score_rows = _materialize_score_data(
+                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}"
+            )
+
+        # exactly one query (inference anchors only) — no training/holdout materialization
+        assert run.call_count == 1
+        assert [r["distinct_id"] for r in score_rows] == ["s1", "s2"]
 
     def test_numeric_feature_cols_excludes_label_fold_and_distinct_id(self):
         cols = _numeric_feature_cols(_TRAINING_ROWS)
@@ -204,38 +240,58 @@ class TestScoreViaSandbox(BaseTest):
             train_py="# train", predict_py="# predict", features_sql="SELECT 1 FROM {anchors}", recipe_yml="x: 1"
         )
 
-    def test_happy_path_returns_scores_and_auc(self):
+    def test_predict_run_uses_persisted_model_and_does_not_train(self):
         pipeline, model = self._pipeline_and_model()
-        fake = _FakeSandbox(
-            scores_csv="distinct_id,p_y\ns1,0.8\ns2,0.2",
-            metrics_json='{"holdout_auc": 0.73, "n_train": 2, "n_features": 2}',
-        )
+        fake = _FakeSandbox(scores_csv="distinct_id,p_y\ns1,0.8\ns2,0.2")
+        model.holdout_score = 0.73
+        model.metrics = {"n_train": 5}
+        model.save(update_fields=["holdout_score", "metrics"])
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
-            patch.object(sandbox_inference, "_run_hogql", side_effect=[_TRAINING_ROWS, _SCORE_ROWS]),
+            patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
 
         assert isinstance(result, SandboxScoreResult)
-        assert result.holdout_auc == 0.73
+        assert result.holdout_auc == 0.73  # comes from the persisted model, not recomputed
         assert {r["distinct_id"] for r in result.scored_rows} == {"s1", "s2"}
         assert fake.destroyed is True
-        # bundle scripts + the five data CSVs were uploaded
-        assert any(p.endswith("bundle/train.py") for p in fake.written)
+        # the persisted model + score features were uploaded; predict ran, train.py did NOT
+        assert any(p.endswith("model.pkl") for p in fake.written)
         assert any(p.endswith("data/score_features.csv") for p in fake.written)
+        assert not any(p.endswith("data/train_features.csv") for p in fake.written)
+
+    def test_missing_model_self_heals_by_fitting_once(self):
+        pipeline, model = self._pipeline_and_model()
+        fake = _FakeSandbox(scores_csv="distinct_id,p_y\ns1,0.8\ns2,0.2")
+        fit = MagicMock()
+        # read_model: absent first (triggers fit), present after the fit
+        with (
+            patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
+            patch.object(sandbox_inference, "read_model", side_effect=[None, b"PICKLE"]),
+            patch.object(sandbox_inference, "fit_champion_model", fit),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
+        ):
+            result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
+
+        fit.assert_called_once()
+        assert {r["distinct_id"] for r in result.scored_rows} == {"s1", "s2"}
 
     def test_no_artifact_prefix_raises(self):
         pipeline, model = self._pipeline_and_model(artifact_prefix="")
         with self.assertRaises(SandboxInferenceError):
             score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
 
-    def test_train_failure_raises_and_destroys_sandbox(self):
+    def test_predict_failure_raises_and_destroys_sandbox(self):
         pipeline, model = self._pipeline_and_model()
-        fake = _FakeSandbox(train_exit=1)
+        fake = _FakeSandbox(predict_exit=1)
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
-            patch.object(sandbox_inference, "_run_hogql", side_effect=[_TRAINING_ROWS, _SCORE_ROWS]),
+            patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             with self.assertRaises(SandboxInferenceError):
@@ -247,12 +303,32 @@ class TestScoreViaSandbox(BaseTest):
         create_mock = MagicMock()
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
-            patch.object(sandbox_inference, "_run_hogql", side_effect=[_TRAINING_ROWS, []]),
+            patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=[]),
             patch.object(sandbox_inference.Sandbox, "create", create_mock),
         ):
             with self.assertRaises(SandboxInferenceError):
                 score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
         create_mock.assert_not_called()  # cheap guard fires before paying for a sandbox
+
+    def test_fit_champion_model_trains_and_persists(self):
+        pipeline, model = self._pipeline_and_model()
+        fake = _FakeSandbox(metrics_json='{"holdout_auc": 0.73, "n_train": 2, "n_features": 2}', model_bytes=b"FITTED")
+        stored: dict = {}
+        with (
+            patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
+            patch.object(sandbox_inference, "_materialize_training_data", return_value=_training_materialized()),
+            patch.object(
+                sandbox_inference, "write_model", side_effect=lambda prefix, content: stored.update(model=content)
+            ),
+            patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
+        ):
+            metrics = fit_champion_model(team=self.team, pipeline=pipeline, prefix=model.artifact_prefix)
+
+        assert metrics["holdout_auc"] == 0.73
+        assert stored["model"] == b"FITTED"  # the fitted model.pkl read back + persisted
+        assert any(p.endswith("data/train_features.csv") for p in fake.written)  # train run materializes training data
+        assert not any(p.endswith("data/score_features.csv") for p in fake.written)
 
 
 class TestInferenceRouting(BaseTest):

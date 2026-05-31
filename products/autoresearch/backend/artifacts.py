@@ -33,6 +33,11 @@ FEATURES_SQL = "features.sql"
 RECIPE_YML = "recipe.yml"
 BUNDLE_FILES: tuple[str, ...] = (TRAIN_PY, PREDICT_PY, FEATURES_SQL, RECIPE_YML)
 
+# The fitted champion model, produced by the training run (train.py against the
+# training population) and persisted alongside the bundle so predict runs are pure
+# inference — they load this pickle and run predict.py only, never re-fitting.
+MODEL_PKL = "model.pkl"
+
 # Relative paths an agent may upload: bundle files at the top level plus optional
 # eda/ notebooks. Conservative on purpose — segment names are limited to word
 # chars, dot, and dash so nothing can climb out of the run prefix.
@@ -124,6 +129,17 @@ def read_bundle(prefix: str) -> ArtifactBundle:
         if content is not None:
             files[name] = content
     return ArtifactBundle.from_files(files)
+
+
+def write_model(prefix: str, content: bytes) -> None:
+    """Persist the fitted champion model (``model.pkl``) under ``prefix``."""
+    object_storage.write(f"{prefix}/{MODEL_PKL}", content)
+    logger.info("autoresearch_model_written", prefix=prefix, size=len(content))
+
+
+def read_model(prefix: str) -> bytes | None:
+    """Read the fitted champion model under ``prefix``, or None if it has not been fit yet."""
+    return object_storage.read_bytes(f"{prefix}/{MODEL_PKL}", missing_ok=True)
 
 
 def list_bundle(prefix: str) -> list[str]:

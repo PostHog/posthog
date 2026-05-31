@@ -1,14 +1,24 @@
 """
-Inference in a sandbox: run an artifact bundle's train.py + predict.py against
-framework-materialized feature data, read scores back, hand them to the emitter.
+Sandbox execution of an artifact bundle, split by run type.
 
-This is the artifact-architecture inference path. Unlike the in-process recipe
-path (inference._score_via_anchors), the model's fit and predict run as the
-agent-authored scripts inside a NOTEBOOK_BASE Tasks sandbox — re-fit every run
-(the intentional drift signal). The framework owns everything around the
-scripts: materializing the leak-free feature matrices (via labeling.py), the
-train/holdout fold split, serialization to CSV, sandbox lifecycle, and emitting
-prediction events. The bundle never receives credentials or network egress.
+Train run and predict run are different run types with different data contracts:
+
+- ``fit_champion_model`` (train run, called once at completion) materializes the
+  LABELED training population, runs the bundle's ``train.py`` in a sandbox, and
+  persists the fitted ``model.pkl`` alongside the bundle. This is where fitting
+  happens.
+- ``score_via_sandbox`` (predict run, called every scoring cadence) is pure
+  inference: it loads the persisted ``model.pkl``, materializes ONLY the
+  inference population (cutoff ``now()``, no labels, no holdout, no fold), runs
+  the bundle's ``predict.py`` only, and hands scores to the emitter. It never
+  re-fits. If the model is somehow absent (legacy champion, or a completion-time
+  fit that failed), it self-heals by fitting once and caching the pickle.
+
+Unlike the in-process recipe path (inference._score_via_anchors), the model runs
+as the agent-authored scripts inside a NOTEBOOK_BASE Tasks sandbox. The framework
+owns everything around the scripts: materializing the leak-free feature matrices
+(via labeling.py), serialization to CSV, sandbox lifecycle, and emitting. The
+bundle never receives credentials or network egress.
 
 Failure is loud: any materialization or sandbox error raises, the sandbox is
 destroyed, and the caller fails the run. There is deliberately no stub fallback
@@ -21,6 +31,8 @@ from __future__ import annotations
 import io
 import csv
 import json
+import base64
+import binascii
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,7 +45,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 
-from products.autoresearch.backend.artifacts import ArtifactBundle, read_bundle
+from products.autoresearch.backend.artifacts import ArtifactBundle, read_bundle, read_model, write_model
 from products.autoresearch.backend.labeling import build_inference_features_sql, build_training_features_sql
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
@@ -59,6 +71,8 @@ _PREDICT_TIMEOUT_S = 120
 _MATERIALIZE_ROW_LIMIT = 50_000
 _OUTPUT_JSON = "data/output.json"
 _SCORES_CSV = "data/scores.csv"
+# The fitted model the train run produces and the predict run loads (relative to _WORKDIR).
+_MODEL_PKL = "model.pkl"
 _FILE_BEGIN = "<<<AUTORESEARCH_FILE_BEGIN>>>"
 _FILE_END = "<<<AUTORESEARCH_FILE_END>>>"
 # Keys train.py must write into output.json.
@@ -71,10 +85,11 @@ class SandboxInferenceError(Exception):
 
 @dataclass
 class MaterializedData:
+    """Labeled training matrix for a train run: train + holdout folds. Predict runs return a plain row list."""
+
     feature_cols: list[str]
     train_rows: list[dict[str, Any]] = field(default_factory=list)
     holdout_rows: list[dict[str, Any]] = field(default_factory=list)
-    score_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -88,6 +103,44 @@ class SandboxScoreResult:
 # ── Public entry point ─────────────────────────────────────────────────────────
 
 
+def fit_champion_model(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    prefix: str,
+    bundle: ArtifactBundle | None = None,
+) -> dict[str, Any]:
+    """
+    Train run: fit the champion against the LABELED training population and persist
+    the resulting ``model.pkl`` under ``prefix``. Idempotent — overwrites any prior fit.
+
+    Returns train.py's metrics (holdout_auc, n_train, n_features). Raises
+    SandboxInferenceError on any materialization or sandbox failure.
+    """
+    if bundle is None:
+        try:
+            bundle = read_bundle(prefix)
+        except Exception as exc:
+            raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
+
+    data = _materialize_training_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql)
+    if not data.train_rows:
+        raise SandboxInferenceError("No training rows to fit on")
+    if not data.feature_cols:
+        raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
+
+    model_bytes, metrics = _run_train_in_sandbox(bundle=bundle, data=data, pipeline=pipeline)
+    write_model(prefix, model_bytes)
+    logger.info(
+        "autoresearch_champion_fitted",
+        pipeline_id=str(pipeline.pk),
+        prefix=prefix,
+        model_bytes=len(model_bytes),
+        holdout_auc=metrics.get("holdout_auc"),
+    )
+    return metrics
+
+
 def score_via_sandbox(
     *,
     team: Team,
@@ -95,48 +148,72 @@ def score_via_sandbox(
     model: AutoresearchModel,
 ) -> SandboxScoreResult:
     """
-    Score the inference population by running the model's bundle in a sandbox.
+    Predict run: score the inference population with the champion's persisted model.
+
+    Pure inference — loads ``model.pkl`` and runs only ``predict.py`` against the
+    inference population (cutoff now(), no labels, no holdout). If the model has not
+    been fit yet (legacy champion, or a completion-time fit that failed), it
+    self-heals by fitting once and caching the pickle.
 
     Raises SandboxInferenceError on any failure (missing bundle, no data, sandbox
     or script error). Never falls back to stub scoring.
     """
     if not model.artifact_prefix:
         raise SandboxInferenceError(f"Model {model.pk} has no artifact_prefix")
+    prefix = model.artifact_prefix
 
     try:
-        bundle = read_bundle(model.artifact_prefix)
+        bundle = read_bundle(prefix)
     except Exception as exc:
-        raise SandboxInferenceError(f"Could not read bundle at {model.artifact_prefix}: {exc}") from exc
+        raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
 
-    data = _materialize_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql)
+    model_bytes = read_model(prefix)
+    if model_bytes is None:
+        # The train run should have produced this; self-heal so a predict run never
+        # silently no-ops. The one-time fit is cached for every subsequent run.
+        logger.warning("autoresearch_model_missing_fitting_now", pipeline_id=str(pipeline.pk), prefix=prefix)
+        fit_champion_model(team=team, pipeline=pipeline, prefix=prefix, bundle=bundle)
+        model_bytes = read_model(prefix)
+        if model_bytes is None:
+            raise SandboxInferenceError(f"Champion model still missing after fit at {prefix}")
 
+    score_rows = _materialize_score_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql)
+    feature_cols = _numeric_feature_cols(score_rows)
     # Cheap guards before paying for a sandbox.
-    if not data.score_rows:
+    if not score_rows:
         raise SandboxInferenceError("No inference rows to score")
-    if not data.train_rows:
-        raise SandboxInferenceError("No training rows to fit on")
-    if not data.feature_cols:
+    if not feature_cols:
         raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
 
-    return _run_bundle_in_sandbox(bundle=bundle, data=data, pipeline=pipeline)
+    scored_rows = _run_predict_in_sandbox(
+        bundle=bundle, model_bytes=model_bytes, score_rows=score_rows, feature_cols=feature_cols, pipeline=pipeline
+    )
+    return SandboxScoreResult(
+        scored_rows=scored_rows,
+        holdout_auc=model.holdout_score,
+        n_train=int((model.metrics or {}).get("n_train") or 0),
+        n_features=len(feature_cols),
+    )
 
 
 # ── Data materialization (framework-owned, reuses labeling.py) ───────────────────
 
 
-def _materialize_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql: str) -> MaterializedData:
-    """
-    Run the bundle's feature SQL against training anchors (per-user T0, with
-    __label + __fold) and inference anchors (cutoff_ts = now()), reusing the same
-    labeling helpers the in-process path uses. Splits train/holdout by fold here
-    so the bundle never sees __fold.
-    """
+def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
     # Same window contract as inference._score_via_anchors: the feature-window
-    # {lookback_days} is 4x horizon (min 30); the labeler window is the pipeline's
-    # configured training_lookback_days.
-    feature_lookback_days = max(30, pipeline.horizon_days * 4)
-    feature_sql_resolved = feature_sql.replace("{lookback_days}", str(feature_lookback_days))
+    # {lookback_days} is 4x horizon (min 30). Shared by train and predict so a user's
+    # features are computed over the same window length on either side of T0.
+    return max(30, pipeline.horizon_days * 4)
 
+
+def _materialize_training_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql: str) -> MaterializedData:
+    """
+    Train run materialization: the bundle's feature SQL against the LABELED training
+    anchors (per-user random T0, with __label + __fold). Splits train/holdout by fold
+    so the bundle never sees __fold. The labeler window is the pipeline's configured
+    training_lookback_days.
+    """
+    feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     train_sql, train_values = build_training_features_sql(
         feature_sql=feature_sql_resolved,
         target_event=pipeline.target_event,
@@ -144,33 +221,35 @@ def _materialize_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
     )
-    score_sql, score_values = build_inference_features_sql(
-        feature_sql=feature_sql_resolved,
-        lookback_days=feature_lookback_days,
-        inference_population=pipeline.inference_population,
-    )
-
     training_rows = _run_hogql(team=team, sql=train_sql, values=train_values)
-    score_rows = _run_hogql(team=team, sql=score_sql, values=score_values)
-
     feature_cols = _numeric_feature_cols(training_rows)
     train_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) != _HOLDOUT_FOLD]
     holdout_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) == _HOLDOUT_FOLD]
-
     logger.info(
-        "autoresearch_sandbox_materialized",
+        "autoresearch_training_materialized",
         pipeline_id=str(pipeline.pk),
         n_train=len(train_rows),
         n_holdout=len(holdout_rows),
-        n_score=len(score_rows),
         n_features=len(feature_cols),
     )
-    return MaterializedData(
-        feature_cols=feature_cols,
-        train_rows=train_rows,
-        holdout_rows=holdout_rows,
-        score_rows=score_rows,
+    return MaterializedData(feature_cols=feature_cols, train_rows=train_rows, holdout_rows=holdout_rows)
+
+
+def _materialize_score_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql: str) -> list[dict[str, Any]]:
+    """
+    Predict run materialization: the bundle's feature SQL against the inference anchors
+    (cutoff_ts = now() per user). One row per eligible scoring user with the agent's
+    feature columns — no labels, no fold. Touches only the inference population.
+    """
+    feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
+    score_sql, score_values = build_inference_features_sql(
+        feature_sql=feature_sql_resolved,
+        lookback_days=_feature_lookback_days(pipeline),
+        inference_population=pipeline.inference_population,
     )
+    score_rows = _run_hogql(team=team, sql=score_sql, values=score_values)
+    logger.info("autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows))
+    return score_rows
 
 
 def _run_hogql(*, team: Team, sql: str, values: dict[str, Any]) -> list[dict[str, Any]]:
@@ -209,25 +288,36 @@ def _numeric_feature_cols(rows: list[dict[str, Any]]) -> list[str]:
 # ── Sandbox execution ────────────────────────────────────────────────────────────
 
 
-def _run_bundle_in_sandbox(
-    *,
-    bundle: ArtifactBundle,
-    data: MaterializedData,
-    pipeline: AutoresearchPipeline,
-) -> SandboxScoreResult:
-    config = SandboxConfig(
-        name=f"autoresearch-inference-{pipeline.pk}",
+def _sandbox_config(pipeline: AutoresearchPipeline, kind: str) -> SandboxConfig:
+    return SandboxConfig(
+        name=f"autoresearch-{kind}-{pipeline.pk}",
         template=SandboxTemplate.NOTEBOOK_BASE,
         environment_variables=None,  # no credentials, no egress — pure local compute
         metadata={"product": "autoresearch", "pipeline_id": str(pipeline.pk)},
     )
 
-    with Sandbox.create(config) as sandbox:
-        _upload_inputs(sandbox, bundle=bundle, data=data)
+
+def _run_train_in_sandbox(
+    *,
+    bundle: ArtifactBundle,
+    data: MaterializedData,
+    pipeline: AutoresearchPipeline,
+) -> tuple[bytes, dict[str, Any]]:
+    """Fit the bundle's train.py on the materialized training data; return (model.pkl bytes, metrics)."""
+    cols = data.feature_cols
+    with Sandbox.create(_sandbox_config(pipeline, "train")) as sandbox:
+        for name, content in bundle.as_files().items():
+            sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
+        sandbox.write_file(f"{_WORKDIR}/data/train_features.csv", _features_csv(data.train_rows, cols).encode("utf-8"))
+        sandbox.write_file(f"{_WORKDIR}/data/train_labels.csv", _labels_csv(data.train_rows).encode("utf-8"))
+        sandbox.write_file(
+            f"{_WORKDIR}/data/holdout_features.csv", _features_csv(data.holdout_rows, cols).encode("utf-8")
+        )
+        sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.csv", _labels_csv(data.holdout_rows).encode("utf-8"))
 
         train_cmd = (
             f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/train.py "
-            f"data/train_features.csv data/train_labels.csv model.pkl {_OUTPUT_JSON} "
+            f"data/train_features.csv data/train_labels.csv {_MODEL_PKL} {_OUTPUT_JSON} "
             "data/holdout_features.csv data/holdout_labels.csv --random-state 42"
         )
         train_result = sandbox.execute(train_cmd, timeout_seconds=_TRAIN_TIMEOUT_S)
@@ -235,39 +325,40 @@ def _run_bundle_in_sandbox(
             raise SandboxInferenceError(
                 f"train.py failed (exit {train_result.exit_code}): {train_result.stderr[:1000]}"
             )
-        train_meta = _read_metrics(sandbox)
+        metrics = _read_metrics(sandbox)
+        model_bytes = _read_binary_file(sandbox, _MODEL_PKL)
+
+    return model_bytes, metrics
+
+
+def _run_predict_in_sandbox(
+    *,
+    bundle: ArtifactBundle,
+    model_bytes: bytes,
+    score_rows: list[dict[str, Any]],
+    feature_cols: list[str],
+    pipeline: AutoresearchPipeline,
+) -> list[dict[str, Any]]:
+    """Run only the bundle's predict.py against the persisted model + score features."""
+    with Sandbox.create(_sandbox_config(pipeline, "predict")) as sandbox:
+        for name, content in bundle.as_files().items():
+            sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
+        sandbox.write_file(f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
+        sandbox.write_file(
+            f"{_WORKDIR}/data/score_features.csv", _features_csv(score_rows, feature_cols).encode("utf-8")
+        )
 
         predict_cmd = (
-            f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/predict.py data/score_features.csv model.pkl {_SCORES_CSV}"
+            f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/predict.py data/score_features.csv {_MODEL_PKL} {_SCORES_CSV}"
         )
         predict_result = sandbox.execute(predict_cmd, timeout_seconds=_PREDICT_TIMEOUT_S)
         if predict_result.exit_code != 0:
             raise SandboxInferenceError(
                 f"predict.py failed (exit {predict_result.exit_code}): {predict_result.stderr[:1000]}"
             )
-
         scores = _read_scores(sandbox)
 
-    scored_rows = _join_scores(score_rows=data.score_rows, scores=scores)
-    return SandboxScoreResult(
-        scored_rows=scored_rows,
-        holdout_auc=train_meta.get("holdout_auc"),
-        n_train=int(train_meta.get("n_train") or 0),
-        n_features=int(train_meta.get("n_features") or len(data.feature_cols)),
-    )
-
-
-def _upload_inputs(sandbox: Sandbox, *, bundle: ArtifactBundle, data: MaterializedData) -> None:
-    """Write the bundle scripts and the materialized CSVs into the sandbox workspace."""
-    for name, content in bundle.as_files().items():
-        sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
-
-    cols = data.feature_cols
-    sandbox.write_file(f"{_WORKDIR}/data/train_features.csv", _features_csv(data.train_rows, cols).encode("utf-8"))
-    sandbox.write_file(f"{_WORKDIR}/data/train_labels.csv", _labels_csv(data.train_rows).encode("utf-8"))
-    sandbox.write_file(f"{_WORKDIR}/data/holdout_features.csv", _features_csv(data.holdout_rows, cols).encode("utf-8"))
-    sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.csv", _labels_csv(data.holdout_rows).encode("utf-8"))
-    sandbox.write_file(f"{_WORKDIR}/data/score_features.csv", _features_csv(data.score_rows, cols).encode("utf-8"))
+    return _join_scores(score_rows=score_rows, scores=scores)
 
 
 def _features_csv(rows: list[dict[str, Any]], feature_cols: list[str]) -> str:
@@ -338,6 +429,19 @@ def _read_file(sandbox: Sandbox, rel_path: str) -> str:
     if result.exit_code != 0:
         raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
     return _between_sentinels(result.stdout)
+
+
+def _read_binary_file(sandbox: Sandbox, rel_path: str) -> bytes:
+    """Read a binary file (e.g. model.pkl) the bundle wrote, base64-encoded over the sentinel-bracketed cat."""
+    cmd = f"echo '{_FILE_BEGIN}'; base64 -w0 {_WORKDIR}/{rel_path}; echo; echo '{_FILE_END}'"
+    result = sandbox.execute(cmd, timeout_seconds=120)
+    if result.exit_code != 0:
+        raise SandboxInferenceError(f"reading {rel_path} failed (exit {result.exit_code}): {result.stderr[:500]}")
+    encoded = "".join(_between_sentinels(result.stdout).split())
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise SandboxInferenceError(f"{rel_path} base64 readback was not decodable: {exc}") from exc
 
 
 def _between_sentinels(stdout: str) -> str:

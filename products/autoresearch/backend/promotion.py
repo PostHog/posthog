@@ -19,6 +19,7 @@ import structlog
 
 from products.autoresearch.backend import artifacts
 from products.autoresearch.backend.models import AutoresearchIteration, AutoresearchModel, AutoresearchTrainingRun
+from products.autoresearch.backend.sandbox_inference import SandboxInferenceError, fit_champion_model
 
 logger = structlog.get_logger(__name__)
 
@@ -160,6 +161,26 @@ def complete_training_run(
     training_run.best_holdout_score = best_score
     training_run.completed_at = now
     training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "completed_at"])
+
+    # The train run produces the serving artifact: fit the champion and persist model.pkl
+    # so predict runs are pure inference. Deferred to on_commit — the sandbox + object-storage
+    # write are side effects that must not run inside this atomic block, and we only fit once
+    # the row is durably committed. A failure here is non-fatal: the predict run self-heals by
+    # fitting on first score.
+    if model is not None and artifact_prefix:
+        captured_pipeline = pipeline
+        captured_prefix = artifact_prefix
+        captured_run_id = str(training_run.id)
+
+        def _fit_champion_after_commit() -> None:
+            try:
+                fit_champion_model(team=captured_pipeline.team, pipeline=captured_pipeline, prefix=captured_prefix)
+            except SandboxInferenceError:
+                logger.exception(
+                    "autoresearch_champion_fit_failed", training_run_id=captured_run_id, prefix=captured_prefix
+                )
+
+        transaction.on_commit(_fit_champion_after_commit)
 
     return {
         "promoted": promoted,
