@@ -339,8 +339,17 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
-                    return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
+                    try {
+                        // nosemgrep: prefer-codegen-api
+                        return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
+                    } catch (error) {
+                        // The endpoint can be transiently unavailable (e.g. stale bundle across a deploy);
+                        // degrade gracefully rather than surfacing the 404 to error tracking.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
