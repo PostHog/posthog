@@ -457,12 +457,16 @@ def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
     team = screenshot.team
     org_id = str(team.organization_id)
     project_id = str(team.id)
+    # Expose the deployment region (us/eu/dev/...) so a flag condition can target or exclude an
+    # environment — e.g. turn Browserless off in dev without touching the cloud rollout.
+    environment = (settings.CLOUD_DEPLOYMENT or "unknown").lower()
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 HEATMAP_BROWSERLESS_FLAG,
                 project_id,  # bucket per team so a whole team flips together, not per user
                 groups={"organization": org_id, "project": project_id},
+                person_properties={"environment": environment},
                 group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
