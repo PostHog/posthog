@@ -1417,6 +1417,31 @@ class TestPrinter(BaseTest):
             "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))",
         )
 
+    @parameterized.expand(
+        [
+            ("eq", "equals"),
+            ("ne", "notEquals"),
+            ("lt", "less"),
+            ("gt", "greater"),
+            ("le", "lessOrEquals"),
+            ("ge", "greaterOrEquals"),
+        ]
+    )
+    def test_comparison_short_aliases(self, alias: str, expected: str):
+        # ClickHouse short-form comparison aliases should validate and print like their long-form names
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr(f"{alias}(event, 'E')", context),
+            f"{expected}(events.event, %(hogql_val_0)s)",
+        )
+
+    def test_unsupported_function_suggestion_skips_single_char_matches(self):
+        # The "Perhaps you meant" hint should never point at a single-character function like 'e'
+        self._assert_expr_error("ec(event, 'E')", "Unsupported function call 'ec(...)'")
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            self._expr("ec(event, 'E')")
+        self.assertNotIn("'e(...)'", str(ctx.exception))
+
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr("event -- something", context), "events.event")

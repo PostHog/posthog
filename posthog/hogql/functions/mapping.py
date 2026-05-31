@@ -27,6 +27,13 @@ HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
     "greater": ast.CompareOperationOp.Gt,
     "lessOrEquals": ast.CompareOperationOp.LtEq,
     "greaterOrEquals": ast.CompareOperationOp.GtEq,
+    # ClickHouse short-form aliases for the comparison functions above
+    "eq": ast.CompareOperationOp.Eq,
+    "ne": ast.CompareOperationOp.NotEq,
+    "lt": ast.CompareOperationOp.Lt,
+    "gt": ast.CompareOperationOp.Gt,
+    "le": ast.CompareOperationOp.LtEq,
+    "ge": ast.CompareOperationOp.GtEq,
     "like": ast.CompareOperationOp.Like,
     "ilike": ast.CompareOperationOp.ILike,
     "notLike": ast.CompareOperationOp.NotLike,
@@ -51,6 +58,13 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "greater": HogQLFunctionMeta("greater", 2, 2),
     "lessOrEquals": HogQLFunctionMeta("lessOrEquals", 2, 2),
     "greaterOrEquals": HogQLFunctionMeta("greaterOrEquals", 2, 2),
+    # comparison (ClickHouse short-form aliases, rewritten to comparison operations by the printer)
+    "eq": HogQLFunctionMeta("equals", 2, 2),
+    "ne": HogQLFunctionMeta("notEquals", 2, 2),
+    "lt": HogQLFunctionMeta("less", 2, 2),
+    "gt": HogQLFunctionMeta("greater", 2, 2),
+    "le": HogQLFunctionMeta("lessOrEquals", 2, 2),
+    "ge": HogQLFunctionMeta("greaterOrEquals", 2, 2),
     # in
     "in": HogQLFunctionMeta("in", 2, 2),
     "notIn": HogQLFunctionMeta("notIn", 2, 2),

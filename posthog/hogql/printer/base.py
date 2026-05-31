@@ -1076,7 +1076,10 @@ class BasePrinter(Visitor[str]):
             if passthrough is not None:
                 return passthrough
 
-            close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
+            # Single-character matches (e.g. "e" for "eq") are never a genuinely helpful suggestion.
+            close_matches = [
+                match for match in get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 3) if len(match) > 1
+            ]
             if len(close_matches) > 0:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
