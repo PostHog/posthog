@@ -3692,6 +3692,21 @@
             "anyOf": [
                 {
                     "properties": {
+                        "excluded_variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "default": null,
+                            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
+                        },
                         "feature_flag_variants": {
                             "anyOf": [
                                 {
@@ -3780,7 +3795,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded)."
         },
         "primary_metrics_ordered_uuids": {},
         "saved_metrics_ids": {

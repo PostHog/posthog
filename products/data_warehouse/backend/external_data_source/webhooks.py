@@ -4,8 +4,6 @@ from typing import Any
 from django.conf import settings
 
 from posthog.models import Team
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
@@ -13,6 +11,8 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.config import Config
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 

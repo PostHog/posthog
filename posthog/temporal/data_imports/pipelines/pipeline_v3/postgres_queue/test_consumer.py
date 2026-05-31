@@ -340,7 +340,7 @@ class TestLogContextBinding:
         assert seen.get("workflow_run_id") == "wf-run-id-456"
         assert seen.get("team_id") == batch.team_id
         assert seen.get("log_source_id") == batch.schema_id
-        assert seen.get("schema_id") == batch.schema_id
+        assert seen.get("external_data_schema_id") == batch.schema_id
         assert seen.get("attempt") == 1
 
         # Cleared after the batch returns so context doesn't leak across batches.

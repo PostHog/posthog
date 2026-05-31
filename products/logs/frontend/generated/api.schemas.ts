@@ -488,8 +488,8 @@ export interface LogsAlertConfigurationApi {
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: LogsAlertFiltersApi
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-     * @minimum 1
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -595,8 +595,8 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: LogsAlertFiltersApi
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-     * @minimum 1
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -760,7 +760,7 @@ export interface LogsAlertSimulateRequestApi {
     filters: LogsAlertFiltersApi
     /**
      * Threshold count to evaluate against.
-     * @minimum 1
+     * @minimum 0
      */
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
@@ -1395,57 +1395,6 @@ export interface _LogsValuesResponseApi {
     refreshing: boolean
 }
 
-/**
- * * `SYSTEM` - SYSTEM
- * `PLUGIN` - PLUGIN
- * `CONSOLE` - CONSOLE
- */
-export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
-
-export const PluginLogEntrySourceEnumApi = {
-    System: 'SYSTEM',
-    Plugin: 'PLUGIN',
-    Console: 'CONSOLE',
-} as const
-
-/**
- * * `DEBUG` - DEBUG
- * `LOG` - LOG
- * `INFO` - INFO
- * `WARN` - WARN
- * `ERROR` - ERROR
- */
-export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
-
-export const PluginLogEntryTypeEnumApi = {
-    Debug: 'DEBUG',
-    Log: 'LOG',
-    Info: 'INFO',
-    Warn: 'WARN',
-    Error: 'ERROR',
-} as const
-
-export interface PluginLogEntryApi {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySourceEnumApi
-    type: PluginLogEntryTypeEnumApi
-    message: string
-    instance_id: string
-}
-
-export interface PaginatedPluginLogEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PluginLogEntryApi[]
-}
-
 export type LogsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -1596,14 +1545,3 @@ export const LogsValuesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
 } as const
-
-export type PluginConfigsLogsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

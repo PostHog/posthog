@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -31,10 +31,82 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
             'Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.\n\n* `name` - Name\n* `-name` - Name (descending)\n* `created_at` - Created at\n* `-created_at` - Created at (descending)\n* `updated_at` - Updated at\n* `-updated_at` - Updated at (descending)\n* `scanner_type` - Scanner type\n* `-scanner_type` - Scanner type (descending)'
         ),
     scanner_type: zod
-        .enum(['classifier', 'indexer', 'monitor', 'scorer', 'summarizer'])
+        .enum(['classifier', 'monitor', 'scorer', 'summarizer'])
         .optional()
         .describe(
-            'Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `indexer` - Indexer'
+            'Filter by scanner type (monitor, classifier, scorer, summarizer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+        ),
+})
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const VisionScannersCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const visionScannersCreateBodyNameMax = 255
+
+export const visionScannersCreateBodySamplingRateMin = 0
+export const visionScannersCreateBodySamplingRateMax = 1
+
+export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(visionScannersCreateBodyNameMax)
+        .describe('Human-readable scanner name. Unique within the team.'),
+    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    scanner_type: zod
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+        .describe(
+            '* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+        )
+        .describe(
+            'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+        ),
+    scanner_config: zod
+        .unknown()
+        .describe(
+            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
+        ),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.'
+        ),
+    sampling_rate: zod
+        .number()
+        .min(visionScannersCreateBodySamplingRateMin)
+        .max(visionScannersCreateBodySamplingRateMax)
+        .optional()
+        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+    provider: zod
+        .enum(['google'])
+        .describe('* `google` - Google')
+        .optional()
+        .describe('LLM provider. v1 is Google-only.\n\n* `google` - Google'),
+    model: zod
+        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .describe(
+            '* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+        )
+        .describe(
+            'Concrete model to use for this scanner.\n\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+        ),
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe("When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work."),
+    emits_signals: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
         ),
 })
 
@@ -42,6 +114,95 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
  * CRUD for Replay Vision scanners.
  */
 export const VisionScannersRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const VisionScannersPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const visionScannersPartialUpdateBodyNameMax = 255
+
+export const visionScannersPartialUpdateBodySamplingRateMin = 0
+export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(visionScannersPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable scanner name. Unique within the team.'),
+    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    scanner_type: zod
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+        .describe(
+            '* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+        )
+        .optional()
+        .describe(
+            'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+        ),
+    scanner_config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
+        ),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.'
+        ),
+    sampling_rate: zod
+        .number()
+        .min(visionScannersPartialUpdateBodySamplingRateMin)
+        .max(visionScannersPartialUpdateBodySamplingRateMax)
+        .optional()
+        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+    provider: zod
+        .enum(['google'])
+        .describe('* `google` - Google')
+        .optional()
+        .describe('LLM provider. v1 is Google-only.\n\n* `google` - Google'),
+    model: zod
+        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .describe(
+            '* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+        )
+        .optional()
+        .describe(
+            'Concrete model to use for this scanner.\n\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+        ),
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe("When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work."),
+    emits_signals: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
+        ),
+})
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const VisionScannersDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),
     project_id: zod
         .string()

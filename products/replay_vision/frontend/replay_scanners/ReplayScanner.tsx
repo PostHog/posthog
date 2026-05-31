@@ -4,6 +4,7 @@ import { Field, Form } from 'kea-forms'
 import {
     LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonInput,
     LemonSelect,
     LemonSwitch,
@@ -27,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerSceneLogicProps, replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
@@ -60,18 +62,25 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
         !isNew && {
             key: 'observations' as EditorTab,
             label: 'Observations',
-            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
-        },
-        {
-            key: 'triggers',
-            label: 'Triggers',
-            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
+            content: (
+                <div className="space-y-4">
+                    <SummarizerMaxChat scannerId={scannerId} tabId={tabId} />
+                    <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />
+                </div>
+            ),
         },
         {
             key: 'configuration',
             label: 'Configuration',
             content: (
                 <div className="space-y-6 max-w-3xl">
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Details</h3>
+                        <p className="text-sm text-muted m-0">
+                            What this scanner looks for and how it analyzes recordings.
+                        </p>
+                    </div>
+
                     <Field name="name" label="Name">
                         <LemonInput placeholder="e.g. Confused checkout flow" />
                     </Field>
@@ -125,6 +134,14 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                             </div>
                         )}
                     </Field>
+
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="text-base font-semibold mb-1">Triggers</h3>
+                        <p className="text-sm text-muted m-0">Which completed recordings this scanner runs against.</p>
+                    </div>
+                    <ScannerTriggers scannerId={scannerId} tabId={tabId} />
                 </div>
             ),
         },
