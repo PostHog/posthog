@@ -35,6 +35,13 @@ const people: Person[] = Array.from({ length: 8 }, (_, i) => ({
     status: i % 4 === 0 ? 'Invited' : 'Active',
 }))
 
+// Active users read as success, pending invites as warning — same semantic
+// mapping the Table primitive's Status column uses.
+function StatusBadge({ status }: { status: string }): React.ReactElement {
+    const variant = status === 'Active' ? 'success' : status === 'Invited' ? 'warning' : 'destructive'
+    return <Badge variant={variant}>{status}</Badge>
+}
+
 const columns: ColumnDef<Person>[] = [
     {
         accessorKey: 'name',
@@ -52,7 +59,7 @@ const columns: ColumnDef<Person>[] = [
         accessorKey: 'status',
         header: 'Status',
         enableSorting: false,
-        cell: (info) => <Badge>{info.getValue<string>()}</Badge>,
+        cell: (info) => <StatusBadge status={info.getValue<string>()} />,
     },
 ]
 

@@ -22,6 +22,19 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+// Maps a status string to a semantic Badge variant, shared across the Status
+// columns below. Positive states (Paid/Active) read success, in-flight states
+// (Pending/Invited) read warning, everything else (Unpaid/Refunded) destructive.
+function StatusBadge({ status }: { status: string }): React.ReactElement {
+    const variant =
+        status === 'Paid' || status === 'Active'
+            ? 'success'
+            : status === 'Pending' || status === 'Invited'
+                ? 'warning'
+                : 'destructive'
+    return <Badge variant={variant}>{status}</Badge>
+}
+
 const invoices = [
     { invoice: 'INV001', status: 'Paid', method: 'Credit Card', amount: '$250.00' },
     { invoice: 'INV002', status: 'Pending', method: 'PayPal', amount: '$150.00' },
@@ -47,7 +60,7 @@ export const Default: Story = {
                     <TableRow key={row.invoice}>
                         <TableCell className="font-medium">{row.invoice}</TableCell>
                         <TableCell>
-                            <Badge>{row.status}</Badge>
+                            <StatusBadge status={row.status} />
                         </TableCell>
                         <TableCell>{row.method}</TableCell>
                         <TableCell className="text-right">{row.amount}</TableCell>
@@ -78,7 +91,9 @@ export const Selectable: Story = {
                 {invoices.map((row, i) => (
                     <TableRow key={row.invoice} data-state={i === 1 ? 'selected' : undefined}>
                         <TableCell className="font-medium">{row.invoice}</TableCell>
-                        <TableCell>{row.status}</TableCell>
+                        <TableCell>
+                            <StatusBadge status={row.status} />
+                        </TableCell>
                         <TableCell className="text-right">{row.amount}</TableCell>
                     </TableRow>
                 ))}
@@ -262,7 +277,9 @@ export const PageStickyHeader: Story = {
                         <TableRow key={row.id}>
                             <TableCell className="font-medium">{row.id}</TableCell>
                             <TableCell>{row.customer}</TableCell>
-                            <TableCell>{row.status}</TableCell>
+                            <TableCell>
+                                <StatusBadge status={row.status} />
+                            </TableCell>
                             <TableCell className="text-right">{row.total}</TableCell>
                         </TableRow>
                     ))}
@@ -297,7 +314,7 @@ export const StickyNonFirstColumn: Story = {
                         <TableCell className="font-medium whitespace-nowrap">{row.id}</TableCell>
                         <TableCell className="whitespace-nowrap">{row.customer}</TableCell>
                         <TableCell sticky="left" className="whitespace-nowrap">
-                            {row.status}
+                            <StatusBadge status={row.status} />
                         </TableCell>
                         {wideColumns.map((q, c) => (
                             <TableCell key={q} className="text-right">
