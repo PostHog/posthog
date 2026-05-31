@@ -10,9 +10,11 @@ import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesMode
 export function PinPrimaryPropertyButton({
     eventName,
     propertyKey,
+    isRowHovered,
 }: {
     eventName: string
     propertyKey: string
+    isRowHovered: boolean
 }): JSX.Element | null {
     const { primaryProperties, savingPrimaryPropertyForEvents } = useValues(primaryEventPropertiesModel)
     const { setPrimaryProperty } = useActions(primaryEventPropertiesModel)
@@ -50,7 +52,7 @@ export function PinPrimaryPropertyButton({
             icon={isPinned ? <IconPinFilled /> : <IconPin />}
             tooltip={tooltip}
             onClick={() => setPrimaryProperty(eventName, isPinned ? null : propertyKey)}
-            className={isPinned ? undefined : 'opacity-0 focus:opacity-100 group-hover/kv-row:opacity-100'}
+            className={isPinned || isRowHovered ? undefined : 'opacity-0 focus:opacity-100'}
         />
     )
 }

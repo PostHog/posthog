@@ -224,9 +224,9 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
 
     const primaryPropertyActions =
         canPinPrimaryProperty && isString(eventName)
-            ? (key: string): JSX.Element | null =>
+            ? (key: string, isRowHovered: boolean): JSX.Element | null =>
                   key in item.data.properties ? (
-                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} />
+                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
                   ) : null
             : undefined
 
