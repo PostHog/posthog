@@ -1,4 +1,5 @@
 import dns from 'dns/promises'
+import http from 'http'
 import { range } from 'lodash'
 
 import { parseJSON } from './json-parse'
@@ -264,6 +265,37 @@ describe('legacyFetch', () => {
 describe('_fetch response body handling', () => {
     // Use internalFetch to skip SSRF DNS checks which fail in CI
 
+    let mockServer: http.Server
+    let mockBaseUrl: string
+
+    beforeAll(async () => {
+        mockServer = http.createServer((req, res) => {
+            if (req.url === '/get') {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ url: `${mockBaseUrl}/get`, headers: {} }))
+            } else if (req.url === '/status/404') {
+                res.writeHead(404)
+                res.end()
+            } else if (req.url === '/stream/50') {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                for (let i = 0; i < 50; i++) {
+                    res.write(JSON.stringify({ id: i, url: `${mockBaseUrl}/stream/50` }) + '\n')
+                }
+                res.end()
+            }
+        })
+
+        await new Promise<void>((resolve) => {
+            mockServer.listen(0, '127.0.0.1', () => resolve())
+        })
+        const addr = mockServer.address() as { port: number }
+        mockBaseUrl = `http://127.0.0.1:${addr.port}`
+    })
+
+    afterAll(async () => {
+        await new Promise<void>((resolve) => mockServer.close(() => resolve()))
+    })
+
     it('should return response body via text()', async () => {
         const response = await internalFetch('http://example.com')
         const text = await response.text()
@@ -273,7 +305,7 @@ describe('_fetch response body handling', () => {
     })
 
     it('should parse response via json() when valid JSON', async () => {
-        const response = await internalFetch('https://httpbin.org/get')
+        const response = await internalFetch(`${mockBaseUrl}/get`)
         const json = await response.json()
         expect(json).toHaveProperty('url')
     })
@@ -300,7 +332,7 @@ describe('_fetch response body handling', () => {
     })
 
     it('should return correct status code for error responses', async () => {
-        const response = await internalFetch('https://httpbin.org/status/404')
+        const response = await internalFetch(`${mockBaseUrl}/status/404`)
         expect(response.status).toBe(404)
     })
 
@@ -310,7 +342,7 @@ describe('_fetch response body handling', () => {
     })
 
     it('should fully read streamed/chunked response bodies', async () => {
-        const response = await internalFetch('https://httpbin.org/stream/50')
+        const response = await internalFetch(`${mockBaseUrl}/stream/50`)
         const text = await response.text()
         const lines = text.trim().split('\n')
         expect(lines.length).toBe(50)
