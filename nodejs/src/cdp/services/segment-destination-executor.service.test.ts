@@ -1,5 +1,6 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { IntegrationError } from '@segment/actions-core'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/common/config/config'
@@ -11,7 +12,8 @@ import {
     amplitudeInputs,
     createExampleSegmentInvocation,
     gameballInputs,
-    pipedriveResponse,
+    pipedriveActivitiesResponse,
+    pipedriveLeadsResponse,
 } from '../_tests/fixtures-segment'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { SegmentDestinationExecutorService } from './segment-destination-executor.service'
@@ -28,6 +30,7 @@ describe('SegmentDestinationExecutorService', () => {
     const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-pipedrive']
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
     const pipedriveActivitiesAction = pipedrivePlugin.destination.actions['createUpdateActivity']
+    const pipedriveLeadsAction = pipedrivePlugin.destination.actions['createUpdateLead']
 
     beforeEach(() => {
         mockFetch.mockReset()
@@ -50,6 +53,7 @@ describe('SegmentDestinationExecutorService', () => {
         jest.spyOn(amplitudeAction as any, 'perform')
         jest.spyOn(pipedriveAction as any, 'perform')
         jest.spyOn(pipedriveActivitiesAction as any, 'perform')
+        jest.spyOn(pipedriveLeadsAction as any, 'perform')
     })
 
     afterAll(() => {
@@ -394,7 +398,7 @@ describe('SegmentDestinationExecutorService', () => {
             mockFetch.mockResolvedValue({
                 status: 200,
                 json: () => Promise.resolve({ total_count: 1 }),
-                text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
+                text: () => Promise.resolve(JSON.stringify(pipedriveActivitiesResponse)),
                 headers: {},
                 dump: () => Promise.resolve(),
             })
@@ -485,7 +489,7 @@ describe('SegmentDestinationExecutorService', () => {
                 mockFetch.mockResolvedValue({
                     status: 200,
                     json: () => Promise.resolve({ total_count: 1 }),
-                    text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
+                    text: () => Promise.resolve(JSON.stringify(pipedriveActivitiesResponse)),
                     headers: {},
                     dump: () => Promise.resolve(),
                 })
@@ -506,6 +510,175 @@ describe('SegmentDestinationExecutorService', () => {
                     expect(endpoint).toBe('https://posthog-sandbox.pipedrive.com/api/v1/activities?api_token=api-key')
                 }
             }
+        })
+
+        it('handles lead_id field correctly for pipedrive leads action', async () => {
+            jest.spyOn(pipedriveLeadsAction as any, 'perform')
+
+            const testCases = [
+                {
+                    lead_id: null,
+                    person_id: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                    organization_id: 'ef000000-0000-0000-0000-000000000000',
+                    inserted: true,
+                },
+                {
+                    lead_id: '',
+                    person_id: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                    organization_id: 'ef000000-0000-0000-0000-000000000000',
+                    inserted: true,
+                },
+                {
+                    lead_id: '15',
+                    person_id: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                    organization_id: 'ef000000-0000-0000-0000-000000000000',
+                    inserted: false,
+                },
+            ]
+
+            for (const testCase of testCases) {
+                mockFetch.mockReset()
+                mockFetch.mockImplementation((_url, _options) => {
+                    if (_url.includes('itemSearch') && _url.includes('field_type=personField')) {
+                        return Promise.resolve({
+                            status: 200,
+                            headers: {},
+                            json: () => Promise.resolve({}),
+                            text: () =>
+                                Promise.resolve(
+                                    JSON.stringify({
+                                        success: true,
+                                        data: [
+                                            {
+                                                id: testCase.person_id,
+                                                name: 'John Doe',
+                                                email: 'john.doe@example.com',
+                                                phone: '1234567890',
+                                            },
+                                        ],
+                                    })
+                                ),
+                        } as any)
+                    }
+                    if (_url.includes('itemSearch') && _url.includes('field_type=organizationField')) {
+                        return Promise.resolve({
+                            status: 200,
+                            headers: {},
+                            json: () => Promise.resolve({}),
+                            text: () =>
+                                Promise.resolve(
+                                    JSON.stringify({
+                                        success: true,
+                                        data: [
+                                            {
+                                                id: testCase.organization_id,
+                                                name: 'Example Organization',
+                                            },
+                                        ],
+                                    })
+                                ),
+                        } as any)
+                    }
+                    return Promise.resolve({
+                        status: testCase.inserted ? 201 : 200,
+                        headers: {},
+                        json: () => Promise.resolve({}),
+                        text: () => Promise.resolve(JSON.stringify(pipedriveLeadsResponse)),
+                    } as any)
+                })
+
+                const pipedriveInputs = {
+                    domain: 'posthog-sandbox',
+                    apiToken: 'api-key',
+                    personField: 'id',
+                    person_match_value: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                    lead_id: testCase.lead_id,
+                    organization_match_value: 'ef000000-0000-0000-0000-000000000000',
+                    organizationField: 'id',
+                    internal_partner_action: 'createUpdateLead',
+                    subject: null,
+                    type: null,
+                    description: null,
+                    note: null,
+                    due_date: null,
+                    due_time: null,
+                    duration: null,
+                    done: null,
+                    debug_mode: true,
+                }
+
+                const fn = createHogFunction({
+                    name: 'Plugin test',
+                    template_id: 'segment-actions-pipedrive',
+                })
+
+                const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)
+
+                await service.execute(invocation)
+
+                expect(mockFetch).toHaveBeenCalledTimes(3)
+
+                console.log(mockFetch.mock.calls[2])
+                const endpoint = mockFetch.mock.calls[2][0]
+                const method = mockFetch.mock.calls[2][1].method
+                if (!testCase.inserted) {
+                    expect(endpoint).toBe('https://posthog-sandbox.pipedrive.com/api/v1/leads/15?api_token=api-key')
+                    expect(method).toBe('PATCH')
+                } else {
+                    expect(endpoint).toBe('https://posthog-sandbox.pipedrive.com/api/v1/leads?api_token=api-key')
+                    expect(method).toBe('POST')
+                }
+            }
+        })
+
+        it('handles lead_id field and throws error when no related organization or person is found', async () => {
+            jest.spyOn(pipedriveLeadsAction as any, 'perform')
+            mockFetch.mockReset()
+
+            const pipedriveInputs = {
+                domain: 'posthog-sandbox',
+                apiToken: 'api-key',
+                personField: 'id',
+                person_match_value: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                lead_id: null,
+                organization_match_value: 'ef000000-0000-0000-0000-000000000000',
+                organizationField: 'id',
+                internal_partner_action: 'createUpdateLead',
+                subject: null,
+                type: null,
+                description: null,
+                note: null,
+                due_date: null,
+                due_time: null,
+                duration: null,
+                done: null,
+                debug_mode: true,
+            }
+
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-pipedrive',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({ total_count: 1 }),
+                text: () => Promise.resolve(JSON.stringify({})),
+                headers: {},
+                dump: () => Promise.resolve(),
+            })
+
+            const result = await service.execute(invocation)
+
+            console.log(mockFetch.mock.calls)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+
+            expect(result.error).toBeInstanceOf(IntegrationError)
+            expect(result.error?.message).toBe('No related organization or person, unable to create lead!')
+            expect(result.error?.code).toBe('INVALID_REQUEST_DATA')
+            expect(result.error?.status).toBe(400)
         })
     })
 })

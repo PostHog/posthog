@@ -207,7 +207,7 @@ export const amplitudeInputs = {
     debug_mode: true,
 }
 
-export const pipedriveResponse = {
+export const pipedriveActivitiesResponse = {
     success: true,
     data: {
         id: 20,
@@ -294,6 +294,31 @@ export const pipedriveResponse = {
                 active_flag: true,
             },
         },
+    },
+}
+
+export const pipedriveLeadsResponse = {
+    success: true,
+    data: {
+        id: 3,
+        title: 'Jane Doe Lead',
+        owner_id: 1,
+        creator_id: 1,
+        person_id: 1092,
+        organization_id: null,
+        source_name: 'API',
+        origin: 'API',
+        origin_id: null,
+        channel: 52,
+        channel_id: 'Jun23 Billboards',
+        is_archived: false,
+        was_seen: false,
+        expected_close_date: null,
+        next_activity_id: 1,
+        add_time: '2020-10-14T11:30:36.551Z',
+        update_time: '2020-10-14T11:30:36.551Z',
+        visible_to: '3',
+        cc_email: 'posthog-sandbox@pipedrivemail.com',
     },
 }
 
