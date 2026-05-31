@@ -7,7 +7,8 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import type { promotedProductLogicType } from './promotedProductLogicType'
 
-export type PromotedProductVariant = 'control' | 'control_b' | 'intent' | 'intent_plus'
+const PROMOTED_PRODUCT_VARIANTS = ['control', 'control_b', 'intent', 'intent_plus'] as const
+export type PromotedProductVariant = (typeof PROMOTED_PRODUCT_VARIANTS)[number]
 
 /** Product the slot falls back to when an entry-showing variant resolves no onboarding product or override. */
 export const FALLBACK_PRODUCT_KEY = 'dashboards'
@@ -174,10 +175,9 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): PromotedProductVariant | null => {
                 const raw = featureFlags[FEATURE_FLAGS.PROMOTED_PRODUCT]
-                if (raw === 'control' || raw === 'control_b' || raw === 'intent' || raw === 'intent_plus') {
-                    return raw
-                }
-                return null
+                return PROMOTED_PRODUCT_VARIANTS.includes(raw as PromotedProductVariant)
+                    ? (raw as PromotedProductVariant)
+                    : null
             },
         ],
         effectiveProductKey: [
