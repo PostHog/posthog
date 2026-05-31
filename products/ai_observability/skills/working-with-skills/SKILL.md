@@ -60,6 +60,9 @@ Editing an existing skill?
 
 Want a fork as the starting point?
   └─► llma-skill-duplicate               (then update the copy)
+
+Done with a skill entirely?
+  └─► llma-skill-archive                 (hides ALL versions; cannot be undone)
 ```
 
 If you find yourself reaching for `update(body=...)` plus a sprawling `files=[...]`
@@ -230,6 +233,24 @@ posthog:llma-skill-update
 }
 ```
 
+### File-path parameter naming (read this before guessing)
+
+The same concept — a bundled file's path — is named differently depending on
+**where it travels in the request**, and this trips up agents working from
+memory. There is one rule:
+
+- **`file_path`** — when the path is part of the **URL** (`llma-skill-file-get`,
+  `llma-skill-file-delete`). These read/delete one file addressed by its path.
+- **`path`** — when the path is a **body field**: `llma-skill-file-create`, the
+  `files=[{path, content, content_type}]` array, and `file_edits=[{path, edits}]`.
+- **`old_path` / `new_path`** — body fields on `llma-skill-file-rename`.
+
+Mnemonic: `path` is the field name on a file *object* (it sits next to
+`content`), so everything that carries a file object uses `path`; the two
+tools that address a file by URL use `file_path`. When unsure, check the
+tool's input schema rather than guessing — passing `path` to file-get yields a
+`/files/undefined/` 404.
+
 ### Adding, removing, renaming files
 
 Each is its own call, each publishes a new version:
@@ -317,6 +338,26 @@ Skipping `base_version` does _not_ speed things up — it just turns a clean
   into `references/` and `scripts/` rather than letting it grow.
 - **Mixing `body` and `edits` in one update call** — they're mutually exclusive.
   Pick one.
+- **Guessing `path` vs `file_path`** — file-get and file-delete take `file_path`
+  (it's in the URL); create, rename (`old_path`/`new_path`), `files`, and
+  `file_edits` take `path` (it's a body field). See "File-path parameter
+  naming" above.
+
+## Archiving a skill
+
+`llma-skill-archive` hides **every** active version of a skill by name. It is
+not version-scoped and **cannot be undone** — the skill drops out of
+`llma-skill-list` and `llma-skill-get` for the whole team.
+
+```json
+posthog:llma-skill-archive
+{ "skill_name": "my-skill" }
+```
+
+Before archiving, `llma-skill-get` the skill if you need to inspect or copy it
+first. Archiving is the right tool for retiring a skill entirely; to remove a
+single bundled file use `llma-skill-file-delete`, and to roll back content
+publish a new version rather than archiving.
 
 ## Porting a local SKILL.md tree into PostHog
 
