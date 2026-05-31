@@ -8,12 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import {
-    isInternalPath,
-    localStorageOverrideKey,
-    localStorageProductKey,
-    promotedProductLogic,
-} from './promotedProductLogic'
+import { localStorageOverrideKey, localStorageProductKey, promotedProductLogic } from './promotedProductLogic'
 
 const PRODUCT_KEY = localStorageProductKey(MOCK_TEAM_ID)
 const OVERRIDE_KEY = localStorageOverrideKey(MOCK_TEAM_ID)
@@ -55,7 +50,7 @@ describe('promotedProductLogic', () => {
             ['control_b', false, false],
             ['intent', true, false],
             ['intent_plus', true, true],
-        ])('variant=%s → shouldRenderEntry=%s shouldRenderCog=%s', async (variant, renderEntry, renderCog) => {
+        ])('variant=%s -> shouldRenderEntry=%s shouldRenderCog=%s', async (variant, renderEntry, renderCog) => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
             mountLogic()
             setFlagVariant(variant)
@@ -78,93 +73,87 @@ describe('promotedProductLogic', () => {
             })
         })
 
-        it('falls back to a dashboards link when no intent is available', async () => {
+        it('falls back to dashboards when no intent is available', async () => {
             mountLogic()
             setFlagVariant('intent')
 
             await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'url', value: '/dashboard', label: 'Dashboards' },
+                effectiveProductKey: 'dashboards',
                 shouldRenderEntry: true,
             })
         })
     })
 
-    describe('effectiveTarget', () => {
+    describe('effectiveProductKey', () => {
         it('resolves from localStorage when set', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'web_analytics')
             mountLogic()
             setFlagVariant('intent')
 
-            await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'product', value: 'web_analytics' },
-            })
+            await expectLogic(logic).toMatchValues({ effectiveProductKey: 'web_analytics' })
         })
 
         it('intent_plus prefers override over onboarding intent', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'url', value: '/my-page' }))
+            window.localStorage.setItem(OVERRIDE_KEY, 'web_analytics')
             mountLogic()
             setFlagVariant('intent_plus')
 
-            await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'url', value: '/my-page' },
-            })
+            await expectLogic(logic).toMatchValues({ effectiveProductKey: 'web_analytics' })
         })
 
         it('intent variant ignores the override (cog is intent_plus only)', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'url', value: '/my-page' }))
+            window.localStorage.setItem(OVERRIDE_KEY, 'web_analytics')
             mountLogic()
             setFlagVariant('intent')
 
-            await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'product', value: 'session_replay' },
-            })
+            await expectLogic(logic).toMatchValues({ effectiveProductKey: 'session_replay' })
         })
 
-        it('falls back to a dashboards link for an unknown product key', async () => {
+        it('falls back to dashboards for an unknown product key', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'fictional_product')
             mountLogic()
             setFlagVariant('intent')
 
             await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'url', value: '/dashboard', label: 'Dashboards' },
+                effectiveProductKey: 'dashboards',
                 shouldRenderEntry: true,
             })
         })
 
-        it('ignores a non-internal url override', async () => {
+        it('ignores an unknown override', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'url', value: 'https://evil.com' }))
+            window.localStorage.setItem(OVERRIDE_KEY, 'not_a_product')
             mountLogic()
             setFlagVariant('intent_plus')
 
-            await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'product', value: 'session_replay' },
-            })
+            await expectLogic(logic).toMatchValues({ effectiveProductKey: 'session_replay' })
         })
     })
 
-    describe('isInternalPath', () => {
+    describe('defaultProductKey', () => {
         it.each([
-            ['/insights', true],
-            ['/dashboard/123', true],
-            ['/', true],
-            ['https://evil.com', false],
-            ['http://evil.com', false],
-            ['//evil.com', false],
-            ['/\\evil.com', false],
-            ['javascript:alert(1)', false],
-            ['mailto:a@b.com', false],
-            ['relative/path', false],
-            ['', false],
-        ])('isInternalPath(%s) === %s', (value, expected) => {
-            expect(isInternalPath(value)).toBe(expected)
+            ['web_analytics', 'web_analytics'],
+            ['fictional_product', 'dashboards'],
+        ])('intent=%s -> defaultProductKey=%s', async (intent, expected) => {
+            window.localStorage.setItem(PRODUCT_KEY, intent)
+            mountLogic()
+            setFlagVariant('intent_plus')
+
+            await expectLogic(logic).toMatchValues({ defaultProductKey: expected })
+        })
+
+        it('falls back to dashboards with no intent', async () => {
+            mountLogic()
+            setFlagVariant('intent_plus')
+
+            await expectLogic(logic).toMatchValues({ defaultProductKey: 'dashboards' })
         })
     })
 
     describe('tracking', () => {
-        it('captures click with target details', async () => {
+        it('captures click with the product key', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
             mountLogic()
             setFlagVariant('intent')
@@ -173,11 +162,7 @@ describe('promotedProductLogic', () => {
 
             expect(mockedPosthog.capture).toHaveBeenCalledWith(
                 'promoted product clicked',
-                expect.objectContaining({
-                    variant: 'intent',
-                    kind: 'product',
-                    product_key: 'session_replay',
-                })
+                expect.objectContaining({ variant: 'intent', product_key: 'session_replay' })
             )
         })
 
@@ -190,7 +175,7 @@ describe('promotedProductLogic', () => {
             expect(mockedPosthog.capture).not.toHaveBeenCalledWith('promoted product clicked', expect.anything())
         })
 
-        it('captures config opened with current target context', async () => {
+        it('captures config opened with the current product', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
             mountLogic()
             setFlagVariant('intent_plus')
@@ -199,11 +184,7 @@ describe('promotedProductLogic', () => {
 
             expect(mockedPosthog.capture).toHaveBeenCalledWith(
                 'promoted product config opened',
-                expect.objectContaining({
-                    variant: 'intent_plus',
-                    current_target_kind: 'product',
-                    current_target_value: 'session_replay',
-                })
+                expect.objectContaining({ variant: 'intent_plus', current_product: 'session_replay' })
             )
         })
 
@@ -212,36 +193,27 @@ describe('promotedProductLogic', () => {
             mountLogic()
             setFlagVariant('intent_plus')
 
-            logic.actions.setOverride({ kind: 'url', value: '/my-page' })
+            logic.actions.setOverride('web_analytics')
 
-            expect(window.localStorage.getItem(OVERRIDE_KEY)).toBe(JSON.stringify({ kind: 'url', value: '/my-page' }))
+            expect(window.localStorage.getItem(OVERRIDE_KEY)).toBe('web_analytics')
             expect(mockedPosthog.capture).toHaveBeenCalledWith(
                 'promoted product config changed',
-                expect.objectContaining({
-                    variant: 'intent_plus',
-                    from: 'session_replay',
-                    to: '/my-page',
-                    kind: 'url',
-                })
+                expect.objectContaining({ variant: 'intent_plus', from: 'session_replay', to: 'web_analytics' })
             )
 
-            await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'url', value: '/my-page' },
-            })
+            await expectLogic(logic).toMatchValues({ effectiveProductKey: 'web_analytics' })
         })
 
         it('clearOverride removes localStorage entry and reverts to intent', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
-            window.localStorage.setItem(OVERRIDE_KEY, JSON.stringify({ kind: 'url', value: '/x' }))
+            window.localStorage.setItem(OVERRIDE_KEY, 'web_analytics')
             mountLogic()
             setFlagVariant('intent_plus')
 
             logic.actions.clearOverride()
 
             expect(window.localStorage.getItem(OVERRIDE_KEY)).toBeNull()
-            await expectLogic(logic).toMatchValues({
-                effectiveTarget: { kind: 'product', value: 'session_replay' },
-            })
+            await expectLogic(logic).toMatchValues({ effectiveProductKey: 'session_replay' })
         })
     })
 
@@ -258,29 +230,18 @@ describe('promotedProductLogic', () => {
             await expectLogic(logic).toMatchValues({ isConfigureModalOpen: false })
         })
 
-        it('seeds pending fields from effectiveTarget every time the modal opens', async () => {
+        it('seeds the pending product from effectiveProductKey every time the modal opens', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
             mountLogic()
             setFlagVariant('intent_plus')
 
-            // First open: should reflect current product (session_replay), not the
-            // initial reducer defaults that fired before afterMount finished.
             logic.actions.showConfigureModal()
-            await expectLogic(logic).toMatchValues({
-                pendingKind: 'product',
-                pendingProduct: 'session_replay',
-                pendingUrl: '',
-            })
+            await expectLogic(logic).toMatchValues({ pendingProduct: 'session_replay' })
 
-            // Override changes effectiveTarget — reopening should reflect the new state.
-            logic.actions.setOverride({ kind: 'url', value: '/dashboards' })
+            logic.actions.setOverride('web_analytics')
             logic.actions.hideConfigureModal()
             logic.actions.showConfigureModal()
-            await expectLogic(logic).toMatchValues({
-                pendingKind: 'url',
-                pendingProduct: 'product_analytics',
-                pendingUrl: '/dashboards',
-            })
+            await expectLogic(logic).toMatchValues({ pendingProduct: 'web_analytics' })
         })
     })
 
@@ -298,9 +259,9 @@ describe('promotedProductLogic', () => {
         it('writes the override under the current-team key, not a global one', () => {
             mountLogic()
             setFlagVariant('intent_plus')
-            logic.actions.setOverride({ kind: 'url', value: '/x' })
+            logic.actions.setOverride('web_analytics')
 
-            expect(window.localStorage.getItem(OVERRIDE_KEY)).toBe(JSON.stringify({ kind: 'url', value: '/x' }))
+            expect(window.localStorage.getItem(OVERRIDE_KEY)).toBe('web_analytics')
             // The legacy global key should not be touched.
             expect(window.localStorage.getItem('posthog-promoted-product-override')).toBeNull()
         })

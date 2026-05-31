@@ -1,45 +1,40 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDashboard, IconExternal } from '@posthog/icons'
+import { IconDashboard } from '@posthog/icons'
 
 import { getProductIcon } from 'scenes/onboarding/utils'
-import { urls } from 'scenes/urls'
 
 import { NavLink } from './NavLink'
-import { labelForPromotedProductKey, promotedProductLogic, promotedProductTargetToUrl } from './promotedProductLogic'
+import {
+    FALLBACK_PRODUCT_KEY,
+    labelForPromotedProductKey,
+    promotedProductLogic,
+    urlForPromotedProductKey,
+} from './promotedProductLogic'
 
 interface PromotedProductNavItemProps {
     isCollapsed: boolean
 }
 
 export function PromotedProductNavItem({ isCollapsed }: PromotedProductNavItemProps): JSX.Element | null {
-    const { shouldRenderEntry, shouldRenderCog, effectiveTarget } = useValues(promotedProductLogic)
+    const { shouldRenderEntry, shouldRenderCog, effectiveProductKey } = useValues(promotedProductLogic)
     const { trackPromotedProductClick, showConfigureModal } = useActions(promotedProductLogic)
 
-    if (!shouldRenderEntry || !effectiveTarget) {
+    if (!shouldRenderEntry || !effectiveProductKey) {
         return null
     }
 
-    const to = promotedProductTargetToUrl(effectiveTarget) ?? '#'
-
-    const label =
-        effectiveTarget.kind === 'product'
-            ? labelForPromotedProductKey(effectiveTarget.value)
-            : (effectiveTarget.label ?? effectiveTarget.value)
-
     const icon =
-        effectiveTarget.kind === 'product' ? (
-            getProductIcon(null, { productType: effectiveTarget.value })
-        ) : effectiveTarget.value === urls.dashboards() ? (
+        effectiveProductKey === FALLBACK_PRODUCT_KEY ? (
             <IconDashboard />
         ) : (
-            <IconExternal />
+            getProductIcon(null, { productType: effectiveProductKey })
         )
 
     return (
         <NavLink
-            to={to}
-            label={label}
+            to={urlForPromotedProductKey(effectiveProductKey) ?? '#'}
+            label={labelForPromotedProductKey(effectiveProductKey)}
             icon={icon}
             isCollapsed={isCollapsed}
             data-attr="nav-item-promoted-product"

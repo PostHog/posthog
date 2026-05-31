@@ -4,34 +4,13 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { urls } from 'scenes/urls'
 
 import type { promotedProductLogicType } from './promotedProductLogicType'
 
 export type PromotedProductVariant = 'control' | 'control_b' | 'intent' | 'intent_plus'
 
-export type PromotedProductTargetKind = 'product' | 'url'
-
-export interface PromotedProductTarget {
-    kind: PromotedProductTargetKind
-    /** product key when kind === 'product', URL when kind === 'url'. */
-    value: string
-    /** Optional display label; URL targets fall back to `value` when unset. */
-    label?: string
-}
-
-/**
- * Shown when an entry-showing variant resolves no onboarding product or override.
- * Keeps the slot useful (a link to dashboards) instead of hiding it — and, on
- * `intent_plus`, keeps the configure cog reachable so the user can still set a target.
- *
- * Built lazily (not as a module-level const) because `urls.dashboards()` pulls in the
- * product registry — calling it at module-eval time risks an undefined `urls` under a
- * circular import, which would crash this nav logic on load.
- */
-export function dashboardsFallbackTarget(): PromotedProductTarget {
-    return { kind: 'url', value: urls.dashboards(), label: 'Dashboards' }
-}
+/** Product the slot falls back to when an entry-showing variant resolves no onboarding product or override. */
+export const FALLBACK_PRODUCT_KEY = 'dashboards'
 
 /** True for variants that should render the promoted-product sidebar entry. */
 export function variantShowsEntry(variant: PromotedProductVariant | null): boolean {
@@ -74,6 +53,7 @@ interface PromotedProductInfo {
 }
 
 const PRODUCT_REGISTRY: Record<string, PromotedProductInfo> = {
+    dashboards: { url: '/dashboard', label: 'Dashboards' },
     product_analytics: { url: '/insights', label: 'Product analytics' },
     web_analytics: { url: '/web', label: 'Web analytics' },
     session_replay: { url: '/replay', label: 'Session replay' },
@@ -96,8 +76,20 @@ export const PRODUCT_KEY_LABELS: Record<string, string> = Object.fromEntries(
     Object.entries(PRODUCT_REGISTRY).map(([key, { label }]) => [key, label])
 )
 
+/** Selectable product keys for the configure modal, in registry order. */
+export const PROMOTED_PRODUCT_KEYS: string[] = Object.keys(PRODUCT_REGISTRY)
+
 export function labelForPromotedProductKey(productKey: string): string {
     return PRODUCT_KEY_LABELS[productKey] ?? productKey
+}
+
+export function urlForPromotedProductKey(productKey: string): string | null {
+    return PRODUCT_KEY_TO_URL[productKey] ?? null
+}
+
+/** Returns the product key when it names a known promoted product, otherwise null. */
+export function resolveProductKey(productKey: string | null | undefined): string | null {
+    return productKey && productKey in PRODUCT_KEY_TO_URL ? productKey : null
 }
 
 function readLocalStorageString(key: string): string | null {
@@ -116,48 +108,12 @@ function readPromotedProductFromStorage(): string | null {
     return readLocalStorageString(localStorageProductKey(teamId))
 }
 
-/**
- * A `url` override may only point at an internal app path: it must start with a single
- * `/` (not `//` or `/\`, which browsers can treat as protocol-relative external links).
- * This blocks external URLs and `javascript:` / `data:` schemes from reaching the nav anchor.
- */
-export function isInternalPath(value: string): boolean {
-    return /^\/(?![/\\])/.test(value)
-}
-
-function readPromotedProductOverrideFromStorage(): PromotedProductTarget | null {
+function readPromotedProductOverrideFromStorage(): string | null {
     const teamId = currentTeamId()
     if (teamId === null) {
         return null
     }
-    const raw = readLocalStorageString(localStorageOverrideKey(teamId))
-    if (!raw) {
-        return null
-    }
-    try {
-        const parsed = JSON.parse(raw) as PromotedProductTarget
-        if (parsed && typeof parsed.value === 'string') {
-            if (parsed.kind === 'product') {
-                return parsed
-            }
-            if (parsed.kind === 'url' && isInternalPath(parsed.value)) {
-                return parsed
-            }
-        }
-    } catch {
-        // fall through
-    }
-    return null
-}
-
-function resolveProductTarget(productKey: string | null | undefined): PromotedProductTarget | null {
-    if (!productKey) {
-        return null
-    }
-    if (!(productKey in PRODUCT_KEY_TO_URL)) {
-        return null
-    }
-    return { kind: 'product', value: productKey }
+    return resolveProductKey(readLocalStorageString(localStorageOverrideKey(teamId)))
 }
 
 export const promotedProductLogic = kea<promotedProductLogicType>([
@@ -168,16 +124,14 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
     })),
 
     actions({
-        setOverride: (override: PromotedProductTarget) => ({ override }),
+        setOverride: (productKey: string) => ({ productKey }),
         clearOverride: true,
         showConfigureModal: true,
         hideConfigureModal: true,
         trackPromotedProductClick: true,
         refreshIntentFromStorage: true,
         refreshOverrideFromStorage: true,
-        setPendingKind: (kind: PromotedProductTargetKind) => ({ kind }),
         setPendingProduct: (productKey: string) => ({ productKey }),
-        setPendingUrl: (url: string) => ({ url }),
     }),
 
     reducers({
@@ -196,34 +150,21 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
             },
         ],
         override: [
-            null as PromotedProductTarget | null,
+            null as string | null,
             {
-                setOverride: (_, { override }) => override,
+                setOverride: (_, { productKey }) => productKey,
                 clearOverride: () => null,
                 refreshOverrideFromStorage: () => readPromotedProductOverrideFromStorage(),
             },
         ],
-        // Pending state for the configure modal. We can't initialise from
-        // `effectiveTarget` here (reducer can't read selectors), so a listener
-        // on `showConfigureModal` resets these from the current target every
-        // time the modal opens — preventing stale state in the always-mounted
-        // modal in `GlobalModals`.
-        pendingKind: [
-            'product' as PromotedProductTargetKind,
-            {
-                setPendingKind: (_, { kind }) => kind,
-            },
-        ],
+        // Pending product for the configure modal. We can't initialise it from
+        // `effectiveProductKey` here (reducer can't read selectors), so a listener on
+        // `showConfigureModal` reseeds it from the current product every time the modal
+        // opens — preventing stale state in the always-mounted modal in `GlobalModals`.
         pendingProduct: [
-            'product_analytics',
+            FALLBACK_PRODUCT_KEY,
             {
                 setPendingProduct: (_, { productKey }) => productKey,
-            },
-        ],
-        pendingUrl: [
-            '',
-            {
-                setPendingUrl: (_, { url }) => url,
             },
         ],
     }),
@@ -239,31 +180,37 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
                 return null
             },
         ],
-        effectiveTarget: [
+        effectiveProductKey: [
             (s) => [s.variant, s.promotedProductIntent, s.override],
-            (variant, intent, override): PromotedProductTarget | null => {
+            (variant, intent, override): string | null => {
                 if (!variantShowsEntry(variant)) {
                     return null
                 }
                 if (variantAllowsOverride(variant) && override) {
                     return override
                 }
-                return resolveProductTarget(intent) ?? dashboardsFallbackTarget()
+                return resolveProductKey(intent) ?? FALLBACK_PRODUCT_KEY
             },
         ],
         shouldRenderEntry: [
-            (s) => [s.variant, s.effectiveTarget],
-            (variant, target): boolean => variantShowsEntry(variant) && target !== null,
+            (s) => [s.variant, s.effectiveProductKey],
+            (variant, productKey): boolean => variantShowsEntry(variant) && productKey !== null,
         ],
         shouldRenderCog: [(s) => [s.variant], (variant): boolean => variantAllowsOverride(variant)],
+        // The product the slot shows with no override — onboarding intent, else the fallback.
+        // Drives the "Reset to default (…)" label so the user sees what reset reverts to.
+        defaultProductKey: [
+            (s) => [s.promotedProductIntent],
+            (intent): string => resolveProductKey(intent) ?? FALLBACK_PRODUCT_KEY,
+        ],
     }),
 
     listeners(({ actions, values }) => ({
-        setOverride: ({ override }) => {
+        setOverride: ({ productKey }) => {
             const teamId = currentTeamId()
             if (teamId !== null) {
                 try {
-                    window.localStorage.setItem(localStorageOverrideKey(teamId), JSON.stringify(override))
+                    window.localStorage.setItem(localStorageOverrideKey(teamId), productKey)
                 } catch {
                     // ignore — override is best-effort persistence in localStorage
                 }
@@ -271,8 +218,7 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
             posthog.capture('promoted product config changed', {
                 variant: values.variant,
                 from: values.promotedProductIntent,
-                to: override.value,
-                kind: override.kind,
+                to: productKey,
             })
         },
         clearOverride: () => {
@@ -288,33 +234,27 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
                 variant: values.variant,
                 from: values.promotedProductIntent,
                 to: null,
-                kind: null,
             })
         },
         showConfigureModal: () => {
-            // Seed the pending fields from the current effectiveTarget so the
-            // modal always opens reflecting the user's current promoted product,
-            // even after Reset-to-default or a fresh page load.
-            const target = values.effectiveTarget
-            actions.setPendingKind(target?.kind ?? 'product')
-            actions.setPendingProduct(target?.kind === 'product' ? target.value : 'product_analytics')
-            actions.setPendingUrl(target?.kind === 'url' ? target.value : '')
+            // Seed the pending product from the current effectiveProductKey so the modal
+            // always opens reflecting the user's current promoted product, even after
+            // Reset-to-default or a fresh page load.
+            const productKey = values.effectiveProductKey ?? FALLBACK_PRODUCT_KEY
+            actions.setPendingProduct(productKey)
             posthog.capture('promoted product config opened', {
                 variant: values.variant,
-                current_target_kind: target?.kind ?? null,
-                current_target_value: target?.value ?? null,
+                current_product: productKey,
             })
         },
         trackPromotedProductClick: () => {
-            const target = values.effectiveTarget
-            if (!target) {
+            const productKey = values.effectiveProductKey
+            if (!productKey) {
                 return
             }
             posthog.capture('promoted product clicked', {
                 variant: values.variant,
-                kind: target.kind,
-                product_key: target.kind === 'product' ? target.value : null,
-                value: target.value,
+                product_key: productKey,
             })
         },
     })),
@@ -324,10 +264,3 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
         actions.refreshOverrideFromStorage()
     }),
 ])
-
-export function promotedProductTargetToUrl(target: PromotedProductTarget): string | null {
-    if (target.kind === 'product') {
-        return PRODUCT_KEY_TO_URL[target.value] ?? null
-    }
-    return target.value
-}
